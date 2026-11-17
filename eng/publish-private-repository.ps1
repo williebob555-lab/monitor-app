@@ -27,6 +27,31 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-NativeProbe {
+    param(
+        [Parameter(Mandatory)]
+        [scriptblock] $Action
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5 promotes native stderr to a terminating
+        # NativeCommandError when the script-wide preference is Stop. These
+        # probes expect a nonzero exit code when an item does not exist.
+        $ErrorActionPreference = 'Continue'
+        $output = & $Action 2>$null
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    [PSCustomObject]@{
+        ExitCode = $exitCode
+        Output = $output
+    }
+}
+
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'Git is required.'
 }
@@ -68,9 +93,13 @@ try {
         throw 'Create at least one local commit before publishing.'
     }
 
-    $origin = & git remote get-url origin 2>$null
-    if ($LASTEXITCODE -eq 0 -or $origin) {
+    $originProbe = Invoke-NativeProbe { git remote get-url origin }
+    $origin = if ($null -eq $originProbe.Output) { '' } else { "$($originProbe.Output)".Trim() }
+    if ($originProbe.ExitCode -eq 0 -or $origin) {
         throw "An origin remote already exists ('$origin'). Refusing to replace it."
+    }
+    if ($originProbe.ExitCode -ne 2) {
+        throw "Unable to inspect the origin remote (git exit code $($originProbe.ExitCode))."
     }
     $global:LASTEXITCODE = 0
 
@@ -85,8 +114,16 @@ try {
     }
 
     $repository = "$Owner/$RepositoryName"
-    $existingVisibility = & gh repo view $repository --json visibility --jq .visibility 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $repositoryProbe = Invoke-NativeProbe {
+        gh repo view $repository --json visibility --jq .visibility
+    }
+    $existingVisibility = if ($null -eq $repositoryProbe.Output) {
+        ''
+    }
+    else {
+        "$($repositoryProbe.Output)".Trim()
+    }
+    if ($repositoryProbe.ExitCode -eq 0) {
         throw "GitHub repository '$repository' already exists with visibility '$existingVisibility'. Refusing to overwrite it."
     }
     $global:LASTEXITCODE = 0

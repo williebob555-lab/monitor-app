@@ -54,6 +54,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Fixed
 
+- Made the private-repository publishing helper tolerate expected missing-remote and missing-repository probes under Windows PowerShell 5 without weakening creation or visibility checks.
 - Preserved last-contact evidence for unknown and unavailable metric observations so an expired device contact now produces Offline instead of masking disconnection behind metric quality.
 - Added configurable future-clock-skew tolerance to freshness evaluation; accepted skew is clamped to zero age and excessive skew identifies the invalid timestamp field.
 - Added regression coverage for offline precedence, UTC enforcement, NaN and infinity rejection, and future-skew boundaries while retaining valid numeric zero behavior.
