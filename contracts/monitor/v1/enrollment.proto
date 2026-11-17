@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package monitor.v1;
+
+option csharp_namespace = "MonitorApp.Contracts.V1";
+
+import "google/protobuf/timestamp.proto";
+import "monitor/v1/common.proto";
+
+service EnrollmentService {
+  rpc Create(CreateEnrollmentRequest) returns (CreateEnrollmentResponse);
+  rpc GetStatus(EnrollmentStatusRequest) returns (EnrollmentStatusResponse);
+  rpc Cancel(CancelEnrollmentRequest) returns (CancelEnrollmentResponse);
+  rpc Complete(CompleteEnrollmentRequest) returns (CompleteEnrollmentResponse);
+  rpc CreateDeviceChallenge(CreateDeviceChallengeRequest) returns (CreateDeviceChallengeResponse);
+  rpc VerifyDeviceProof(VerifyDeviceProofRequest) returns (VerifyDeviceProofResponse);
+}
+
+enum SignatureAlgorithm {
+  SIGNATURE_ALGORITHM_UNSPECIFIED = 0;
+  SIGNATURE_ALGORITHM_ECDSA_P256_SHA256 = 1;
+}
+
+enum EnrollmentState {
+  ENROLLMENT_STATE_UNSPECIFIED = 0;
+  ENROLLMENT_STATE_PENDING = 1;
+  ENROLLMENT_STATE_COMPLETED = 2;
+  ENROLLMENT_STATE_EXPIRED = 3;
+  ENROLLMENT_STATE_CANCELLED = 4;
+}
+
+message CreateEnrollmentRequest {
+  ProtocolVersion protocol_version = 1;
+  Platform platform = 2;
+  string display_name = 3;
+}
+
+message CreateEnrollmentResponse {
+  string enrollment_id = 1;
+  bytes enrollment_secret = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  bytes proof_challenge = 4;
+  google.protobuf.Timestamp created_at = 5;
+  SignatureAlgorithm signature_algorithm = 6;
+}
+
+message CompleteEnrollmentRequest {
+  ProtocolVersion protocol_version = 1;
+  string enrollment_id = 2;
+  bytes enrollment_secret = 3;
+  Platform platform = 4;
+  string display_name = 5;
+  bytes public_key_spki = 6;
+  SignatureAlgorithm signature_algorithm = 7;
+  // A fixed-width 64-byte IEEE P1363 signature (r || s) for v1.
+  bytes proof_signature = 8;
+}
+
+message CompleteEnrollmentResponse {
+  string agent_id = 1;
+  reserved 2;
+  reserved "agent_credential";
+  string node_id = 3;
+  bytes public_key_sha256 = 4;
+  google.protobuf.Timestamp completed_at = 5;
+}
+
+message EnrollmentStatusRequest {
+  string enrollment_id = 1;
+}
+
+message EnrollmentStatusResponse {
+  string enrollment_id = 1;
+  EnrollmentState state = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  string agent_id = 4;
+  string node_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CancelEnrollmentRequest {
+  string enrollment_id = 1;
+}
+
+message CancelEnrollmentResponse {
+  string enrollment_id = 1;
+  EnrollmentState state = 2;
+  google.protobuf.Timestamp cancelled_at = 3;
+}
+
+message CreateDeviceChallengeRequest {
+  ProtocolVersion protocol_version = 1;
+  string agent_id = 2;
+}
+
+message CreateDeviceChallengeResponse {
+  string agent_id = 1;
+  string challenge_id = 2;
+  bytes proof_challenge = 3;
+  SignatureAlgorithm signature_algorithm = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message VerifyDeviceProofRequest {
+  ProtocolVersion protocol_version = 1;
+  string agent_id = 2;
+  string challenge_id = 3;
+  SignatureAlgorithm signature_algorithm = 4;
+  // A fixed-width 64-byte IEEE P1363 signature (r || s) for v1.
+  bytes proof_signature = 5;
+}
+
+message VerifyDeviceProofResponse {
+  string agent_id = 1;
+  string node_id = 2;
+  google.protobuf.Timestamp verified_at = 3;
+}

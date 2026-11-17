@@ -1,0 +1,62 @@
+# Build output
+**/bin/
+**/obj/
+artifacts/
+
+# Test output
+TestResults/
+coverage/
+coverage.*
+*.trx
+
+# IDE and editor state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.local.json
+secrets/
+release-secrets/
+src/MonitorApp.Controller/data/
+
+# Signing credentials and local release material
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.pk8
+*.p8
+*.private.pem
+*.private.key
+*-private.pem
+*-private.key
+monitor-update-private.*
+update-private.*
+key.properties
+keystore.properties
+android-signing.properties
+signing.properties
+
+# Public trust anchors may be committed deliberately under explicit names.
+!*.public.pem
+!*.public.key
+!*.pub
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Package artifacts
+*.nupkg
+*.snupkg
+*.apk
+*.aab

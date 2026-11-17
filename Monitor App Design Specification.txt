@@ -1,0 +1,1660 @@
+MONITOR APP DESIGN SPECIFICATION
+
+Product scope, architecture, platform constraints, and experience direction
+Version 1.0
+16 November 2026
+
+
+DOCUMENT PURPOSE
+
+This document defines the current scope and direction of Monitor App. It consolidates the user requirements, preferences, rejected ideas, assistant proposals, technical recommendations, and unresolved questions established in the design conversation.
+
+The product is intended to be a self-hosted environment for monitoring, understanding, and selectively controlling a collection of personal computers, servers, mobile devices, network relationships, and self-hosted software. It should be useful as a practical diagnostic tool, but it should also be unusually enjoyable to observe and manipulate. The application may contain interaction that is deliberately elaborate or even functionally unnecessary when that interaction makes the system feel alive, tactile, and worth exploring.
+
+The central experience combines two complementary ideas:
+
+1. A living schematic that represents the whole computing environment and the relationships within it.
+2. An exploded architecture that reveals the internal structure of a selected device or service.
+
+These should be different scales of one continuous environment, not competing screens or unrelated visualization modes.
+
+This document uses four status labels:
+
+CONFIRMED USER DIRECTION
+The user explicitly endorsed or required this direction. It should be treated as a product constraint unless the user changes it.
+
+ASSISTANT PROPOSAL
+This is a recommended implementation or design response. It is included to make the project actionable, but it has not been approved merely by appearing here.
+
+OPEN EXPLORATION
+The conversation did not settle the choice. Multiple options should remain visible until prototypes, technical tests, or further user direction justify a decision.
+
+REJECTED OR DEPRIORITIZED
+The user found the direction generic, boring, overwhelming, or otherwise unsuitable. It should not return as the primary concept without a materially different rationale.
+
+
+1. EXECUTIVE SUMMARY
+
+CONFIRMED USER DIRECTION
+
+Monitor App must not become another generic monitoring dashboard. Conventional collections of rectangular cards, interchangeable charts, progressive information-density screens, and infinitely customizable workspaces fail to provide the desired identity.
+
+The living schematic and exploded architecture concepts are both strong and should be treated as complements. The living schematic explains how devices, services, storage, synchronization, and network paths relate across the environment. The exploded architecture reveals what is inside the selected object. Moving between them should feel like traveling through one coherent system.
+
+The product may be pointlessly interactive in a positive sense. It can behave like a technical toy, a game interface, a miniature world, an interactive sculpture, or something interesting to watch without a task. The interface may contain magnetic motion, physical response, animated traffic, elaborate transitions, idle behavior, and other details whose purpose is enjoyment rather than efficiency.
+
+Historical time travel is a valuable feature regardless of the final visual style. The user should be able to select an earlier moment, see the environment as it existed then, replay changes, compare past and present, and investigate how an incident developed.
+
+Data movement is also a feature that should survive changes in visual style. Transfers, synchronization, backups, and network traffic should be represented as relationships and activity within the chosen environment rather than defining the entire visual identity by themselves.
+
+The application should be purpose-built before it is customizable. Device types, integrations, diagnostics, and controls should receive thoughtfully designed interfaces. The user should be able to choose what matters and tune behavior, but should not be required to construct the application from a blank canvas.
+
+The setup objective is download, install, and pair. Monitor App should automatically establish secure connectivity over a self-hosted Headscale network as far as each operating system permits. Users should not need to assemble a VPN manually, expose monitoring ports to the public Internet, or copy a collection of unexplained shell commands.
+
+ASSISTANT PROPOSAL
+
+The working architecture should consist of:
+
+- A self-hosted Monitor App controller.
+- A self-hosted Headscale coordination server.
+- A Monitor App agent on monitored computers and servers.
+- Platform-specific collection on Android where mobile restrictions permit it.
+- Desktop and mobile experience clients.
+- An inventory and relationship model.
+- A time-series, event, and snapshot history store.
+- An enrollment service that produces short-lived, one-time pairing credentials.
+- Purpose-built integration adapters, beginning with the most valuable systems such as Syncthing.
+
+Headscale should coordinate the private Tailscale-compatible network. It should not become the monitoring database or application backend. Monitor App telemetry, history queries, and authorized actions should use application protocols over the encrypted private network.
+
+The development process should separate technical foundation from visual convergence. Enrollment, telemetry, history, and the underlying object model can advance while several genuinely different visual concepts are prototyped in parallel. This respects the user's instruction to explore broadly before narrowing.
+
+
+2. PRODUCT DEFINITION
+
+Monitor App is a self-hosted application for observing, understanding, and selectively managing a personal computing environment. The environment can contain:
+
+- Desktop and laptop computers.
+- Home servers and small hosted servers.
+- Android phones, tablets, or other supported Android devices.
+- Storage devices and filesystems.
+- Network interfaces, private-network routes, and connectivity paths.
+- Self-hosted applications and background services.
+- Synchronization systems such as Syncthing.
+- Containers or other workload groups when a supported integration exists.
+- Backup systems and replication relationships when a supported integration exists.
+
+The product has two equally legitimate forms of use.
+
+Practical use answers questions quickly:
+
+- Is everything healthy now?
+- Which device or service is unavailable?
+- Is the information current or stale?
+- What changed?
+- What else depends on the failed component?
+- Where is data moving?
+- Why is synchronization slow or incomplete?
+- What happened at a particular time?
+- What safe action can be taken?
+
+Exploratory use allows the user to:
+
+- Watch the environment while it is operating normally.
+- Follow paths and activity without a specific diagnostic objective.
+- Pull devices apart visually.
+- Rotate, open, isolate, or examine components.
+- Trigger harmless visual reactions.
+- Rewind and replay recorded system behavior.
+- Treat the environment as a technical sculpture, toy, or miniature world.
+
+The practical form establishes the reliability and clarity floor. The exploratory form creates the product's identity.
+
+
+3. PRODUCT GOALS
+
+CONFIRMED USER DIRECTION
+
+- Create a distinctive experience rather than a standard dashboard with a visual theme.
+- Combine a whole-environment schematic with detailed exploded views.
+- Permit rich and game-like interaction that does not need a narrow productivity justification.
+- Preserve historical state and make time a navigable dimension.
+- Favor strong, curated, purpose-built interfaces over infinite user composition.
+- Allow selective customization where it improves relevance.
+- Make installation and secure pairing automatic enough to feel like a consumer application.
+- Use self-hosted Headscale rather than depending on a vendor-managed private network.
+- Explore a wide breadth of concepts before choosing one visual direction.
+
+ASSISTANT PROPOSAL
+
+- Make the environment understandable without training or a separate topology manual.
+- Give devices and services stable identities and locations so the user develops spatial memory.
+- Treat freshness, uncertainty, and missing data as visible states.
+- Make failures appear in dependency context rather than as unrelated alerts.
+- Give every important metric an exact textual reading in addition to its visual representation.
+- Provide a fast route and a scenic route to the same information.
+- Default to read-only monitoring and add real controls through a separate permission model.
+- Keep routine operation independent of any vendor-operated monitoring cloud.
+
+
+4. NON GOALS
+
+REJECTED OR DEPRIORITIZED
+
+Monitor App is not intended to be:
+
+- A generic business-intelligence dashboard builder.
+- A blank workspace into which users drag, resize, and configure arbitrary widgets.
+- A collection of interchangeable rectangular cards.
+- An ordinary network topology graph with animated lines added for decoration.
+- A fake physical instrument panel filled with gauges.
+- An infrastructure atlas whose regions are the main visual idea.
+- A simple focus-and-periphery interface presented as the defining concept.
+- A literal simulation of every packet, file, process, or hardware component.
+- A replacement for enterprise-scale observability, packet capture, security-event management, or fleet administration in the initial scope.
+- A game in which playful gestures can accidentally execute real administrative commands.
+- A cloud service that requires the user's monitoring history to leave the self-hosted environment.
+
+The product may borrow useful mechanics from rejected concepts. For example, an inspector can focus on one object, and a network view can use topology. Those mechanics should support the stronger vision rather than become the product's primary identity.
+
+
+5. PRIMARY EXPERIENCE MODEL
+
+5.1 THE LIVING SCHEMATIC
+
+CONFIRMED USER DIRECTION
+
+The living schematic is one of the strongest concepts. It should represent the computing environment as a carefully designed system of objects and meaningful connections.
+
+ASSISTANT PROPOSAL
+
+The schematic should differ from an unconstrained force-directed graph. It should use deliberate layout rules, stable placement, functional regions when useful, and recognizable object identities. The user should be able to learn where things live.
+
+The schematic may contain:
+
+- Devices as recognizable objects rather than identical nodes.
+- Services nested within or visibly associated with their host devices.
+- Storage attached to the devices or services that use it.
+- Typed connections for hosting, dependency, synchronization, routing, backup, or data movement.
+- Direction and broad intensity of active traffic.
+- Availability, freshness, and reliability history.
+- Shared-cause failure grouping.
+- Event markers and historical changes.
+- Visual lenses for connectivity, storage, synchronization, power, or service health.
+
+The positions of objects should not constantly rearrange themselves. Automatic layout may establish or repair a scene, but stable spatial memory is more valuable than a mathematically optimal graph at every moment.
+
+Healthy operation should remain visually alive but calm. An unhealthy object should become noticeable through a controlled combination of position, contrast, motion, connection behavior, and explanation. The entire scene should not turn red because one service has a warning.
+
+5.2 THE EXPLODED ARCHITECTURE
+
+CONFIRMED USER DIRECTION
+
+The exploded architecture complements the living schematic. A selected device or service should reveal its internal layers and constituent parts.
+
+ASSISTANT PROPOSAL
+
+A server may separate into:
+
+- Physical or virtual hardware identity.
+- Processing and memory.
+- Storage devices, filesystems, and capacity.
+- Network interfaces and private-network connectivity.
+- Operating-system state.
+- Processes or workload groups.
+- Hosted services.
+- Service-specific integrations.
+
+A laptop may emphasize:
+
+- Battery and charging behavior.
+- Estimated remaining runtime.
+- Power draw.
+- Thermal condition.
+- Wireless connectivity.
+- Storage.
+- Important applications or background services.
+
+An Android device may emphasize:
+
+- Battery condition.
+- Charging state.
+- Network type.
+- Reachability.
+- Data freshness.
+- VPN or private-network state.
+- Signals available within Android's permission and background-execution limits.
+
+The internal structure should be capability-driven. The backend should not invent components that a platform or agent cannot report.
+
+The exploded transition can be elaborate. Layers may separate magnetically, unfold, rotate, illuminate, or expose internal paths. The structure should remain stable enough that repeated inspection builds familiarity.
+
+5.3 ONE ENVIRONMENT AT THREE SCALES
+
+CONFIRMED USER DIRECTION
+
+The living schematic and exploded architecture should be understood as complements rather than alternatives.
+
+ASSISTANT PROPOSAL
+
+The primary hierarchy should be:
+
+Ecosystem scale
+The user sees devices, major services, dependencies, routes, activity, and incidents across the environment.
+
+Device scale
+The selected computer, server, phone, or logical host opens into hardware, operating-system, storage, network, and hosted-service layers.
+
+Service scale
+The selected service opens into its own specialized model. Syncthing, for example, reveals peers, folders, transfer direction, completion, errors, and recent activity.
+
+Moving between these scales should use semantic zoom. Zooming in reveals structure and changes the type of information shown. It should not merely enlarge the same object and labels.
+
+Selection, historical time, active visual lens, comparison state, and breadcrumbs should survive movement between scales.
+
+
+6. GAME-LIKE AND GRATUITOUS INTERACTION
+
+CONFIRMED USER DIRECTION
+
+The application is allowed to be pointlessly interactive. It may behave almost like a game or something that is simply enjoyable to watch and manipulate.
+
+This does not mean that the application should become unnecessarily complicated. It means the product may be visually and physically elaborate while remaining functionally understandable.
+
+ASSISTANT PROPOSAL
+
+6.1 MAGNETIC COMPONENTS
+
+Objects can react to the pointer or touch. A dragged device can pull its relationships with it. Connections can stretch, bend, vibrate, and settle. Components can snap back into a stable arrangement.
+
+6.2 DISASSEMBLY AND REASSEMBLY
+
+The user can pull apart a device, rotate a layer, temporarily isolate a service, or inspect a network subsystem as a physical object. Releasing an object may cause it to reassemble smoothly.
+
+This manipulation is inspection only. Pulling a service out of a visual model must never stop the service.
+
+6.3 REACTIVE INFORMATION
+
+Connections can pulse when real activity occurs. Storage can visibly fill. A synchronization event can move through the devices involved. A reconnect can trigger a designed startup sequence.
+
+These animations should represent real direction, timing, and broad intensity. They should not pretend to show individual packets or files unless the underlying integration actually provides that detail.
+
+6.4 CINEMATIC CAMERA MOVEMENT
+
+Selecting an object can move the camera toward it, orbit it, enter it, or follow one of its connections. Investigating a remote service can become a visual journey through its host and network path.
+
+The user must be able to bypass cinematic travel through search, keyboard navigation, a reduced-motion setting, or an immediate-open command.
+
+6.5 AMBIENT PERSONALITY
+
+The environment can contain idle motion, small visual reactions, transitions, and details that communicate no essential information. This is acceptable when those details remain quieter than operational activity and do not obscure status.
+
+6.6 INTERACTIVE WORLD MODELS
+
+OPEN EXPLORATION
+
+Several levels of game-like presentation remain possible:
+
+Interactive technical sculpture
+The system resembles a precise mechanical or electronic object in a museum. The pleasure comes from unfolding, rotating, illuminating, and examining it.
+
+Miniature computing world
+Devices and services become structures, buildings, rooms, machines, roads, or transportation systems. The pleasure comes from watching a small world driven by real systems.
+
+Science-fiction operating environment
+The interface uses layered depth, dimensional navigation, elaborate controls, and cinematic presentation. The pleasure comes from operating something that feels technically advanced.
+
+Digital organism
+Devices, services, and connections behave like organs, tissues, nerves, or vessels. The pleasure comes from watching an environment that appears alive and changes organically with system behavior.
+
+Precision schematic
+The environment remains explicitly diagrammatic and engineering-oriented, but receives enough movement, depth, and physical response to become an interactive artifact rather than a static graph.
+
+Architectural cutaway
+Devices behave like spaces or constructed objects whose internal systems are exposed as walls, layers, and subsystems separate.
+
+No single visual world has been selected. They should be explored in parallel rather than serially producing minor variations on one dashboard.
+
+6.7 SAFE PLAY
+
+ASSISTANT PROPOSAL
+
+- Harmless manipulation must remain separate from real controls.
+- No real action should begin from a decorative gesture.
+- Operational controls should be labeled and visually distinct.
+- Material actions should preview their exact target and likely effect.
+- Historical playback must never replay commands against live devices.
+- A global reduced-motion mode should disable nonessential movement.
+- No essential fact should depend only on color, motion, or sound.
+- Dense environments should aggregate activity rather than create hundreds of simultaneous effects.
+
+
+7. HISTORICAL TIME TRAVEL
+
+CONFIRMED USER DIRECTION
+
+Historical time travel is a strong feature independent of the final visual implementation.
+
+The user should be able to revisit a previous state of the whole environment rather than opening a disconnected metrics page.
+
+ASSISTANT PROPOSAL
+
+7.1 CORE CAPABILITIES
+
+- A global time scrubber.
+- A persistent and obvious return-to-now control.
+- Event markers for disconnects, restarts, alerts, transfers, configuration changes, and user actions.
+- Playback of recorded system changes through the living environment.
+- Selection of a specific date and time.
+- Then-versus-now comparison.
+- Comparison between two historical moments.
+- Per-object history that respects the globally selected time.
+- A detailed multitrack timeline when deeper investigation is needed.
+- Incident bookmarks that preserve a useful surrounding time range.
+
+7.2 CONSISTENT HISTORICAL STATE
+
+When historical time is active, visible devices, components, relationships, metrics, alerts, and events should resolve to the same logical instant whenever recorded data exists.
+
+The application should distinguish:
+
+- A recorded value.
+- A rolled-up value.
+- A derived value.
+- An interpolated display value.
+- Missing data.
+- Data that had not yet arrived at the selected time.
+
+Discrete states such as online status, action results, and service restarts should not be interpolated.
+
+7.3 STORAGE MODEL
+
+ASSISTANT PROPOSAL
+
+Use three complementary forms of history:
+
+Metric samples
+Timestamped values such as CPU usage, battery level, throughput, storage activity, and latency.
+
+Events
+Discrete occurrences such as connect, disconnect, restart, warning, action, configuration change, or completed transfer.
+
+Snapshots
+Periodic compact representations of the environment's state. Historical reconstruction can begin at the nearest snapshot and apply later events and metrics.
+
+This hybrid approach should make seeking fast without storing a complete copy of the environment every second.
+
+7.4 RETENTION
+
+OPEN EXPLORATION
+
+Exact sampling and retention periods are unresolved. A likely design is:
+
+- Recent high-resolution metrics.
+- Lower-resolution rollups for longer periods.
+- Longer retention for sparse events and action records.
+- User-pinned incidents protected from ordinary deletion.
+- A visible storage budget and retention policy.
+
+Retention defaults should be based on realistic telemetry-volume tests and the expected capacity of the self-hosted controller.
+
+
+8. PURPOSE-BUILT INFORMATION DESIGN
+
+CONFIRMED USER DIRECTION
+
+The application should be opinionated about how information is presented and flexible about which information matters to the user.
+
+Battery health, synchronization, network paths, storage, and service health should not all become interchangeable cards. Each subject deserves a presentation designed around its own questions and relationships.
+
+ASSISTANT PROPOSAL
+
+8.1 GLOBAL EXPERIENCE AREAS
+
+Environment
+The living schematic and ambient home view.
+
+Inspector
+A purpose-built detailed view for the current device, component, service, or relationship. It expands from the selected object and retains parent context.
+
+History
+Global time control, replay, event alignment, and comparison. History changes the temporal state of the same environment rather than becoming a separate product.
+
+Search and command
+Immediate access to devices, services, metrics, settings, and permitted actions. This is the fast path around cinematic navigation.
+
+Setup and administration
+Enrollment, integrations, Headscale configuration, retention, updates, access policy, and backups. This can use a more conventional utility layout because its purpose is configuration rather than the primary monitoring experience.
+
+8.2 SPECIALIZED INSPECTORS
+
+Laptop inspector
+
+- Charge state.
+- Charge and discharge history.
+- Power draw.
+- Estimated runtime with confidence.
+- Battery health where supported.
+- Thermals.
+- Wireless quality.
+- Storage and important services.
+
+Server inspector
+
+- Processing and memory pressure.
+- Storage capacity and activity.
+- Network interfaces.
+- Hosted services and containers where supported.
+- Service dependencies.
+- Backup and replication state.
+- Current incidents.
+
+Android inspector
+
+- Battery and charging.
+- Reachability.
+- Connection type.
+- VPN state.
+- Last successful collection.
+- Signals available within Android permissions.
+- Explicit indication when background restrictions make information stale.
+
+Syncthing inspector
+
+- Devices and peer relationships.
+- Shared folders.
+- Which folders exist on which devices.
+- Transfer direction.
+- Completion.
+- Transfer rate.
+- Bottlenecks.
+- Connection type.
+- Errors and recent synchronization events.
+
+The Syncthing experience should resemble a synchronization fabric across the environment rather than a stack of independent progress bars.
+
+Network-path inspector
+
+- Direct or relayed connection.
+- Endpoint reachability.
+- Current and historical latency.
+- Relevant routes.
+- Interface changes.
+- Path changes and reconnect events.
+
+Storage inspector
+
+- Devices and filesystems.
+- Proportional allocation.
+- Free space.
+- Read and write activity.
+- Replication and backup relationships.
+- Drive health where supported.
+
+
+9. CUSTOMIZATION PHILOSOPHY
+
+CONFIRMED USER DIRECTION
+
+The correct approach is a mix of hard-coded and user-customizable design. Infinite customization is overwhelming and weakens the potential of purpose-built solutions.
+
+The application should already be capable and coherent before the user configures anything.
+
+ASSISTANT PROPOSAL
+
+9.1 CONTENT CUSTOMIZATION
+
+High customization.
+
+The user may choose:
+
+- Which devices and services matter.
+- Which integrations are enabled.
+- Which metrics are prominent.
+- Which events produce alerts.
+- Which objects are pinned or favorited.
+
+9.2 PRESENTATION CUSTOMIZATION
+
+Moderate customization.
+
+The user may choose:
+
+- One of several designed visual variants.
+- Graph ranges.
+- Information density within safe bounds.
+- Which designed summary appears for an object.
+- A limited number of saved viewpoints if spatial navigation benefits from them.
+
+9.3 STRUCTURAL CUSTOMIZATION
+
+Low customization.
+
+The application should own:
+
+- Primary navigation.
+- The relationship between environment, device, and service scales.
+- Inspector structure.
+- Diagnostic organization.
+- Placement of critical status and safety controls.
+
+9.4 BEHAVIOR CUSTOMIZATION
+
+High customization.
+
+The user may configure:
+
+- Alert thresholds.
+- Update frequency.
+- Watch mode.
+- Retention.
+- Notifications.
+- Permitted actions.
+- Automation logic if automation is later supported.
+
+9.5 APPEARANCE CUSTOMIZATION
+
+Moderate customization.
+
+The user may configure:
+
+- Theme.
+- Accent color.
+- Motion level.
+- Reduced-motion behavior.
+- Contrast.
+- Limited environment styling.
+
+9.6 CUSTOMIZATION TO AVOID
+
+REJECTED OR DEPRIORITIZED
+
+- Arbitrary drag-and-resize card layouts.
+- A universal widget system for all data.
+- Per-widget style editors.
+- Dozens of independent appearance controls.
+- Layouts that fail when a metric is missing.
+- Configuration required before basic monitoring becomes useful.
+- User-created rules that can hide critical state or make meanings inconsistent.
+
+
+10. FUNCTIONAL MONITORING SCOPE
+
+ASSISTANT PROPOSAL
+
+10.1 INVENTORY AND IDENTITY
+
+- Stable device identity.
+- User-visible name.
+- Device type and role.
+- Operating system and version.
+- Agent version.
+- Private-network identity.
+- Advertised capabilities.
+- First seen, last seen, and lifecycle state.
+
+10.2 AVAILABILITY AND FRESHNESS
+
+- Current reachability.
+- Last successful contact.
+- Telemetry freshness.
+- Reconnect history.
+- Availability history.
+- Difference between stale, offline, sleeping, and unknown where evidence allows it.
+
+10.3 NETWORK
+
+- Relevant addresses.
+- Interface state.
+- Private-network path.
+- Direct or relayed connection where available.
+- Latency.
+- Broad throughput.
+- Route changes.
+- Connection events.
+
+10.4 COMPUTE
+
+- CPU activity.
+- Memory use and pressure.
+- Thermal information where available.
+- Important processes or workload groups.
+- Workload health where an integration supplies it.
+
+10.5 STORAGE
+
+- Capacity and available space.
+- Filesystems.
+- Read and write activity.
+- Drive health where supported.
+- Replication and backup relationships.
+
+10.6 BATTERY AND POWER
+
+- Charge level.
+- Charging state.
+- Charge or discharge rate.
+- Estimated runtime.
+- Power draw where available.
+- Battery health and cycle information where available.
+- Historical charging behavior.
+
+10.7 SERVICES
+
+- Service state.
+- Health checks.
+- Restart count.
+- Dependencies.
+- Host relationship.
+- Integration-specific metrics.
+
+10.8 SYNCTHING
+
+- Peer connectivity.
+- Folder relationships.
+- Transfer direction.
+- Completion.
+- Current transfer rate.
+- Errors.
+- Out-of-sync state.
+- Recent synchronization history.
+
+10.9 EVENTS ACTIONS AND INCIDENTS
+
+- Alerts.
+- Disconnects and reconnects.
+- Restarts.
+- Configuration changes.
+- Enrollment and revocation.
+- User acknowledgements.
+- Authorized actions and their results.
+- Incident grouping based on known dependencies or correlated events.
+
+10.10 COLLECTION RULES
+
+- Agents should advertise capabilities rather than pretending that every platform has the same metrics.
+- Every collected value should have a timestamp, source, unit, and quality state.
+- Watch mode may temporarily increase collection frequency for an active investigation.
+- Collection should use supported APIs when one exists.
+- Sensitive collection should be disabled by default unless necessary for a selected feature.
+- Actions and read-only telemetry should use separate permissions.
+
+
+11. DOWNLOAD INSTALL PAIR SETUP
+
+CONFIRMED USER DIRECTION
+
+The desired setup is download, install, and pair over self-hosted Headscale.
+
+The user should not be expected to understand Headscale commands, manually configure every network client, or expose agent ports publicly.
+
+ASSISTANT PROPOSAL
+
+11.1 USER FLOW
+
+1. The user chooses Add Device in Monitor App.
+2. The user selects the device platform and intended role.
+3. The controller creates a short-lived enrollment record.
+4. Monitor App presents a signed download, QR code, or compact pairing code.
+5. The installer verifies its signature and installs the Monitor App agent.
+6. The installer detects whether a supported Tailscale client is already installed.
+7. The setup process installs, configures, or guides installation of the network client as platform rules allow.
+8. The device receives the self-hosted Headscale server address from the enrollment record.
+9. The device joins through a short-lived, single-use pre-authentication key or an appropriate guided login.
+10. The Monitor App agent proves its application identity and expected network identity.
+11. The agent reports its platform and capabilities.
+12. The controller verifies private reachability, clock health, telemetry flow, and version compatibility.
+13. The new device appears in the environment with the correct purpose-built model.
+
+11.2 PAIRING CREDENTIALS
+
+The enrollment service should generate credentials just in time.
+
+Credentials should be:
+
+- Short lived.
+- Single use.
+- Bound to an intended enrollment where possible.
+- Stored server-side as a salted hash when Monitor App controls the token.
+- Removed from installer logs and diagnostic output.
+- Revoked when the pairing window expires or the user cancels.
+
+Current Headscale documentation supports interactive registration and pre-authenticated keys. Pre-authenticated keys are suited to automation. The product should use a tested Headscale version and isolate Headscale-specific behavior behind an internal adapter.
+
+11.3 HEADSCALE RESPONSIBILITIES
+
+Headscale should provide:
+
+- Node registration.
+- Private-network coordination.
+- Network identity.
+- Naming and policy where used.
+- Route and relay coordination supported by the selected deployment.
+
+Headscale should not provide:
+
+- Metric storage.
+- Event history.
+- Application authentication by itself.
+- Monitor App action authorization.
+- UI state.
+- Product-specific topology interpretation.
+
+11.4 BOOTSTRAP REQUIREMENTS
+
+- The Headscale service needs a stable HTTPS address for remote enrollment.
+- The initial server setup should verify DNS, TLS, time, and reachability.
+- A local-only advanced path may exist, but the product must explain its remote-connectivity limits.
+- Backup and recovery must preserve the identity and configuration required to restore the private network.
+- Unpairing should revoke Monitor App credentials and, when authorized, remove or expire the Headscale node.
+- Setup failure should identify whether installation, Headscale registration, network reachability, application authentication, or telemetry validation failed.
+- A failed setup should offer retry, diagnostic export, and rollback.
+
+11.5 PLATFORM-SPECIFIC LIMITS
+
+OPEN EXPLORATION
+
+The project must determine whether it can redistribute the official Tailscale client, invoke an existing installation, use a platform package manager, or direct the user to an app store. Licensing, signing, update, and store constraints must be checked before promising a single combined installer.
+
+The safest architectural assumption is that the Monitor App agent and the private-network client are separate components presented through one orchestrated setup experience.
+
+
+12. PROPOSED SYSTEM ARCHITECTURE
+
+ASSISTANT PROPOSAL
+
+12.1 EXPERIENCE CLIENT
+
+Responsibilities:
+
+- Render the living environment.
+- Render exploded device and service views.
+- Present exact diagnostics.
+- Provide historical time travel.
+- Manage setup and administration.
+- Request authorized actions.
+
+Constraints:
+
+- It should not receive direct database access.
+- It should not hold long-lived agent credentials.
+- It should work with streamed live updates and bounded historical queries.
+
+12.2 APPLICATION API
+
+Responsibilities:
+
+- Authenticate experience clients.
+- Serve inventory, relationships, current state, and history.
+- Stream live changes.
+- Coordinate search.
+- Broker authorized actions.
+- Expose setup and administration operations.
+
+12.3 ENROLLMENT SERVICE
+
+Responsibilities:
+
+- Create pairing transactions.
+- Generate short-lived enrollment material.
+- Coordinate Headscale registration.
+- Bind application and network identity.
+- Validate completion.
+- Revoke or expire unused enrollment.
+- Record a security audit.
+
+12.4 TELEMETRY INGEST
+
+Responsibilities:
+
+- Authenticate the agent.
+- Validate message schemas.
+- Validate timestamps and sequence numbers.
+- Normalize units.
+- Apply backpressure.
+- Store samples and events.
+- Reject unauthorized device identities.
+
+12.5 TOPOLOGY AND STATE ENGINE
+
+Responsibilities:
+
+- Maintain devices, components, and typed relationships.
+- Convert raw signals into current state.
+- Group related alerts into incidents.
+- Reconstruct historical state.
+- Supply projections suitable for different visual lenses.
+
+The visual scene should be a projection of this model. It should not be the source of truth.
+
+12.6 ACTION BROKER
+
+Responsibilities:
+
+- Check the actor's permission.
+- Check the agent's declared capability.
+- Produce a scope preview.
+- Create an idempotency key.
+- Set an expiration time.
+- Dispatch the request.
+- Record acknowledgement and result.
+- Verify resulting state where possible.
+
+12.7 MONITOR APP AGENT
+
+Responsibilities:
+
+- Maintain an outbound application connection where practical.
+- Collect supported local signals.
+- Run integration adapters.
+- Buffer a bounded amount of telemetry while disconnected.
+- Preserve original timestamps during later upload.
+- Execute only explicitly authorized actions.
+- Advertise its platform, version, and capabilities.
+
+The agent should use least privilege. An integration that requires elevated access should not force the whole agent to run permanently with the highest system privileges if privilege can be isolated.
+
+12.8 INTEGRATION ADAPTERS
+
+Adapters should:
+
+- Use supported service APIs.
+- Translate service-specific data into the shared object model.
+- Preserve service-specific detail for the specialized inspector.
+- Declare required secrets and permissions.
+- Fail independently when possible.
+- Report their own freshness and health.
+
+12.9 HISTORY STORE
+
+The history store should persist:
+
+- Inventory and configuration.
+- Relationships and their validity periods.
+- Metric series.
+- Events.
+- State snapshots.
+- Incidents.
+- Actions and audit records.
+- Enrollment records.
+
+12.10 HEADSCALE
+
+Headscale coordinates the private network. Monitor App traffic should travel through application protocols over that private network. Application-layer TLS should remain enabled even inside the encrypted overlay so services retain their own identity and defense in depth.
+
+12.11 COMMUNICATION MODEL
+
+- Agents should prefer outbound sessions so devices do not expose public monitoring ports.
+- Live state should use a resumable stream with sequence numbers.
+- Historical access should use bounded queries.
+- Agents should buffer only a configured amount of offline data.
+- Commands should include a target, authorization context, expiration, and idempotency key.
+- Every component should report version and schema compatibility.
+- A network path changing between direct and relayed should not appear as a device failure when the application session remains healthy.
+
+12.12 DEPLOYMENT MODEL
+
+OPEN EXPLORATION
+
+The initial controller could be delivered as:
+
+- A supported appliance image.
+- A Docker Compose deployment.
+- Native Linux services.
+- A limited combination of the above.
+
+The first release should choose a narrow, well-tested path rather than claim support for every self-hosting style.
+
+A likely initial host is a Linux server, NAS with an appropriate container environment, or small virtual private server. Headscale may be installed by the same bundle or connected as an existing compatible service.
+
+
+13. DATA MODEL
+
+ASSISTANT PROPOSAL
+
+Environment
+One monitored private system. Important fields include identity, name, time zone, retention policy, and visual preferences.
+
+Node
+A device or logical endpoint. Important fields include stable identity, platform, role, network identity, capabilities, freshness, and lifecycle state.
+
+Component
+A nested part of a node or service. Important fields include type, parent, health, capabilities, and specialized view adapter.
+
+Relationship
+A typed connection between two objects. Important fields include source, target, type, direction, validity interval, and confidence.
+
+Metric series
+Timestamped numeric or categorical observations. Important fields include source, unit, collection policy, quality, and retention tier.
+
+Event
+A discrete occurrence. Important fields include time, type, object, severity, evidence, and correlation keys.
+
+Snapshot
+A compact representation of state at a point in time. Important fields include time, schema version, object state, and reconstruction cursor.
+
+Incident
+A group of related symptoms and evidence. Important fields include affected objects, possible cause, evidence, status, and annotations.
+
+Action
+A requested control operation and result. Important fields include actor, target, preview, authorization, timestamps, result, and audit information.
+
+Enrollment
+A time-bounded pairing transaction. Important fields include platform, intended role, token hash, expiration, Headscale state, and completion state.
+
+13.1 STORAGE ENGINE
+
+OPEN EXPLORATION
+
+The exact storage engine is unresolved.
+
+A small appliance may be able to use SQLite or a similar embedded database. A controller with concurrent ingest and longer history may benefit from PostgreSQL and time-series support. The choice should follow a benchmark using expected device count, sampling frequency, historical seek behavior, backup, and restore.
+
+13.2 BACKUP AND RESTORE
+
+Backups should include:
+
+- Controller configuration.
+- Identity mapping.
+- History schema.
+- Inventory and relationships.
+- Events and metrics within the selected policy.
+- Encryption metadata required for recovery.
+- Headscale configuration and state when it is managed by the same deployment.
+
+Restore must be tested as part of release acceptance. A backup that has never been restored is not sufficient evidence of recoverability.
+
+
+14. PLATFORM STRATEGY AND CONSTRAINTS
+
+Current Headscale documentation identifies Linux, BSD, Windows, Android, macOS, iOS, and tvOS as compatible client platforms, but configuration differs. This does not mean Monitor App automatically supports every platform. The project should publish only combinations it tests end to end.
+
+14.1 WINDOWS
+
+ASSISTANT PROPOSAL
+
+Windows is a reasonable primary desktop experience and monitored endpoint.
+
+Constraint:
+The standard Windows Tailscale user interface does not currently provide the same alternate-server setup path as every other platform. Official documentation describes CLI or policy and registry configuration. The installer therefore requires platform-specific configuration and appropriate privileges.
+
+14.2 LINUX
+
+ASSISTANT PROPOSAL
+
+Linux is a likely controller host, server-agent platform, and monitored endpoint.
+
+Constraints:
+
+- Package and service differences across distributions.
+- Permission differences among collectors.
+- Container and host-networking configuration.
+- Need to choose a supported distribution and version matrix.
+
+14.3 ANDROID
+
+ASSISTANT PROPOSAL
+
+Android should receive a complementary experience rather than a compressed desktop interface.
+
+Useful mobile functions include:
+
+- Quick health check.
+- Actionable incident notifications.
+- Focused device and service inspectors.
+- Pairing by QR code or compact code.
+- Purpose-built widgets if platform APIs allow them.
+- Limited safe actions.
+
+Constraints include:
+
+- VPN permission.
+- Background-execution limits.
+- Battery optimization.
+- Store policy.
+- Restricted access to system metrics.
+- Delayed telemetry when the app or collector cannot remain active.
+
+The UI must show freshness and must never present unavailable information as healthy or zero.
+
+14.4 MACOS
+
+OPEN EXPLORATION
+
+macOS can support a desktop experience and monitored endpoint, but signing, notarization, permissions, system extensions, and alternate-server configuration require dedicated release work.
+
+14.5 IOS
+
+OPEN EXPLORATION
+
+iOS may support a companion experience later. Background collection and VPN configuration are tightly controlled, so it should not inherit promises made for desktop or Android.
+
+14.6 WEB
+
+OPEN EXPLORATION
+
+A web client could provide remote read-only access or administration, but browser delivery changes authentication, credential exposure, rendering performance, and threat boundaries. It should not be assumed as a launch requirement.
+
+14.7 OPERATING SYSTEM VERSIONS
+
+OPEN EXPLORATION
+
+Minimum versions should follow the selected application framework, security-support needs, and tested network-client versions. Monitor App should maintain its own compatibility matrix rather than automatically claiming every platform supported by the underlying Tailscale client.
+
+
+15. SECURITY PRIVACY AND CONTROL SAFETY
+
+ASSISTANT PROPOSAL
+
+15.1 SECURITY REQUIREMENTS
+
+- Use short-lived, single-use enrollment credentials.
+- Bind application device identity to the expected private-network identity.
+- Use TLS for Monitor App protocols even inside the private network.
+- Protect controller keys and integration secrets at rest.
+- Separate read, configure, and control permissions.
+- Default new agents and integrations to read-only access.
+- Run collectors with least privilege.
+- Record security-relevant changes and actions.
+- Sign installers and updates.
+- Verify update signatures before execution.
+- Support device revocation and credential rotation.
+- Do not send telemetry or usage analytics to third parties by default.
+- Encrypt backups that contain sensitive history or credentials.
+
+15.2 CONTROL SAFETY
+
+Inspection and control must remain visually and behaviorally separate.
+
+Pulling apart a device, moving a service, replaying history, or following a connection is non-operational.
+
+A real action should begin only through a labeled control that shows:
+
+- The exact target.
+- The requested operation.
+- Required permission.
+- Likely effect.
+- Affected dependents when known.
+- Whether the action is reversible.
+
+Material actions should require confirmation. Actions should expire if not executed promptly. A delayed device must not unexpectedly execute an old command after reconnecting.
+
+Historical mode should disable live actions or require an explicit return to the present before an action can be sent.
+
+15.3 PRIVACY CONTROLS
+
+- List the categories collected from each device.
+- Show the retention applied to each category.
+- Allow sensitive collectors to be disabled.
+- Avoid collecting file names, process arguments, or secret values unless a selected feature specifically requires them.
+- Allow diagnostic exports to be reviewed and redacted before sharing.
+- Distinguish Monitor App telemetry from Headscale coordination metadata.
+
+
+16. PERFORMANCE RESILIENCE AND ACCESSIBILITY
+
+ASSISTANT PROPOSAL
+
+16.1 PERFORMANCE PRINCIPLES
+
+The application should become useful before every visual effect and detail has loaded. It should present cached state quickly, reconnect in the background, and progressively add current detail.
+
+Suggested initial targets, subject to reference-hardware testing:
+
+- Warm desktop launch displays usable cached state within two seconds.
+- Selection feedback begins within 100 milliseconds.
+- Live updates apply incrementally instead of rebuilding the whole scene.
+- Historical seeking begins from indexed snapshots.
+- The renderer aggregates distant or dense activity.
+- Effects degrade before navigation, input, or exact diagnostics become slow.
+- Hidden or background scenes reduce or pause animation.
+- Mobile collection adapts to battery and operating-system limits.
+
+16.2 RESILIENCE
+
+The product should distinguish:
+
+- Controller unavailable.
+- Headscale unavailable.
+- Private-network path unavailable.
+- Agent unavailable.
+- Device sleeping.
+- Telemetry stale.
+- Integration failed.
+- Monitored service failed.
+
+Clients should be able to show cached state with an explicit timestamp. Agents should buffer a bounded amount of telemetry. A nonessential integration failure should not prevent the controller from starting in a degraded read-only state.
+
+Schema migration, backup, restore, and rolling version compatibility should be tested.
+
+16.3 ACCESSIBILITY
+
+An elaborate spatial interface requires a complete semantic model.
+
+- Every device, component, relationship, and state needs a text name.
+- Keyboard navigation should follow the environment hierarchy.
+- A structured outline should provide access to the same objects and actions as the scene.
+- Focus, selection, and severity must not depend on color alone.
+- Reduced motion should disable camera travel, parallax, oscillation, and nonessential physics.
+- Charts should expose exact values, units, time ranges, and textual summaries.
+- Touch targets and text must remain usable on mobile.
+- Essential information must remain available when advanced rendering is disabled.
+
+
+17. VISUAL DESIGN EXPLORATION PLAN
+
+CONFIRMED USER DIRECTION
+
+Trying one idea after another is not an appropriate way to discover the design. The project should generate a wide breadth of concepts and allow the user to narrow them.
+
+ASSISTANT PROPOSAL
+
+17.1 COMMON PROTOTYPE DATA
+
+Every visual prototype should use the same sample environment, including:
+
+- A home server.
+- A laptop.
+- An Android device.
+- Several hosted services.
+- Syncthing relationships.
+- Storage and backup relationships.
+- A direct private-network connection.
+- A relayed or degraded connection.
+- A service failure with dependent symptoms.
+- At least thirty minutes of historical activity.
+
+17.2 COMMON PROTOTYPE TASKS
+
+- Identify which device is stale and which is confirmed offline.
+- Follow a Syncthing transfer from a laptop to server storage.
+- Open the server and identify a failing hosted service.
+- Determine which other objects depend on the failure.
+- Rewind ten minutes and compare the system before and after a disconnect.
+- Use search to jump directly to an exact metric.
+- Explore the scene for thirty seconds without a task.
+- Repeat important tasks with reduced motion.
+- Repeat important tasks with keyboard navigation.
+
+17.3 COMPARISON CRITERIA
+
+Distinctiveness
+The concept should not be mistaken for an ordinary dashboard.
+
+Comprehension
+The user should be able to answer the common tasks without a presentation explaining the metaphor.
+
+Continuity
+The ecosystem, device, and service scales should feel like one place.
+
+Watchability
+The environment should remain interesting when no task is active.
+
+Utility
+Direct access to exact facts should remain fast.
+
+Truthfulness
+Operational animation should correspond to real state. Decorative animation should not imply false data.
+
+Scalability
+The concept should remain legible as devices, services, and events increase.
+
+Accessibility
+Reduced-motion and structured alternatives should preserve operation.
+
+Feasibility
+The rendering approach should sustain acceptable responsiveness, power use, text quality, and platform packaging.
+
+17.4 DIRECTIONS THAT SHOULD NOT RETURN AS THE MAIN CONCEPT
+
+REJECTED OR DEPRIORITIZED
+
+- Generic progressive information density.
+- A universal custom workspace.
+- Infinite dashboard customization.
+- A simple topology diagram with minor interaction.
+- An instrument panel as the primary identity.
+- An infrastructure atlas as the primary identity.
+- Focus and periphery as the primary identity.
+
+
+18. CRITICAL INTERACTION FLOWS
+
+ASSISTANT PROPOSAL
+
+18.1 OPEN AND ORIENT
+
+1. The application opens to a stable ecosystem overview or the last meaningful view.
+2. Cached state appears with freshness labels.
+3. The live connection resumes.
+4. Objects retain recognizable positions.
+5. Healthy ambient behavior remains quiet.
+6. Current incidents gain measured emphasis.
+7. The user may explore, search, or change the active visual lens.
+
+18.2 INSPECT A DEVICE
+
+1. Selecting the device highlights important relationships.
+2. A concise factual summary appears immediately.
+3. Opening the device begins an optional transition into its exploded architecture.
+4. Layers reflect reported capabilities.
+5. Selecting a component opens its specialized inspector.
+6. Parent context remains visible.
+7. A breadcrumb or direct command can return or jump elsewhere.
+
+18.3 FOLLOW DATA MOVEMENT
+
+1. The user selects an active path or transfer.
+2. The path identifies source, destination, type, and broad activity.
+3. The user follows the relationship toward the destination.
+4. The destination device opens to the receiving service or storage component.
+5. Exact transfer and health values remain available in a factual panel.
+6. Historical time can replay the activity.
+
+18.4 INVESTIGATE AN INCIDENT
+
+1. The user selects an alert or unusual behavior.
+2. The application opens its surrounding historical range.
+3. The environment moves to the relevant time and clearly leaves the live present.
+4. Related objects gain emphasis based on recorded relationships and correlated events.
+5. The user scrubs, plays, or opens aligned diagnostic tracks.
+6. Then-versus-now highlights meaningful changes.
+7. Returning to now restores live state without losing the incident bookmark.
+
+18.5 EXECUTE AN ACTION
+
+1. The user opens a labeled control from an inspector or command search.
+2. The application shows target, effect, permission, and known dependents.
+3. The user confirms when required.
+4. The action receives an expiration and idempotency key.
+5. The agent acknowledges receipt.
+6. The agent reports completion or failure.
+7. Monitor App records the action as an event.
+8. The application verifies the resulting state when a relevant signal exists.
+
+
+19. DELIVERY AND PROTOTYPE STRATEGY
+
+ASSISTANT PROPOSAL
+
+PHASE 0 PRODUCT FRAMING
+
+Outcome:
+A stable decision register, shared prototype dataset, comparison tasks, and technical boundaries.
+
+Exit evidence:
+The user confirms that this specification accurately preserves the desired direction and identifies the remaining choices.
+
+PHASE 1 PARALLEL VISUAL PROTOTYPES
+
+Outcome:
+Several genuinely different visual worlds using identical data and tasks.
+
+Exit evidence:
+The user can compare them directly and narrow the field without selecting among minor dashboard variations.
+
+PHASE 2 CONNECTIVITY FOUNDATION
+
+Outcome:
+A repeatable self-hosted Headscale deployment and download-install-pair flow for the first supported platforms.
+
+Work includes:
+
+- Enrollment service.
+- Signed installer.
+- Headscale adapter.
+- One-time credentials.
+- Device identity binding.
+- Pairing health checks.
+- Revocation and rollback.
+
+PHASE 3 TELEMETRY AND HISTORY
+
+Outcome:
+Reliable current and historical state.
+
+Work includes:
+
+- Agents.
+- Capability discovery.
+- Telemetry schemas.
+- Events.
+- Snapshots.
+- Retention.
+- Historical reconstruction.
+- Freshness and missing-data semantics.
+
+PHASE 4 INTEGRATED READ-ONLY ALPHA
+
+Outcome:
+The selected living environment, semantic zoom, purpose-built inspectors, search, and time travel operate on real telemetry.
+
+PHASE 5 CONTROL AND RESILIENCE
+
+Outcome:
+Explicit safe actions, permissions, audit, updates, degraded operation, backup, and restore.
+
+PHASE 6 DELIGHT AND POLISH
+
+Outcome:
+The physical interaction, cinematic transitions, ambient personality, performance, sound if desired, and accessibility are refined without weakening utility.
+
+
+20. ACCEPTANCE CRITERIA
+
+ASSISTANT PROPOSAL
+
+Enrollment
+A supported device can move from signed download to verified pairing without the user typing a Headscale command. Failure can be retried or rolled back.
+
+Environment
+The application presents stable device and service identities, typed relationships, freshness, and incidents without relying on a grid of generic cards.
+
+Semantic zoom
+The user can move from ecosystem to device to service while preserving selection, time, and context. Search reaches the same destination directly.
+
+Specialized inspectors
+The first release contains distinct information designs for its selected device types and integrations rather than one universal widget template.
+
+Historical state
+The user can select a prior time, replay an interval, compare with the present, and identify missing or rolled-up data.
+
+Safe play
+Visual manipulation cannot execute a real command. Real actions use explicit authorization and appear in history.
+
+Self-hosting
+The controller, history, and coordination services operate without a vendor monitoring cloud. Backup and restore are tested.
+
+Resilience
+Cached state, stale data, sleeping devices, agent outage, controller outage, private-network failure, and monitored-service failure are distinguished.
+
+Performance
+The agreed reference environment remains responsive under the agreed device and event load. Effects degrade before input and diagnostics.
+
+Accessibility
+Keyboard access, structured navigation, text equivalents, exact values, and reduced motion cover essential information and actions.
+
+
+21. RISKS AND MITIGATIONS
+
+Spectacle hides meaning
+
+Risk:
+Motion and visual density can make diagnosis harder.
+
+Mitigation:
+Keep exact factual panels, use clear hierarchy, test practical tasks, and distinguish decorative from operational motion.
+
+Purpose-built integrations expand scope
+
+Risk:
+Specialized views require more work than generic cards.
+
+Mitigation:
+Define an adapter contract, begin with a narrow integration set, and require a clear user job for each new inspector.
+
+Setup cannot be completely automatic
+
+Risk:
+Privilege prompts, app stores, signing, licensing, and alternate-server configuration differ by platform.
+
+Mitigation:
+Build platform-specific orchestration, state unavoidable prompts clearly, and test clean-machine installation.
+
+Headscale changes disrupt enrollment
+
+Risk:
+An upstream version change can alter registration or policy behavior.
+
+Mitigation:
+Pin tested versions, isolate integration behind an adapter, back up state, and maintain a documented recovery path.
+
+History grows without bound
+
+Risk:
+High-resolution metrics can consume the self-hosted controller's storage.
+
+Mitigation:
+Use adaptive collection, retention tiers, storage budgets, and visible rollups.
+
+Android data becomes stale
+
+Risk:
+Background restrictions can interrupt collection.
+
+Mitigation:
+Expose freshness, use operating-system-supported patterns, and avoid unsupported promises.
+
+Controls increase consequences
+
+Risk:
+A compromised controller or mistaken action could affect real systems.
+
+Mitigation:
+Launch read-only first, separate permissions, use previews and expiration, and audit every action.
+
+Broad exploration never converges
+
+Risk:
+Many prototypes can consume time without helping the user decide.
+
+Mitigation:
+Use common data, bounded prototypes, common tasks, and a predeclared evaluation rubric.
+
+Advanced rendering consumes excessive power
+
+Risk:
+Ambient use may monopolize a GPU or drain batteries.
+
+Mitigation:
+Set frame and effect budgets, aggregate activity, pause unseen effects, and provide low-power modes.
+
+
+22. OPEN DECISIONS
+
+OPEN EXPLORATION
+
+Primary visual world
+
+Options include technical sculpture, miniature world, science-fiction environment, digital organism, precision schematic, and architectural cutaway. Evidence should come from side-by-side prototypes using the same tasks.
+
+Rendering technology
+
+Options may include a WebGPU-based stack, native GPU UI, a game-oriented renderer, or a hybrid application shell. The decision requires tests of performance, text quality, accessibility, power use, and packaging.
+
+Launch platforms
+
+The project must decide whether to begin with Windows and Linux, whether Android ships with the first release, and when macOS becomes a supported target.
+
+Controller packaging
+
+Choose among an appliance, containers, native services, or a deliberately limited combination.
+
+Storage engine
+
+Choose after telemetry-volume, historical-seek, backup, and restore testing.
+
+Retention defaults
+
+Choose after measuring realistic data volume on expected self-hosted hardware.
+
+Authentication
+
+Options include a local owner account, passkeys, or external OpenID Connect. Offline recovery and self-hosted setup complexity matter.
+
+Action scope
+
+Choose between a read-only first release, a few safe actions, or broader administration after a security review and concrete use-case selection.
+
+Remote notifications
+
+Options include local-only notifications, a self-hosted push bridge, or optional third-party channels. Privacy and reliability require a separate decision.
+
+Tailscale client distribution
+
+Determine per platform whether Monitor App may bundle, install, configure, or guide the official network client.
+
+Sound
+
+The game-like environment could benefit from subtle sound, but sound was not discussed as a requirement. If explored, it should remain optional and subordinate to visual and textual status.
+
+Multi-user support
+
+The initial architecture should not accidentally prevent future roles, but full multi-user tenancy is not established as an initial requirement.
+
+
+23. DECISION REGISTER
+
+D01
+Direction: Explore a broad range of concepts before narrowing.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Build distinct prototypes in parallel with shared data and tasks.
+
+D02
+Direction: Use the living schematic and exploded architecture as complementary structures.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Build one continuous environment across ecosystem, device, and service scales.
+
+D03
+Direction: Permit elaborate and even gratuitous interaction.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Budget for physical response, ambient behavior, and cinematic transitions.
+
+D04
+Direction: Preserve practical access alongside playful presentation.
+Status: ASSISTANT PROPOSAL strongly implied by the desired product utility.
+Consequence: Provide search, keyboard navigation, exact readings, and transition bypass.
+
+D05
+Direction: Make historical time travel a core feature.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Design storage, data semantics, and interface state around historical reconstruction.
+
+D06
+Direction: Treat data movement as a reusable feature rather than the only visual identity.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Represent transfers and routes within whichever visual world is selected.
+
+D07
+Direction: Use curated purpose-built interfaces with selective customization.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Specialize inspectors and avoid universal freeform dashboards.
+
+D08
+Direction: Use download-install-pair setup over self-hosted Headscale.
+Status: CONFIRMED USER DIRECTION in the current brief.
+Consequence: Enrollment, installer orchestration, and Headscale integration are core product work.
+
+D09
+Direction: Separate playful manipulation from real commands.
+Status: ASSISTANT PROPOSAL strongly recommended for safety.
+Consequence: Use explicit controls, scope previews, expiration, authorization, and audit.
+
+D10
+Direction: Build a complementary Android experience rather than shrinking the desktop UI.
+Status: ASSISTANT PROPOSAL.
+Consequence: Prioritize quick checks, incidents, pairing, focused inspectors, and freshness.
+
+D11
+Direction: Avoid generic progressive information density.
+Status: REJECTED OR DEPRIORITIZED.
+Consequence: Do not frame the product as an ordinary overview followed by generic detail pages.
+
+D12
+Direction: Avoid infinite workspace customization.
+Status: REJECTED OR DEPRIORITIZED.
+Consequence: Keep structure application-designed and personalization bounded.
+
+D13
+Direction: Do not use instrument panel, infrastructure atlas, or focus-and-periphery as the main concept.
+Status: REJECTED OR DEPRIORITIZED.
+Consequence: Retain any useful mechanics only as supporting details.
+
+D14
+Direction: Do not accept a simple generic topology as sufficient.
+Status: REJECTED OR DEPRIORITIZED.
+Consequence: Topology must become a richly designed, explorable environment with meaningful internal structure.
+
+
+24. TECHNICAL REFERENCES
+
+The following current official documentation validates platform and Headscale assumptions used in the assistant proposals. These references do not replace project decisions.
+
+Headscale stable documentation
+https://headscale.net/stable/
+
+Headscale feature overview
+https://headscale.net/stable/about/features/
+
+Headscale client and operating-system support
+https://headscale.net/stable/about/clients/
+
+Headscale registration methods
+https://headscale.net/stable/ref/registration/
+
+Headscale Android connection instructions
+https://headscale.net/stable/usage/connect/android/
+
+Tailscale custom coordination server instructions
+https://tailscale.com/docs/how-to/set-up-custom-coordination-server
+
+Tailscale installation documentation
+https://tailscale.com/docs/install
+
+
+25. GLOSSARY
+
+Agent
+Software on a monitored device that collects supported signals and executes explicitly authorized adapters or actions.
+
+Component
+A part of a device or service represented inside an exploded view.
+
+Control plane
+The service layer that coordinates private-network identity, policy, and connection information. Headscale fills this network role.
+
+Data plane
+The application traffic carrying telemetry, history queries, and authorized commands between Monitor App components.
+
+Exploded architecture
+A layered visual representation that reveals the internal structure of a selected device or service.
+
+Headscale
+An open-source, self-hosted implementation of the Tailscale control server.
+
+Inspector
+A purpose-built detailed view for a device, service, component, or relationship.
+
+Living schematic
+The stable, animated model of devices, services, and relationships across the environment.
+
+Semantic zoom
+Navigation in which moving closer reveals internal structure and changes the information shown.
+
+Snapshot
+A compact saved state used with later events and metrics to reconstruct a historical scene.
+
+Tailnet
+The private Tailscale-compatible network coordinated by Headscale.
+
+Visual lens
+A designed emphasis layer that highlights connectivity, storage, power, synchronization, service health, or another concern without rebuilding the environment.
+
+
+26. IMMEDIATE NEXT STEPS
+
+ASSISTANT PROPOSAL
+
+1. Review this document and correct any technical or product assumption that does not match the intended environment.
+2. Confirm the first controller host and the first two supported endpoint platforms.
+3. Define a shared sample environment and recorded scenario for prototype comparison.
+4. Produce several distinct visual prototypes in parallel.
+5. Run a Headscale enrollment spike on clean devices for the proposed launch platforms.
+6. Measure realistic telemetry volume and historical query needs.
+7. Choose a narrow controller packaging path.
+8. Select the first purpose-built integrations, with Syncthing as a strong candidate.
+9. Decide whether the first integrated release is read-only.
+10. Narrow the visual direction only after direct comparison of the broad prototypes.
+
+
+END OF SPECIFICATION
