@@ -4,6 +4,15 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Changed
+
+- Replaced the controller/agent and automatic self-hosted Headscale direction with a confirmed decentralized equal-peer mesh. Tailscale now supplies user-managed reachability only; bilateral application pairing establishes trust.
+- Defined origin-owned peer replication, local storage/query on every peer, explicit freshness/offline cache, and eventual convergence without global consensus.
+- Added observed peripherals and LAN infrastructure as typed entities collected through purpose-built adapters with stable identity, explicit collector ownership, local credentials, and evidence-aware topology reconciliation.
+- Added versioned capability modules, a categorized observation catalog, broad truthful measurement rules, and purpose-built/fallback inspector contracts.
+- Established the aggregate-operational network measurement boundary and separate opt-in defensive security capability. Ordinary packet/content/communication-identity collection remains prohibited.
+- Reframed the current controller alpha as reusable migration evidence rather than the target deployment.
+
 ### Added
 
 - Comprehensive product and architecture specification in `Monitor App Design Specification.txt`.

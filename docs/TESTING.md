@@ -4,6 +4,21 @@
 
 Tests exist to protect behavior required for Monitor App to enroll devices, collect truthful telemetry, preserve history, survive failure, and operate on Android, Windows, Fedora, and Ubuntu. Test count and coverage percentage are secondary to operational value.
 
+The confirmed target is now an equal-peer mesh. Controller/enrollment tests below remain evidence for reusable legacy components, not proof of the target architecture. New work must prioritize the peer gates in the next section.
+
+## Decentralized peer migration gates
+
+- **Pairing contract:** two peers introduced by address complete bilateral application-key proof; address/tailnet membership alone fails; wrong key, substitution, replay, expiration, revocation, and incompatible versions fail closed.
+- **Real two-peer integration:** start two production peer servers with separate file-backed SQLite stores, pair them, exchange origin-owned observations, disconnect, restart both, reconnect, and prove eventual convergence, stable identity, ordering, and no duplicate/conflicting sequence acceptance.
+- **Local query:** each peer reads its own and replicated records with explicit origin, source time, ingest time, unit, quality, and freshness; offline cache remains distinguishable from live state.
+- **Observed devices:** adapter tests preserve stable peripheral identity across host reassignment, record typed attachment/collection relationships, and expose adapter capability, health, and freshness. Failover remains unavailable until the second collector is explicitly provisioned.
+- **LAN topology:** reconcile reports from multiple peers using strong switch identity rather than IP; retain source/evidence/quality; distinguish reported from inferred links; keep physical LAN and Tailscale overlay separate.
+- **Capability compatibility:** versioned namespaced modules register entities, observations, relationships, sampling/retention, categories, privacy/cost, and inspector descriptors. Unknown compatible modules receive a truthful generated fallback; incompatible modules fail explicitly.
+- **Privacy enforcement:** registration rejects prohibited packet/flow/identity/content observations while permitting declared aggregate operational network metrics. Adapter credentials never serialize into replicated records.
+- **Defensive security:** the capability cannot start without separate enablement; findings require evidence/confidence; deeper flow/packet-derived modes require their own permission and bounded retention.
+
+No platform is supported until its peer service lifecycle, protected identity storage, pairing/reconnect, local persistence/query, update, and required collector behavior pass on that named platform.
+
 ## Nonnegotiable quality rules
 
 - Every test must execute in the documented command or be reported as unverified.
@@ -80,7 +95,9 @@ Start real controller and agent processes or their production network servers. R
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
 
-### Headscale integration tests
+### Superseded Headscale integration tests
+
+This suite is no longer a target requirement. Do not add automatic Headscale provisioning. Tailscale is user-managed reachability; test the real peer protocol over loopback for deterministic integration and over a Tailscale path in platform verification.
 
 Use a pinned Headscale container or supported real service. Do not mock Headscale and call the result an integration test. Required cases include:
 
@@ -121,27 +138,13 @@ Before platform support is claimed, test a clean install, upgrade, restart, and 
 - Fedora RPM.
 - Ubuntu DEB.
 - Android APK or application bundle path.
-- Controller deployment package.
+- Peer service and local data package on every applicable platform.
 
 Installation tests must confirm that uninstall removes the application while preserving or removing data according to an explicit user choice.
 
 ### End-to-end functional test
 
-The first required end-to-end scenario is:
-
-1. Start clean controller persistence.
-2. Create an enrollment.
-3. Start a real test agent.
-4. Complete application enrollment.
-5. Register capabilities.
-6. Submit real or controlled collector telemetry.
-7. Read current state from the client-facing API.
-8. Stop the controller while the agent produces additional samples.
-9. Restart the controller and allow the agent to resume.
-10. Query history and prove samples are ordered, identified, and not duplicated.
-11. Restart again and prove node identity and history persist.
-
-This test is a release gate for the functional foundation.
+The first required target end-to-end test is the real two-peer scenario in **Decentralized peer migration gates**: bilateral pairing, local collection/query, offline collection, restart, direct reconnect, and duplicate-safe convergence using separate production SQLite stores. Controller/agent end-to-end tests are legacy component evidence only.
 
 ## Security tests
 
@@ -219,7 +222,7 @@ Cross-process functional end-to-end tests:
 dotnet test tests/MonitorApp.EndToEndTests/MonitorApp.EndToEndTests.csproj -c Release --no-build
 ```
 
-Real Headscale integration tests:
+Legacy Headscale integration commands (superseded; not a release gate):
 
 ```powershell
 docker compose -f tests/e2e/headscale/compose.yml up --build --abort-on-container-exit --exit-code-from e2e

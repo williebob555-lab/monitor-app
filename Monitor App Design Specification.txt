@@ -1,8 +1,8 @@
 MONITOR APP DESIGN SPECIFICATION
 
 Product scope, architecture, platform constraints, and experience direction
-Version 1.0
-16 November 2026
+Version 1.1
+17 November 2026
 
 
 DOCUMENT PURPOSE
@@ -33,6 +33,37 @@ REJECTED OR DEPRIORITIZED
 The user found the direction generic, boring, overwhelming, or otherwise unsuitable. It should not return as the primary concept without a materially different rationale.
 
 
+AUTHORITATIVE ARCHITECTURE AMENDMENT
+
+CONFIRMED USER DIRECTION
+
+Monitor App is a decentralized peer-to-peer monitoring system. It must not require a Monitor App controller, central telemetry database, designated authority device, or always-on Monitor App host. Every supported computer or phone runs the same logical peer service and is capable of collecting its own state, retaining local data, connecting directly to paired peers, serving monitoring data, and presenting the experience appropriate to that platform.
+
+The user is willing to add a device initially by its Tailscale IP address. After application-level pairing, two devices should reconnect directly whenever both devices have Tailscale reachability and the Monitor App service is running. Tailscale supplies private reachability only. A Tailscale IP address and tailnet membership are not Monitor App identity or authorization.
+
+The first personal-scale topology may use explicit pairwise trust. Each paired peer retains the other peer's application identity and reconnect information. A central discovery, enrollment, telemetry, history, or authorization service is not required. No peer becomes the global source of truth merely because it accepted the initial pairing.
+
+Telemetry and history are origin-owned. A peer is authoritative for records it produced. Other peers may cache and replicate those immutable or versioned records with explicit origin, sequence, source time, quality, and freshness. Pairwise synchronization should converge after disconnection without requiring global consensus for origin-owned streams. Conflicting administrative metadata requires an explicit conflict rule rather than last-writer ambiguity.
+
+The monitored environment also includes observed devices and components that cannot run a Monitor App peer service, such as a UPS or audio interface attached to a computer. A host peer acts as a collection gateway through a purpose-built adapter selected case by case. Possible mechanisms include USB or HID, NUT, SNMP, operating-system audio APIs, vendor APIs or SDKs, and serial protocols; no specific mechanism or model is confirmed merely by appearing in this list. Observed devices retain stable identities and history independent of the peer currently collecting them. The domain model distinguishes peer identity, observed-device identity, physical or logical attachment, collection source, adapter capability, adapter health, and data freshness. Purpose-built inspectors remain required; peripherals must not be flattened into generic metric cards.
+
+Multiple Monitor App peers may operate on the same physical LAN, exchange observations, and monitor managed switches and network topology. The physical LAN is a separate domain from the Tailscale overlay. The model includes typed switches, ports, peers, peripherals, VLANs, uplinks, physical attachment, overlay reachability, and reported or inferred topology relationships. Managed-switch collection is adapter-specific and may use SNMP, REST, vendor APIs, SSH, LLDP, forwarding databases, or another supported mechanism. Every observation preserves source, evidence, quality, and freshness, and the interface must distinguish device-reported topology from Monitor App inference.
+
+Observations from multiple peers must reconcile around a strong observed-device identity such as a serial number, stable chassis identifier, or chassis MAC when available; an IP address alone is not sufficient identity. The initial implementation avoids redundant switch polling through explicit configured collector ownership. Switch and adapter credentials remain local to the provisioned collector peer and do not replicate automatically. Collection failover occurs only after another peer has been explicitly provisioned with the required adapter, permissions, and credentials.
+
+The breadth-of-observation goal is that anything which can be measured safely and truthfully should be measurable. Monitor App therefore uses a capability-driven, extensible metric and observation registry rather than a permanently narrow allowlist. Adapter output may include numeric values, counters, discrete state, events, inventory and configuration facts, errors, and topology evidence. Every observation preserves entity, source, source time, unit when applicable, quality, freshness, and collection cost. Unsupported, permission-denied, stale, unknown, error, and unavailable are explicit states and must never be represented as zero.
+
+Breadth does not mean indiscriminate collection or unlimited retention. Sampling and retention adapt to collection cost, change rate, device power, local storage, and replication budgets. Peers may retain high-resolution raw detail locally while replicating bounded summaries or requested ranges. Secrets, content payloads, and unrelated packet, file, or message contents remain excluded by default. Sensitive or high-cost categories require explicit opt-in and remain visible in collection and retention settings.
+
+Network observation is limited to aggregate operational measurement without communication identities or content. Allowed measurements include bandwidth and throughput, negotiated or link speed, interface or switch-port utilization, aggregate byte and packet totals, aggregate errors, drops, discards, retries, queue health, latency and reachability probes, and historical aggregate trends. Monitor App must not capture packets, headers, or payloads; retain individual packet records; record flows, sessions, connections, sockets, source or destination identities, DNS or query history; inspect per-application or per-process traffic; classify content; or use deep packet inspection. Mirroring or promiscuous collection for those prohibited purposes is not allowed. Adapter registration and review must reject prohibited network observations before collection begins.
+
+Useful automated defensive threat detection is allowed as a separate, explicitly enabled security capability with common-sense, legal, and privacy guardrails. Baseline detection may use aggregate operational measurements, device identity and authentication failures, unexpected peer, configuration, or link changes, unusual utilization, and summarized alerts already produced by an IDS, firewall, switch, or operating system. Monitor App should prefer consuming alert summaries over raw traffic. It does not by default intercept payloads, obtain decryption credentials, attempt exploits, scan indiscriminately, or monitor networks the user does not own or have authorization to monitor. Any deeper flow-derived or packet-derived security module requires explicit enablement, clear disclosure, local processing, bounded retention, separate permission, and an additional design and security review. Findings carry evidence and confidence and must not claim compromise without supporting evidence.
+
+Breadth also requires strong categorization and modularity. Capability modules use versioned, namespaced contracts that declare entity types, observations, relationships, sampling and retention metadata, categories, and inspector descriptors. A canonical observation catalog classifies signals by domain, entity, subsystem, source, unit, temporal behavior, importance, privacy, and collection cost. The living schematic summarizes relationships and state; domain lenses such as power, audio, storage, network infrastructure, and thermal condition reveal coherent subsets; search reaches exact signals. Unknown compatible modules receive a truthful generated fallback inspector, while important integrations retain purpose-built inspectors. Users may enable or disable modules, adjust retention, and pin or hide designed content, but do not build a blank dashboard. The domain model remains the source of truth.
+
+This amendment supersedes every earlier controller-centric or mandatory self-hosted-Headscale statement in this document, including prior CONFIRMED USER DIRECTION recorded from an incomplete brief. Those statements remain in the historical text only where their superseded status is useful to explain the project record. The living schematic, exploded architecture, game-like interaction, historical time travel, purpose-built UI, platform targets, functionality-first delivery, and meaningful-test requirements remain unchanged.
+
+
 1. EXECUTIVE SUMMARY
 
 CONFIRMED USER DIRECTION
@@ -49,23 +80,27 @@ Data movement is also a feature that should survive changes in visual style. Tra
 
 The application should be purpose-built before it is customizable. Device types, integrations, diagnostics, and controls should receive thoughtfully designed interfaces. The user should be able to choose what matters and tune behavior, but should not be required to construct the application from a blank canvas.
 
-The setup objective is download, install, and pair. Monitor App should automatically establish secure connectivity over a self-hosted Headscale network as far as each operating system permits. Users should not need to assemble a VPN manually, expose monitoring ports to the public Internet, or copy a collection of unexplained shell commands.
+The setup objective is download, install, and pair. The user may enter a peer's Tailscale IP address for initial contact. Pairing must establish a Monitor App identity independent of network membership, after which peers reconnect automatically whenever both services are running. Monitor App must not expose a public monitoring port or require an always-on application controller.
 
 ASSISTANT PROPOSAL
 
 The working architecture should consist of:
 
-- A self-hosted Monitor App controller.
-- A self-hosted Headscale coordination server.
-- A Monitor App agent on monitored computers and servers.
+- One equal Monitor App peer service per supported computer or phone.
+- Local collection and a local SQLite history store on each peer.
+- Direct authenticated peer sessions addressed initially by Tailscale IP.
+- Pairwise identity verification and pinned peer keys independent of tailnet membership.
+- Origin-owned telemetry streams with durable per-peer replication cursors.
+- Local read APIs and platform-appropriate experience clients on every peer.
 - Platform-specific collection on Android where mobile restrictions permit it.
-- Desktop and mobile experience clients.
-- An inventory and relationship model.
-- A time-series, event, and snapshot history store.
-- An enrollment service that produces short-lived, one-time pairing credentials.
+- Observed devices and components collected through purpose-built gateway adapters on a host peer.
+- Stable observed-device identity and typed attachment and collection relationships.
+- A physical-LAN model distinct from Tailscale overlay reachability, including managed switches, ports, VLANs, uplinks, and evidence-qualified topology.
+- Explicit collector ownership for network and peripheral adapters, with credentials retained only on provisioned peers.
+- An inventory and relationship model assembled from local state and replicated peer records.
 - Purpose-built integration adapters, beginning with the most valuable systems such as Syncthing.
 
-Headscale should coordinate the private Tailscale-compatible network. It should not become the monitoring database or application backend. Monitor App telemetry, history queries, and authorized actions should use application protocols over the encrypted private network.
+Tailscale should supply private reachability. Monitor App should not attempt to operate Tailscale or require Headscale. Monitor App telemetry, history synchronization, queries, and future authorized actions use application protocols directly between paired peers over the private network.
 
 The development process should separate technical foundation from visual convergence. Enrollment, telemetry, history, and the underlying object model can advance while several genuinely different visual concepts are prototyped in parallel. This respects the user's instruction to explore broadly before narrowing.
 
@@ -122,7 +157,10 @@ CONFIRMED USER DIRECTION
 - Favor strong, curated, purpose-built interfaces over infinite user composition.
 - Allow selective customization where it improves relevance.
 - Make installation and secure pairing automatic enough to feel like a consumer application.
-- Use self-hosted Headscale rather than depending on a vendor-managed private network.
+- Require no Monitor App controller or central monitoring database.
+- Allow manual peer bootstrap by Tailscale IP followed by automatic direct reconnection.
+- Keep Tailscale reachability separate from Monitor App identity and authorization.
+- Include non-peer devices through stable observed identities and purpose-built host adapters.
 - Explore a wide breadth of concepts before choosing one visual direction.
 
 ASSISTANT PROPOSAL
@@ -225,7 +263,7 @@ An Android device may emphasize:
 - VPN or private-network state.
 - Signals available within Android's permission and background-execution limits.
 
-The internal structure should be capability-driven. The backend should not invent components that a platform or agent cannot report.
+The internal structure should be capability-driven. The domain model should not invent components that a peer, adapter, or evidence-qualified inference cannot support.
 
 The exploded transition can be elaborate. Layers may separate magnetically, unfold, rotate, illuminate, or expose internal paths. The structure should remain stable enough that repeated inspection builds familiarity.
 
@@ -396,7 +434,7 @@ Exact sampling and retention periods are unresolved. A likely design is:
 - User-pinned incidents protected from ordinary deletion.
 - A visible storage budget and retention policy.
 
-Retention defaults should be based on realistic telemetry-volume tests and the expected capacity of the self-hosted controller.
+Retention defaults should be based on realistic observation-volume tests, peer storage and power constraints, and raw-versus-summary replication budgets.
 
 
 8. PURPOSE-BUILT INFORMATION DESIGN
@@ -424,7 +462,7 @@ Search and command
 Immediate access to devices, services, metrics, settings, and permitted actions. This is the fast path around cinematic navigation.
 
 Setup and administration
-Enrollment, integrations, Headscale configuration, retention, updates, access policy, and backups. This can use a more conventional utility layout because its purpose is configuration rather than the primary monitoring experience.
+Peer pairing, capability modules, adapters, collector ownership, retention, replication budgets, updates, access policy, and peer backups. This can use a more conventional utility layout because its purpose is configuration rather than the primary monitoring experience.
 
 8.2 SPECIALIZED INSPECTORS
 
@@ -588,7 +626,7 @@ ASSISTANT PROPOSAL
 - User-visible name.
 - Device type and role.
 - Operating system and version.
-- Agent version.
+- Peer service version.
 - Private-network identity.
 - Advertised capabilities.
 - First seen, last seen, and lifecycle state.
@@ -604,14 +642,18 @@ ASSISTANT PROPOSAL
 
 10.3 NETWORK
 
-- Relevant addresses.
-- Interface state.
-- Private-network path.
-- Direct or relayed connection where available.
-- Latency.
-- Broad throughput.
-- Route changes.
-- Connection events.
+- Interface, switch, and port identity.
+- Link up or down state.
+- Negotiated link capability and speed.
+- VLAN and administrative configuration.
+- PoE state and power where reported.
+- Explicitly reported LLDP relationships.
+- Tailscale peer reachability and management health.
+- Aggregate bandwidth, throughput, utilization, byte and packet totals, errors, drops, discards, retries, and queue health.
+- Latency and reachability probes plus historical aggregate trends.
+- Physical-LAN relationships kept distinct from overlay reachability.
+
+Network measurement must remain aggregate and operational. Monitor App does not collect packet headers or payloads, individual packet records, flow or connection logs, source or destination identities, DNS or query history, per-application or per-process traffic, or content classifications.
 
 10.4 COMPUTE
 
@@ -672,240 +714,186 @@ ASSISTANT PROPOSAL
 
 10.10 COLLECTION RULES
 
-- Agents should advertise capabilities rather than pretending that every platform has the same metrics.
+- Peers and modules should advertise capabilities rather than pretending that every platform or observed device has the same measurements.
 - Every collected value should have a timestamp, source, unit, and quality state.
+- Capability modules should use versioned namespaces and classify observations by domain, entity, subsystem, source, unit, temporal behavior, importance, privacy, and cost.
 - Watch mode may temporarily increase collection frequency for an active investigation.
 - Collection should use supported APIs when one exists.
 - Sensitive collection should be disabled by default unless necessary for a selected feature.
+- Network observations that expose communication identities, sessions, packet detail, or content must be rejected at module registration and adapter review, not merely hidden in the interface.
 - Actions and read-only telemetry should use separate permissions.
 
 
-11. DOWNLOAD INSTALL PAIR SETUP
+11. DOWNLOAD INSTALL AND PEER PAIRING
 
 CONFIRMED USER DIRECTION
 
-The desired setup is download, install, and pair over self-hosted Headscale.
+The desired setup is download, install, enter a peer's Tailscale IP, and pair directly. There is no Monitor App controller, mandatory Headscale deployment, or always-on Monitor App host. After successful pairing, the two services reconnect whenever both are running and reachable through Tailscale.
 
-The user should not be expected to understand Headscale commands, manually configure every network client, or expose agent ports publicly.
+Tailscale configuration is outside Monitor App's authority in the initial scope. The user accepts entering a Tailscale IP address. Monitor App must not expose its peer port to the public Internet by default.
 
 ASSISTANT PROPOSAL
 
-11.1 USER FLOW
+11.1 DIRECT PAIRING FLOW
 
-1. The user chooses Add Device in Monitor App.
-2. The user selects the device platform and intended role.
-3. The controller creates a short-lived enrollment record.
-4. Monitor App presents a signed download, QR code, or compact pairing code.
-5. The installer verifies its signature and installs the Monitor App agent.
-6. The installer detects whether a supported Tailscale client is already installed.
-7. The setup process installs, configures, or guides installation of the network client as platform rules allow.
-8. The device receives the self-hosted Headscale server address from the enrollment record.
-9. The device joins through a short-lived, single-use pre-authentication key or an appropriate guided login.
-10. The Monitor App agent proves its application identity and expected network identity.
-11. The agent reports its platform and capabilities.
-12. The controller verifies private reachability, clock health, telemetry flow, and version compatibility.
-13. The new device appears in the environment with the correct purpose-built model.
+1. The user installs the same signed Monitor App peer package on two devices.
+2. Each peer generates and protects its own application identity key.
+3. On one device, the user chooses Add Peer and enters the other device's Tailscale IP and peer port.
+4. The contacted peer displays or accepts a short-lived pairing approval.
+5. Both peers prove possession of their application identity keys and bind the approval to both identities and the current handshake.
+6. The user verifies a short authentication string, QR representation, or equivalent identity confirmation on both devices.
+7. Each peer stores the other peer's stable application identity, approved address, capabilities, and trust state.
+8. The peers exchange protocol compatibility and replication cursors.
+9. Each peer begins serving its locally owned telemetry and synchronizing permitted cached history.
+10. After interruption, either peer retries the stored Tailscale endpoint with bounded backoff and reauthenticates with a fresh challenge.
 
-11.2 PAIRING CREDENTIALS
+11.2 PAIRING AND IDENTITY RULES
 
-The enrollment service should generate credentials just in time.
+- A Tailscale IP is a bootstrap address, not device identity.
+- Tailnet membership alone grants no Monitor App access.
+- Pairing approval is short lived and bound to both peer identities.
+- Long-term trust is pinned to application public keys retained locally on each peer.
+- Private keys never leave their originating device.
+- Reconnection proves the pinned key with a fresh, replay-resistant challenge.
+- Address changes require an authenticated update or explicit user repair; they must not silently replace identity.
+- Unpairing removes local trust and replication permission. Revocation propagation across other pairwise relationships is explicit future work, not implied global authority.
 
-Credentials should be:
+11.3 RECONNECTION AND AVAILABILITY
 
-- Short lived.
-- Single use.
-- Bound to an intended enrollment where possible.
-- Stored server-side as a salted hash when Monitor App controls the token.
-- Removed from installer logs and diagnostic output.
-- Revoked when the pairing window expires or the user cancels.
+- Both peers may initiate or accept a session; duplicate simultaneous sessions resolve deterministically to one logical relationship.
+- Sessions use application TLS or an equivalently authenticated secure channel even inside Tailscale.
+- A listener binds only to explicitly configured private interfaces or Tailscale addresses by default.
+- Failure states distinguish service stopped, Tailscale path unavailable, authentication failure, protocol incompatibility, stale replicated data, and collector failure.
+- Cached data remains visible with its origin and last synchronization time when a peer is offline.
 
-Current Headscale documentation supports interactive registration and pre-authenticated keys. Pre-authenticated keys are suited to automation. The product should use a tested Headscale version and isolate Headscale-specific behavior behind an internal adapter.
+11.4 OBSERVED DEVICE AND NETWORK ADAPTER SETUP
 
-11.3 HEADSCALE RESPONSIBILITIES
+An observed UPS, audio interface, managed switch, or other non-peer device is added through a purpose-built adapter on a selected collector peer. Setup records a stable observed-device identity, adapter type, collection capability, attachment or topology relationship, and health/freshness evidence. Credentials remain on the selected collector peer. Another peer does not begin polling the device merely because it learned that the device exists.
 
-Headscale should provide:
-
-- Node registration.
-- Private-network coordination.
-- Network identity.
-- Naming and policy where used.
-- Route and relay coordination supported by the selected deployment.
-
-Headscale should not provide:
-
-- Metric storage.
-- Event history.
-- Application authentication by itself.
-- Monitor App action authorization.
-- UI state.
-- Product-specific topology interpretation.
-
-11.4 BOOTSTRAP REQUIREMENTS
-
-- The Headscale service needs a stable HTTPS address for remote enrollment.
-- The initial server setup should verify DNS, TLS, time, and reachability.
-- A local-only advanced path may exist, but the product must explain its remote-connectivity limits.
-- Backup and recovery must preserve the identity and configuration required to restore the private network.
-- Unpairing should revoke Monitor App credentials and, when authorized, remove or expire the Headscale node.
-- Setup failure should identify whether installation, Headscale registration, network reachability, application authentication, or telemetry validation failed.
-- A failed setup should offer retry, diagnostic export, and rollback.
+For managed network equipment, the user explicitly assigns collector ownership. Failover requires provisioning another peer with the adapter and credentials. Reconciliation uses a serial, chassis identifier, chassis MAC, or another strong identity when supported; an IP address alone cannot merge records.
 
 11.5 PLATFORM-SPECIFIC LIMITS
 
 OPEN EXPLORATION
 
-The project must determine whether it can redistribute the official Tailscale client, invoke an existing installation, use a platform package manager, or direct the user to an app store. Licensing, signing, update, and store constraints must be checked before promising a single combined installer.
-
-The safest architectural assumption is that the Monitor App agent and the private-network client are separate components presented through one orchestrated setup experience.
+The project must determine how peer listening, protected key storage, background execution, firewall rules, and Tailscale-address binding work on each platform. Android may reconnect and collect only while permitted by its lifecycle and background-execution policy. The product must display this limitation as freshness rather than imply continuous service.
 
 
-12. PROPOSED SYSTEM ARCHITECTURE
+12. PROPOSED DECENTRALIZED SYSTEM ARCHITECTURE
 
 ASSISTANT PROPOSAL
 
-12.1 EXPERIENCE CLIENT
+12.1 EQUAL PEER SERVICE
 
-Responsibilities:
+Every supported computer or phone runs one logical Monitor App peer with these responsibilities:
 
-- Render the living environment.
-- Render exploded device and service views.
-- Present exact diagnostics.
-- Provide historical time travel.
-- Manage setup and administration.
-- Request authorized actions.
+- Generate and protect its application identity.
+- Collect local signals and adapter observations.
+- Retain its own telemetry and selected replicas in a local database.
+- Listen on an explicitly configured Tailscale-facing endpoint.
+- Initiate direct sessions to configured peers.
+- Authenticate pairwise trust independently of Tailscale.
+- Synchronize origin-owned records and replication cursors.
+- Serve local inventory, current state, and bounded history.
+- Host or support the platform-appropriate experience client.
 
-Constraints:
+There is no controller role. A peer may have more storage, remain online longer, or be configured to retain more replicas, but that does not grant global authority.
 
-- It should not receive direct database access.
-- It should not hold long-lived agent credentials.
-- It should work with streamed live updates and bounded historical queries.
+12.2 LOCAL EXPERIENCE AND API
 
-12.2 APPLICATION API
+The experience client communicates with its local peer service and may render local or replicated state. The local API:
 
-Responsibilities:
+- Serves inventory, relationships, freshness, current state, and retained history.
+- Streams local changes and synchronization progress.
+- Exposes peer pairing and repair operations.
+- Identifies which records are local, replicated, stale, incomplete, or unavailable.
+- Never treats the visual scene as the source of truth.
 
-- Authenticate experience clients.
-- Serve inventory, relationships, current state, and history.
-- Stream live changes.
-- Coordinate search.
-- Broker authorized actions.
-- Expose setup and administration operations.
+12.3 PEER PAIRING AND DIRECTORY
 
-12.3 ENROLLMENT SERVICE
+Each peer stores a local directory containing approved peer identities, pinned public keys, configured Tailscale endpoints, capabilities, protocol compatibility, and per-peer trust state. Pairing is a bilateral operation. The directory is not a global membership authority, and trust does not automatically become transitive.
 
-Responsibilities:
+The initial implementation may require explicit pairwise pairing for each relationship. Later peer introductions must preserve explicit owner approval and must not turn one compromised peer into authority over the mesh.
 
-- Create pairing transactions.
-- Generate short-lived enrollment material.
-- Coordinate Headscale registration.
-- Bind application and network identity.
-- Validate completion.
-- Revoke or expire unused enrollment.
-- Record a security audit.
+12.4 ORIGIN-OWNED OBSERVATION LOG
 
-12.4 TELEMETRY INGEST
+Each peer owns an append-only or versioned sequence for records it produces. A record includes:
 
-Responsibilities:
+- Origin peer and origin sequence.
+- Observed entity and component identity.
+- Adapter and collection source.
+- Source and ingestion times.
+- Unit, quality, freshness, and collection cost.
+- Numeric value, counter, state, event, fact, error, or topology evidence.
+- Schema and capability identifiers.
 
-- Authenticate the agent.
-- Validate message schemas.
-- Validate timestamps and sequence numbers.
-- Normalize units.
-- Apply backpressure.
-- Store samples and events.
-- Reject unauthorized device identities.
+Only the origin advances its stream. This avoids distributed write consensus for telemetry. Another peer validates, stores, acknowledges, and requests missing ranges but does not rewrite the origin record.
 
-12.5 TOPOLOGY AND STATE ENGINE
+12.5 REPLICATION
 
-Responsibilities:
+Pairwise sessions exchange durable cursors and bounded batches. Replication should:
 
-- Maintain devices, components, and typed relationships.
-- Convert raw signals into current state.
-- Group related alerts into incidents.
-- Reconstruct historical state.
-- Supply projections suitable for different visual lenses.
+- Resume after either peer or network path restarts.
+- Accept byte-identical retries idempotently.
+- Reject conflicting content at an accepted origin sequence.
+- Detect gaps and request bounded missing ranges.
+- Apply backpressure and local storage budgets.
+- Preserve raw local detail while permitting lower-cost replicated summaries.
+- Expose partial history and last synchronization time truthfully.
+- Avoid deleting the only retained copy of origin data merely because another peer acknowledged it.
 
-The visual scene should be a projection of this model. It should not be the source of truth.
+Origin telemetry needs no global consensus. Shared annotations, display metadata, retention pins, or future actions require separately specified merge and authorization semantics.
 
-12.6 ACTION BROKER
+12.6 OBSERVED DEVICES AND COMPONENTS
 
-Responsibilities:
+Peer-capable nodes and observed devices are different entity types. A UPS, audio interface, switch, sensor, service, or other component may be observed through an adapter on a host peer without running Monitor App itself.
 
-- Check the actor's permission.
-- Check the agent's declared capability.
-- Produce a scope preview.
-- Create an idempotency key.
-- Set an expiration time.
-- Dispatch the request.
-- Record acknowledgement and result.
-- Verify resulting state where possible.
+The observed entity retains a stable identity independent of attachment host. Typed relationships include attached-to, collected-by, hosted-on, connected-to-port, member-of-VLAN, uplink-to, and reachable-over-overlay. Adapter observations preserve source and evidence so a view can distinguish a device report, operating-system report, neighbor protocol, forwarding database evidence, and Monitor App inference.
 
-12.7 MONITOR APP AGENT
+12.7 PHYSICAL LAN AND TAILSCALE OVERLAY
 
-Responsibilities:
+The physical network and Tailscale overlay are separate but related models. Physical topology may include managed switches, ports, VLANs, trunks, uplinks, peers, peripherals, and inferred attachments. Tailscale represents private overlay reachability between peer services. An overlay session must not be displayed as proof of a particular physical path.
 
-- Maintain an outbound application connection where practical.
-- Collect supported local signals.
-- Run integration adapters.
-- Buffer a bounded amount of telemetry while disconnected.
-- Preserve original timestamps during later upload.
-- Execute only explicitly authorized actions.
-- Advertise its platform, version, and capabilities.
+Multiple peers may observe the same LAN object. Reconciliation uses strong identity and evidence, not IP address alone. Explicit collector ownership prevents redundant polling initially. Adapter credentials remain local to provisioned collectors, and failover is enabled only through explicit provisioning.
 
-The agent should use least privilege. An integration that requires elevated access should not force the whole agent to run permanently with the highest system privileges if privilege can be isolated.
+12.8 ADAPTER AND CAPABILITY REGISTRY
 
-12.8 INTEGRATION ADAPTERS
+Adapters declare:
 
-Adapters should:
+- A versioned, namespaced module identity and compatibility range.
+- Supported entity and observation types.
+- Typed relationships and their evidence semantics.
+- Discovery and stable-identity evidence.
+- Required permissions and local credentials.
+- Expected collection cost and safe sampling bounds.
+- Sampling and retention metadata.
+- Domain, subsystem, importance, privacy, and cost categories.
+- Quality, error, and freshness behavior.
+- Purpose-built inspector descriptors and a truthful generated fallback schema.
 
-- Use supported service APIs.
-- Translate service-specific data into the shared object model.
-- Preserve service-specific detail for the specialized inspector.
-- Declare required secrets and permissions.
-- Fail independently when possible.
-- Report their own freshness and health.
+The registry is extensible enough to measure new supported facts without weakening privacy or allowing unbounded unsafe collection. Registration permits aggregate network operations data but rejects packet detail, communication identities, session histories, per-process inspection, and content classification. Adapter failure is isolated and visible. The canonical observation catalog, rather than a screen or adapter-specific dictionary, is the source for search, domain lenses, retention, replication summaries, and inspector fallback behavior.
 
-12.9 HISTORY STORE
+12.9 LOCAL PERSISTENCE
 
-The history store should persist:
+Every peer uses a versioned local store for identity, peer directory, origin records, retained replicas, replication cursors, adapter state, topology evidence, and audit events. SQLite WAL remains the accepted personal-scale starting point. Storage and retention policies operate per peer and distinguish locally irreplaceable origin data from replaceable replicas.
 
-- Inventory and configuration.
-- Relationships and their validity periods.
-- Metric series.
-- Events.
-- State snapshots.
-- Incidents.
-- Actions and audit records.
-- Enrollment records.
+12.10 COMMUNICATION MODEL
 
-12.10 HEADSCALE
+- Peers connect directly over Tailscale endpoints entered during pairing.
+- Peers may initiate and accept sessions; no public endpoint is enabled by default.
+- Application authentication and encryption remain required inside Tailscale.
+- Live and historical synchronization use resumable, bounded, sequence-aware messages.
+- Duplicate simultaneous sessions resolve deterministically.
+- Protocol compatibility is negotiated explicitly.
+- Direct versus relayed Tailscale transport is reachability evidence, not Monitor App identity.
 
-Headscale coordinates the private network. Monitor App traffic should travel through application protocols over that private network. Application-layer TLS should remain enabled even inside the encrypted overlay so services retain their own identity and defense in depth.
+12.11 ACTION SAFETY
 
-12.11 COMMUNICATION MODEL
-
-- Agents should prefer outbound sessions so devices do not expose public monitoring ports.
-- Live state should use a resumable stream with sequence numbers.
-- Historical access should use bounded queries.
-- Agents should buffer only a configured amount of offline data.
-- Commands should include a target, authorization context, expiration, and idempotency key.
-- Every component should report version and schema compatibility.
-- A network path changing between direct and relayed should not appear as a device failure when the application session remains healthy.
+Future actions target the peer or adapter that owns the capability. They remain outside the replication authority of ordinary telemetry. Requests include actor, target, authorization, expiration, idempotency, and a scope preview. A replicated historical record can never cause a live action.
 
 12.12 DEPLOYMENT MODEL
 
-OPEN EXPLORATION
-
-The initial controller could be delivered as:
-
-- A supported appliance image.
-- A Docker Compose deployment.
-- Native Linux services.
-- A limited combination of the above.
-
-The first release should choose a narrow, well-tested path rather than claim support for every self-hosting style.
-
-A likely initial host is a Linux server, NAS with an appropriate container environment, or small virtual private server. Headscale may be installed by the same bundle or connected as an existing compatible service.
+The first deployment unit is a native peer service plus a platform-appropriate local experience. Windows, Fedora, and Ubuntu use managed background services. Android uses only operating-system-supported background mechanisms and must report when the peer is not continuously available. There is no controller appliance or Compose deployment requirement.
 
 
 13. DATA MODEL
@@ -913,19 +901,28 @@ A likely initial host is a Linux server, NAS with an appropriate container envir
 ASSISTANT PROPOSAL
 
 Environment
-One monitored private system. Important fields include identity, name, time zone, retention policy, and visual preferences.
+One locally assembled view of the paired monitoring mesh. Important fields include identity, name, time zone, local retention policy, replication budget, and visual preferences.
 
 Node
-A device or logical endpoint. Important fields include stable identity, platform, role, network identity, capabilities, freshness, and lifecycle state.
+A peer-capable computer or phone. Important fields include stable application identity, platform, role, configured Tailscale endpoint, capabilities, freshness, and lifecycle state.
+
+Observed device
+A stable physical or logical entity that may not run Monitor App, such as a UPS, audio interface, managed switch, service, or sensor. Important fields include strong identity evidence, type, adapter, current collector ownership, capabilities, freshness, and attachment history.
 
 Component
 A nested part of a node or service. Important fields include type, parent, health, capabilities, and specialized view adapter.
 
 Relationship
-A typed connection between two objects. Important fields include source, target, type, direction, validity interval, and confidence.
+A typed connection between two objects. Important fields include source, target, type, direction, validity interval, evidence source, reported-or-inferred status, quality, and confidence. Physical-LAN and Tailscale-overlay relationships remain distinguishable.
+
+Capability module
+A versioned namespaced contract declaring entity types, observations, relationships, collection metadata, categories, compatibility, and inspector descriptors.
+
+Observation definition
+A canonical catalog entry classifying a signal by domain, entity, subsystem, source, unit, temporal behavior, importance, privacy, and collection cost.
 
 Metric series
-Timestamped numeric or categorical observations. Important fields include source, unit, collection policy, quality, and retention tier.
+Origin-sequenced numeric or categorical observations. Important fields include entity, origin peer, adapter source, source time, unit, collection policy, quality, freshness, cost, and retention tier.
 
 Event
 A discrete occurrence. Important fields include time, type, object, severity, evidence, and correlation keys.
@@ -939,35 +936,39 @@ A group of related symptoms and evidence. Important fields include affected obje
 Action
 A requested control operation and result. Important fields include actor, target, preview, authorization, timestamps, result, and audit information.
 
-Enrollment
-A time-bounded pairing transaction. Important fields include platform, intended role, token hash, expiration, Headscale state, and completion state.
+Peer pairing
+A time-bounded bilateral trust transaction. Important fields include both peer identities, bootstrap Tailscale endpoint, short-lived approval, key fingerprints, expiration, transcript binding, and completion state.
+
+Replication cursor
+The durable per-origin sequence through which a receiving peer has validated and retained records, including any known gaps and summary fidelity.
+
+Collector assignment
+The explicit peer and adapter authorized to collect an observed device. Important fields include observed-device identity, owning peer, adapter capability, credential location reference, health, and optional explicitly provisioned failover.
 
 13.1 STORAGE ENGINE
 
 OPEN EXPLORATION
 
-The exact storage engine is unresolved.
-
-A small appliance may be able to use SQLite or a similar embedded database. A controller with concurrent ingest and longer history may benefit from PostgreSQL and time-series support. The choice should follow a benchmark using expected device count, sampling frequency, historical seek behavior, backup, and restore.
+Each peer uses file-backed SQLite in WAL mode for the personal-scale foundation. The schema must distinguish irreplaceable local origin data from replicated data that can be reacquired, and must retain durable peer and per-origin cursors. A future storage change requires a benchmark using expected device and observation count, sampling frequency, replication load, historical seek behavior, backup, and restore.
 
 13.2 BACKUP AND RESTORE
 
 Backups should include:
 
-- Controller configuration.
-- Identity mapping.
+- Local peer identity and protected recovery metadata.
+- Paired-peer directory and trust decisions.
 - History schema.
-- Inventory and relationships.
-- Events and metrics within the selected policy.
+- Local origin records and retained replicas within the selected policy.
+- Observed-device identity, inventory, relationships, collector assignments, and topology evidence.
+- Capability-module configuration and explicit sensitive-category choices.
 - Encryption metadata required for recovery.
-- Headscale configuration and state when it is managed by the same deployment.
 
-Restore must be tested as part of release acceptance. A backup that has never been restored is not sufficient evidence of recoverability.
+Restore must be tested per peer as part of release acceptance. Restoring one peer must not duplicate its origin identity or fork its sequence without an explicit recovery rule. A backup that has never been restored is not sufficient evidence of recoverability.
 
 
 14. PLATFORM STRATEGY AND CONSTRAINTS
 
-Current Headscale documentation identifies Linux, BSD, Windows, Android, macOS, iOS, and tvOS as compatible client platforms, but configuration differs. This does not mean Monitor App automatically supports every platform. The project should publish only combinations it tests end to end.
+Tailscale reachability across a platform does not mean Monitor App automatically supports that platform. The project should publish only peer service, collector, adapter, and experience combinations it tests end to end.
 
 14.1 WINDOWS
 
@@ -976,20 +977,21 @@ ASSISTANT PROPOSAL
 Windows is a reasonable primary desktop experience and monitored endpoint.
 
 Constraint:
-The standard Windows Tailscale user interface does not currently provide the same alternate-server setup path as every other platform. Official documentation describes CLI or policy and registry configuration. The installer therefore requires platform-specific configuration and appropriate privileges.
+The Windows service must protect its local peer identity, database, adapter credentials, listener firewall scope, and update state. Tailscale installation and login remain a user-managed prerequisite in the first decentralized release.
 
 14.2 LINUX
 
 ASSISTANT PROPOSAL
 
-Linux is a likely controller host, server-agent platform, and monitored endpoint.
+Linux is a peer-service platform, monitored endpoint, and likely host for network or peripheral adapters.
 
 Constraints:
 
 - Package and service differences across distributions.
 - Permission differences among collectors.
-- Container and host-networking configuration.
+- Tailscale interface binding and firewall configuration.
 - Need to choose a supported distribution and version matrix.
+- Managed-switch and peripheral credentials must remain protected on the explicitly assigned collector peer.
 
 14.3 ANDROID
 
@@ -1008,7 +1010,7 @@ Useful mobile functions include:
 
 Constraints include:
 
-- VPN permission.
+- Tailscale availability and Android network permission.
 - Background-execution limits.
 - Battery optimization.
 - Store policy.
@@ -1048,19 +1050,21 @@ ASSISTANT PROPOSAL
 
 15.1 SECURITY REQUIREMENTS
 
-- Use short-lived, single-use enrollment credentials.
-- Bind application device identity to the expected private-network identity.
+- Use short-lived, transcript-bound bilateral pairing approval.
+- Pin application peer identity independently of a Tailscale IP address.
 - Use TLS for Monitor App protocols even inside the private network.
-- Protect controller keys and integration secrets at rest.
+- Protect peer identity keys, local databases, and adapter credentials at rest.
 - Separate read, configure, and control permissions.
-- Default new agents and integrations to read-only access.
+- Default new peers and adapters to read-only access.
 - Run collectors with least privilege.
 - Record security-relevant changes and actions.
 - Sign installers and updates.
 - Verify update signatures before execution.
-- Support device revocation and credential rotation.
+- Support peer unpairing, device revocation, and key rotation without a central authority assumption.
 - Do not send telemetry or usage analytics to third parties by default.
-- Encrypt backups that contain sensitive history or credentials.
+- Encrypt peer backups that contain sensitive history or credentials.
+- Keep adapter and managed-device credentials local to explicitly provisioned collector peers.
+- Permit aggregate operational network measurements but prohibit packet detail, communication identity and session history, per-process inspection, DNS/query history, and content classification.
 
 15.2 CONTROL SAFETY
 
@@ -1088,7 +1092,9 @@ Historical mode should disable live actions or require an explicit return to the
 - Allow sensitive collectors to be disabled.
 - Avoid collecting file names, process arguments, or secret values unless a selected feature specifically requires them.
 - Allow diagnostic exports to be reviewed and redacted before sharing.
-- Distinguish Monitor App telemetry from Headscale coordination metadata.
+- Distinguish Monitor App telemetry from Tailscale reachability metadata.
+- List which records are local origin data, replicated raw data, replicated summaries, or inference.
+- Make sensitive or high-cost capability modules explicit opt-in with visible collection and retention behavior.
 
 
 16. PERFORMANCE RESILIENCE AND ACCESSIBILITY
@@ -1114,16 +1120,19 @@ Suggested initial targets, subject to reference-hardware testing:
 
 The product should distinguish:
 
-- Controller unavailable.
-- Headscale unavailable.
-- Private-network path unavailable.
-- Agent unavailable.
+- Local peer service unavailable.
+- Remote peer service unavailable.
+- Tailscale path unavailable.
+- Peer authentication or protocol incompatibility.
 - Device sleeping.
 - Telemetry stale.
+- Replication delayed, partial, summarized, or storage-limited.
+- Assigned collector unavailable.
+- Observed device unavailable or moved to another attachment host.
 - Integration failed.
 - Monitored service failed.
 
-Clients should be able to show cached state with an explicit timestamp. Agents should buffer a bounded amount of telemetry. A nonessential integration failure should not prevent the controller from starting in a degraded read-only state.
+Every peer should show cached state with explicit origin, source time, and last synchronization time. A peer buffers its origin telemetry and bounded replicas. A nonessential adapter failure should not prevent the peer service from starting in a degraded read-only state.
 
 Schema migration, backup, restore, and rolling version compatibility should be tested.
 
@@ -1267,8 +1276,8 @@ ASSISTANT PROPOSAL
 2. The application shows target, effect, permission, and known dependents.
 3. The user confirms when required.
 4. The action receives an expiration and idempotency key.
-5. The agent acknowledges receipt.
-6. The agent reports completion or failure.
+5. The responsible peer or adapter acknowledges receipt.
+6. The responsible peer or adapter reports completion or failure.
 7. Monitor App records the action as an event.
 8. The application verifies the resulting state when a relevant signal exists.
 
@@ -1296,17 +1305,17 @@ The user can compare them directly and narrow the field without selecting among 
 PHASE 2 CONNECTIVITY FOUNDATION
 
 Outcome:
-A repeatable self-hosted Headscale deployment and download-install-pair flow for the first supported platforms.
+A repeatable direct peer download-install-add-by-Tailscale-IP-and-pair flow for the first supported platforms.
 
 Work includes:
 
-- Enrollment service.
+- Bilateral peer pairing service.
 - Signed installer.
-- Headscale adapter.
-- One-time credentials.
-- Device identity binding.
-- Pairing health checks.
-- Revocation and rollback.
+- Tailscale-interface listener configuration.
+- Short-lived transcript-bound approval.
+- Pairwise application identity verification and pinning.
+- Automatic reconnect with duplicate-session resolution.
+- Unpairing, key rotation, repair, and rollback.
 
 PHASE 3 TELEMETRY AND HISTORY
 
@@ -1315,9 +1324,12 @@ Reliable current and historical state.
 
 Work includes:
 
-- Agents.
+- Equal peer services and platform collectors.
 - Capability discovery.
-- Telemetry schemas.
+- Versioned capability modules and canonical observation catalog.
+- Origin-owned telemetry and topology schemas.
+- Peer replication and durable cursors.
+- Observed-device identity and collector assignment.
 - Events.
 - Snapshots.
 - Retention.
@@ -1345,7 +1357,7 @@ The physical interaction, cinematic transitions, ambient personality, performanc
 ASSISTANT PROPOSAL
 
 Enrollment
-A supported device can move from signed download to verified pairing without the user typing a Headscale command. Failure can be retried or rolled back.
+Two supported devices can move from signed downloads and a manually entered Tailscale IP to verified bilateral pairing. They reconnect whenever both services run, and failure can be diagnosed, retried, repaired, unpaired, or rolled back without a controller.
 
 Environment
 The application presents stable device and service identities, typed relationships, freshness, and incidents without relying on a grid of generic cards.
@@ -1363,10 +1375,10 @@ Safe play
 Visual manipulation cannot execute a real command. Real actions use explicit authorization and appear in history.
 
 Self-hosting
-The controller, history, and coordination services operate without a vendor monitoring cloud. Backup and restore are tested.
+Monitoring, history, identity, and queries operate on peers without a vendor monitoring backend or always-on Monitor App host. Tailscale supplies reachability only. Peer backup and restore are tested without duplicating origin identity.
 
 Resilience
-Cached state, stale data, sleeping devices, agent outage, controller outage, private-network failure, and monitored-service failure are distinguished.
+Cached state, stale data, sleeping devices, peer-service outage, Tailscale path failure, replication delay, collector outage, observed-device outage, and monitored-service failure are distinguished.
 
 Performance
 The agreed reference environment remains responsive under the agreed device and event load. Effects degrade before input and diagnostics.
@@ -1401,21 +1413,21 @@ Privilege prompts, app stores, signing, licensing, and alternate-server configur
 Mitigation:
 Build platform-specific orchestration, state unavoidable prompts clearly, and test clean-machine installation.
 
-Headscale changes disrupt enrollment
+Pairwise trust becomes difficult to repair
 
 Risk:
-An upstream version change can alter registration or policy behavior.
+A lost key, changed Tailscale address, restored backup, or compromised peer can make pairwise trust ambiguous.
 
 Mitigation:
-Pin tested versions, isolate integration behind an adapter, back up state, and maintain a documented recovery path.
+Pin trust to application keys, bind address changes to authenticated identity or explicit repair, test unpairing and rotation, and prevent backup restore from silently forking one peer identity.
 
-History grows without bound
+Replicated history grows without bound
 
 Risk:
-High-resolution metrics can consume the self-hosted controller's storage.
+High-resolution observations and replicas can consume every peer's local storage.
 
 Mitigation:
-Use adaptive collection, retention tiers, storage budgets, and visible rollups.
+Use adaptive collection, per-peer retention tiers, replication budgets, visible summaries, and different treatment for irreplaceable origin data and replaceable replicas.
 
 Android data becomes stale
 
@@ -1425,10 +1437,34 @@ Background restrictions can interrupt collection.
 Mitigation:
 Expose freshness, use operating-system-supported patterns, and avoid unsupported promises.
 
+Collector compromise exposes local credentials
+
+Risk:
+A peer assigned to collect a managed switch or peripheral may hold sensitive adapter credentials.
+
+Mitigation:
+Keep credentials local, use least privilege, do not replicate them, make collector ownership explicit, and require explicit credential provisioning for failover.
+
+Conflicting topology evidence misidentifies devices
+
+Risk:
+Multiple peers may observe the same switch, port, or peripheral differently, and IP-based merging can combine unrelated devices.
+
+Mitigation:
+Use strong identity evidence, preserve each source and confidence, distinguish reported from inferred topology, and surface unresolved conflicts.
+
+Security detection overstates evidence or invades privacy
+
+Risk:
+Automated threat detection can create unsupported compromise claims or expand into traffic surveillance.
+
+Mitigation:
+Keep it explicitly enabled and separately permissioned, prefer summarized alerts and aggregate signals, process locally with bounded retention, require evidence and confidence, and prohibit default payload interception, decryption credentials, exploit attempts, indiscriminate scanning, or unauthorized-network monitoring.
+
 Controls increase consequences
 
 Risk:
-A compromised controller or mistaken action could affect real systems.
+A compromised peer or mistaken action could affect real systems.
 
 Mitigation:
 Launch read-only first, separate permissions, use previews and expiration, and audit every action.
@@ -1466,21 +1502,21 @@ Launch platforms
 
 The project must decide whether to begin with Windows and Linux, whether Android ships with the first release, and when macOS becomes a supported target.
 
-Controller packaging
+Peer service packaging
 
-Choose among an appliance, containers, native services, or a deliberately limited combination.
+Choose and test native service installation, protected key storage, Tailscale-interface binding, firewall scope, upgrade, rollback, and uninstall for Windows, Fedora, Ubuntu, and Android's permitted lifecycle.
 
-Storage engine
+Replication and retention defaults
 
-Choose after telemetry-volume, historical-seek, backup, and restore testing.
+Choose raw-versus-summary replication, storage budgets, origin-data protection, gap recovery, and retention after measuring realistic observation volume and historical seek needs.
 
 Retention defaults
 
 Choose after measuring realistic data volume on expected self-hosted hardware.
 
-Authentication
+Local user and peer administration authentication
 
-Options include a local owner account, passkeys, or external OpenID Connect. Offline recovery and self-hosted setup complexity matter.
+Choose how a local user authorizes pairing, adapter credentials, sensitive modules, threat detection, and future actions. Peer application identity is separately pinned through bilateral proof. Offline recovery and multi-device key rotation matter.
 
 Action scope
 
@@ -1490,9 +1526,17 @@ Remote notifications
 
 Options include local-only notifications, a self-hosted push bridge, or optional third-party channels. Privacy and reliability require a separate decision.
 
-Tailscale client distribution
+Peer directory propagation
 
-Determine per platform whether Monitor App may bundle, install, configure, or guide the official network client.
+The initial model permits explicit pairwise setup. Any future introductions or directory synchronization must preserve owner approval and avoid transitive trust escalation.
+
+Shared metadata conflicts
+
+Origin telemetry is single-writer, but annotations, display names, incident pins, topology corrections, and retention protection may be edited on multiple peers. Define merge and conflict semantics before replication.
+
+Defensive threat detection depth
+
+Baseline aggregate and summarized-alert detection is allowed when explicitly enabled. Any deeper flow-derived or packet-derived capability requires a separate design, permission, disclosure, retention, and legal/privacy review.
 
 Sound
 
@@ -1542,8 +1586,8 @@ Consequence: Specialize inspectors and avoid universal freeform dashboards.
 
 D08
 Direction: Use download-install-pair setup over self-hosted Headscale.
-Status: CONFIRMED USER DIRECTION in the current brief.
-Consequence: Enrollment, installer orchestration, and Headscale integration are core product work.
+Status: SUPERSEDED by D15 and D16 after the user clarified that no controller or always-on Monitor App host should exist.
+Consequence: Headscale integration and controller enrollment are not product requirements. Historical implementation remains migration evidence only.
 
 D09
 Direction: Separate playful manipulation from real commands.
@@ -1575,10 +1619,45 @@ Direction: Do not accept a simple generic topology as sufficient.
 Status: REJECTED OR DEPRIORITIZED.
 Consequence: Topology must become a richly designed, explorable environment with meaningful internal structure.
 
+D15
+Direction: Use an equal-peer decentralized Monitor App architecture with no controller or central monitoring database.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Every supported device runs the same logical peer service with local collection, persistence, query, and direct synchronization.
+
+D16
+Direction: Bootstrap a peer by entering its Tailscale IP, then reconnect directly whenever both peer services run.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Tailscale provides reachability only; bilateral application identity, pairing, authorization, and reconnection belong to Monitor App.
+
+D17
+Direction: Include observed devices that cannot run a peer service through purpose-built adapters on a host peer.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Stable observed-device identity and typed attachment and collection relationships remain independent of the current collector host.
+
+D18
+Direction: Model the physical LAN separately from the Tailscale overlay and support managed-switch and topology observations.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Strong identity, explicit collector ownership, local-only credentials, evidence-qualified reconciliation, and reported-versus-inferred topology are foundational.
+
+D19
+Direction: Anything safely and truthfully measurable should be measurable through modular capability contracts.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Use a versioned namespaced module contract and canonical observation catalog with adaptive sampling, retention, replication budgets, selective customization, and purpose-built or truthful fallback inspectors.
+
+D20
+Direction: Permit aggregate operational network measurement but prohibit communication-content and communication-identity surveillance by default.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Aggregate throughput, utilization, counters, errors, latency, and reachability are allowed. Packet detail, flow or connection histories, endpoints, DNS/query histories, per-process inspection, and content classification are prohibited in ordinary monitoring.
+
+D21
+Direction: Allow explicitly enabled defensive threat detection under separate privacy, permission, evidence, retention, ownership, and legal guardrails.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Prefer aggregate signals and summarized device alerts. Deeper flow-derived or packet-derived modules require separate approval and review; findings report evidence and confidence rather than unsupported compromise claims.
+
 
 24. TECHNICAL REFERENCES
 
-The following current official documentation validates platform and Headscale assumptions used in the assistant proposals. These references do not replace project decisions.
+The following references were used for earlier Tailscale and Headscale assumptions. Headscale-specific references are retained as historical context only; Headscale is not required by the current confirmed architecture. These references do not replace project decisions.
 
 Headscale stable documentation
 https://headscale.net/stable/
@@ -1604,23 +1683,38 @@ https://tailscale.com/docs/install
 
 25. GLOSSARY
 
-Agent
-Software on a monitored device that collects supported signals and executes explicitly authorized adapters or actions.
+Peer
+The equal Monitor App service on a supported computer or phone. It owns an application identity, collects local signals, stores local and replicated records, connects directly to paired peers, and serves a local experience and API.
+
+Observed device
+A physical or logical device, service, or component that does not run a peer service and is measured through an adapter on a collector peer.
+
+Collector ownership
+The explicit assignment authorizing one peer and adapter to collect an observed device. Credentials remain local and failover requires separate provisioning.
+
+Capability module
+A versioned, namespaced declaration of entity types, observations, relationships, collection metadata, categories, compatibility, and inspector descriptors.
+
+Observation catalog
+The canonical classification of signals by domain, entity, subsystem, source, unit, temporal behavior, importance, privacy, and collection cost.
 
 Component
 A part of a device or service represented inside an exploded view.
 
 Control plane
-The service layer that coordinates private-network identity, policy, and connection information. Headscale fills this network role.
+The Tailscale coordination layer that supplies overlay reachability. It is outside Monitor App identity, telemetry, history, and authorization.
 
 Data plane
-The application traffic carrying telemetry, history queries, and authorized commands between Monitor App components.
+Direct authenticated application traffic carrying pairing, replication, queries, and future authorized actions between Monitor App peers.
 
 Exploded architecture
 A layered visual representation that reveals the internal structure of a selected device or service.
 
-Headscale
-An open-source, self-hosted implementation of the Tailscale control server.
+Origin stream
+The ordered observation sequence written only by the peer that produced it and replicated without rewriting by other peers.
+
+Replication cursor
+The durable per-origin position and known-gap state retained by a receiving peer.
 
 Inspector
 A purpose-built detailed view for a device, service, component, or relationship.
@@ -1635,7 +1729,7 @@ Snapshot
 A compact saved state used with later events and metrics to reconstruct a historical scene.
 
 Tailnet
-The private Tailscale-compatible network coordinated by Headscale.
+The private Tailscale network used to make peer endpoints reachable. Tailnet membership alone grants no Monitor App trust.
 
 Visual lens
 A designed emphasis layer that highlights connectivity, storage, power, synchronization, service health, or another concern without rebuilding the environment.
@@ -1646,15 +1740,15 @@ A designed emphasis layer that highlights connectivity, storage, power, synchron
 ASSISTANT PROPOSAL
 
 1. Review this document and correct any technical or product assumption that does not match the intended environment.
-2. Confirm the first controller host and the first two supported endpoint platforms.
-3. Define a shared sample environment and recorded scenario for prototype comparison.
-4. Produce several distinct visual prototypes in parallel.
-5. Run a Headscale enrollment spike on clean devices for the proposed launch platforms.
-6. Measure realistic telemetry volume and historical query needs.
-7. Choose a narrow controller packaging path.
-8. Select the first purpose-built integrations, with Syncthing as a strong candidate.
-9. Decide whether the first integrated release is read-only.
-10. Narrow the visual direction only after direct comparison of the broad prototypes.
+2. Replace the controller-oriented wire contract with bilateral pairing, peer session, origin-log, replication-cursor, capability-module, and observed-device contracts.
+3. Migrate the service into one equal peer process while retaining tested collection, freshness, SQLite, authentication, and update components.
+4. Prove two fresh peers can pair by Tailscale IP, reconnect after restart, and converge without duplicates or a controller.
+5. Add stable observed-device identity, explicit collector ownership, and one bounded purpose-built adapter spike without choosing a permanent device protocol prematurely.
+6. Add physical-LAN and overlay relationship contracts plus multi-peer evidence reconciliation tests.
+7. Add the canonical observation catalog and registration rejection tests for prohibited network detail.
+8. Measure realistic telemetry, topology, raw-versus-summary replication, retention, and mobile power costs.
+9. Define a shared sample environment and recorded scenario for later visual prototype comparison.
+10. Narrow the visual direction only after the decentralized functional foundation and direct comparison of broad prototypes.
 
 
 END OF SPECIFICATION

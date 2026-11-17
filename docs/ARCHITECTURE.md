@@ -2,258 +2,288 @@
 
 ## Status
 
-This is the provisional functional architecture. Confirmed product requirements are identified separately from working technical choices. The first implementation stack, persistence engine, and controller deployment path are accepted in `DECISIONS.md`; component behavior remains subject to executable verification.
-
-## Accepted implementation baseline
-
-- Use C# on .NET 10 LTS for the controller, shared domain code, contracts, desktop and Linux agents, Android client code, and later experience clients.
-- Host the controller with ASP.NET Core.
-- Use standard gRPC over TLS and HTTP/2 with versioned Protocol Buffer contracts. Agent traffic may use bidirectional streaming; a future browser client must not weaken that transport merely to use gRPC-Web.
-- Run one shared .NET worker agent implementation as a Windows Service or `systemd` service, with platform collectors behind explicit capability interfaces.
-- Use Avalonia for the later shared Windows, Fedora, Ubuntu, and Android experience client. The first client remains a plain functional shell.
-- Use SQLite in WAL mode for the first personal-scale controller persistence implementation.
-- Deploy the first controller through Docker Compose. Windows, Fedora, and Ubuntu agents remain native packages and are not hidden inside the controller deployment.
+This is the target functional architecture after the user explicitly superseded the controller-centric design. Monitor App is a decentralized system of equal peers. The current repository still contains a controller alpha and controller-oriented contracts; those are migration inputs and test evidence, not the intended deployment topology.
 
 ## Confirmed constraints
 
-- Target Android, Windows, Fedora, and Ubuntu devices.
-- Use self-hosted Headscale for private-network coordination.
-- Make setup approach download, install, and pair rather than manual VPN assembly.
-- Preserve historical state and time travel as a core product capability.
-- Keep purpose-built behavior ahead of arbitrary customization.
-- Build functionality before advanced visuals and final UI polish.
-- Keep playful visual manipulation separate from real operational actions.
+- Target Android, Windows, Fedora, and Ubuntu.
+- Require no Monitor App controller, central monitoring database, or always-on Monitor App host.
+- Let the user enter a Tailscale IP for initial peer contact.
+- Reconnect paired peers directly whenever both services are running and Tailscale-reachable.
+- Treat Tailscale as reachability only; application identity and authorization remain independent.
+- Store and serve data locally on every peer.
+- Include non-peer devices and components through purpose-built adapters on collector peers.
+- Model the physical LAN separately from the Tailscale overlay.
+- Make safely and truthfully measurable signals extensible through versioned capability modules.
+- Preserve purpose-built information design and selective customization rather than a blank dashboard.
+- Permit aggregate operational network measurement while excluding communication content and identity histories from ordinary monitoring.
+- Keep defensive threat detection separate, explicit, evidence-based, locally processed, permissioned, and bounded.
+- Preserve historical time travel, truthful freshness, and functionality-first delivery.
+
+## Accepted implementation baseline
+
+- C# on .NET 10 LTS.
+- Standard gRPC over TLS and HTTP/2 with versioned Protocol Buffers.
+- One shared peer-service core with platform-specific host, collector, key-storage, and lifecycle boundaries.
+- File-backed SQLite in WAL mode on every peer.
+- Avalonia remains reserved for the later shared experience; the functional client may be plain.
+- Native Windows Service and `systemd` packages for desktop and Linux peers.
+- Android uses only platform-supported foreground/background mechanisms and reports when service continuity is unavailable.
+- Signed release manifests and platform-specific verified update application.
 
 ## Functional system shape
 
 ```text
-Experience clients
-    |
-    | application protocol with application identity
-    v
-Monitor App controller
-    |- API and live stream
-    |- enrollment service
-    |- telemetry ingest
-    |- topology and current-state engine
-    |- history reconstruction
-    |- action broker (later, separate permission domain)
-    `- persistence
-         ^
-         | outbound agent sessions over the private network
-         |
-Endpoint agents and collectors
-    |- Windows
-    |- Fedora
-    |- Ubuntu
-    `- Android within platform limits
+Peer A                                              Peer B
+|- local experience                                |- local experience
+|- local API                                       |- local API
+|- platform collectors                             |- platform collectors
+|- adapter host                                    |- adapter host
+|- local origin log                                |- local origin log
+|- retained replicas                               |- retained replicas
+|- peer directory + pinned key                     |- peer directory + pinned key
+`- SQLite WAL                                      `- SQLite WAL
+          \                                        /
+           `-- direct authenticated peer session --'
+                 over a configured Tailscale IP
 
-Headscale coordinates the private Tailscale-compatible network alongside this
-application data flow. It is not the telemetry database or application identity
-provider.
+Observed devices and components
+  UPS / audio interface / managed switch / services / sensors
+       | collected through a purpose-built adapter
+       `-- explicit collector ownership on a selected peer
 ```
 
-## Component responsibilities
+No peer has global authority. A peer may retain more data or be online more often without becoming a controller.
 
-### Shared domain contracts
+## Entity model
 
-Define stable, versioned representations for:
+### Peer node
 
-- Environment
-- Node
-- Capability
-- Component
-- Relationship
-- Metric sample
-- Event
-- Snapshot
-- Incident
-- Enrollment
-- Action and action result
-- Freshness and quality
+A computer or phone that runs Monitor App. Its stable identity is an application key, not its IP address. It has a platform, capabilities, configured Tailscale endpoints, local origin streams, replication cursors, and lifecycle/freshness state.
 
-Contracts must distinguish unavailable, unknown, stale, offline, and valid zero values. All telemetry carries source time, ingestion time, unit when applicable, source identity, and quality.
+### Observed device
 
-The implemented `monitor.v1` wire boundary lives under `contracts/monitor/v1` and generates C# types in `MonitorApp.Contracts`. It defines an explicit `ProtocolVersion`; Windows, Fedora, Ubuntu, and Android platform values; capability state, observation quality, and metric unit enums; application enrollment and proof-of-possession messages; typed metric values; one unary `EnrollmentService`; and one bidirectional `AgentSession` gRPC stream. Typed metric values use a Protobuf `oneof`, so a valid numeric zero remains present and distinct from an unavailable observation with no value. Semantic validation rejects unspecified or unknown enum values, invalid timestamps and identities, malformed P-256 public keys, incorrect secret, challenge, signature, or fingerprint sizes, missing typed values for valid observations, values attached to unavailable observations, and noncontiguous telemetry batches.
+A physical or logical entity that may not run Monitor App, including a UPS, audio interface, managed switch, sensor, service, or storage appliance. It keeps a stable identity and history independent of the peer currently collecting it.
 
-The contract intentionally contains no Headscale types. Network enrollment remains behind its adapter and is composed with, but does not become, Monitor App application enrollment.
+Strong identity may come from a serial number, stable chassis identifier, chassis MAC, or another adapter-specific identifier. An IP address alone is not sufficient to merge observed-device records.
 
-Application enrollment uses a 32-byte one-time enrollment secret plus a 32-byte proof challenge. The device creates and retains an ECDSA P-256 private key and sends only its SubjectPublicKeyInfo public key and a fixed-width 64-byte IEEE P1363 signature using SHA-256. The signed enrollment payload binds a domain label, enrollment id, challenge, and SHA-256 public-key fingerprint through the shared `ProofPayload` helper. Completion returns stable node and agent ids, the public-key fingerprint, and completion time; it never returns a reusable raw agent credential.
+### Component
 
-Later application authentication creates a new short-lived 32-byte device challenge. The agent signs a domain-separated payload binding agent id, challenge id, and challenge, and the controller verifies it against the enrolled public key. The controller implementation must make both enrollment and device challenges single-use, expiration-checked, rate-limited, and transactionally consumed; the contract library defines structure and canonical proof bytes but does not implement lifecycle persistence.
+A nested part of a peer or observed device, such as a filesystem, battery, switch port, audio endpoint, UPS battery bank, VLAN, or service. Component existence must be supported by a peer report, adapter report, or evidence-qualified inference.
 
-The first implemented domain behavior is the numeric observation freshness model in `MonitorApp.Domain`. It keeps measurement presence separate from quality, preserves numeric zero as a valid value, and classifies observations as Unknown, Fresh, Stale, Offline, or Unavailable. A valid observation uses an explicit UTC source timestamp and last-contact timestamp. Unknown and unavailable observations may retain UTC last-contact evidence even though they have no metric value. When that evidence exceeds the offline threshold, Offline takes precedence over metric quality; otherwise the observation remains Unknown or Unavailable.
+### Relationship
 
-The accepted time boundary keeps an observation Fresh through the exact stale threshold, Stale after that threshold through the exact offline threshold, and Offline only after the last-contact age exceeds the offline threshold. A configured nonnegative future-skew tolerance accepts modest device clock lead and clamps its age to zero. Timestamps beyond that tolerance fail with the offending field identified instead of silently producing a misleading state. Structurally invalid observations and non-finite numeric values also fail before classification.
+Typed relationships include paired-with, reachable-over-overlay, physically-attached-to, collected-by, hosted-on, connected-to-port, member-of-VLAN, uplink-to, depends-on, and synchronized-with.
 
-### Controller
+Every relationship preserves source, validity interval, quality, confidence, and whether it was reported or inferred. Physical-LAN relationships and Tailscale-overlay relationships never collapse into one ambiguous edge type.
 
-The controller is the self-hosted application authority. Its functional responsibilities are:
+## Pairing and trust
 
-- Health and version reporting.
-- Application authentication and device identity.
-- Enrollment lifecycle.
-- Agent capability registration.
-- Telemetry validation and ingestion.
-- Current-state projection.
-- Inventory and typed relationships.
-- Event and metric persistence.
-- Snapshot creation and historical reconstruction.
-- Read APIs and resumable live updates.
-- Later, explicit action authorization and audit.
+The initial personal-scale system uses explicit pairwise trust.
 
-The controller must remain useful when a nonessential integration fails. It should distinguish its own failure from Headscale, private-network, agent, collector, and monitored-service failures.
+1. Each peer generates and protects a P-256 application identity key.
+2. A user enters another peer's Tailscale IP and peer port.
+3. The contacted peer creates a short-lived bilateral pairing challenge.
+4. Both peers prove key possession and bind approval to both identities and the handshake transcript.
+5. The user verifies a short authentication string, QR representation, or equivalent identity confirmation.
+6. Both peers store the other application identity, pinned key, approved endpoint, capabilities, and trust state.
+7. Every later session uses a fresh replay-resistant proof.
 
-The first controller implementation is an ASP.NET Core application. Its agent and client boundaries use generated C# types from versioned Protobuf definitions. Health and readiness endpoints may use ordinary HTTP, but telemetry and application state contracts remain versioned rather than ad hoc JSON.
+Tailscale IP and tailnet membership are bootstrap and reachability evidence only. Address changes require an authenticated update or explicit repair. Trust does not automatically become transitive, and peer introductions remain deferred until their authorization semantics are designed.
 
-The implemented controller exposes the six unary enrollment operations through ASP.NET Core gRPC and a minimal `/health` endpoint. Owner-side create, status, and cancel operations require a separate administrator token; the controller refuses to start when its administrator token or secret-verifier pepper is absent or too short. Public enrollment completion and device-proof operations are rate limited and have bounded identifiers, display names, and outstanding challenges.
+Both peers may initiate a connection. If both initiate simultaneously, a deterministic rule selects one logical session. Reconnection uses bounded backoff and must distinguish service outage, Tailscale path failure, identity rejection, and protocol incompatibility.
 
-Each `AgentSession` authenticates inside its own bidirectional stream. The controller issues a fresh challenge bound to the agent id, random session id, challenge id, and exact stream state; only the enrolled P-256 key can sign the domain-separated payload. The controller atomically consumes the challenge before returning `ControllerHello`. A proof copied to another stream has the wrong session/challenge context and fails, so no reusable bearer assertion or transport-affinity assumption is introduced.
+## Origin-owned observation model
 
-### Endpoint agent
+Each peer is the sole writer of an ordered origin stream. An observation carries:
 
-The endpoint agent is a long-running, least-privilege process for Windows, Fedora, and Ubuntu. It should:
+- origin peer and origin sequence;
+- observed entity and component identity;
+- capability module and adapter source;
+- source and ingestion times;
+- numeric value, counter, state, event, fact, error, or topology evidence;
+- unit and temporal behavior;
+- quality and freshness;
+- privacy, importance, and collection-cost categories;
+- schema/module versions.
 
-- Establish an outbound authenticated session.
-- Advertise platform, version, and capabilities.
-- Collect a small initial set of system metrics.
-- Preserve source timestamps.
-- Buffer a bounded amount of telemetry during short disconnections.
-- Resume without duplicating accepted samples.
-- Report collector health and data freshness.
-- Execute no operational action until the action permission model exists.
+Only the origin advances its sequence. Receivers validate and retain records without rewriting them. This avoids global consensus for telemetry. Identical retries are idempotent; conflicting bytes at one origin sequence fail closed; gaps remain explicit.
 
-Platform collectors should implement a shared contract while reporting only capabilities they can support truthfully.
+Shared metadata such as annotations, display names, incident pins, topology corrections, or retention protection requires separately defined conflict semantics before it replicates.
 
-The agent is a .NET worker shared across Windows, Fedora, and Ubuntu. Service-host integration, collectors, installation, and lifecycle tests remain platform-specific. The shared runtime must not infer support from compilation alone.
+## Replication
 
-The implemented agent core detects only the requested Windows, Fedora, and Ubuntu identities, reports stable host and boot evidence, and produces timestamped CPU, memory, storage, network, and collector-health observations. Windows uses operating-system counters; Fedora and Ubuntu use bounded parsers for Linux `/proc` data plus shared filesystem and network APIs. Failed or unsupported collection produces explicit unavailable, permission-denied, or error quality without a fabricated numeric value.
+Direct peer sessions exchange per-origin cursors and bounded batches. The protocol must support:
 
-The executable service collects into a bounded file-backed SQLite WAL spool. The spool assigns monotonically increasing sequences, never evicts unacknowledged telemetry, rejects new observations when its configured count or byte budget is full, and removes data only through cumulative acknowledgements. Its concrete gRPC transport performs the in-stream device-key challenge, uploads the oldest contiguous batch, and deletes data only after a controller acknowledgement returned after the SQLite commit. HTTPS is required outside loopback development. The configured private-key PEM file is provisional; native packaging must replace it with platform-protected key storage and permissions.
+- resume after either service or network restart;
+- gap detection and bounded range requests;
+- byte-identical retry and conflict rejection;
+- backpressure and storage/power budgets;
+- raw local retention and optional replicated summaries;
+- explicit summary fidelity and rollup provenance;
+- last synchronization time and partial-history visibility;
+- schema/module compatibility negotiation.
 
-The controller persists original submissions and controller-stamped envelopes in SQLite WAL. `(agent_id, sequence)` is the idempotency boundary: an identical retry is accepted, while changed bytes at an accepted sequence fail closed. Owner-gated endpoints expose enrolled inventory and the latest metric for each agent/metric/component tuple. These are diagnostic alpha endpoints, not the final client or historical reconstruction API.
+An acknowledgement means the receiving peer durably committed the record. It does not authorize the origin to delete its only copy. Replicas may be replaceable; origin data is not.
 
-### Android application and collector
+## Capability modules and observation catalog
 
-Android is both an experience client and a constrained monitored endpoint. The implementation must respect VPN permission, background execution, battery optimization, and restricted system metrics.
+A module uses a versioned, namespaced contract and declares:
 
-Android must report freshness explicitly. Missing or delayed background data cannot be represented as a healthy zero. A persistent foreground service, scheduled work, or another platform mechanism is a working decision to validate rather than an assumed entitlement.
+- entity and component types;
+- observation definitions;
+- typed relationships and evidence semantics;
+- supported discovery and strong-identity evidence;
+- sampling and retention metadata;
+- permissions and local credentials;
+- importance, privacy, and collection-cost categories;
+- quality, freshness, unsupported, denied, and error behavior;
+- compatibility range;
+- purpose-built inspector descriptors and truthful fallback fields.
 
-The implemented Android alpha is a plain native .NET Android application, deliberately separate from the later Avalonia experience. In the foreground it reads device identity, battery level and charging state, validated network transports, VPN presence, and an explicit UTC source time; unavailable Android values remain unavailable rather than becoming zero. It can verify the controller's HTTPS health endpoint and complete application enrollment with a P-256 key generated and retained by Android Keystore. One-time enrollment secret and challenge fields are cleared after every attempt and are never persisted; only the resulting agent/node receipt and public-key fingerprint are stored in private application preferences.
+The canonical observation catalog classifies signals by domain, entity, subsystem, source, unit, temporal behavior, importance, privacy, and cost. It is the source of truth for search, domain lenses, retention, replication summaries, and generated fallback inspectors.
 
-This alpha does not run a foreground service, schedule background collection, upload telemetry, install Headscale, or prove Android lifecycle behavior. Its development-signed Release APK is compilation evidence only until emulator instrumentation and a physical-device smoke test pass.
+Important integrations receive purpose-built inspectors. An unknown compatible module may receive a truthful generated inspector. Users may enable/disable modules, change retention, and pin/hide designed content; they do not construct a blank dashboard.
 
-### Enrollment service
+## Breadth, sampling, and retention
 
-The enrollment path creates a short-lived transaction, coordinates a one-time Headscale registration method, establishes Monitor App application identity through device-key possession, and verifies end-to-end telemetry. Its unary service supports create, status, cancel, complete, device-challenge creation, and device-proof verification. Durable authentication retains the device public key and fingerprint rather than issuing a reusable raw agent credential.
+Anything safely and truthfully measurable should be measurable through a supported capability module. This includes numeric values, counters, state, events, inventory/configuration facts, errors, and topology evidence.
 
-Headscale-specific operations belong behind an adapter so a tested Headscale version can be pinned and upgraded deliberately.
+Breadth is bounded by truthfulness, privacy, collection cost, platform power, local storage, and replication budgets. Sampling adapts to change rate and cost. A peer may keep raw high-resolution detail locally while replicating summaries or requested ranges. Unsupported, denied, stale, unavailable, unknown, and error states remain explicit and never become zero.
 
-### Persistence and history
+Secrets, message/file content, and unrelated content payloads remain excluded by default. Sensitive or high-cost modules are explicit opt-in and visible in collection and retention settings.
 
-The history model combines:
+## Network boundaries
 
-- Timestamped metric samples.
-- Discrete events.
-- Periodic state snapshots.
+### Allowed ordinary monitoring
 
-Historical reconstruction starts from a compatible snapshot and applies later events and metric state. The first implementation uses file-backed SQLite in WAL mode. Production persistence and integration tests use real SQLite rather than the EF Core in-memory provider. Migrations are versioned from the first schema.
+- interface, switch, and port identity;
+- link state and negotiated capability/speed;
+- VLAN and administrative configuration;
+- PoE state and power;
+- explicitly reported LLDP relationships;
+- aggregate bandwidth, throughput, utilization, byte/packet totals, errors, drops, discards, retries, and queue health;
+- latency and reachability probes;
+- historical aggregate trends;
+- management and adapter health.
 
-Schema version 1 stores enrollments, nodes, device-authentication challenges, and redacted security audit events. Enrollment-secret verifiers use HMAC-SHA-256 with a required controller pepper and a per-record random salt. Completion atomically moves one pending enrollment to completed, stores the canonical P-256 public key and fingerprint, and erases the stored verifier, salt, and challenge. Device challenges are short-lived and atomically consumed once. Every connection enables foreign keys and a bounded busy timeout; the database uses WAL mode.
+### Prohibited ordinary monitoring
 
-SQLite is a personal-scale starting point, not an unlimited scale claim. Revisit T008 after the vertical-slice load benchmark and before any multi-controller or large-fleet claim. A replacement is justified only if the agreed reference workload cannot meet ordered ingestion, restart durability, backup and restore, retention, or bounded history-query requirements, or if the product requires multiple controller writers.
+- packet headers or payload capture;
+- individual packet records;
+- flow, session, connection, or socket histories;
+- source/destination or DNS/query histories;
+- per-application or per-process traffic inspection;
+- content classification or DPI.
 
-### Experience clients
+Module registration and adapter review reject prohibited observations before collection, rather than merely hiding them in UI.
 
-The first client may be deliberately plain. Its purpose is to prove:
+### Defensive threat detection
 
-- Enrollment status.
-- Device inventory.
-- Current metrics and freshness.
-- Connection and collector failures.
-- Historical queries and reconstruction.
+Defensive detection is a separate explicitly enabled capability. Baseline detection may use aggregate signals, identity/authentication failures, unexpected peer/config/link changes, unusual utilization, and summarized alerts already produced by an IDS, firewall, switch, or OS. Findings preserve evidence and confidence.
 
-The final living schematic, exploded architecture, animation, and game-like interaction come after the functional path is reliable. The domain API must support those experiences without making the temporary UI a source of truth.
+Prefer summarized alerts over raw traffic. No default payload interception, decryption credentials, exploit attempts, indiscriminate scanning, or monitoring outside owned/authorized networks. Deeper flow-derived or packet-derived modules require separate permissions, disclosure, local processing, bounded retention, and design/security review.
 
-The later shared client uses Avalonia on .NET 10. Android platform collection and lifecycle behavior remain in an Android-specific boundary even though most client and domain code is shared.
+## Observed-device adapters and collector ownership
 
-### Release and update trust
+Adapters are implemented case by case using supported mechanisms such as USB/HID, NUT, SNMP, OS audio APIs, vendor APIs/SDKs, serial, REST, SSH, LLDP, or forwarding databases. Listing a mechanism is not a promise of support.
 
-`MonitorApp.Update` is the platform-independent trust boundary for release metadata. A release manifest is carried inside a signed envelope and identifies its schema, channel, version, minimum compatible installed version, publication time, and one or more component/platform/architecture artifacts. Each artifact has an HTTPS URL, exact byte size, and SHA-256 digest.
+The user explicitly assigns a collector peer. Adapter credentials remain local and do not replicate. Another peer may replicate observations but does not poll the device automatically. Failover occurs only after another peer is explicitly provisioned with the adapter, permissions, and credentials.
 
-The verifier accepts only a configured trusted P-256 SubjectPublicKeyInfo key and fixed P1363 ECDSA/SHA-256 signature. It then enforces channel, upgrade direction, compatibility floor, component, platform, architecture, size, and content hash. Downloading a public key alongside the manifest does not establish trust; trusted public keys must be provisioned through an already authenticated installer or release.
+When multiple peers observe one device or topology, records reconcile around strong identity while preserving each source and evidence. Contradictions remain visible rather than being silently overwritten.
 
-The current boundary verifies update eligibility and artifact integrity only. Installation, service replacement, rollback, and recovery remain platform-specific work. No unsigned or unverified artifact is silently installed.
+## Persistence
 
-## First deployment topology
+Every peer stores local identity, paired-peer directory, local origin records, retained replicas, per-origin cursors and gaps, capability/adaptor configuration, observed-device identity and collector assignments, physical and overlay relationships with evidence, security audit events, and local UI/retention policy.
 
-Docker Compose is the accepted first controller deployment path. The deployment will contain the controller, pinned Headscale service or its explicitly configured connection, persistent volumes, and required TLS configuration. The Compose path must prove clean start, restart durability, upgrade, backup, and restore.
+SQLite WAL remains the personal-scale starting point. Schema migrations, backup, restore, retention, replica eviction, and identity recovery require real file-backed tests. Restoring a backup must not silently fork one peer identity or origin sequence.
 
-Endpoint agents are native operating-system packages:
+## Experience clients
 
-- Windows service package.
-- Fedora RPM with `systemd` and SELinux verification.
-- Ubuntu DEB with `systemd` verification.
-- Android APK or application bundle for the client and constrained collector.
+The local experience renders the same domain model available to replication and query. The living schematic summarizes relationships and state. Domain lenses expose power, audio, storage, network infrastructure, thermal, security, and other coherent subsets. Search reaches exact signals. The final scene remains a projection of the domain model, never the source of truth.
 
-Native controller packages and appliance images are deferred until the Compose deployment is operationally proven.
+The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.
 
-## Initial vertical slice
+## Reusable current implementation
 
-The first operational slice should prove this complete path:
+The controller alpha is not the target topology. These components remain reusable:
 
-1. Start the controller with durable local storage.
-2. Create a short-lived enrollment.
-3. Register a test agent through the application enrollment boundary.
-4. Agent advertises platform and capabilities.
-5. Agent sends real host identity, CPU, memory, storage, and network freshness data where supported.
-6. Controller validates and persists the telemetry.
-7. A client or command-line diagnostic reads current state.
-8. Controller restarts without losing the enrolled node or accepted history.
-9. A historical query returns the correct values for a bounded time window.
-10. Tests prove expiration, duplicate handling, invalid identity rejection, persistence, and platform collector behavior.
+- truthful collectors and freshness semantics;
+- typed Protobuf values and validation patterns;
+- P-256 proof framing and replay-resistant challenges;
+- SQLite WAL spool, idempotent sequence, and commit-before-ack behavior;
+- Android Keystore identity work and normalization;
+- signed update manifest and release tooling;
+- real SQLite and loopback gRPC test infrastructure.
 
-This slice must work locally before Headscale automation or advanced UI is described as complete. Headscale integration then replaces manual network assumptions without changing the application identity and telemetry contracts.
+These components are superseded or require migration:
 
-## Implemented build foundation
+- `MonitorApp.Controller` as central authority and database;
+- administrator-token enrollment authority;
+- controller-owned device challenge lifecycle;
+- controller inventory and current-metric API;
+- agent-to-controller-only session roles;
+- controller archive and Docker Compose release assumptions;
+- Headscale adapter and automatic Headscale setup tasks.
 
-The repository now pins the .NET 10.0.400 feature band, uses centralized package versions and committed NuGet lock files, builds with warnings as errors and recommended analyzers, and exposes `eng/verify.ps1` as the verification entry point. Current verification covers locked restore, Release build, all solution Unit and Contract tests (including the platform-independent Android core), real file-backed SQLite enrollment and agent-spool tests, the controller enrollment boundary, a platform-local Windows collector test when running on Windows, and formatting. The workload-specific Android app is built separately so ordinary Windows and Linux solution verification does not require an Android SDK. Cross-process agent/controller, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu platform suites remain unavailable.
+Superseded code remains until the peer path replaces it with executable tests. It must not be packaged or described as the intended product.
 
-GitHub Actions definitions now verify the solution on Windows and Ubuntu and provide a protected signed-release path. The release path is designed to publish self-contained controller and agent alpha archives, generate a signed update manifest and checksum list, and refuse to overwrite an existing release. It remains operationally unverified until executed in the private GitHub repository with its protected release environment configured. Android APK signing remains a separate explicit gate.
+## Migration vertical slice
 
-## Platform boundaries
+The first decentralized slice must prove:
+
+1. Two fresh peer stores start with independent P-256 identities.
+2. One peer contacts the other at a configured loopback/Tailscale-style endpoint.
+3. Bilateral short-lived pairing pins both identities.
+4. Either peer restarts and reconnects without a controller.
+5. Both peers collect local origin observations.
+6. Each side replicates contiguous records and durable cursors.
+7. Disconnect, additional collection, reconnect, and convergence introduce no gaps or duplicates.
+8. A conflicting retry, wrong key, replay, unpaired tailnet member, and unauthorized address replacement fail closed.
+9. Cached state exposes source time, last synchronization, quality, and summary fidelity.
+10. A synthetic observed device keeps stable identity across collector attachment changes.
+11. Multi-peer topology evidence reconciles by strong identity and preserves reported/inferred provenance.
+12. Capability registration rejects ordinary-monitoring definitions that expose packet detail, communication identities, sessions, DNS/query history, per-process traffic, or content.
+
+Only after this slice passes should controller code be removed or release artifacts be relabeled as peer packages.
+
+## Platform gates
 
 ### Windows
 
-- Long-running service lifecycle and clean uninstall.
-- Platform-native CPU, memory, storage, network, and battery collection where available.
-- Tailscale alternate coordination configuration may require CLI or policy/registry handling.
+- Windows Service lifecycle and clean uninstall.
+- Protected peer key, database, and adapter credentials.
+- Tailscale-interface binding and firewall scope.
+- Platform-local collectors and permission-denial behavior.
 
 ### Fedora
 
-- `systemd` service lifecycle.
-- RPM packaging is required before release support is claimed.
-- SELinux behavior must be tested rather than disabled as a workaround.
+- RPM and `systemd` lifecycle.
+- SELinux behavior without disabling enforcement.
+- Protected identity, database, and adapter credentials.
+- Platform-local collectors and Tailscale listener.
 
 ### Ubuntu
 
-- `systemd` service lifecycle.
-- DEB packaging is required before release support is claimed.
-- Supported Ubuntu versions must be recorded with actual install tests.
+- DEB and `systemd` lifecycle.
+- Supported-version install/upgrade/uninstall tests.
+- Protected identity, database, and adapter credentials.
+- Platform-local collectors and Tailscale listener.
 
 ### Android
 
-- APK/application lifecycle, VPN permission, and background collection constraints.
-- Emulator tests are necessary but not sufficient for release; one physical-device smoke test is required for platform claims.
+- Application lifecycle, Tailscale reachability, and background limits.
+- Android Keystore identity.
+- Peer listening/reconnection only through supported OS behavior.
+- Emulator tests plus one physical-device smoke test before support is claimed.
 
 ## Deferred architecture
 
-These concerns remain deliberately deferred until the first vertical slice works:
-
+- Transitive peer introduction or global membership authority.
+- Shared-metadata merge semantics.
+- Automatic collector failover or credential replication.
 - Operational control actions.
-- Multi-user tenancy.
-- Remote push notification service.
+- Multi-user roles.
+- Remote push notifications.
 - Advanced retention rollups.
-- Syncthing specialization beyond an adapter contract.
-- Final rendering technology.
-- Cinematic interaction and ambient animation.
+- Final rendering technology and game-like polish.

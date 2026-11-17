@@ -45,15 +45,45 @@ This log separates confirmed product constraints from working technical decision
 
 ### P006 Self hosted Headscale
 
+- Status: Superseded
+- Decision: The earlier self-hosted Headscale/automatic setup direction is replaced by P007. Tailscale is user-managed reachability only.
+- Consequence: Do not build Headscale automation or treat network membership as application trust.
+
+### P007 Decentralized equal peers
+
 - Status: Confirmed
-- Decision: Secure device pairing uses a self-hosted Headscale network.
-- Consequence: Monitor App must automate platform-specific setup while keeping Headscale separate from telemetry and application authorization.
+- Decision: There is no Monitor App controller, central database, or always-on host. A Tailscale-IP introduction followed by bilateral application pairing connects equal peers directly whenever both services run.
+- Consequence: Each peer collects, stores, queries, and presents locally; pairwise trust is explicit and independent of IP/tailnet membership.
+
+### P008 Origin-owned peer replication
+
+- Status: Confirmed
+- Decision: Origin-owned streams synchronize peer to peer with explicit freshness, offline cache, and eventual convergence; no global consensus is required for origin-owned records.
+- Consequence: Replication uses stable origin identity, cursors, ordering, and idempotency.
+
+### P009 Observed devices and collector gateways
+
+- Status: Confirmed
+- Decision: Peers may observe non-peer peripherals and LAN infrastructure through purpose-built adapters. Identity/history survives attachment-host changes; collector ownership and failover are explicit; credentials remain local.
+- Consequence: Model typed entities/relationships and adapter capability, health, freshness, source, evidence, and quality.
+
+### P010 Broad categorized observation
+
+- Status: Confirmed
+- Decision: Pursue broad measurement through versioned capability modules and a canonical observation catalog, with truthful unavailable states, privacy/cost metadata, adaptive sampling/retention, and purpose-built inspectors.
+- Consequence: The domain model supports domain lenses, exact search, selective customization, and a truthful fallback inspector without becoming a blank dashboard.
+
+### P011 Network privacy and defensive detection
+
+- Status: Confirmed
+- Decision: Aggregate operational network metrics and infrastructure facts are allowed. Communication identities/content, packet capture, flow/session histories, DNS history, per-app traffic, and DPI are prohibited in ordinary monitoring. Defensive detection is a separate explicit capability with evidence/confidence and stricter permission/retention rules.
+- Consequence: Module review and executable registration tests enforce the boundary.
 
 ## Technical decisions
 
 ### T001 Functional component boundaries
 
-- Status: Provisional
+- Status: Superseded by T017
 - Decision: Use a self-hosted controller, outbound endpoint agents, an Android client/collector, versioned shared contracts, durable history, and adapters for Headscale and service integrations.
 - Reason: This is the smallest architecture that supports all requested platforms, private connectivity, truthful telemetry, and historical reconstruction.
 - Validation: First end-to-end vertical slice and restart-durability test.
@@ -67,7 +97,7 @@ This log separates confirmed product constraints from working technical decision
 
 ### T003 Headscale adapter boundary
 
-- Status: Accepted
+- Status: Superseded by P007 and T017
 - Decision: Isolate Headscale operations behind an internal adapter and pin a tested supported version.
 - Reason: Registration and policy behavior are external dependencies that must not leak through domain and UI code.
 
@@ -87,7 +117,7 @@ This log separates confirmed product constraints from working technical decision
 ### T006 Implementation stack
 
 - Status: Accepted
-- Decision: Use C# on .NET 10 LTS. Build the controller with ASP.NET Core, use standard gRPC over TLS and HTTP/2 with versioned Protocol Buffer contracts, use a shared .NET worker agent for Windows, Fedora, and Ubuntu, and use Avalonia for the later shared Android, Windows, Fedora, and Ubuntu experience client.
+- Decision: Use C# on .NET 10 LTS, ASP.NET Core hosting where needed, standard gRPC over TLS and HTTP/2 with versioned Protocol Buffer contracts, file-backed SQLite, shared peer/collector code, and Avalonia for the later shared experience client. The earlier controller-specific application of this stack is superseded by T017.
 - Reason: .NET 10 is the current long-term-support release and supports the required desktop and Linux environments. Avalonia provides one client framework across all requested platforms while leaving Android-specific lifecycle and collection behind a platform boundary. ASP.NET Core gRPC supports streaming agent sessions and generated contracts in the same language.
 - Evidence: Current official platform-support documentation covers .NET 10 on supported Windows, Fedora, and Ubuntu releases and Avalonia on Windows, Fedora, Ubuntu, and Android. Executable repository and platform builds remain required before support is claimed.
 - Consequences: Pin the SDK and packages; organize the repository as a .NET solution; keep platform collectors and packaging separately tested; do not start final Avalonia visual work before the functional milestone.
@@ -95,7 +125,7 @@ This log separates confirmed product constraints from working technical decision
 
 ### T007 Controller packaging
 
-- Status: Accepted
+- Status: Superseded by P007 and T017
 - Decision: Use Docker Compose as the first supported controller deployment. Keep Windows, Fedora, and Ubuntu endpoint agents as separate native packages.
 - Reason: Compose provides one bounded, reproducible self-hosted path for the ASP.NET Core controller, pinned Headscale dependency, persistent storage, and TLS configuration without coupling endpoint service installation to the controller host.
 - Evidence: Clean start, restart, upgrade, backup, and restore tests remain release gates for the Compose deployment.
@@ -106,7 +136,7 @@ This log separates confirmed product constraints from working technical decision
 
 - Status: Accepted
 - Decision: Use file-backed SQLite in WAL mode for the first personal-scale functional slice. Use real SQLite in persistence tests and version migrations from the first schema.
-- Reason: SQLite keeps the first self-hosted deployment small while providing transactions, durability, ordered queries, and a practical backup path. The product currently targets one personal-scale controller rather than a multi-writer service.
+- Reason: SQLite keeps each personal-scale peer small while providing transactions, durability, ordered queries, and a practical backup path. Every peer owns a local database; there is no shared central writer.
 - Evidence: The vertical slice must prove concurrent ingestion at the agreed reference workload, restart durability, ordered history queries, migrations, retention, backup, and restore using the production provider and configuration.
 - Consequences: Do not use the EF Core in-memory provider as persistence evidence. Keep persistence behind domain-facing interfaces and avoid SQLite-specific behavior in the protocol.
 - Revisit condition: Revisit after the vertical-slice benchmark and before a multi-controller or large-fleet claim. Consider a client-server database only if SQLite fails the agreed ingestion, query, retention, backup, or restore acceptance conditions, or multiple controller writers become required.
@@ -182,6 +212,33 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Real loopback Kestrel HTTP/2 gRPC tests exercise production client/server code for device-key authentication, upload, owner reads, restart, identical retry, wrong key, cross-stream substitution, replay, and redacted failures. Real SQLite tests repeat authentication, ingest, conflict, current-state, and restart behavior through the production store.
 - Consequences: The controller keeps no reusable agent bearer secret. The agent requires its enrolled private key for every new stream. Loopback plaintext HTTP/2 exists only for development/tests; non-loopback configuration requires HTTPS. Cross-process outage/resume, platform key protection, retention, and bounded history queries remain release gates.
 - Revisit condition: Add an explicit new proof version before changing payload framing, signature algorithm, or challenge semantics; never reinterpret v1.
+
+### T017 Equal-peer migration boundary
+
+- Status: Accepted
+- Decision: Replace controller/agent deployment with one peer service containing device identity, bilateral pairing, local SQLite observation/query, direct replication, collectors/adapters, and a local client boundary. Reuse existing crypto, protocol, persistence, collectors, Android, and update code only where peer tests prove compatibility.
+- Reason: This implements P007 without discarding validated foundations.
+- Evidence: Documentation migration; executable evidence is the bounded two-peer milestone in `TODO.md`.
+- Consequences: Controller, controller enrollment administration, central history, Headscale adapter, and controller artifacts are superseded and receive no new product features.
+- Revisit condition: After the two-peer end-to-end test, refine component names and rolling-upgrade window.
+
+### T018 Origin replication and observed-device ownership
+
+- Status: Accepted
+- Decision: Use immutable origin identity/sequence with per-peer replication cursors and idempotent retry. Keep observed-device identity separate from attachment and collecting peer; configure collector ownership explicitly and never replicate adapter credentials.
+- Reason: This permits offline operation and convergence without consensus while preventing duplicate polling and identity loss.
+- Evidence: Required integration cases in `docs/TESTING.md`.
+- Consequences: Shared-metadata conflict semantics and automatic failover remain deferred.
+- Revisit condition: After personal-scale load and reassignment tests.
+
+### T019 Capability and privacy contract
+
+- Status: Accepted
+- Decision: Modules use versioned namespaced declarations and catalog metadata for domain/entity/subsystem/source/unit/temporal behavior/importance/privacy/cost. Registration rejects prohibited ordinary network observations; defensive detection is separately enabled and permissioned.
+- Reason: Broad collection needs compatibility, categorization, and enforceable privacy rather than a fixed narrow allowlist or unbounded plugins.
+- Evidence: Required contract/security tests in `docs/TESTING.md` and `docs/SECURITY.md`.
+- Consequences: Unknown compatible modules receive a truthful generated inspector; important integrations remain purpose-built.
+- Revisit condition: When the first external adapter contract is implemented.
 
 ## Rejected directions inherited from the product specification
 

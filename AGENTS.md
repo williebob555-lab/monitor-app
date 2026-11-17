@@ -34,12 +34,13 @@ Do not silently promote a proposal or open question into a confirmed decision. R
 Functionality comes before visual polish. Build and validate the operational path in this order:
 
 1. Shared domain contracts and executable build system.
-2. Controller health, storage, enrollment, and telemetry ingestion.
-3. Windows, Fedora, and Ubuntu agents.
-4. Android collection and pairing within platform limits.
-5. Cross-platform installation and recovery.
-6. Historical reconstruction and meaningful functional clients.
-7. Advanced visuals, animation, and final UI polish.
+2. Peer identity, bilateral pairing, local storage, and local query.
+3. Direct reconnection, origin-owned history replication, and convergence.
+4. Windows, Fedora, Ubuntu, and Android peer services within platform limits.
+5. Observed-device adapters, explicit collector ownership, and LAN topology.
+6. Cross-platform installation, recovery, and automated updates.
+7. Historical reconstruction and meaningful functional clients.
+8. Advanced visuals, animation, and final UI polish.
 
 Temporary interfaces may be plain, but they must be usable, truthful, and accessible enough to test the functionality they expose.
 
@@ -49,8 +50,11 @@ The requested device targets are Android, Windows, Fedora, and Ubuntu. A feature
 
 ## Implementation rules
 
-- Keep Headscale network coordination separate from Monitor App telemetry, history, application identity, and action authorization.
-- Prefer outbound agent connections. Do not expose public monitoring ports on endpoints by default.
+- Treat Tailscale as user-managed reachability only; Monitor App identity must not trust an IP address or tailnet membership alone.
+- Build equal peers, not a controller/agent topology. Bind listeners only to deliberately configured private interfaces; never expose public monitoring ports by default.
+- Preserve origin ownership and idempotent per-origin replication; no global consensus is required for origin-owned streams.
+- Keep adapter credentials local, collector ownership explicit, and observed-device identity independent of the current collection host.
+- Enforce the aggregate-without-communication-identities network-data boundary and the separate opt-in boundary for defensive security modules.
 - Treat read-only telemetry and operational actions as different permission domains.
 - Preserve timestamps, source, unit, freshness, and quality with collected data.
 - Keep the visual scene a projection of the domain model, never the source of truth.
