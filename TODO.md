@@ -31,6 +31,8 @@ Goal: prove a durable controller-to-agent telemetry path with meaningful tests b
 - [ ] Add automated secret scanning appropriate to the selected stack.
 - [x] Establish signed, integrity-checked release manifests and CI/release automation.
   - Production verification and release tooling exist; the protected workflow remains unverified until the private repository has release keys and runs its first immutable-tag release.
+- [x] Restore platform-neutral dependency locks and prevent release packaging from rewriting them.
+  - Runtime-specific restores now use ignored staging lockfiles, packaging leaves every tracked file unchanged, and the release workflow enforces that invariant.
 
 ### Controller vertical slice
 

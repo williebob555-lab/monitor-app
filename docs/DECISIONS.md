@@ -116,8 +116,8 @@ This log separates confirmed product constraints from working technical decision
 - Status: Accepted
 - Decision: Pin the repository to the .NET SDK 10.0.400 feature band with latest-patch roll-forward, centralize NuGet versions, commit project lock files, treat compiler warnings as errors, enable recommended .NET analyzers, and use `eng/verify.ps1` as the discoverable verification entry point.
 - Reason: Reproducible dependencies and one executable verification path are prerequisites for delegated cross-platform work.
-- Evidence: Locked restore, Release build with zero warnings, 13 domain freshness tests, formatting verification, and the root verification script pass on Windows with SDK 10.0.400.
-- Consequences: Package changes update committed lock files deliberately. Every new test suite must be added to the root verification script when its project is introduced.
+- Evidence: Locked restore, Release build with zero warnings, the root verification script, and self-contained packaging with a byte-for-byte tracked-tree comparison pass on Windows with SDK 10.0.400. The first private CI run caught and rejected runtime-specific residue in committed locks.
+- Consequences: Package changes update committed platform-neutral lock files deliberately. Runtime-specific publishing must use ignored staging locks and leave all tracked files unchanged. Every new test suite must be added to the root verification script when its project is introduced.
 - Revisit condition: Update the pinned feature band only through an explicit dependency change with locked restore, build, test, and formatting evidence.
 
 ### T010 Initial agent wire contract

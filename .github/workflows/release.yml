@@ -81,6 +81,10 @@ jobs:
               -Version '${{ steps.release.outputs.version }}' `
               -OutputDirectory 'artifacts'
 
+      - name: Verify packaging preserved tracked source
+        shell: pwsh
+        run: git diff --exit-code
+
       - name: Record Android release gate
         shell: pwsh
         run: |

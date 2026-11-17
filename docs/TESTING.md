@@ -264,6 +264,8 @@ The agent-spool suite uses a real temporary SQLite WAL file and production seria
 
 The update suite signs real manifest bytes with an ephemeral P-256 test key and calls the production verifier and artifact reader. It covers trusted-signature acceptance, wrong-key rejection, downgrade and reinstall rejection, compatibility floors, platform and architecture mismatch, canonical version parsing, and file size and SHA-256 mismatch. The GitHub release workflow, protected environment, generated archives, platform installation, rollback, and Android signing are not verified by those unit tests.
 
+Self-contained release packaging performs runtime-specific restores into ignored staging lockfiles so the committed NuGet locks remain platform neutral. The release workflow runs `git diff --exit-code` after packaging and fails if any tracked file changes. Local packaging verification must likewise compare the tracked tree before and after archive creation; successful archive output alone is not sufficient evidence.
+
 The Android core suite calls the production URI policy, one-time enrollment parsing, proof-request builder, battery normalization, network/VPN summary, and DER-to-P1363 conversion. A real P-256 key signs the canonical enrollment payload and the generated Protobuf request is verified through the controller-compatible P1363 path. These tests do not exercise Android Keystore, lifecycle, network permissions, device APIs, or controller connectivity; those require emulator and physical-device evidence.
 
 Do not leave multiple undocumented ways to run the same suite. Package and platform jobs may wrap these commands, but the root verification script is authoritative.

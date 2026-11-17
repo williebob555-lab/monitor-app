@@ -38,6 +38,39 @@ if (-not (Test-Path -LiteralPath $agentProject)) {
     throw 'Agent service project is required before alpha artifacts can be published.'
 }
 
+$restoredRuntimeAssets = @{}
+
+function Restore-RuntimeAssets {
+    param(
+        [Parameter(Mandatory)] [string] $Project,
+        [Parameter(Mandatory)] [string] $Runtime
+    )
+
+    $restoreKey = "$Project|$Runtime"
+    if ($restoredRuntimeAssets.ContainsKey($restoreKey)) {
+        return
+    }
+
+    # A runtime-specific restore is required for self-contained publishing, but
+    # it must not rewrite the repository's platform-neutral packages.lock.json.
+    # NuGet rejects disabling locks while project lock files exist, so direct
+    # runtime restore output to an ignored release-staging lock instead.
+    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($Project)
+    $runtimeLockDirectory = Join-Path $resolvedOutput "runtime-locks/$projectName-$Runtime"
+    New-Item -ItemType Directory -Path $runtimeLockDirectory -Force | Out-Null
+    $runtimeLockPath = Join-Path $runtimeLockDirectory 'packages.lock.json'
+    dotnet restore $Project `
+        -r $Runtime `
+        --force-evaluate `
+        -p:NuGetLockFilePath=$runtimeLockPath `
+        -p:RestoreLockedMode=false
+    if ($LASTEXITCODE -ne 0) {
+        throw "Restoring runtime assets for $Runtime failed."
+    }
+
+    $restoredRuntimeAssets[$restoreKey] = $true
+}
+
 function Publish-ZipArtifact {
     param(
         [Parameter(Mandatory)] [string] $Project,
@@ -47,10 +80,12 @@ function Publish-ZipArtifact {
 
     $stagingName = [System.IO.Path]::GetFileNameWithoutExtension($ArtifactName)
     $staging = Join-Path $resolvedOutput "staging/$stagingName"
+    Restore-RuntimeAssets -Project $Project -Runtime $Runtime
     dotnet publish $Project `
         -c Release `
         -r $Runtime `
         --self-contained true `
+        --no-restore `
         -p:Version=$Version `
         -p:PublishSingleFile=true `
         -p:DebugType=None `
@@ -71,10 +106,12 @@ function Publish-TarGzArtifact {
 
     $stagingName = $ArtifactName -replace '\.tar\.gz$', ''
     $staging = Join-Path $resolvedOutput "staging/$stagingName"
+    Restore-RuntimeAssets -Project $Project -Runtime $Runtime
     dotnet publish $Project `
         -c Release `
         -r $Runtime `
         --self-contained true `
+        --no-restore `
         -p:Version=$Version `
         -p:PublishSingleFile=true `
         -p:DebugType=None `
