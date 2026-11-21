@@ -58,6 +58,24 @@ try {
             --filter "Category=SQLite"
     }
 
+    Invoke-VerificationStep "Run peer pairing application tests" {
+        dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run peer replication integration tests" {
+        dotnet test tests/MonitorApp.Peer.Replication.Tests/MonitorApp.Peer.Replication.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run peer service loopback gRPC tests" {
+        dotnet test tests/MonitorApp.Peer.Service.Tests/MonitorApp.Peer.Service.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run controller enrollment and loopback gRPC telemetry tests" {
         dotnet test tests/MonitorApp.Controller.IntegrationTests/MonitorApp.Controller.IntegrationTests.csproj `
             -c Release `
@@ -81,7 +99,7 @@ try {
         dotnet format MonitorApp.sln --verify-no-changes --no-restore
     }
 
-    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet."
+    Write-Warning "NOT RUN: separate-process agent/controller, Headscale, and two-peer convergence suites; those projects do not exist yet."
     Write-Warning "NOT RUN: Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu platform suites. Android core tests run in the solution; the workload-specific APK build is a separate documented command."
 
     Write-Host "`nAvailable functional-foundation verification passed."

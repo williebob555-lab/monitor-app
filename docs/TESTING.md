@@ -175,7 +175,7 @@ Required security-focused behavior includes:
 
 ## Test commands
 
-The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, the SQLite enrollment persistence boundary, the ASP.NET Core controller, and their tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
+The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, legacy controller components, and peer core, persistence, application, replication, and gRPC-host projects with tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
 
 ### Documentation-only validation
 
@@ -229,12 +229,15 @@ dotnet test tests/MonitorApp.Agent.Core.Tests/MonitorApp.Agent.Core.Tests.csproj
 dotnet test tests/MonitorApp.Agent.Persistence.Tests/MonitorApp.Agent.Persistence.Tests.csproj -c Release --no-build --filter "Category=SQLite"
 ```
 
-Peer contract, identity/pairing core, and real peer SQLite tests:
+Peer contract, identity/pairing, persistence, replication, and network-host tests:
 
 ```powershell
 dotnet test tests/MonitorApp.Contracts.Tests/MonitorApp.Contracts.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=Contract"
 dotnet test tests/MonitorApp.Peer.Core.Tests/MonitorApp.Peer.Core.Tests.csproj -c Release --no-build --filter "Category=Unit"
 dotnet test tests/MonitorApp.Peer.Persistence.Tests/MonitorApp.Peer.Persistence.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=SQLite"
+dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.Replication.Tests/MonitorApp.Peer.Replication.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.Service.Tests/MonitorApp.Peer.Service.Tests.csproj -c Release --no-build
 ```
 
 Signed update-manifest policy and artifact-integrity tests:
@@ -293,9 +296,9 @@ The root project provides one discoverable verification entry point at `eng/veri
 pwsh ./eng/verify.ps1
 ```
 
-The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract` (including peer core/contracts, update verification, and Android core), runs real SQLite enrollment/controller telemetry, agent-spool, and peer-store tests, runs controller enrollment plus real loopback HTTP/2 gRPC telemetry tests, runs the Windows collector integration test when the host is Windows, and verifies formatting. It explicitly reports the peer service/two-peer end-to-end path, cross-process legacy path, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
+The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract`, runs the real SQLite enrollment/controller telemetry, agent-spool, peer-store, pairing-application, and peer-replication suites, runs both controller and peer-host real loopback HTTP/2 gRPC tests, runs the Windows collector integration test when the host is Windows, and verifies formatting. It explicitly reports the two-peer end-to-end path, cross-process legacy path, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
 
-The peer foundation suites currently cover generated contract shape and validation, real P-256 bilateral proof and transcript substitution/replay/expiry behavior, compatibility and duplicate-session selection, and a real file-backed SQLite peer store with durable identity/trust, local contiguous and replicated gap-tolerant origin records, byte-identical retry, conflict rejection, cursor/gap restart, observed-device evidence, explicit collector ownership, and credential-safe replication descriptors. They do not prove a network listener, platform key store, or two-peer convergence.
+The peer foundation suites currently cover generated contract shape and validation; real P-256 bilateral proof and transcript substitution/replay/expiry behavior; compatibility and duplicate-session selection; durable approval, challenge, and replay state; a real file-backed SQLite peer store; signed bounded replication with trust/revocation, retry, conflict, gap, cursor, and restart behavior; and a real Windows-loopback gRPC listener with fail-closed binding, authentication gating, compatibility, limits, and cancellation. They do not prove production coordinator composition, protected platform key storage, packaging/service lifecycle, encrypted transport configuration beyond Tailscale, or two-peer convergence.
 
 The SQLite enrollment suite uses a real temporary database file with WAL enabled. It covers restart durability, expiration, cancellation, wrong-device intent, wrong signature, replay rejection, concurrent completion from separate store instances, and absence of raw, hexadecimal, or base64 enrollment secrets in database/WAL files. The telemetry case proves stream-challenge replay rejection, durable sequence acknowledgement, identical retry, conflicting retry rejection, latest-metric reads, and restart. The controller suite includes the enrollment service boundary plus a production Kestrel loopback HTTP/2 gRPC path covering authenticated spool upload, owner-gated reads, controller restart, duplicate retry, wrong-key rejection, cross-stream proof rejection, and safe error redaction. It is a real socket/protocol test in the test process; separate controller/agent process testing remains required.
 

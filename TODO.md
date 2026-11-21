@@ -10,7 +10,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - [ ] Inventory reusable controller-era contracts, P-256 proof code, SQLite stores, telemetry/spool logic, collectors, Android code, and update verification; identify exact extraction/deletion steps.
 - [x] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
 - [x] Define and implement the peer-local SQLite schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
-- [ ] Implement a peer service and local API that collect, persist, query, and replicate without a controller or central database.
+- [x] Implement and test the peer host boundary, durable pairing/session coordinator, and signed origin-replication coordinator.
+- [ ] Compose the production peer coordinators into one runnable service and local administration/query API that collect, persist, query, and replicate without a controller or central database.
 - [ ] Add the real two-peer integration test: separate file-backed SQLite stores; pair; exchange; disconnect; collect offline; restart; reconnect; converge; prove ordered origin identity and no duplicate/conflicting sequences.
 - [ ] Add security tests for network membership without app trust, wrong-key/substitution/replay/revocation, safe errors, private-interface binding, and credential redaction.
 

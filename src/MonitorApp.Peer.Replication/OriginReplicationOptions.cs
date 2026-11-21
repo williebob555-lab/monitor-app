@@ -1,0 +1,44 @@
+namespace MonitorApp.Peer.Replication;
+
+public sealed record OriginReplicationOptions(int MaximumBatchRecords, int MaximumBatchBytes, int CursorScanLimit)
+{
+    public static OriginReplicationOptions Default { get; } = new(512, 4 * 1024 * 1024, 10_000);
+
+    internal void Validate()
+    {
+        if (MaximumBatchRecords is < 1 or > 10_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumBatchRecords));
+        }
+
+        if (MaximumBatchBytes < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumBatchBytes));
+        }
+
+        if (CursorScanLimit is < 1 or > 10_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(CursorScanLimit));
+        }
+    }
+}
+
+public class OriginReplicationException : Exception
+{
+    public OriginReplicationException(string message) : base(message) { }
+}
+
+public sealed class OriginReplicationValidationException : OriginReplicationException
+{
+    public OriginReplicationValidationException(string message) : base(message) { }
+}
+
+public sealed class OriginReplicationLimitException : OriginReplicationException
+{
+    public OriginReplicationLimitException(string message) : base(message) { }
+}
+
+public sealed class OriginReplicationTrustException : OriginReplicationException
+{
+    public OriginReplicationTrustException(string message) : base(message) { }
+}

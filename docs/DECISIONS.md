@@ -315,6 +315,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: These libraries are not a peer release and do not prove Tailscale/private-interface binding, platform-protected keys, durable replay across restart, or two-peer convergence. The root solution and verification script include all three boundaries.
 - Revisit condition: After the production peer service and real two-peer integration test pass.
 
+### T025 Split peer service into independently tested coordination boundaries
+
+- Status: Accepted
+- Decision: Separate durable pairing/session coordination, origin-owned replication, and the ASP.NET Core gRPC host into `MonitorApp.Peer.Application`, `MonitorApp.Peer.Replication`, and `MonitorApp.Peer.Service`. Keep the host dependent on narrow coordinator interfaces so security and network behavior can be tested without duplicating cryptographic or persistence rules.
+- Reason: Approval/replay durability, replication convergence, and hostile network input have different invariants and fixtures. Independent components keep each path executable while preserving one future composed peer process.
+- Evidence: Nine real-SQLite application tests, seven signed replication/SQLite tests, and five real Windows-loopback gRPC tests pass in their focused suites.
+- Consequences: Passing component tests does not claim a runnable peer release. Production dependency wiring, local administration/query, protected platform keys, transport deployment, and the separate-store two-peer convergence test remain required.
+- Revisit condition: If composition reveals a boundary that forces duplicate state or weakens end-to-end authentication.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.
