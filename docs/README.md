@@ -14,6 +14,8 @@ The confirmed deployment model is a decentralized personal mesh:
 - Paired services reconnect directly when both run and replicate origin-owned history with explicit freshness and eventual convergence.
 - Host peers collect observed peripherals and LAN infrastructure through purpose-built adapters. Collector credentials remain local.
 - Versioned capability modules and a canonical observation catalog provide broad but categorized collection without flattening the purpose-built experience.
+- A universal object model will connect monitored equipment, physical inventory, cables, spaces, projects, candidate products, and offers while keeping actual/owned/running state separate from design scenarios.
+- Planned later modules cover connector/length-centered cable management, physical audio/RF/electrical/thermal constraints, sourcing and price history, deterministic automation and notifications, and optional distributed local AI.
 
 The earlier controller/agent and automatic self-hosted Headscale plan is superseded. Existing controller-era code is migration material, not the intended deployment architecture.
 
@@ -31,4 +33,4 @@ The earlier controller/agent and automatic self-hosted Headscale plan is superse
 
 ## Current phase
 
-The project is migrating the functional foundation from a working controller-era alpha to equal peers. The next bounded milestone is two real peers that pair, authenticate independently of Tailscale identity, persist locally, disconnect, reconnect, and converge without duplicate origin records. Observed-device adapters, capability registration, and platform packaging build on that path. Advanced visuals follow functional proof.
+The project is migrating the functional foundation from a working controller-era alpha to equal peers. The next bounded milestone is two real peers that pair, authenticate independently of Tailscale identity, persist locally, disconnect, reconnect, and converge without duplicate origin records. Observed-device adapters, capability registration, universal object identity, and a plain actual-versus-design inventory client build on that path. Cable/constraint planning, sourcing, automation/notifications, local AI, and advanced visuals follow functional proof. None is currently an implemented support claim.

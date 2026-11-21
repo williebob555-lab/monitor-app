@@ -4,6 +4,22 @@
 
 This is the target functional architecture after the user explicitly superseded the controller-centric design. Monitor App is a decentralized system of equal peers. The current repository still contains a controller alpha and controller-oriented contracts; those are migration inputs and test evidence, not the intended deployment topology.
 
+### Implementation claim boundary
+
+| Capability | Current status | Evidence or next gate |
+| --- | --- | --- |
+| Authentication, telemetry, collectors, SQLite durability, Android foreground snapshot, and update verification | Implemented only in the controller-era alpha | Existing executable tests; reusable only after peer migration proves compatibility |
+| Equal-peer service and origin replication | Target architecture; not yet implemented | Required two-peer production-protocol test |
+| Universal inventory with separate actual and design state | Confirmed scope; not implemented | Versioned object/relationship schema and plain local client |
+| Cable connector/length inventory | Confirmed scope; not implemented | Cable model, manual template workflow, query, assignment, and constraint tests |
+| Historical scene reconstruction and living/exploded UI | Confirmed scope; not implemented | Snapshot/event reconstruction and functional client before advanced rendering |
+| Physical, audio, RF, electrical, and thermal design modules | Confirmed scope; not implemented | Bounded validated module per domain |
+| Product sourcing, offers, and price history | Confirmed scope; not implemented | Permitted source adapter and provenance/freshness tests |
+| Automation and push notifications | Confirmed scope; not implemented | Durable rule/outbox ownership and delivery tests |
+| Distributed local AI | Confirmed scope; not implemented | Optional capability routing and permission/provenance tests |
+
+Documentation examples are plans, not support claims.
+
 ## Confirmed constraints
 
 - Target Android, Windows, Fedora, and Ubuntu.
@@ -57,6 +73,19 @@ No peer has global authority. A peer may retain more data or be online more ofte
 
 ## Entity model
 
+### Universal object and state planes
+
+The monitoring entities below are the first operational subset of a broader universal object model. The shared envelope supplies stable identity, type, name, provenance, validity, attachments, and typed relationships. Capability modules add domain fields rather than expanding one nullable universal record.
+
+The model keeps two state planes explicit:
+
+- **Actual state** represents externally real or possessed objects, actual locations and connections, and observed current/historical operation. Possession state and operational state are separate: owned does not imply installed or running.
+- **Design state** belongs to a named project/scenario revision and represents proposed objects, relationships, requirements, alternatives, assumptions, and calculations.
+
+A design can reference an actual object. A design-only object or relationship cannot silently enter actual inventory. Acquisition, receipt, installation, connection, activation, removal, and retirement are explicit events. Promotion creates or links an actual instance while retaining the plan, candidate, offer, and decision history. Queries, totals, constraint findings, automation inputs, and UI projections declare the plane they use.
+
+Additional object families include spaces/positions, racks/mounts, cables/connectors, power and signal paths, projects/requirements/alternatives, canonical products/variants, seller offers, and actual equipment instances. Product, offer, and physical-instance identity remain separate.
+
 ### Peer node
 
 A computer or phone that runs Monitor App. Its stable identity is an application key, not its IP address. It has a platform, capabilities, configured Tailscale endpoints, local origin streams, replication cursors, and lifecycle/freshness state.
@@ -76,6 +105,16 @@ A nested part of a peer or observed device, such as a filesystem, battery, switc
 Typed relationships include paired-with, reachable-over-overlay, physically-attached-to, collected-by, hosted-on, connected-to-port, member-of-VLAN, uplink-to, depends-on, and synchronized-with.
 
 Every relationship preserves source, validity interval, quality, confidence, and whether it was reported or inferred. Physical-LAN relationships and Tailscale-overlay relationships never collapse into one ambiguous edge type.
+
+Planning adds actual-versus-design scope and relationship types such as proposed-in, candidate-for, satisfies, installed-in, connected-to, powered-by, sends-signal-to, cools, blocks, offered-as, replaces, and derived-from. A relationship may be directional and may carry unit-bearing constraint inputs.
+
+### Cable
+
+A cable is either an individually identified physical item or a counted batch plus a shared specification. It has two structured connector ends, nominal and optionally measured length, units and tolerance, active/passive or conversion behavior, supported signal/protocol, electrical and performance ratings, physical/environmental properties, condition/test evidence, storage location or current endpoint connections, custody/reservation, and project assignment.
+
+Connector ends preserve exact standard/form factor, plug/socket or gender when meaningful, role/direction, keying/orientation, pin/pole count, locking, version/category, and supported signal. Reversible and directional cables are distinct. Cable identity is stable and is not derived from mutable connector, length, or location text.
+
+The entry path uses searchable reusable connector-pair and length templates with keyboard/touch-friendly manual entry. QR, phone-camera, and dedicated scanner adapters are outside the required cable path. A planned cable requirement can be assigned to a suitable actual cable without merging the records.
 
 ## Pairing and trust
 
@@ -204,6 +243,40 @@ The local experience renders the same domain model available to replication and 
 
 The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.
 
+The client also keeps actual and design contexts visually and semantically distinct. The default current view shows actual state. A named plan or deliberate overlay may compare actual and design state, with separate costs, quantities, loads, cable availability, connections, freshness, and constraint findings. Historical time applies to recorded actual state; plan revisions use their own revision history and must not masquerade as observed history.
+
+## Planning and constraint services
+
+Constraint modules consume typed objects, relationships, unit-bearing values, and provenance, then emit structured findings with rule/version, inputs, assumptions, confidence, severity, and suggested remediation. Cable, audio, RF, electrical, thermal, dimensional, mounting, and environmental rules remain separate modules over the same model. Unknown or stale inputs yield unresolved findings rather than approval.
+
+The first slice should combine cable matching with one bounded audio or electrical path. Regulatory and life-safety output is decision support, includes jurisdiction/source version when relevant, and does not claim professional certification.
+
+## Sourcing and offer history
+
+Canonical products/variants are separate from seller offers and actual instances. Offer observations preserve seller, SKU, region, currency, condition, price components, availability, source time, retrieval method, URL/provider, and quality. Source adapters use permitted APIs/feeds/retrieval or user entry, respect credentials and rate/access limits, and report blocked or failed retrieval as unavailable rather than zero price or out of stock.
+
+## Automation and notification boundary
+
+Automation is a deterministic peer service independent of UI and AI. Versioned event-condition-action rules persist schedule/evaluation state, debounce/cooldown/deduplication, escalation, expiration, idempotency, and audit evidence. Rules declare whether inputs come from actual state, a named design, sourcing observations, or history. Historical simulation never dispatches live actions.
+
+Equal peers require explicit execution ownership so replicated events cannot produce duplicate notifications or actions. The exact lease, single-writer, reassignment, and rule-conflict design remains open. Notification delivery uses a durable outbox and adapters; Android, self-hosted, and optional third-party transports remain open pending privacy and reliability tests. Operational actions retain a separate permission domain.
+
+## Distributed local AI boundary
+
+AI is an optional capability advertised by eligible peers. Capability metadata includes model/runtime version, supported tasks/tools, context and output limits, resource/energy policy, privacy, and availability. Initial routing sends a bounded job to one eligible peer; distributed tensor execution is not assumed.
+
+AI accesses typed APIs through explicit tool grants. Derived output retains model, input-object/source references, time, and confidence where practical. AI cannot establish identity/trust, authoritatively mutate observations, own replication, run deterministic rules, deliver notifications, or bypass action approval.
+
+## Delivery dependencies
+
+1. Shared contracts, build, and two-peer persistence/replication proof.
+2. Universal object envelope, actual/design separation, and plain inventory client.
+3. Platform peers, historical reconstruction, and truthful operational monitoring.
+4. Cable plus bounded physical constraint module; then sourcing/offer history.
+5. Durable automation ownership, notification outbox, and delivery adapters.
+6. Optional distributed local-AI routing and tools.
+7. Living schematic, exploded architecture, historical replay, and advanced polish over proven domain APIs.
+
 ## Reusable current implementation
 
 The controller alpha is not the target topology. These components remain reusable:
@@ -284,6 +357,9 @@ Only after this slice passes should controller code be removed or release artifa
 - Automatic collector failover or credential replication.
 - Operational control actions.
 - Multi-user roles.
-- Remote push notifications.
+- Notification transport selection and tested remote delivery (the alert capability itself is confirmed scope).
+- Automation execution ownership, rule conflict semantics, and outbox reassignment.
+- Retailer/source adapter selection and price-normalization policy.
+- Local-AI model/runtime selection and resource budgets.
 - Advanced retention rollups.
 - Final rendering technology and game-like polish.

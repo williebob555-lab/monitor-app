@@ -49,6 +49,26 @@ The functional foundation is read-only. Future actions use a distinct permission
 
 Update manifests and artifacts remain signed and target/version/hash checked. Trusted release keys arrive through an authenticated installer or prior trusted release. Never introduce unsigned fallback, silent downgrade, or automatic overwrite as recovery.
 
+## Inventory, planning, and cable data
+
+Actual inventory and running state are security-relevant facts. Design scenarios, candidate products, and proposed connections must not silently change actual state, collector configuration, automation inputs, or device controls. Promotion from design to actual is explicit and audited. Plan overlays must remain clearly labeled so an operator cannot mistake a proposed power, signal, network, or cable path for an installed one.
+
+Cable records may expose work locations, equipment relationships, custody, and operational topology. Apply local access control, minimize exports, and keep optional labels free of secrets. The primary cable workflow uses manual templates and does not require QR codes or dedicated scanning hardware.
+
+## External sourcing and notification egress
+
+Product/source adapters and notification transports create outbound data flows. Each adapter declares destinations, fields sent, credentials, rate limits, retention, and third-party exposure. Store retailer/API credentials and notification tokens in protected local storage; never replicate or export them by default. Minimize notification text shown on lock screens and provide a privacy-safe mode.
+
+Treat retailer pages, feeds, product specifications, URLs, labels, and imported notes as untrusted data. Sanitize stored/displayed content, bound fetches and parsing, resist server-side request forgery, and never let source text choose tools, destinations, credentials, or actions. Respect provider terms and access restrictions. A retrieval failure is unavailable evidence, not price zero or out of stock.
+
+Automation requires a durable execution owner and idempotency boundary so replicated events cannot duplicate notifications or actions. Rule changes, ownership transfer, destinations, and permission changes are audited. Notification permission never implies operational-control permission.
+
+## Local AI safety
+
+Models, prompts, retrieved text, embeddings, and generated output are untrusted. AI receives explicit task and tool grants and the minimum actual/design context required. Tool validation and authorization occur outside the model. Prompt or retrieved text cannot expand permissions, reveal credentials, alter peer trust, or bypass confirmation.
+
+Generated facts and recommendations retain model/runtime version and source references and do not overwrite observed or user-confirmed facts. AI does not own replication, automation schedules, notification delivery, identity, or trust. Material actions use the ordinary permission, preview, confirmation, expiration, idempotency, and audit path regardless of who proposed them.
+
 ## Required security tests
 
 - Tailnet/LAN membership without a paired application identity fails.
@@ -59,3 +79,7 @@ Update manifests and artifacts remain signed and target/version/hash checked. Tr
 - Collector failover cannot occur until the second peer is explicitly provisioned.
 - Security findings require evidence/confidence; deeper security modules cannot start without their separate enablement and retention policy.
 - Tampered or incorrectly targeted update manifests/artifacts fail closed.
+- Design-only objects and relationships cannot be consumed as actual state without an explicit transition.
+- Source and notification adapters protect credentials, restrict egress, redact diagnostics, and reject untrusted destinations and oversized/malicious input.
+- Replicated automation inputs produce at most one owned action and cannot bypass action permissions.
+- AI and retrieved content cannot expand tool grants, modify authoritative facts silently, expose secrets, or dispatch material actions without the ordinary approval path.

@@ -6,6 +6,8 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Changed
 
+- Replaced the mandatory full-document preflight and default full-suite verification for every edit with a risk-based workflow: always inspect the index, todo, working tree, and governing decisions; read complete documents and run broad tests only when the change scope requires them.
+- Expanded the documented product scope to a universal monitoring, inventory, and design model with an explicit boundary between actual/owned/running state and named plans. Added connector-and-length-centered cable management, physical/audio/RF/electrical/thermal constraints, sourcing and price history, deterministic automation and notifications, optional distributed local AI, and a dependency-ordered roadmap. These are documented plans, not implemented features.
 - Replaced the controller/agent and automatic self-hosted Headscale direction with a confirmed decentralized equal-peer mesh. Tailscale now supplies user-managed reachability only; bilateral application pairing establishes trust.
 - Defined origin-owned peer replication, local storage/query on every peer, explicit freshness/offline cache, and eventual convergence without global consensus.
 - Added observed peripherals and LAN infrastructure as typed entities collected through purpose-built adapters with stable identity, explicit collector ownership, local credentials, and evidence-aware topology reconciliation.

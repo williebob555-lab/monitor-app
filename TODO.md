@@ -5,6 +5,8 @@ This file contains active and near-term tasks only. Read it with the required do
 ## Current milestone: two equal peers
 
 - [x] Record the confirmed decentralized product direction and supersede controller/Headscale deployment guidance.
+- [x] Reconcile the agreed inventory/planning, actual-versus-design, cable, physical-constraint, sourcing, automation/notification, distributed-local-AI, and phased-roadmap scope across the documentation without claiming implementation.
+- [x] Make repository preflight, collaboration, progress reporting, and documentation-only verification risk-based to reduce unnecessary usage.
 - [ ] Inventory reusable controller-era contracts, P-256 proof code, SQLite stores, telemetry/spool logic, collectors, Android code, and update verification; identify exact extraction/deletion steps.
 - [ ] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
 - [ ] Define peer-local schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
@@ -19,6 +21,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [ ] Add compatibility tests for module versions, truthful fallback inspector descriptors, and purpose-built inspector selection.
 - [ ] Add registration tests that allow aggregate operational network metrics but reject ordinary packet/content/flow/communication-identity declarations.
 - [ ] Add separately enabled defensive-security capability policy with evidence/confidence, permissions, local processing, and bounded retention.
+- [ ] Define the smallest universal object envelope and typed relationship contract needed to keep actual state and named design scenarios separate; include product/offer/instance identity and the connector-length cable slice without starting sourcing, automation, or AI services.
 
 ## Observed devices and LAN topology
 
@@ -39,4 +42,9 @@ This file contains active and near-term tasks only. Read it with the required do
 
 - Final living-schematic and exploded-architecture rendering.
 - Game-like interactions and cinematic transitions.
+- Full cable inventory UI beyond the bounded object-model slice; QR and dedicated scanner workflows are outside the required path.
+- Physical audio/RF/electrical/thermal constraint engines and plan comparison.
+- Product sourcing, seller adapters, price and availability history.
+- Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
+- Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions, multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.

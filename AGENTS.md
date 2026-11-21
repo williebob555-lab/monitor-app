@@ -4,19 +4,18 @@ These instructions apply to every person or agent changing this repository.
 
 ## Required preflight
 
-Before making any change, read these files in order:
+Use a risk-based preflight. Do not reread unchanged documents already reviewed in the current task.
 
-1. `Monitor App Design Specification.txt`
-2. `docs/README.md`
-3. `docs/ARCHITECTURE.md`
-4. `docs/DEVELOPMENT.md`
-5. `docs/TESTING.md`
-6. `docs/SECURITY.md`
-7. `docs/DECISIONS.md`
-8. `docs/CHANGELOG.md`
-9. `TODO.md`
+Always, before editing:
 
-Then inspect the current repository state and confirm that the planned work does not conflict with an existing task or uncommitted change. No application code, configuration, schema, packaging, or test change may begin before this preflight is complete.
+1. Read `docs/README.md` and `TODO.md`.
+2. Inspect `git status --short --branch` and the relevant files for overlapping work.
+3. Search `Monitor App Design Specification.txt` and `docs/DECISIONS.md` for the requirement or decision governing the task.
+4. Read the relevant sections of `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, `docs/TESTING.md`, and `docs/SECURITY.md` based on the files and boundaries affected.
+
+Read the complete product specification and complete documentation set only when the change is product-wide, changes architecture or trust boundaries, changes platform/release claims, introduces a new domain model, or cannot be safely scoped by search. A narrow documentation correction may begin after the relevant sections and repository state are understood. No application code, configuration, schema, packaging, or test change may begin before its applicable preflight is complete.
+
+Keep preflight output compact. Do not print entire documents merely to prove they were read; use targeted ranges and searches, and summarize conflicts or constraints that affect the work.
 
 ## Product authority
 
@@ -74,6 +73,10 @@ At minimum:
 - Every fixed defect needs a regression test when the behavior can be tested deterministically.
 - If a required test cannot run in the current environment, report it as unverified. Do not describe it as passing.
 
+For documentation-only changes that do not alter commands, contracts, configuration, packaging, or executable behavior, `git diff --check` plus targeted link/consistency checks is sufficient. Do not run the full build and test suite by default. Run broader verification only when the documentation changes executable instructions or when requested.
+
+Read-only review, diagnosis, status reporting, or any task that leaves no tracked repository diff requires no build, test, or verification command.
+
 ## Documentation and todo contract
 
 Every change must leave the documentation set accurate.
@@ -88,7 +91,9 @@ Every change must leave the documentation set accurate.
 
 ## Collaboration
 
-The primary coordinator should delegate bulk implementation and test work to lower agents, as requested by the user. Each agent must work within an explicit scope, read this documentation set first, and report files changed and tests run. Agents share the same working tree, so avoid overlapping edits and preserve unrelated work.
+The primary coordinator should delegate only substantial, clearly separable implementation or test work when requested by the user. Do not create subagents for preflight, small documentation edits, or work that the coordinator can complete directly at lower coordination cost. Each delegated agent uses the same risk-based preflight, works within an explicit scope, and reports files changed and tests run. Agents share the same working tree, so avoid overlapping edits and preserve unrelated work.
+
+Keep progress communication proportional: one update at the start, at a meaningful blocker or scope change, and before a long-running verification step. Prefer one bounded wait over repeated polling and do not stream routine command output unless it changes the result.
 
 ## Completion report
 

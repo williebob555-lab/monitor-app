@@ -19,6 +19,20 @@ The confirmed target is now an equal-peer mesh. Controller/enrollment tests belo
 
 No platform is supported until its peer service lifecycle, protected identity storage, pairing/reconnect, local persistence/query, update, and required collector behavior pass on that named platform.
 
+## Expanded scope gates (planned, not current suites)
+
+- **Actual versus design state:** schema/API/UI tests prove design-only objects, quantities, costs, loads, connections, and warnings never appear as actual inventory or running telemetry. Explicit promotion links an actual instance to its plan/candidate/offer history without mutating the historical plan.
+- **Universal identity:** property and persistence tests distinguish product definition, seller offer, physical instance, observed peer/device, and design placeholder; revisions preserve provenance and typed relationship validity.
+- **Cable model:** round trips preserve two connector ends, directionality/reversibility, exact standard, nominal/measured unit-bearing length, ratings, condition, location/custody, actual connection, reservation, and planned assignment. Matching tests reject wrong direction, insufficient routed length/slack, and incompatible power/data/audio ratings. Manual connector-pair and length templates require no QR or scanner hardware.
+- **Constraint modules:** unit conversion fixtures and reviewed domain cases cover cable, audio, RF, electrical, thermal, dimensional, and mounting rules. Missing/stale inputs produce unresolved findings, not safe/compatible. Findings preserve rule version, inputs, assumptions, plane, evidence, and confidence.
+- **Sourcing and price history:** recorded provider fixtures exercise normalization, currency/source time, offer-versus-product identity, blocked/rate-limited/stale states, and prevention of false zero-price/out-of-stock values. Live provider smoke tests are separately permissioned and never replace deterministic fixtures.
+- **Automation:** fake-clock plus real persistence tests cover restart, schedules, duration thresholds, debounce, cooldown, deduplication, quiet hours, escalation, expiration, idempotency, rule versioning, and durable outbox retry. A two-peer test proves replicated events produce one owned evaluation/action, including ownership reassignment. Historical simulation dispatches nothing.
+- **Notifications:** each adapter tests secret redaction, metadata minimization, offline retry, acknowledgement where supported, invalid destination, provider failure, duplicate suppression, and Android lifecycle limits. A compiled client is not delivery evidence.
+- **Local AI:** tests enforce model/tool capability grants, actual/design context labeling, source/model provenance, input-size limits, prompt-injection resistance at tool boundaries, no silent fact overwrite, and no action-permission bypass. Deterministic behavior is tested without an AI dependency.
+- **History and experience:** reconstruction aligns objects, relationships, observations, automation events, and actual-state time. Plan revisions use design revision history rather than masquerading as observed time. Accessibility tests expose the same plane, values, units, provenance, and findings as the visual scene.
+
+These gates become canonical commands only when their production projects exist. Until then, documentation is not executable evidence.
+
 ## Nonnegotiable quality rules
 
 - Every test must execute in the documented command or be reported as unverified.
@@ -162,6 +176,18 @@ Required security-focused behavior includes:
 ## Test commands
 
 The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, the SQLite enrollment persistence boundary, the ASP.NET Core controller, and their tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
+
+### Documentation-only validation
+
+When only prose documentation or todo/decision/changelog text changes, and no command, contract, configuration, package, schema, or executable behavior changes, run:
+
+```powershell
+git diff --check
+```
+
+Also search for directly affected terminology or links to catch contradictions. The full `eng/verify.ps1` suite is not required for that case. If executable commands, platform claims, generated artifacts, or code-facing configuration changed, run the relevant executable checks and the broader suite in proportion to risk.
+
+If the task is read-only or leaves no tracked repository diff, run no verification command.
 
 Restore and compile:
 

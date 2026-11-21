@@ -1,8 +1,8 @@
 MONITOR APP DESIGN SPECIFICATION
 
 Product scope, architecture, platform constraints, and experience direction
-Version 1.1
-17 November 2026
+Version 1.2
+20 November 2026
 
 
 DOCUMENT PURPOSE
@@ -64,6 +64,31 @@ Breadth also requires strong categorization and modularity. Capability modules u
 This amendment supersedes every earlier controller-centric or mandatory self-hosted-Headscale statement in this document, including prior CONFIRMED USER DIRECTION recorded from an incomplete brief. Those statements remain in the historical text only where their superseded status is useful to explain the project record. The living schematic, exploded architecture, game-like interaction, historical time travel, purpose-built UI, platform targets, functionality-first delivery, and meaningful-test requirements remain unchanged.
 
 
+AUTHORITATIVE PRODUCT-SCOPE AMENDMENT
+
+CONFIRMED USER DIRECTION
+
+Monitor App is not limited to live computer telemetry. It is also a personal inventory, planning, and decision-support environment for the physical and digital systems the user owns, operates, is designing, or is considering buying. The scope includes equipment, components, software, services, rooms and installation locations, racks and enclosures, cables and connectors, power and signal paths, projects, candidate products, and retailer offers.
+
+The product must make a clear, persistent distinction between actual state and design state. Actual state describes objects the user has, their possession and location, installed connections, and evidence about what is running now or ran historically. Design state describes proposed objects, candidate products, hypothetical relationships, requirements, alternatives, and scenario-specific calculations. A plan may reference existing actual objects, but a proposed object or connection never becomes owned, installed, connected, or running without an explicit transition that preserves its planning history. The interface, queries, totals, warnings, automation, and historical replay must identify which state they use.
+
+One universal object model should connect these domains without pretending that every object has the same capabilities. A monitored peer, a passive loudspeaker, a rack shelf, a cable, a room, a planned component, and a candidate product may share identity, naming, provenance, lifecycle, relationships, history, and attachments while retaining type-specific specifications, constraints, observations, and inspectors.
+
+The living schematic, exploded architecture, and historical replay remain the primary experience. They should eventually project both operational reality and user-authored plans from the same domain model. The interface must distinguish observed facts, imported specifications, user-entered facts, calculations, assumptions, recommendations, and unknown values. Planned state must never be displayed as live telemetry, and a product listing must never become an owned device merely because it was considered.
+
+Physical-system planning is in scope. Monitor App should be able to represent and evaluate audio signal chains, RF coordination and propagation constraints, electrical loads and circuit budgets, thermal generation and cooling paths, physical dimensions and clearances, mounting, connector and cable compatibility, and other domain-specific constraints. These are distinct modules over shared objects and relationships, not one generic compatibility score.
+
+Cable inventory and planning are a first-class part of this scope. The user's earlier work system paired connector/category codes with reusable length codes for fast entry. Monitor App should preserve the speed of that combinatorial workflow while replacing static sheets with structured connector-end, length, rating, condition, location, custody, and connection data. Reusable templates and quick manual selection are the primary workflow; specialized scanning hardware and QR codes are not required.
+
+Product sourcing and price tracking are in scope. Candidate products and specific offers should preserve manufacturer identity, model or variant, seller, region and currency, price and availability history, source time, source URL or provider, shipping and tax information when available, and source quality. The system may alert on price, availability, or suitability conditions, but it must expose stale, incomplete, incomparable, or restricted source data rather than inventing certainty.
+
+Customizable alerts and automation are core scope. The intended model is event plus condition plus action, covering examples such as peer disconnection, storage pressure, service failure, equipment availability, a candidate price falling below a threshold, a cable leaving its assigned location, or a project becoming build-ready. Push notifications to an Android companion and platform notifications are desired actions. The deterministic rule engine must operate without requiring the UI or an AI model, preserve evaluation and action history, use deduplication and cooldowns, and keep read-only observation separate from permissioned operational control.
+
+Distributed local AI is in scope as an optional assistance layer. Lightweight models or deterministic tools may run on individual peers, while more capable local models may run on peers with suitable resources. Routing should consider capability, privacy, availability, latency, energy, and user policy. AI may explain, search, compare, propose plans, translate natural language into inspectable draft rules, or call approved read-only tools. It is not an authority source, identity provider, replication owner, or automation runtime, and it may not execute material actions without the same explicit permissions and confirmations required of any other caller.
+
+This scope does not change the delivery priority. The executable equal-peer foundation, truthful object identity and provenance, local persistence and query, platform behavior, historical reconstruction, and a plain usable client precede sourcing automation, local-AI orchestration, or advanced visual production. Bounded design studies may continue, but they do not count as implemented functionality or displace prerequisite work.
+
+
 1. EXECUTIVE SUMMARY
 
 CONFIRMED USER DIRECTION
@@ -118,6 +143,9 @@ Monitor App is a self-hosted application for observing, understanding, and selec
 - Synchronization systems such as Syncthing.
 - Containers or other workload groups when a supported integration exists.
 - Backup systems and replication relationships when a supported integration exists.
+- Physical equipment, components, accessories, cables, connectors, spaces, racks, and installation positions.
+- Named projects and design scenarios containing proposed objects, relationships, requirements, and alternatives.
+- Product definitions, variants, seller offers, and price or availability observations kept separate from actual instances.
 
 The product has two equally legitimate forms of use.
 
@@ -161,6 +189,10 @@ CONFIRMED USER DIRECTION
 - Allow manual peer bootstrap by Tailscale IP followed by automatic direct reconnection.
 - Keep Tailscale reachability separate from Monitor App identity and authorization.
 - Include non-peer devices through stable observed identities and purpose-built host adapters.
+- Keep actual/owned/running state visibly and structurally separate from design scenarios while allowing intentional comparison and assignment.
+- Include connector-and-length-centered cable inventory and planning without requiring QR codes or dedicated scanner hardware.
+- Include modular physical, audio, RF, electrical, and thermal design constraints.
+- Include candidate sourcing, price history, customizable automation and notifications, and optional distributed local AI as later functional layers.
 - Explore a wide breadth of concepts before choosing one visual direction.
 
 ASSISTANT PROPOSAL
@@ -588,7 +620,7 @@ The user may configure:
 - Retention.
 - Notifications.
 - Permitted actions.
-- Automation logic if automation is later supported.
+- Automation logic, notifications, cooldowns, and escalation.
 
 9.5 APPEARANCE CUSTOMIZATION
 
@@ -1294,30 +1326,37 @@ A stable decision register, shared prototype dataset, comparison tasks, and tech
 Exit evidence:
 The user confirms that this specification accurately preserves the desired direction and identifies the remaining choices.
 
-PHASE 1 PARALLEL VISUAL PROTOTYPES
+PHASE 1 EQUAL-PEER FUNCTIONAL FOUNDATION
 
 Outcome:
-Several genuinely different visual worlds using identical data and tasks.
+Two real peers pair, collect, persist, query, disconnect, reconnect, and converge origin-owned history without a controller.
 
 Exit evidence:
-The user can compare them directly and narrow the field without selecting among minor dashboard variations.
-
-PHASE 2 CONNECTIVITY FOUNDATION
-
-Outcome:
-A repeatable direct peer download-install-add-by-Tailscale-IP-and-pair flow for the first supported platforms.
+The production protocol and separate file-backed stores pass the two-peer integration and security gates.
 
 Work includes:
 
-- Bilateral peer pairing service.
-- Signed installer.
-- Tailscale-interface listener configuration.
-- Short-lived transcript-bound approval.
+- Bilateral peer pairing service and short-lived transcript-bound approval.
+- Tailscale-interface listener configuration and no public listener by default.
 - Pairwise application identity verification and pinning.
 - Automatic reconnect with duplicate-session resolution.
-- Unpairing, key rotation, repair, and rollback.
+- Local collection, storage, query, origin replication, and durable cursors.
+- Unpairing, key rotation, repair, signed packaging, update, and rollback gates.
 
-PHASE 3 TELEMETRY AND HISTORY
+PHASE 2 UNIVERSAL INVENTORY AND OBJECT FOUNDATION
+
+Outcome:
+A plain client can distinguish actual inventory and running state from named planning scenarios while representing equipment, components, spaces, cables, products, and offers through one typed model.
+
+Work includes:
+
+- Stable object and variant identity.
+- Separate actual-state and design-state assertions.
+- Typed containment, attachment, dependency, signal, power, thermal, cable, and sourcing relationships.
+- Provenance and confidence for observed, imported, entered, calculated, inferred, and recommended facts.
+- Cable connector-end, length, rating, location, connection, and quick-entry workflows.
+
+PHASE 3 MONITORING HISTORY AND PLATFORM PEERS
 
 Outcome:
 Reliable current and historical state.
@@ -1336,20 +1375,37 @@ Work includes:
 - Historical reconstruction.
 - Freshness and missing-data semantics.
 
-PHASE 4 INTEGRATED READ-ONLY ALPHA
+PHASE 4 PHYSICAL PLANNING AND SOURCING
 
 Outcome:
-The selected living environment, semantic zoom, purpose-built inspectors, search, and time travel operate on real telemetry.
+Purpose-built planning modules evaluate bounded physical constraints and sourcing data without confusing them with live telemetry.
 
-PHASE 5 CONTROL AND RESILIENCE
+Work includes:
+
+- One validated cable plus audio or electrical planning slice.
+- Explicit RF, electrical, thermal, dimensional, connector, and cable constraint contracts.
+- Candidate products, seller offers, source provenance, and price and availability history.
+- Compatibility findings with evidence, assumptions, confidence, and unknowns.
+
+PHASE 5 AUTOMATION NOTIFICATION AND RESILIENCE
 
 Outcome:
-Explicit safe actions, permissions, audit, updates, degraded operation, backup, and restore.
+A deterministic event-condition-action engine evaluates monitoring, planning, sourcing, and inventory events; records why it acted; and delivers tested local or push notifications with cooldown and escalation behavior.
 
-PHASE 6 DELIGHT AND POLISH
+PHASE 6 DISTRIBUTED LOCAL AI
 
 Outcome:
-The physical interaction, cinematic transitions, ambient personality, performance, sound if desired, and accessibility are refined without weakening utility.
+Optional local assistants can search and explain the model, compare choices, and draft inspectable plans or rules through permissioned tools without becoming a source of truth or automation dependency.
+
+PHASE 7 LIVING EXPERIENCE INTEGRATION
+
+Outcome:
+Several genuinely different visual worlds are compared using identical data and tasks, and the selected living schematic, exploded architecture, semantic zoom, purpose-built inspectors, search, and time travel operate on real actual and planning data.
+
+PHASE 8 CONTROL DELIGHT AND POLISH
+
+Outcome:
+Explicit safe operational actions, permissions, audit, updates, degraded operation, backup, restore, physical interaction, cinematic transitions, ambient personality, performance, sound if desired, and accessibility are refined without weakening utility.
 
 
 20. ACCEPTANCE CRITERIA
@@ -1385,6 +1441,24 @@ The agreed reference environment remains responsive under the agreed device and 
 
 Accessibility
 Keyboard access, structured navigation, text equivalents, exact values, and reduced motion cover essential information and actions.
+
+Actual and design state
+The current view, historical actual view, named design scenario, and comparison overlay are unmistakable. Design-only objects and relationships never appear as owned, installed, connected, or running. Promotion to actual state is explicit and retains plan and decision history.
+
+Cable inventory and planning
+The user can describe both connector ends, direction, nominal or measured length, units, ratings, condition, location, and actual or planned connection through fast manual templates. The system can find available actual cables for a planned connection and explain mismatches without QR codes or scanner hardware.
+
+Physical constraints
+Audio, RF, electrical, thermal, cable, dimensional, and mounting findings show rule/version, inputs, units, provenance, assumptions, confidence, and unknowns. Missing data cannot produce an unqualified compatible or safe result.
+
+Sourcing
+Product, variant, offer, and actual instance remain distinct. Price and availability observations preserve seller, region, currency, source time, quality, and failure/staleness state.
+
+Automation and notifications
+A durable rule survives restart, evaluates exactly once under equal-peer ownership, records why it fired, observes cooldown/deduplication, and retries notification delivery without converting notification permission into control permission.
+
+Local AI
+The product remains useful without AI. When enabled, a bounded job runs only on an eligible peer, uses granted tools, labels actual versus design context, cites sources/provenance where practical, and cannot overwrite authoritative facts or bypass action confirmation.
 
 
 21. RISKS AND MITIGATIONS
@@ -1485,6 +1559,38 @@ Ambient use may monopolize a GPU or drain batteries.
 Mitigation:
 Set frame and effect budgets, aggregate activity, pause unseen effects, and provide low-power modes.
 
+Actual and design state become confused
+
+Risk:
+A proposed device, connection, cable, cost, or load could be mistaken for installed or running reality.
+
+Mitigation:
+Use separate scoped assertions, named scenarios, explicit overlays, separate totals, and an audited plan-to-actual transition.
+
+External product data is stale or misleading
+
+Risk:
+Retailer access may fail, offers may not be comparable, and specifications may be incomplete or wrong.
+
+Mitigation:
+Separate products from offers, retain source and time, expose stale/unavailable/incomparable states, use permitted adapters, and require exact evidence for suitability findings.
+
+Equal peers duplicate automation
+
+Risk:
+Replicated events or ownership changes could send duplicate notifications or repeat actions.
+
+Mitigation:
+Define durable execution ownership, idempotency, outbox state, reassignment rules, and two-peer failure tests before enabling live delivery.
+
+AI overreaches or hallucinates
+
+Risk:
+A model may confuse actual and design state, follow malicious retrieved text, invent facts, or propose unsafe actions.
+
+Mitigation:
+Keep AI optional and permission scoped, validate tools outside the model, store outputs as derived artifacts, expose sources, and keep deterministic services authoritative.
+
 
 22. OPEN DECISIONS
 
@@ -1522,9 +1628,25 @@ Action scope
 
 Choose between a read-only first release, a few safe actions, or broader administration after a security review and concrete use-case selection.
 
-Remote notifications
+Remote notification transport
 
-Options include local-only notifications, a self-hosted push bridge, or optional third-party channels. Privacy and reliability require a separate decision.
+The notification capability is confirmed. Transport options include local-only notifications, an Android companion, a self-hosted push bridge, or optional third-party channels. Privacy and reliability require a separate decision.
+
+Actual/design persistence shape
+
+Choose between scoped assertions in one store, versioned scenario overlays, or another representation after testing promotion, comparison, shared actual objects, and plan revision history. The separation itself is confirmed.
+
+Cable taxonomy and quick entry
+
+Choose the canonical connector taxonomy, reversible/directional rules, unit and tolerance defaults, counted-batch versus serialized-item threshold, and optional label/import format. Manual templates must remain sufficient; QR and dedicated scanners are not required.
+
+Automation ownership and rule conflicts
+
+Choose how an equal-peer mesh assigns one durable evaluator/outbox owner, transfers ownership after outage, and reconciles rule edits without duplicate effects.
+
+Local AI runtime and routing
+
+Choose supported model families, runtimes, hardware/resource budgets, context and embedding storage, tool policy, and task routing. Whole-job routing to one eligible peer is the initial proposal, not a confirmed implementation choice.
 
 Peer directory propagation
 
@@ -1654,6 +1776,31 @@ Direction: Allow explicitly enabled defensive threat detection under separate pr
 Status: CONFIRMED USER DIRECTION.
 Consequence: Prefer aggregate signals and summarized device alerts. Deeper flow-derived or packet-derived modules require separate approval and review; findings report evidence and confidence rather than unsupported compromise claims.
 
+D22
+Direction: Keep what the user has and is running separate from what the user is planning or designing.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Actual state and named design scenarios use explicit scope, separate totals, and an audited transition that preserves planning history.
+
+D23
+Direction: Recreate the cable-code system as connector-and-length-centered cable inventory and planning with richer parameters.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Model two connector ends, length, direction, ratings, condition, location, and actual/planned connections; use fast manual templates without requiring QR codes or scanner hardware.
+
+D24
+Direction: Include physical, audio, RF, electrical, thermal, dimensional, mounting, and cable constraint analysis.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Use modular unit-bearing findings with provenance, assumptions, confidence, and explicit unknowns.
+
+D25
+Direction: Include sourcing, price and availability history, customizable automation, and push notifications.
+Status: CONFIRMED USER DIRECTION.
+Consequence: Separate product/offer/instance identity; run deterministic durable rules independently of UI and AI; keep transport and equal-peer execution ownership open.
+
+D26
+Direction: Include optional distributed local AI across capable peers.
+Status: CONFIRMED USER DIRECTION.
+Consequence: AI uses permissioned tools and derived provenance, while identity, facts, replication, rules, notifications, and actions remain deterministic authorities.
+
 
 24. TECHNICAL REFERENCES
 
@@ -1734,6 +1881,24 @@ The private Tailscale network used to make peer endpoints reachable. Tailnet mem
 Visual lens
 A designed emphasis layer that highlights connectivity, storage, power, synchronization, service health, or another concern without rebuilding the environment.
 
+Actual state
+Externally real or possessed objects, actual locations and relationships, and observed current or historical operation. Possession, installation, connection, and running state are separate facts.
+
+Design state
+Objects, relationships, requirements, alternatives, assumptions, and calculations scoped to a named project or scenario revision. Design state is never implied actual state.
+
+Cable specification
+The typed description of two connector ends, directionality, length, ratings, supported signals/protocols, and physical/environmental properties shared by one or more cable items.
+
+Product offer
+A seller-specific, time-stamped price and availability observation for a product or variant. It is not the canonical product or an actual owned instance.
+
+Automation rule
+A versioned event-condition-action definition with durable schedule/evaluation state, ownership, idempotency, cooldown, and audit.
+
+AI capability
+An optional peer-advertised model/runtime and tool boundary describing eligible tasks, resources, privacy, availability, and limits.
+
 
 26. IMMEDIATE NEXT STEPS
 
@@ -1749,6 +1914,142 @@ ASSISTANT PROPOSAL
 8. Measure realistic telemetry, topology, raw-versus-summary replication, retention, and mobile power costs.
 9. Define a shared sample environment and recorded scenario for later visual prototype comparison.
 10. Narrow the visual direction only after the decentralized functional foundation and direct comparison of broad prototypes.
+11. Define and test the universal object envelope and actual-versus-design separation before adding sourcing or AI services.
+12. Prototype the cable connector-end and unit-bearing length model with manual templates, actual inventory, and planned assignment.
+13. Implement one bounded cable plus audio or electrical constraint slice with reviewed units and unknown-state behavior.
+14. Design automation execution ownership and notification outbox semantics before enabling price or disconnection push alerts.
+15. Add optional local-AI routing only after typed read APIs, provenance, and tool permissions exist.
+
+
+27. UNIVERSAL INVENTORY ACTUAL STATE AND DESIGN STATE
+
+CONFIRMED USER DIRECTION
+
+The inventory is broader than a discovered-device list. It contains things the user possesses, operates, has installed, has ordered, plans to install, is comparing, or has retired. It also contains non-product objects needed to explain a system, including spaces, positions, circuits, thermal zones, signal paths, projects, requirements, and retailer offers.
+
+Actual state and design state are separate but linkable planes:
+
+- Actual state contains possessed or externally real objects, installed and observed relationships, present and historical operational state, physical location, custody, condition, and evidence.
+- Design state belongs to a named scenario or project revision and contains proposed objects, placements, relationships, requirements, alternatives, assumptions, and calculated outcomes.
+- A design may reuse an actual object without making every proposed relationship actual.
+- Selecting or ordering a candidate and receiving or installing an item are explicit events. They create or link an actual instance while retaining the candidate, offer, decision, and plan history.
+- The default current view must not mix design-only quantities, costs, loads, cable requirements, or connections into actual totals. An intentional overlay or comparison labels both sides.
+
+ASSISTANT PROPOSAL
+
+Use a small shared object envelope with typed capability extensions rather than a giant nullable record or unrelated databases. Shared fields should include stable object identity, object type and subtype, display name, actual-versus-design scope, project/scenario when applicable, possession and deployment states, provenance, validity interval, source references, attachments, tags, notes, and revision history. Type-specific modules own their specifications, observations, constraints, and inspectors.
+
+Important object families include peers and services; observed devices and components; equipment, accessories, consumables, cables, connectors, mounts, racks, rooms, zones, and positions; projects, requirements, alternatives, decisions, tasks, and build states; canonical product models and variants; seller-specific offers; and actual instances.
+
+Important relationship families include contains, installed-in, attached-to, connected-to, powered-by, sends-signal-to, cools, heats, blocks, depends-on, satisfies, candidate-for, offered-as, replaces, and derived-from. Every relationship should carry direction, validity, source, evidence, confidence, and actual-versus-design scope.
+
+Identity rules are domain specific. A manufacturer model number identifies a product definition, not a unique owned unit. A seller URL identifies an offer, not the product across all sellers. A serial number may identify a physical instance. A user-authored planned object needs a stable local identity even before a product is selected.
+
+
+28. CABLE CONNECTOR AND LENGTH SYSTEM
+
+CONFIRMED USER DIRECTION
+
+The cable system should recreate and improve the user's fast work-oriented cable coding method inside Monitor App, with primary emphasis on the relationship between the two connector ends, length, and additional cable parameters.
+
+The reference system groups connector codes into Display, USB, Power, Audio, Network, and Miscellaneous sheets and pairs them with reusable length sheets containing common length buckets. This separation is useful: a quick-entry workflow can compose connector or cable-type input with length input without requiring a unique entry for every combination. Monitor App should retain that speed while making the resulting record exact, searchable, and editable.
+
+ASSISTANT PROPOSAL
+
+Model a cable as an actual serialized item or a counted batch, plus a cable specification. Each cable has two connector-end records. An end should be able to describe connector family and exact standard, form factor, plug/socket or gender where applicable, signal role or direction, orientation or keying, pin/pole count, locking mechanism, supported signal and protocol, version/category, and whether an adapter or active conversion occurs. Symmetric cables remain reversible; directional, conversion, optical, active, and power-delivery cables preserve source and destination roles.
+
+Length is a unit-bearing property, not only a code. Preserve nominal manufacturer length, measured length, measurement time and method, tolerance, routed or required path length, slack allowance, and minimum bend radius where relevant. Common scan tokens such as 1 m, 2 m, 3 m, 4 m, 5 m, 6 m, 8 m, 9/10 m, and 12 m may remain configurable shortcuts rather than hard-coded product limits.
+
+Additional parameters may include conductor count and gauge, shielding, impedance, category, bandwidth or data rate, supported protocols, maximum voltage/current/power, Power Delivery profile, active/passive construction, optical/electrical medium, jacket and fire rating, environmental rating, color, manufacturer/model, serial or lot, purchase source and cost, condition, test status and results, repair history, owner/custodian, storage bin, current endpoint connections, reservation, project assignment, and notes or photos. Unsupported and unknown values remain distinct.
+
+Each physical cable should receive a stable Monitor App identity and an optional human-readable short label. The identifier should not encode every mutable property. Keyboard, touch, search, favorites, recent values, and connector-pair and length shortcuts should make entry fast without dedicated hardware. Bulk workflows should support rapid add, duplicate-and-adjust, location/custody change, check-in/out, and cycle counts. Phone-camera, QR, and dedicated scanner workflows are outside the required cable path.
+
+Search and planning should answer questions such as which actual cables match two connector requirements and a minimum routed length, which are free versus connected or reserved, which planned connections lack a suitable actual cable, whether a directional cable is reversed, and whether length, bend radius, power, bandwidth, impedance, category, or environmental rating violates a constraint. An explicit plan-to-actual assignment links the planned cable requirement to a selected physical cable without erasing either record.
+
+OPEN EXPLORATION
+
+The exact legacy connector codes, optional printable label format, and migration mapping are unresolved. Import should be user-reviewed and preserve the original code as an alias; the application must not infer exact connector semantics from an ambiguous legacy code. QR codes and dedicated scanning hardware are not requirements.
+
+
+29. PHYSICAL DESIGN AND ENGINEERING CONSTRAINTS
+
+CONFIRMED USER DIRECTION
+
+Monitor App should help design and validate real installations. It should combine inventory, topology, specifications, measurements, and planned relationships to surface incompatible, overloaded, undersized, overheated, or otherwise risky designs before assembly and during operation.
+
+ASSISTANT PROPOSAL
+
+Constraint modules should emit structured findings rather than one opaque score. Each finding identifies affected objects and relationships, the rule and version used, inputs and units, source and age, assumptions, confidence, severity, suggested remedy, and whether the check is measured, calculated, simulated, or unresolved.
+
+Audio examples include connector and signal-type compatibility, balanced versus unbalanced paths, analog or digital format, sample-rate and clocking constraints, channel count, gain staging, amplifier and loudspeaker compatibility, impedance and load, cable length, latency, and acoustic placement assumptions.
+
+RF examples include frequency ranges, legal region, channel plans, antenna characteristics, cable and connector loss, transmit-power limits, receiver sensitivity, occupied bandwidth, intermodulation and coexistence, line of sight, obstacles, placement, and measured versus modeled coverage. Regulatory or safety claims require jurisdiction and source version.
+
+Electrical examples include nominal voltage and frequency, AC versus DC, phase and polarity, connector and conductor ratings, circuit and UPS budgets, peak and continuous load, inrush, power factor where known, grounding, protection devices, battery capacity, runtime assumptions, redundancy, and derating. Monitor App is decision support, not a substitute for a licensed professional or code inspection.
+
+Thermal and physical examples include heat output, ambient range, airflow direction, cooling capacity, rack units, dimensions, weight, center of mass, mounting points, service clearance, cable routing, obstruction, noise, ingress, and location constraints. Unknown values should block confident approval rather than default to safe.
+
+
+30. PRODUCT SOURCING PRICE AND AVAILABILITY
+
+CONFIRMED USER DIRECTION
+
+Monitor App should help find equipment that satisfies project requirements, retain candidate comparisons, record price and availability history, and notify the user when a configured buying condition becomes true.
+
+ASSISTANT PROPOSAL
+
+Keep product definitions separate from offers. A product definition holds manufacturer, family, model, variant, specifications, lifecycle, and source evidence. An offer holds seller, region, currency, condition, seller SKU, price, shipping, tax when available, stock state, URL, observed time, and source quality. Price comparisons normalize currency and included items only when conversion time and assumptions are visible.
+
+Source adapters may use official APIs, feeds, permitted page retrieval, or user-entered records. They must respect credentials, provider terms, rate limits, robots and access restrictions, and source-specific freshness. A failed or blocked retrieval becomes stale or unavailable; it never becomes out of stock or zero price.
+
+Suitability search should begin from explicit requirements and constraint findings. Ranking and AI summaries may assist, but exact specifications, exclusions, provenance, and unresolved compatibility remain visible. Affiliate or sponsored influence, if ever present, must be disclosed and must not silently change ranking.
+
+
+31. AUTOMATION ALERTS AND NOTIFICATIONS
+
+CONFIRMED USER DIRECTION
+
+Users should be able to create customizable interactions for disconnections, prices, availability, measured thresholds, service state, inventory movement, project readiness, and other supported events or observations. Push notifications are an intended action.
+
+ASSISTANT PROPOSAL
+
+Rules use a versioned event-condition-action representation. Triggers may be event based, scheduled, threshold based, duration based, inventory-change based, or relationship aware. Conditions may reference actual or design state, current or historical observations, source freshness, project requirements, inventory availability, and dependency context. Actions may record an event, create or update an incident, notify, request acknowledgement, or propose a separately authorized operational action.
+
+The rule engine runs as ordinary deterministic peer functionality, not inside the UI or an AI model. It persists schedules and evaluation state, supports debounce, cooldown, deduplication, escalation, quiet hours, retry, expiration, and idempotency, and records the input facts, rule version, decision, action attempt, and result. Relationship-aware grouping should suppress cascades such as many downstream disconnect alerts caused by one upstream failure.
+
+Natural language may create a draft structured rule, but the user reviews the exact trigger, conditions, state plane, targets, data freshness requirements, actions, permissions, and notification destinations before activation. Historical simulation should show how a rule would have behaved without dispatching live actions.
+
+OPEN EXPLORATION
+
+Remote delivery may use an Android companion, a self-hosted push bridge, or optional third-party channels. Reliability, background restrictions, metadata exposure, credentials, acknowledgement, and offline behavior must be designed and tested before selecting a default.
+
+
+32. DISTRIBUTED LOCAL AI
+
+CONFIRMED USER DIRECTION
+
+AI assistance should be local-first and able to use the resources of multiple Monitor App peers rather than assuming one cloud model or one permanently powerful machine.
+
+ASSISTANT PROPOSAL
+
+Publish AI capability as an optional peer capability describing model identity and version, supported tasks and tools, context and output limits, hardware and memory needs, latency, energy policy, availability, privacy class, and whether work stays local. A router selects an eligible execution peer under user policy and fails transparently when none is available.
+
+AI tools should query the same typed object, observation, history, constraint, sourcing, and rule APIs used by non-AI clients. Tool calls carry the requesting identity and permission scope. Outputs cite the objects, records, sources, times, calculations, and rule versions they relied on where practical. Generated facts and recommendations are stored as derived artifacts with model provenance, never silently written over observed or user-confirmed facts.
+
+Initial useful tasks include semantic search, incident explanation, comparison summaries, missing-information detection, planning alternatives, documentation assistance, and draft automation rules. Deterministic code remains responsible for identity, trust, persistence, replication, exact constraint calculations, rule evaluation, notifications, and actions.
+
+OPEN EXPLORATION
+
+Model families, runtimes, embedding stores, distributed inference versus job routing, context replication, hardware acceleration, and model acquisition are unresolved. The first implementation should prefer routing whole bounded jobs to one eligible peer rather than assuming cross-peer tensor execution.
+
+
+33. IMPLEMENTATION STATUS AND CLAIM BOUNDARY
+
+The repository currently implements a tested controller-era monitoring foundation: versioned telemetry contracts, P-256 proof components, file-backed SQLite WAL persistence, durable telemetry buffering, Windows and Linux collection code, an Android foreground slice, loopback gRPC integration coverage, and signed update-manifest verification. These are migration inputs, not a supported equal-peer release.
+
+The equal-peer service, universal inventory and object model, actual/design-state split, cable inventory and quick-entry workflow, living schematic, exploded architecture, historical scene replay, physical-design constraint modules, RF coordination, audio/electrical/thermal planning, product sourcing, price tracking, automation engine, push notification delivery, and distributed local-AI routing are planned and not implemented in the current repository unless later change-log and executable test evidence says otherwise.
+
+Documentation examples describe intended behavior and do not establish retailer access, product compatibility, regulatory compliance, platform support, continuous Android background operation, notification delivery, AI correctness, or permission to control a device.
 
 
 END OF SPECIFICATION

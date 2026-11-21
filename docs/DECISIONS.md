@@ -79,6 +79,36 @@ This log separates confirmed product constraints from working technical decision
 - Decision: Aggregate operational network metrics and infrastructure facts are allowed. Communication identities/content, packet capture, flow/session histories, DNS history, per-app traffic, and DPI are prohibited in ordinary monitoring. Defensive detection is a separate explicit capability with evidence/confidence and stricter permission/retention rules.
 - Consequence: Module review and executable registration tests enforce the boundary.
 
+### P012 Actual inventory and design separation
+
+- Status: Confirmed
+- Decision: Monitor App includes both what the user has/is running and what the user is planning/designing, but actual state and named design scenarios remain explicitly distinct in storage, queries, calculations, automation, history, and UI.
+- Consequence: Owned, installed, connected, and running are separate actual facts. Design-only objects or relationships become actual only through an explicit transition that preserves plan, candidate, offer, and decision history.
+
+### P013 Cable connector and length system
+
+- Status: Confirmed
+- Decision: Recreate the useful structure of the user's work cable-code system as a richer cable inventory and planning capability centered on the relationship between both connector ends, unit-bearing length, and additional ratings/parameters.
+- Consequence: Fast reusable manual connector/length templates are required. QR codes and dedicated scanner hardware are not requirements. Cable identity, current possession/location/connection, and planned assignment remain distinct.
+
+### P014 Physical design constraints
+
+- Status: Confirmed
+- Decision: Support modular physical, audio, RF, electrical, thermal, dimensional, mounting, and cable constraints over inventory and plans.
+- Consequence: Findings expose inputs, units, source, assumptions, rule/version, evidence, confidence, and unknowns rather than one unexplained compatibility score.
+
+### P015 Sourcing automation and notifications
+
+- Status: Confirmed
+- Decision: Include candidate products, seller offers, price/availability history, customizable event-condition-action rules, and notifications for conditions such as disconnection, price, availability, inventory movement, and project readiness.
+- Consequence: Product, offer, and actual-instance identity remain separate. The automation engine is independent of UI/AI; push transport and equal-peer execution ownership remain open technical choices.
+
+### P016 Distributed local AI
+
+- Status: Confirmed
+- Decision: Provide optional local-first AI assistance that can route bounded work to capable peers and use permissioned domain tools.
+- Consequence: AI is not a source of truth, identity/trust authority, replication owner, rule runtime, or permission bypass. Model/runtime and routing choices remain open.
+
 ## Technical decisions
 
 ### T001 Functional component boundaries
@@ -239,6 +269,42 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Required contract/security tests in `docs/TESTING.md` and `docs/SECURITY.md`.
 - Consequences: Unknown compatible modules receive a truthful generated inspector; important integrations remain purpose-built.
 - Revisit condition: When the first external adapter contract is implemented.
+
+### T020 Universal object envelope and state planes
+
+- Status: Provisional
+- Decision: Use a stable shared object envelope plus typed capability extensions and typed relationships. Store actual state and design-scenario state as explicitly scoped assertions/relationships rather than one blended status.
+- Reason: Monitoring, inventory, cables, projects, products, offers, and plans need common identity/provenance without a giant nullable schema or false equivalence.
+- Evidence: Required schema, promotion, query, and UI tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Product definitions, seller offers, actual instances, and design placeholders remain separate identities. Promotion links records and preserves history.
+- Revisit condition: After the first plain actual/design inventory client and cable slice.
+
+### T021 Cable specification and quick-entry boundary
+
+- Status: Provisional
+- Decision: Represent a cable specification with two structured connector ends, directionality, unit-bearing nominal/measured length, ratings, and physical properties; represent actual items or counted batches separately. Make searchable manual connector-pair and length templates the baseline entry path.
+- Reason: This preserves the useful connector-plus-length composition of the legacy sheets while supporting real compatibility, condition, location, connection, and plan-assignment queries without scanner hardware.
+- Evidence: Required cable round-trip, match, constraint, and workflow tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Human labels are optional aliases and do not encode the authoritative record. QR and dedicated scanner support are outside the required cable path.
+- Revisit condition: After user review of connector taxonomy and the first cable inventory prototype.
+
+### T022 Deterministic automation ownership
+
+- Status: Provisional
+- Decision: Run versioned event-condition-action rules in a durable deterministic peer service with explicit execution ownership, idempotency, schedule state, cooldown/deduplication, audit, and a notification outbox.
+- Reason: Alerts must survive UI/model shutdown and replicated events must not produce duplicate actions across equal peers.
+- Evidence: Required restart, fake-clock, outbox, and two-peer ownership tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Natural language produces reviewable draft rules only. Notification delivery and operational actions remain adapters with separate permissions.
+- Revisit condition: Before the first live notification adapter.
+
+### T023 Local AI job routing boundary
+
+- Status: Provisional
+- Decision: Initially route a bounded AI job and explicit tool grants to one eligible peer; do not assume cross-peer tensor execution. Store outputs as derived artifacts with model/source provenance.
+- Reason: Whole-job routing satisfies the distributed local-resource goal with a smaller privacy, failure, and scheduling surface.
+- Evidence: Capability, permission, provenance, failure, and resource-policy tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Deterministic services remain authoritative and useful without a model. Model family, runtime, embeddings, and hardware acceleration remain open.
+- Revisit condition: After one read-only semantic-search or explanation slice runs on two different peer capability classes.
 
 ## Rejected directions inherited from the product specification
 

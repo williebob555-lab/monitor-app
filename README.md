@@ -1,14 +1,16 @@
 # Monitor App
 
-Monitor App is becoming a decentralized monitoring mesh for Android, Windows, Fedora, and Ubuntu. Every phone or computer is an equal peer with local collection, storage, query, and UI. The user introduces a peer by Tailscale IP; bilateral Monitor App pairing then establishes application identity, and paired services reconnect directly whenever both run. Tailscale is user-managed reachability, not Monitor App identity or authorization.
+Monitor App is becoming a decentralized monitoring, inventory, and design environment for Android, Windows, Fedora, and Ubuntu. Every phone or computer is an equal peer with local collection, storage, query, and UI. The user introduces a peer by Tailscale IP; bilateral Monitor App pairing then establishes application identity, and paired services reconnect directly whenever both run. Tailscale is user-managed reachability, not Monitor App identity or authorization.
 
 The intended experience remains a living schematic paired with exploded device architecture, historical time travel, and deliberately enjoyable—even gratuitously game-like—interaction. Functionality and truthful data come first.
+
+The confirmed product scope also includes a universal inventory for equipment, spaces, cables, projects, products, and offers; physical audio/RF/electrical/thermal design constraints; sourcing and price history; customizable automation and push alerts; and optional distributed local AI. Actual inventory and running state remain explicitly separate from named plans and design scenarios. Cable planning centers on the two connector ends, length, ratings, condition, location, and current/planned connections, with fast manual templates rather than required QR or scanner hardware.
 
 ## Current status
 
 The repository contains a tested controller-era functional alpha: P-256 identity proof, gRPC contracts, SQLite WAL persistence, durable telemetry buffering, Windows/Linux collectors, an Android foreground slice, and signed update metadata. The controller/agent deployment and automatic Headscale direction are now **superseded**. That code is reusable migration evidence, not the intended architecture and not a supported release.
 
-The current milestone is two production peer services with separate local databases that pair, authenticate independently of Tailscale membership, collect and query locally, disconnect, reconnect, and converge origin-owned history without duplicates. See [TODO.md](TODO.md).
+The current milestone is two production peer services with separate local databases that pair, authenticate independently of Tailscale membership, collect and query locally, disconnect, reconnect, and converge origin-owned history without duplicates. The universal inventory, actual/design split, cable system, constraint modules, sourcing, automation, notifications, local AI, history reconstruction, and final UI are documented plans and are not implemented. See [TODO.md](TODO.md).
 
 ## Target shape
 

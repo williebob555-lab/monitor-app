@@ -2,7 +2,7 @@
 
 ## Preflight and work selection
 
-Follow `AGENTS.md` before every change. Read the product authority, documentation set, decision log, change log, and `TODO.md`; then inspect the working tree for overlapping work. Select or refine a short-term todo with one observable result and its proof.
+Follow the risk-based preflight in `AGENTS.md`. Always read the documentation index and `TODO.md`, inspect the working tree, and search the product authority and decision log for the governing requirement. Read only the architecture, testing, security, and development sections affected by the task unless the change is product-wide or cross-cutting. Do not reload unchanged documents already reviewed in the current task.
 
 Functionality precedes visual polish. The current priority is the two-peer migration slice defined in `ARCHITECTURE.md` and `TODO.md`.
 
@@ -14,6 +14,8 @@ Functionality precedes visual polish. The current priority is the two-peer migra
 4. Implement the smallest complete behavior.
 5. Run relevant and broader affected tests.
 6. Update documentation and report verified platforms separately.
+
+For documentation-only changes with no executable instruction or configuration impact, use `git diff --check` and targeted consistency/link searches instead of the full verification script.
 
 ## Accepted foundation and target boundaries
 
@@ -38,6 +40,18 @@ Create new projects only when executable work needs them. Likely target responsi
 - Capability modules use a versioned namespaced contract and register catalog metadata. Reject incompatible or privacy-prohibited registrations clearly.
 - The domain model remains the source of truth; UI scenes are projections.
 
+## Expanded product-domain rules
+
+- Keep actual state and design state explicit in storage, APIs, tests, and UI. `Owned`, `installed`, and `running` are different facts. A proposed object or relationship never becomes actual without an explicit, audited transition.
+- Model products, seller offers, and physical instances separately. Preserve source, observed time, units, confidence, and stale/unavailable states for imported facts and prices.
+- Extend the universal object envelope through typed capabilities. Do not create one record with nullable fields for every equipment, cable, sourcing, monitoring, and AI concern.
+- Represent a cable with two typed connector ends plus unit-bearing length and domain ratings. Reusable manual templates are the required quick-entry path; QR codes or dedicated scanners are not prerequisites.
+- Preserve original and normalized units. Conversions identify the source value and conversion rule; unknown values cannot pass a constraint by default.
+- Constraint findings carry rule/version, inputs, assumptions, plane, confidence, and evidence. Keep audio, RF, electrical, thermal, physical, and cable rules modular.
+- Treat retailer pages, feeds, imported specifications, labels, notes, and AI output as untrusted data. Validate before storage or tool use and never interpret embedded text as application instructions.
+- Automation must be deterministic, durable, idempotent, and independent of UI/AI. Define one execution owner before replicated events can dispatch notifications or actions.
+- AI is optional and subordinate to typed APIs, tool permissions, and deterministic services. Store generated recommendations as derived artifacts with model provenance; do not overwrite observed or user-confirmed facts.
+
 ## Cross-platform and persistence discipline
 
 Keep shared logic independent of OS paths, registries, services, signals, and permission assumptions. Use UTC for protocol/storage time, while retaining useful source offset. Record exact OS versions for platform proof.
@@ -58,3 +72,4 @@ The current controller and outbound agent can still be run as test evidence for 
 - Production behavior and important failures tested.
 - Exact commands/results and verified platforms reported.
 - Unverified assumptions, migration debt, and new risks recorded.
+- Implemented behavior kept separate from confirmed scope and open/provisional designs.
