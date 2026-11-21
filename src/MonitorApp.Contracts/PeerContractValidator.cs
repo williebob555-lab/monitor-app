@@ -126,6 +126,26 @@ public static class PeerContractValidator
         return Result(errors);
     }
 
+    public static ContractValidationResult Validate(PairingApproval? approval)
+    {
+        var errors = new List<string>();
+        if (approval is null)
+        {
+            return ContractValidationResult.Failure(["Pairing approval is required."]);
+        }
+
+        RequireText(approval.PairingId, "Pairing id", errors);
+        if (approval.Disposition == PairingApprovalDisposition.Unspecified ||
+            !System.Enum.IsDefined(approval.Disposition))
+        {
+            errors.Add("Pairing approval disposition is required and must be recognized.");
+        }
+
+        ValidateTimestamp(approval.ExpiresAt, "expires_at", errors, required: true);
+        RequireText(approval.SafeMessage, "Safe message", errors);
+        return Result(errors);
+    }
+
     public static ContractValidationResult Validate(PeerHello? hello)
     {
         var errors = new List<string>();

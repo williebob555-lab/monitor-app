@@ -57,6 +57,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 TimeSpan.FromMinutes(2)));
         await pairing.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var replication = new OriginReplicationCoordinator(peerStore);
+        var invitationService = new NodePeerInvitationService(identity, peerStore);
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -75,6 +76,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton(pairing);
                 services.AddSingleton(replication);
                 services.AddProductionPeerSessionCoordinator();
+                services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
+                services.AddProductionPeerPairingCoordinator();
             }, cancellationToken).ConfigureAwait(false);
         var localApi = LocalApiHost.Create(
             new LocalApiOptions(
@@ -84,7 +87,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             peerStore,
             pairingStore,
             pairing,
-            clock);
+            clock,
+            invitationService);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

@@ -133,6 +133,104 @@ public sealed class LocalApiHostTests : IDisposable
         Assert.DoesNotContain(Convert.ToBase64String(fixture.LocalIdentity.PublicKeySpki), combined, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task InvitationFormIsExplicitAndCsrfProtected()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+
+        var page = await fixture.Client.GetStringAsync("/");
+        var response = await fixture.Client.PostAsJsonAsync("api/invitations", ValidInvitation());
+
+        Assert.Contains("<h2 id=\"invite\">Invite a fresh peer</h2>", page, StringComparison.Ordinal);
+        Assert.Contains("name=\"expectedPeerId\"", page, StringComparison.Ordinal);
+        Assert.Contains("name=\"expectedFingerprintSha256\"", page, StringComparison.Ordinal);
+        Assert.Contains("name=\"securityPolicy\"", page, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0")]
+    [InlineData("::")]
+    [InlineData("8.8.8.8")]
+    public async Task InvitationRejectsWildcardAndPublicAddressesBeforeDispatch(string address)
+    {
+        var invitationService = new RecordingInvitationService();
+        await using var fixture = await Fixture.CreateAsync(directory, invitationService);
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var request = Request(
+            HttpMethod.Post,
+            "api/invitations",
+            csrf,
+            ValidInvitation() with { Address = address });
+
+        var response = await fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(invitationService.Commands);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(Fixture.KeyProviderSecret, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(Fixture.AdapterCredentialSecret, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ValidInvitationDispatchesNormalizedIdentityAndPolicy()
+    {
+        var invitationService = new RecordingInvitationService();
+        await using var fixture = await Fixture.CreateAsync(directory, invitationService);
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var request = Request(HttpMethod.Post, "api/invitations", csrf, ValidInvitation());
+
+        var response = await fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var command = Assert.Single(invitationService.Commands);
+        Assert.Equal("peer-new", command.ExpectedPeerId);
+        Assert.Equal(IPAddress.Loopback, command.Address);
+        Assert.Equal(51831, command.Port);
+        Assert.Equal(new string('A', 64), command.ExpectedFingerprintSha256);
+        Assert.Equal(PeerInvitationSecurityPolicy.LoopbackPrototype, command.SecurityPolicy);
+    }
+
+    [Fact]
+    public async Task DefaultInvitationServiceFailsClosedAsUnavailable()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var request = Request(HttpMethod.Post, "api/invitations", csrf, ValidInvitation());
+
+        var response = await fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<PeerInvitationResult>(JsonOptions);
+        Assert.Equal(PeerInvitationStatus.Unavailable, result!.Status);
+    }
+
+    [Fact]
+    public async Task FormDispatchDisplaysServiceStatusWithHtmlEncoding()
+    {
+        var invitationService = new RecordingInvitationService(
+            new PeerInvitationResult(PeerInvitationStatus.Dispatched, "Queued <script>alert('x')</script>"));
+        await using var fixture = await Fixture.CreateAsync(directory, invitationService);
+        var page = await fixture.Client.GetStringAsync("/");
+        var token = ExtractHiddenToken(page);
+        var form = new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token,
+            ["expectedPeerId"] = "peer-new",
+            ["address"] = "127.0.0.1",
+            ["port"] = "51831",
+            ["expectedFingerprintSha256"] = new string('a', 64),
+            ["securityPolicy"] = "LoopbackPrototype",
+        };
+
+        var response = await fixture.Client.PostAsync("api/invitations", new FormUrlEncodedContent(form));
+        var updatedPage = await fixture.Client.GetStringAsync("/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Queued &lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;", updatedPage, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script>alert('x')</script>", updatedPage, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(directory))
@@ -143,14 +241,36 @@ public sealed class LocalApiHostTests : IDisposable
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private static HttpRequestMessage Request(HttpMethod method, string path, string csrf)
+    private static PeerInvitationInput ValidInvitation() => new(
+        " peer-new ",
+        "127.0.0.1",
+        51831,
+        string.Join(':', Enumerable.Repeat("aa", 32)),
+        "LoopbackPrototype");
+
+    private static HttpRequestMessage Request(
+        HttpMethod method,
+        string path,
+        string csrf,
+        object? content = null)
     {
         var request = new HttpRequestMessage(method, path)
         {
-            Content = JsonContent.Create(new { }),
+            Content = JsonContent.Create(content ?? new { }),
         };
         request.Headers.Add("X-CSRF-TOKEN", csrf);
         return request;
+    }
+
+    private static string ExtractHiddenToken(string page)
+    {
+        const string marker = "name=\"__RequestVerificationToken\" value=\"";
+        var start = page.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        start += marker.Length;
+        var end = page.IndexOf('"', start);
+        Assert.True(end > start);
+        return WebUtility.HtmlDecode(page[start..end]);
     }
 
     private static PeerPairingCoordinator Coordinator(
@@ -204,7 +324,9 @@ public sealed class LocalApiHostTests : IDisposable
         public string PendingPairingId { get; }
         public PeerPublicIdentity LocalIdentity => identityProvider.PublicIdentity;
 
-        public static async Task<Fixture> CreateAsync(string directory)
+        public static async Task<Fixture> CreateAsync(
+            string directory,
+            IPeerInvitationService? invitationService = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -265,7 +387,12 @@ public sealed class LocalApiHostTests : IDisposable
                 []));
 
             var host = LocalApiHost.Create(
-                LocalApiOptions.Loopback(databasePath), store, appStore, coordinator, TestClock.Instance);
+                LocalApiOptions.Loopback(databasePath),
+                store,
+                appStore,
+                coordinator,
+                TestClock.Instance,
+                invitationService);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {
@@ -336,5 +463,21 @@ public sealed class LocalApiHostTests : IDisposable
         private int id;
         public string CreateId() => $"id-{Interlocked.Increment(ref id)}";
         public byte[] GetBytes(int count) => RandomNumberGenerator.GetBytes(count);
+    }
+
+    private sealed class RecordingInvitationService(
+        PeerInvitationResult? result = null) : IPeerInvitationService
+    {
+        public List<PeerInvitationCommand> Commands { get; } = [];
+
+        public ValueTask<PeerInvitationResult> InviteAsync(
+            PeerInvitationCommand invitation,
+            CancellationToken cancellationToken)
+        {
+            Commands.Add(invitation);
+            return ValueTask.FromResult(result ?? new PeerInvitationResult(
+                PeerInvitationStatus.Dispatched,
+                "Invitation dispatched."));
+        }
     }
 }

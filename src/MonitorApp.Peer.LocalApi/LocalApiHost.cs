@@ -26,7 +26,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         PeerStore peerStore,
         PairingApplicationStore pairingStore,
         PeerPairingCoordinator pairingCoordinator,
-        IPeerClock clock)
+        IPeerClock clock,
+        IPeerInvitationService? invitationService = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -51,6 +52,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         builder.Services.AddSingleton(pairingStore);
         builder.Services.AddSingleton(pairingCoordinator);
         builder.Services.AddSingleton(clock);
+        builder.Services.AddSingleton(invitationService ?? new UnavailablePeerInvitationService());
+        builder.Services.AddSingleton<PeerInvitationStatusState>();
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
 
         var application = builder.Build();
@@ -158,13 +161,61 @@ public sealed class LocalApiHost : IAsyncDisposable
             await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapGet("/", RenderPageAsync);
+    }
+
+    private static async Task<IResult> HandleInvitationAsync(
+        HttpContext context,
+        IAntiforgery antiforgery,
+        IPeerInvitationService invitationService,
+        PeerInvitationStatusState statusState,
+        CancellationToken token)
+    {
+        if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        PeerInvitationInput? input;
+        if (context.Request.HasFormContentType)
+        {
+            var form = await context.Request.ReadFormAsync(token).ConfigureAwait(false);
+            _ = int.TryParse(form["port"], out var port);
+            input = new PeerInvitationInput(
+                form["expectedPeerId"].ToString(),
+                form["address"].ToString(),
+                port,
+                form["expectedFingerprintSha256"].ToString(),
+                form["securityPolicy"].ToString());
+        }
+        else
+        {
+            input = await context.Request.ReadFromJsonAsync<PeerInvitationInput>(token).ConfigureAwait(false);
+        }
+
+        if (!PeerInvitationValidator.TryValidate(input, out var command, out var error))
+        {
+            return Results.BadRequest(new { error });
+        }
+
+        var result = await invitationService.InviteAsync(command!, token).ConfigureAwait(false);
+        statusState.Set(result);
+        if (context.Request.HasFormContentType)
+        {
+            return Results.Redirect("/", permanent: false, preserveMethod: false);
+        }
+
+        return result.Status == PeerInvitationStatus.Unavailable
+            ? Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable)
+            : Results.Json(result);
     }
 
     private static async Task<IResult> RenderPageAsync(
         HttpContext context,
         IAntiforgery antiforgery,
         LocalApiDataSource data,
+        PeerInvitationStatusState invitationStatus,
         CancellationToken token)
     {
         var runtime = await data.ReadRuntimeAsync(token).ConfigureAwait(false);
@@ -183,6 +234,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         var localIdentity = runtime.LocalPeer is null
             ? "Not initialized"
             : $"{encode(runtime.LocalPeer.PeerId)} — <code>{encode(runtime.LocalPeer.FingerprintSha256)}</code>";
+        var invitationResult = invitationStatus.LastResult is null
+            ? "No invitation has been submitted in this process."
+            : $"{encode(invitationStatus.LastResult.Status.ToString())}: {encode(invitationStatus.LastResult.Message)}";
         var html = $$"""
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Monitor App local administration</title><style>
@@ -190,6 +244,14 @@ public sealed class LocalApiHost : IAsyncDisposable
             </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, and stored observation query. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
             <main><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
             <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{{pairingRows}}</tbody></table></section>
+            <section aria-labelledby="invite"><h2 id="invite">Invite a fresh peer</h2><p>Enter the identity shown by the other peer. Invitation transport must be configured by the running node.</p>
+            <form method="post" action="/api/invitations"><input type="hidden" name="__RequestVerificationToken" value="{{encode(csrf)}}">
+            <p><label for="expectedPeerId">Expected peer id</label><br><input id="expectedPeerId" name="expectedPeerId" required maxlength="256"></p>
+            <p><label for="address">Explicit private or loopback IP address</label><br><input id="address" name="address" required inputmode="decimal"></p>
+            <p><label for="port">Peer port</label><br><input id="port" name="port" required type="number" min="1" max="65535"></p>
+            <p><label for="expectedFingerprintSha256">Expected SHA-256 fingerprint</label><br><input id="expectedFingerprintSha256" name="expectedFingerprintSha256" required minlength="64" maxlength="95"></p>
+            <p><label for="securityPolicy">Declared security policy</label><br><select id="securityPolicy" name="securityPolicy"><option value="LoopbackPrototype">Loopback prototype</option><option value="AuthenticatedPrivateTransport">Authenticated private transport</option></select></p>
+            <button type="submit">Dispatch invitation</button></form><p role="status"><strong>Last result:</strong> {{invitationResult}}</p></section>
             <section aria-labelledby="peers"><h2 id="peers">Trusted and revoked peers</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>Trust</th><th>Action</th></tr></thead><tbody>{{peerRows}}</tbody></table></section>
             <section aria-labelledby="observations"><h2 id="observations">Stored observations</h2><p>Use the JSON query endpoint with an origin peer and stream: <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main></body></html>
             """;

@@ -104,6 +104,25 @@ public sealed class PairingApplicationStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    internal async Task<bool> TryCreatePairingAsync(
+        PairingSnapshot pairing,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateUtc(pairing.CreatedAt, nameof(pairing));
+        ValidateUtc(pairing.ExpiresAt, nameof(pairing));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO pairing_approvals(pairing_id, remote_peer_id, remote_public_key_spki,
+                remote_public_key_fingerprint, display_name, local_role, approval_state,
+                protocol_major, protocol_minor, remote_capabilities_json, created_at, expires_at)
+            VALUES ($id, $remote, $key, $fingerprint, $display, $role, $state,
+                $major, $minor, $capabilities, $created, $expires);
+            """;
+        BindPairing(command, pairing);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     public async Task<PairingSnapshot?> ReadPairingAsync(
         string pairingId,
         CancellationToken cancellationToken = default)
@@ -170,6 +189,42 @@ public sealed class PairingApplicationStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    internal async Task<bool> TryCreatePairingChallengeAsync(
+        StoredChallenge challenge,
+        CancellationToken cancellationToken = default)
+    {
+        if (challenge.PairingId is null)
+        {
+            throw new ArgumentException("A pairing challenge requires a pairing id.", nameof(challenge));
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO peer_challenges(challenge_id, pairing_id, remote_peer_id, purpose,
+                local_role, session_id, protocol_major, protocol_minor, challenge_bytes,
+                remote_capabilities_json, created_at, expires_at, local_proof_created)
+            SELECT $challenge, $pairing, $remote, $purpose, $role, $session, $major, $minor,
+                $bytes, $capabilities, $created, $expires, 0
+            WHERE NOT EXISTS (
+                SELECT 1 FROM peer_challenges WHERE pairing_id = $pairing
+            );
+            """;
+        command.Parameters.AddWithValue("$challenge", challenge.ChallengeId);
+        command.Parameters.AddWithValue("$pairing", challenge.PairingId);
+        command.Parameters.AddWithValue("$remote", challenge.RemotePeerId);
+        command.Parameters.AddWithValue("$purpose", (int)challenge.Purpose);
+        command.Parameters.AddWithValue("$role", (int)challenge.LocalRole);
+        command.Parameters.AddWithValue("$session", challenge.SessionId);
+        command.Parameters.AddWithValue("$major", challenge.ProtocolVersion.Major);
+        command.Parameters.AddWithValue("$minor", challenge.ProtocolVersion.Minor);
+        command.Parameters.Add("$bytes", SqliteType.Blob).Value = challenge.ChallengeBytes;
+        command.Parameters.AddWithValue("$capabilities", SerializeCapabilities(challenge.RemoteCapabilities));
+        command.Parameters.AddWithValue("$created", Format(challenge.CreatedAt));
+        command.Parameters.AddWithValue("$expires", Format(challenge.ExpiresAt));
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     internal async Task<StoredChallenge?> ReadChallengeAsync(
         string challengeId,
         CancellationToken cancellationToken = default)
@@ -186,19 +241,28 @@ public sealed class PairingApplicationStore
         command.Parameters.AddWithValue("$id", challengeId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? new StoredChallenge(
-                reader.GetString(0),
-                reader.IsDBNull(1) ? null : reader.GetString(1),
-                reader.GetString(2),
-                (PeerProofPurpose)reader.GetInt32(3),
-                (PeerProofRole)reader.GetInt32(4),
-                reader.GetString(5),
-                new PeerProtocolVersion(checked((uint)reader.GetInt64(6)), checked((uint)reader.GetInt64(7))),
-                (byte[])reader[8],
-                DeserializeCapabilities(reader.GetString(9)),
-                Parse(reader.GetString(10)),
-                Parse(reader.GetString(11)),
-                reader.GetBoolean(12))
+            ? ReadChallenge(reader)
+            : null;
+    }
+
+    internal async Task<StoredChallenge?> ReadPairingChallengeAsync(
+        string pairingId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pairingId);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT challenge_id, pairing_id, remote_peer_id, purpose, local_role, session_id,
+                protocol_major, protocol_minor, challenge_bytes, remote_capabilities_json,
+                created_at, expires_at, local_proof_created
+            FROM peer_challenges WHERE pairing_id = $id
+            ORDER BY created_at, challenge_id LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$id", pairingId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? ReadChallenge(reader)
             : null;
     }
 
@@ -293,6 +357,20 @@ public sealed class PairingApplicationStore
         DeserializeCapabilities(reader.GetString(9)),
         Parse(reader.GetString(10)),
         Parse(reader.GetString(11)));
+
+    private static StoredChallenge ReadChallenge(SqliteDataReader reader) => new(
+        reader.GetString(0),
+        reader.IsDBNull(1) ? null : reader.GetString(1),
+        reader.GetString(2),
+        (PeerProofPurpose)reader.GetInt32(3),
+        (PeerProofRole)reader.GetInt32(4),
+        reader.GetString(5),
+        new PeerProtocolVersion(checked((uint)reader.GetInt64(6)), checked((uint)reader.GetInt64(7))),
+        (byte[])reader[8],
+        DeserializeCapabilities(reader.GetString(9)),
+        Parse(reader.GetString(10)),
+        Parse(reader.GetString(11)),
+        reader.GetBoolean(12));
 
     private static string SerializeCapabilities(IReadOnlyList<PeerCapability> capabilities) =>
         JsonSerializer.Serialize(capabilities);

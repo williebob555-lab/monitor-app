@@ -333,6 +333,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: This is Windows preview evidence only. Initial fresh pairing, Windows service packaging, non-Windows protected key stores, and full two-peer convergence remain release gates.
 - Revisit condition: Replace the Windows-only composition with platform hosts after each target has an approved protected-key and lifecycle implementation.
 
+### T027 Fresh-pairing approval and trust-commit protocol
+
+- Status: Accepted
+- Decision: Treat the initiating local invitation submission as one explicit approval and require a separate approval on the contacted peer. Bind a caller-supplied pairing ID to the exact peer identity/key/version, reuse one durable challenge, verify the contacted peer's proof before the initiator sends its proof, and commit trust on each side only after the appropriate completed proof/confirmation step.
+- Reason: Address possession or network membership is not identity, and one-sided proof or trust-before-confirmation would allow substitution and ambiguous partial pairing.
+- Evidence: Contract, application, service, and transport suites cover pending/approved/rejected/expired/completed states, idempotent retry, changed-identity reuse, wrong proof, replay, revocation, and failure-before-trust. The composed Windows test drives both web approval boundaries and verifies bilateral trust in separate databases.
+- Consequences: The local invitation UI requires the peer ID and SHA-256 fingerprint displayed by the contacted node. Pairing can wait while the remote user approves. Peer discovery shortcuts may be added later only if they preserve the same explicit identity preview and proof boundary.
+- Revisit condition: Revisit only if a better human-verifiable introduction method preserves bilateral approval, transcript binding, and fail-closed trust commit.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

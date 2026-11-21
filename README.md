@@ -8,7 +8,7 @@ The confirmed product scope also includes a universal inventory for equipment, s
 
 ## Current status
 
-The repository contains a tested controller-era functional alpha plus an executable equal-peer foundation: versioned peer gRPC contracts; bilateral P-256 reconnect coordination with explicit approval and durable replay rejection; a versioned peer-local SQLite WAL store; signed, bounded, gap-aware origin replication; a fail-closed private/loopback gRPC host; an outbound connector; and a loopback local administration page. A Windows preview node now composes those pieces with a restart-stable DPAPI-protected identity. Initial fresh-peer invitation/pairing and the real two-peer convergence path are not implemented yet, so this is an interactive engineering preview rather than a peer release. The controller/agent deployment and automatic Headscale direction remain **superseded** migration evidence.
+The repository contains a tested controller-era functional alpha plus an executable equal-peer foundation: versioned peer gRPC contracts; bilateral P-256 fresh pairing and reconnect with explicit approval and durable replay rejection; a versioned peer-local SQLite WAL store; signed, bounded, gap-aware origin replication; fail-closed inbound/outbound gRPC transport; and a loopback local administration page. A Windows preview node composes those pieces with a restart-stable DPAPI-protected identity. A real two-node web/gRPC/SQLite test proves two fresh nodes can invite, approve, prove both identities, and persist bilateral trust. Offline collection, automatic reconnect scheduling, and history convergence are still incomplete, so this is an engineering preview rather than a peer release. The controller/agent deployment and automatic Headscale direction remain **superseded** migration evidence.
 
 The current milestone is two production peer services with separate local databases that pair, authenticate independently of Tailscale membership, collect and query locally, disconnect, reconnect, and converge origin-owned history without duplicates. The universal inventory, actual/design split, cable system, constraint modules, sourcing, automation, notifications, local AI, history reconstruction, and final UI are documented plans and are not implemented. See [TODO.md](TODO.md).
 
@@ -18,7 +18,7 @@ The current milestone is two production peer services with separate local databa
 dotnet run --project src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj
 ```
 
-Open `http://127.0.0.1:55432/`. The page currently shows the local peer identity, trust and pending-pairing state, and stored-observation query guidance. The peer listener runs on `127.0.0.1:55431` by default. Use `--data-dir`, `--peer-bind`, `--peer-port`, and `--admin-port` to override explicit preview settings. The administration page remains loopback-only, and initial peer invitation is still a pending milestone.
+Open `http://127.0.0.1:55432/`. The page shows the local peer ID/fingerprint, fresh-peer invitation form, pending approvals, trust state, and stored-observation query guidance. The peer listener runs on `127.0.0.1:55431` by default. Use `--data-dir`, `--peer-bind`, `--peer-port`, and `--admin-port` to run another node with separate settings. Enter the second node's displayed ID/fingerprint and peer address in the first node, then approve the pending request on the second node. The administration page remains loopback-only.
 
 ## Target shape
 

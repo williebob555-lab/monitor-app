@@ -16,6 +16,31 @@ public sealed class PeerPairingCoordinatorTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task ExplicitPairingIdIsIdempotentBoundAndUsesOneDurableChallenge()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        var first = await fixture.Coordinator.BeginPairingAsync("pairing-fixed", fixture.Candidate());
+        var retry = await fixture.Coordinator.BeginPairingAsync("pairing-fixed", fixture.Candidate());
+
+        Assert.Equal(PairingOperationStatus.ApprovalRequired, first.Status);
+        Assert.Equal(PairingOperationStatus.ApprovalRequired, retry.Status);
+        Assert.Equal(first.ExpiresAt, retry.ExpiresAt);
+        await fixture.Coordinator.ApprovePairingAsync("pairing-fixed");
+        var challenge = await fixture.Coordinator.IssuePairingChallengeOnceAsync("pairing-fixed", "pairing:pairing-fixed");
+        var challengeRetry = await fixture.Coordinator.IssuePairingChallengeOnceAsync("pairing-fixed", "ignored-retry-session");
+        Assert.Equal(challenge.ChallengeId, challengeRetry.ChallengeId);
+        Assert.Equal(challenge.Challenge.Challenge, challengeRetry.Challenge.Challenge);
+
+        using var changedKey = EcdsaPeerIdentityKey.Create();
+        var changed = fixture.Candidate() with
+        {
+            Identity = PeerPublicIdentity.Create(fixture.RemoteIdentity.PeerId, changedKey),
+        };
+        var mismatch = await fixture.Coordinator.BeginPairingAsync("pairing-fixed", changed);
+        Assert.Equal(PairingOperationStatus.ReusedWithDifferentParameters, mismatch.Status);
+    }
+
+    [Fact]
     public async Task PairingRequiresExplicitApprovalBeforeChallengeExchange()
     {
         await using var fixture = await Fixture.CreateAsync(directory);

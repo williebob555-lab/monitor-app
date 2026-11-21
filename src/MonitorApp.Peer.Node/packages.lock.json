@@ -117,6 +117,14 @@
           "MonitorApp.Peer.Replication": "[1.0.0, )"
         }
       },
+      "monitorapp.peer.transport": {
+        "type": "Project",
+        "dependencies": {
+          "Grpc.Net.Client": "[2.85.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )"
+        }
+      },
       "Google.Protobuf": {
         "type": "CentralTransitive",
         "requested": "[3.36.2, )",

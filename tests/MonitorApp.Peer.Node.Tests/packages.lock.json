@@ -312,7 +312,8 @@
           "MonitorApp.Peer.LocalApi": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Replication": "[1.0.0, )",
-          "MonitorApp.Peer.Service": "[1.0.0, )"
+          "MonitorApp.Peer.Service": "[1.0.0, )",
+          "MonitorApp.Peer.Transport": "[1.0.0, )"
         }
       },
       "monitorapp.peer.persistence": {
@@ -338,6 +339,14 @@
           "MonitorApp.Peer.Core": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Replication": "[1.0.0, )"
+        }
+      },
+      "monitorapp.peer.transport": {
+        "type": "Project",
+        "dependencies": {
+          "Grpc.Net.Client": "[2.85.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )"
         }
       },
       "Google.Protobuf": {

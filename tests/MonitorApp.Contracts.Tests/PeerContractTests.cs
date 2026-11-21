@@ -55,6 +55,29 @@ public sealed class PeerContractTests
 
     [Fact]
     [Trait("Category", "Contract")]
+    public void PairingApprovalIsStructuredAndAdditive()
+    {
+        var approvalField = PairingFrame.Descriptor.FindFieldByNumber(7);
+        Assert.NotNull(approvalField);
+        Assert.Equal("approval", approvalField.Name);
+        Assert.Equal(PairingApproval.Descriptor, approvalField.MessageType);
+        Assert.Equal(7, PairingFrame.ApprovalFieldNumber);
+
+        var approval = new PairingApproval
+        {
+            PairingId = "pairing-1",
+            Disposition = PairingApprovalDisposition.AwaitingLocalApproval,
+            ExpiresAt = Timestamp.FromDateTimeOffset(Now.AddMinutes(5)),
+            SafeMessage = "Local approval is pending.",
+        };
+        Assert.True(PeerContractValidator.Validate(approval).IsValid);
+        Assert.DoesNotContain("key", approval.SafeMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("proof", approval.SafeMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("challenge", approval.SafeMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "Contract")]
     public void PairingHelloRoundTripCarriesP256IdentityAndPreservesUnknownFields()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);

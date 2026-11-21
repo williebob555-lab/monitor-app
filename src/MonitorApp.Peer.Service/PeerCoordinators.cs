@@ -51,6 +51,16 @@ public sealed class PeerPairingSessionContext
     public string? RemotePeerId { get; set; }
 
     public string? PairingId { get; set; }
+
+    public string? ChallengeId { get; set; }
+
+    public string? ChallengeSessionId { get; set; }
+
+    public byte[]? RemotePublicKeyFingerprint { get; set; }
+
+    public DateTimeOffset? PairingExpiresAt { get; set; }
+
+    public bool Completed { get; set; }
 }
 
 public interface IPeerPairingCoordinator

@@ -39,8 +39,15 @@ public sealed class PeerPairingCoordinator
 
     public async Task<PairingStartResult> BeginPairingAsync(
         PairingCandidate candidate,
+        CancellationToken cancellationToken = default) =>
+        await BeginPairingAsync(random.CreateId(), candidate, cancellationToken).ConfigureAwait(false);
+
+    public async Task<PairingStartResult> BeginPairingAsync(
+        string pairingId,
+        PairingCandidate candidate,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pairingId);
         ArgumentNullException.ThrowIfNull(candidate);
         ValidateRole(candidate.LocalRole);
         ValidateCapabilities(candidate.Capabilities);
@@ -66,7 +73,35 @@ public sealed class PeerPairingCoordinator
         }
 
         var now = UtcNow();
-        var pairingId = random.CreateId();
+        var trusted = await peerStore.ReadTrustedPeerAsync(candidate.Identity.PeerId, cancellationToken)
+            .ConfigureAwait(false);
+        if (trusted?.TrustState == PeerTrustState.Revoked)
+        {
+            return new PairingStartResult(
+                PairingOperationStatus.Revoked,
+                pairingId,
+                compatibility.SelectedVersion,
+                candidate.Capabilities,
+                "Peer trust has been revoked.");
+        }
+
+        var existing = await applicationStore.ReadPairingAsync(pairingId, cancellationToken)
+            .ConfigureAwait(false);
+        if (existing is not null)
+        {
+            if (!Matches(existing, candidate, compatibility.SelectedVersion!.Value))
+            {
+                return new PairingStartResult(
+                    PairingOperationStatus.ReusedWithDifferentParameters,
+                    pairingId,
+                    existing.SelectedVersion,
+                    [],
+                    "Pairing id is already bound to different parameters.");
+            }
+
+            return Existing(existing, now);
+        }
+
         var snapshot = new PairingSnapshot(
             pairingId,
             candidate.Identity,
@@ -77,7 +112,20 @@ public sealed class PeerPairingCoordinator
             candidate.Capabilities.ToArray(),
             now,
             now.Add(options.PairingApprovalLifetime));
-        await applicationStore.CreatePairingAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        if (!await applicationStore.TryCreatePairingAsync(snapshot, cancellationToken).ConfigureAwait(false))
+        {
+            var raced = await RequirePairingAsync(pairingId, cancellationToken).ConfigureAwait(false);
+            return Matches(raced, candidate, compatibility.SelectedVersion!.Value)
+                ? Existing(raced, now)
+                : new PairingStartResult(
+                    PairingOperationStatus.ReusedWithDifferentParameters,
+                    pairingId,
+                    raced.SelectedVersion,
+                    [],
+                    "Pairing id is already bound to different parameters.",
+                    raced.ExpiresAt);
+        }
+
         await peerStore.CreatePairingSessionAsync(
             new PairingSession(pairingId, candidate.Identity.PeerId, now, snapshot.ExpiresAt, false),
             cancellationToken).ConfigureAwait(false);
@@ -86,7 +134,8 @@ public sealed class PeerPairingCoordinator
             pairingId,
             snapshot.SelectedVersion,
             snapshot.RemoteCapabilities,
-            "Local approval is required before proof exchange.");
+            "Local approval is required before proof exchange.",
+            snapshot.ExpiresAt);
     }
 
     public async Task<PairingSnapshot> ApprovePairingAsync(
@@ -147,6 +196,55 @@ public sealed class PeerPairingCoordinator
             PeerProofPurpose.Pairing,
             pairing.LocalRole,
             pairing.RemoteCapabilities);
+    }
+
+    public async Task<IssuedPeerChallenge> IssuePairingChallengeOnceAsync(
+        string pairingId,
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        var pairing = await RequirePairingAsync(pairingId, cancellationToken).ConfigureAwait(false);
+        EnsureApproved(pairing);
+        var existing = await applicationStore.ReadPairingChallengeAsync(pairingId, cancellationToken)
+            .ConfigureAwait(false);
+        if (existing is not null)
+        {
+            return await IssuedAsync(existing, cancellationToken).ConfigureAwait(false);
+        }
+
+        var challenge = CreateChallenge(
+            sessionId,
+            pairing.RemoteIdentity,
+            pairing.LocalRole,
+            pairing.SelectedVersion);
+        var stored = ToStoredChallenge(challenge, pairingId, pairing.RemoteCapabilities);
+        if (await applicationStore.TryCreatePairingChallengeAsync(stored, cancellationToken).ConfigureAwait(false))
+        {
+            return new IssuedPeerChallenge(
+                challenge.ChallengeId,
+                challenge,
+                PeerProofPurpose.Pairing,
+                pairing.LocalRole,
+                pairing.RemoteCapabilities);
+        }
+
+        existing = await applicationStore.ReadPairingChallengeAsync(pairingId, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("Pairing challenge was not retained.");
+        return await IssuedAsync(existing, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IssuedPeerChallenge> IssuedAsync(
+        StoredChallenge stored,
+        CancellationToken cancellationToken)
+    {
+        var challenge = await RehydrateChallengeAsync(stored, cancellationToken).ConfigureAwait(false);
+        return new IssuedPeerChallenge(
+            stored.ChallengeId,
+            challenge,
+            stored.Purpose,
+            stored.LocalRole,
+            stored.RemoteCapabilities);
     }
 
     public async Task<PeerProof> CreateLocalProofAsync(
@@ -218,6 +316,53 @@ public sealed class PeerPairingCoordinator
 
         return verification with { Status = PairingOperationStatus.Completed };
     }
+
+    private static PairingStartResult Existing(PairingSnapshot pairing, DateTimeOffset now)
+    {
+        var status = pairing.State switch
+        {
+            PairingApprovalState.Completed => PairingOperationStatus.Completed,
+            PairingApprovalState.Rejected => PairingOperationStatus.Rejected,
+            PairingApprovalState.Expired => PairingOperationStatus.Expired,
+            _ when now > pairing.ExpiresAt => PairingOperationStatus.Expired,
+            _ => pairing.State switch
+            {
+                PairingApprovalState.PendingApproval => PairingOperationStatus.ApprovalRequired,
+                PairingApprovalState.Approved => PairingOperationStatus.Accepted,
+                _ => PairingOperationStatus.Rejected,
+            },
+        };
+        return new PairingStartResult(
+            status,
+            pairing.PairingId,
+            pairing.SelectedVersion,
+            pairing.RemoteCapabilities,
+            status switch
+            {
+                PairingOperationStatus.ApprovalRequired => "Local approval is required before proof exchange.",
+                PairingOperationStatus.Accepted => "Local approval has been granted.",
+                PairingOperationStatus.Completed => "Pairing is complete.",
+                PairingOperationStatus.Expired => "Pairing approval has expired.",
+                _ => "Pairing was rejected.",
+            },
+            pairing.ExpiresAt);
+    }
+
+    private static bool Matches(
+        PairingSnapshot pairing,
+        PairingCandidate candidate,
+        PeerProtocolVersion selectedVersion) =>
+        pairing.RemoteIdentity.PeerId == candidate.Identity.PeerId &&
+        pairing.RemoteIdentity.PublicKeySpki.AsSpan().SequenceEqual(candidate.Identity.PublicKeySpki) &&
+        pairing.RemoteIdentity.PublicKeyFingerprint.AsSpan().SequenceEqual(candidate.Identity.PublicKeyFingerprint) &&
+        pairing.DisplayName == candidate.DisplayName &&
+        pairing.LocalRole == candidate.LocalRole &&
+        pairing.SelectedVersion == selectedVersion &&
+        pairing.RemoteCapabilities.Count == candidate.Capabilities.Count &&
+        pairing.RemoteCapabilities.Zip(candidate.Capabilities).All(pair =>
+            pair.First.ModuleId == pair.Second.ModuleId &&
+            pair.First.ModuleVersion == pair.Second.ModuleVersion &&
+            pair.First.DeclarationSha256.AsSpan().SequenceEqual(pair.Second.DeclarationSha256));
 
     public async Task<(PairingOperationStatus Status, IssuedPeerChallenge? Challenge, string Reason)> BeginReconnectAsync(
         PeerPublicIdentity presentedRemoteIdentity,

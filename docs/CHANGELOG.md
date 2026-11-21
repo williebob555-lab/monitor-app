@@ -58,7 +58,10 @@ This file records completed user-visible, operational, architectural, packaging,
 - Protocol 1.1 bilateral reconnect authentication now carries and verifies the server proof before the client sends its proof or any application operation; protocol 1.0 fails explicitly.
 - Outbound peer connector with pinned identity, safe endpoint policy, bounded timeouts/backoff, capability/replication/heartbeat dispatch, and real production-host loopback tests.
 - Loopback-only local administration page/API for identity, trust, pairing decisions, and stored observation metadata with CSRF-protected mutations and redacted output.
-- Launchable Windows peer preview with CurrentUser-DPAPI-protected P-256 identity, shared local database, composed peer/admin hosts, restart-stability tests, and an explicit fresh-pairing limitation.
+- Launchable Windows peer preview with CurrentUser-DPAPI-protected P-256 identity, shared local database, composed peer/admin hosts, and restart-stability tests.
+- Structured protocol-1.1 fresh-pair approval states, identity-bound idempotent pairing IDs, one durable challenge, and production incoming pairing coordination with rejection/expiry/replay/revocation checks.
+- Outbound fresh-pairing client and local invitation form that require explicit initiating/contacted-peer approval, pin the displayed remote identity, verify the server proof first, and persist trust only after completed confirmation.
+- Real two-node browser/API plus gRPC integration coverage proving two fresh DPAPI identities and separate SQLite stores establish bilateral active trust.
 
 ### Changed
 

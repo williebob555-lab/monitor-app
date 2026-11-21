@@ -73,6 +73,22 @@ message PairingConfirmation {
   google.protobuf.Timestamp paired_at = 5;
 }
 
+enum PairingApprovalDisposition {
+  PAIRING_APPROVAL_DISPOSITION_UNSPECIFIED = 0;
+  PAIRING_APPROVAL_DISPOSITION_AWAITING_LOCAL_APPROVAL = 1;
+  PAIRING_APPROVAL_DISPOSITION_APPROVED = 2;
+  PAIRING_APPROVAL_DISPOSITION_REJECTED = 3;
+  PAIRING_APPROVAL_DISPOSITION_EXPIRED = 4;
+  PAIRING_APPROVAL_DISPOSITION_COMPLETED = 5;
+}
+
+message PairingApproval {
+  string pairing_id = 1;
+  PairingApprovalDisposition disposition = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  string safe_message = 4;
+}
+
 message PairingFrame {
   oneof message {
     PairingHello hello = 1;
@@ -81,6 +97,7 @@ message PairingFrame {
     PairingConfirmation confirmation = 4;
     CompatibilityFailure incompatibility = 5;
     ProtocolError error = 6;
+    PairingApproval approval = 7;
   }
 }
 

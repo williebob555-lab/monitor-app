@@ -25,6 +25,7 @@ public enum PairingOperationStatus
     InvalidProof = 8,
     Replayed = 9,
     Completed = 10,
+    ReusedWithDifferentParameters = 11,
 }
 
 public sealed record PeerCapability(
@@ -61,7 +62,8 @@ public sealed record PairingStartResult(
     string? PairingId,
     PeerProtocolVersion? SelectedVersion,
     IReadOnlyList<PeerCapability> RemoteCapabilities,
-    string Reason);
+    string Reason,
+    DateTimeOffset? ExpiresAt = null);
 
 public sealed record PairingSnapshot(
     string PairingId,

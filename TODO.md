@@ -12,7 +12,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Define and implement the peer-local SQLite schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
 - [x] Implement and test the peer host boundary, durable pairing/session coordinator, and signed origin-replication coordinator.
 - [x] Compose a Windows engineering-preview node with DPAPI-protected identity, peer listener, outbound reconnect transport, and loopback administration/query page.
-- [ ] Implement the initial fresh-peer invitation/pairing client and server flow through explicit local approval.
+- [x] Implement and compose initial fresh-peer invitation/pairing through explicit initiating and contacted-peer approval with bilateral proof and trust persistence.
 - [ ] Complete production collection and local query/replication composition without a controller or central database.
 - [ ] Add the real two-peer integration test: separate file-backed SQLite stores; pair; exchange; disconnect; collect offline; restart; reconnect; converge; prove ordered origin identity and no duplicate/conflicting sequences.
 - [ ] Add security tests for network membership without app trust, wrong-key/substitution/replay/revocation, safe errors, private-interface binding, and credential redaction.

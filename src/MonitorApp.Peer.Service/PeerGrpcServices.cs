@@ -29,7 +29,7 @@ public sealed class PeerPairingGrpcService(
 
             var frame = requestStream.Current;
             if (frame.MessageCase == PairingFrame.MessageOneofCase.Hello &&
-                IsUnsupported(frame.Hello.ProtocolVersion))
+                IsUnsupportedPairing(frame.Hello.ProtocolVersion))
             {
                 await responseStream.WriteAsync(new PairingFrame
                 {
@@ -140,6 +140,11 @@ public sealed class PeerPairingGrpcService(
 
     internal static bool IsUnsupported(ProtocolVersion? version) =>
         version is not null && version.Major != 0 && version.Major != PeerContractRules.ProtocolMajor;
+
+    private static bool IsUnsupportedPairing(ProtocolVersion? version) =>
+        IsUnsupported(version) ||
+        (version?.Major == PeerContractRules.ProtocolMajor &&
+            version.Minor < PeerContractRules.BilateralSessionProofMinor);
 
     internal static bool IsTimestamp(Timestamp? value)
     {
