@@ -27,6 +27,34 @@ public sealed class PeerContractTests
 
     [Fact]
     [Trait("Category", "Contract")]
+    public void PeerSessionResponseAddsValidatedServerProofWithoutTranscriptSecrets()
+    {
+        var proofField = PeerSessionResponse.Descriptor.FindFieldByNumber(10);
+
+        Assert.NotNull(proofField);
+        Assert.Equal("proof", proofField.Name);
+        Assert.Equal(PeerProof.Descriptor, proofField.MessageType);
+        Assert.Equal(10, PeerSessionResponse.ProofFieldNumber);
+        var proof = new PeerProof
+        {
+            SessionId = "session-1",
+            ChallengeId = "challenge-1",
+            SignerPeerId = "peer-server",
+            VerifierPeerId = "peer-client",
+            SignatureAlgorithm = SignatureAlgorithm.EcdsaP256Sha256,
+            ProofSignature = ByteString.CopyFrom(new byte[EnrollmentContractRules.EcdsaP256SignatureSize]),
+        };
+        Assert.True(PeerContractValidator.Validate(proof).IsValid);
+
+        var fields = PeerProof.Descriptor.Fields.InFieldNumberOrder().Select(field => field.Name).ToArray();
+        Assert.DoesNotContain(fields, field =>
+            field.Contains("challenge_bytes", StringComparison.OrdinalIgnoreCase) ||
+            field.Contains("private", StringComparison.OrdinalIgnoreCase) ||
+            field.Contains("credential", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    [Trait("Category", "Contract")]
     public void PairingHelloRoundTripCarriesP256IdentityAndPreservesUnknownFields()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);

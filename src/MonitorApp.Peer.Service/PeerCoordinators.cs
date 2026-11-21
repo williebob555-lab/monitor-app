@@ -6,6 +6,7 @@ namespace MonitorApp.Peer.Service;
 public sealed record PeerSessionOpenResult(
     PeerHello? LocalHello,
     PeerChallenge? Challenge,
+    PeerProof? LocalProof,
     ProtocolError? Error = null);
 
 public sealed record PeerAuthenticationResult(bool IsAuthenticated, ProtocolError? Error = null);
@@ -72,7 +73,7 @@ internal sealed class UnconfiguredPeerSessionCoordinator : IPeerSessionCoordinat
     public ValueTask<PeerSessionOpenResult> OpenAsync(
         PeerHello remoteHello,
         CancellationToken cancellationToken) =>
-        ValueTask.FromResult(new PeerSessionOpenResult(null, null, Unavailable.Clone()));
+        ValueTask.FromResult(new PeerSessionOpenResult(null, null, null, Unavailable.Clone()));
 
     public ValueTask<PeerAuthenticationResult> AuthenticateAsync(
         PeerHello remoteHello,

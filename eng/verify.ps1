@@ -76,6 +76,18 @@ try {
             --no-build
     }
 
+    Invoke-VerificationStep "Run peer outbound transport tests" {
+        dotnet test tests/MonitorApp.Peer.Transport.Tests/MonitorApp.Peer.Transport.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run local peer administration API tests" {
+        dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run controller enrollment and loopback gRPC telemetry tests" {
         dotnet test tests/MonitorApp.Controller.IntegrationTests/MonitorApp.Controller.IntegrationTests.csproj `
             -c Release `
@@ -90,9 +102,16 @@ try {
                 --no-build `
                 --filter "Category=Windows"
         }
+
+        Invoke-VerificationStep "Run Windows peer node integration tests" {
+            dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj `
+                -c Release `
+                --no-build
+        }
     }
     else {
         Write-Warning "NOT RUN: Windows collector integration tests require Windows."
+        Write-Warning "NOT RUN: Windows peer node and DPAPI identity tests require Windows."
     }
 
     Invoke-VerificationStep "Verify formatting" {

@@ -172,5 +172,6 @@ message PeerSessionResponse {
     PeerHeartbeat heartbeat = 7;
     CompatibilityFailure incompatibility = 8;
     ProtocolError error = 9;
+    PeerProof proof = 10;
   }
 }

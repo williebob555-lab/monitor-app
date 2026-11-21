@@ -324,6 +324,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: Passing component tests does not claim a runnable peer release. Production dependency wiring, local administration/query, protected platform keys, transport deployment, and the separate-store two-peer convergence test remain required.
 - Revisit condition: If composition reveals a boundary that forces duplicate state or weakens end-to-end authentication.
 
+### T026 Windows preview identity and local administration boundary
+
+- Status: Accepted for engineering preview
+- Decision: Compose the first interactable peer as a Windows-specific node using a CurrentUser-DPAPI-protected P-256 key, one local SQLite database, an explicit loopback/private peer listener, and a separate loopback-only administration page. Keep the shared peer, transport, persistence, and local-API libraries platform-neutral.
+- Reason: A real launchable slice exposes composition failures early without pretending that an unprotected portable key file or remote browser administration is acceptable.
+- Evidence: The protected identity survives restart, the key file is not importable as raw PKCS#8 and does not contain public identity bytes, two independent nodes start against separate stores, and both local pages answer over real HTTP. Manual launch also verified the same stable fingerprint across restart.
+- Consequences: This is Windows preview evidence only. Initial fresh pairing, Windows service packaging, non-Windows protected key stores, and full two-peer convergence remain release gates.
+- Revisit condition: Replace the Windows-only composition with platform hosts after each target has an approved protected-key and lifecycle implementation.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

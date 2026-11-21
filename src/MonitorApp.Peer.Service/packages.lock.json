@@ -83,6 +83,15 @@
           "Grpc.Core.Api": "[2.85.0, )"
         }
       },
+      "monitorapp.peer.application": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Data.Sqlite": "[10.0.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )"
+        }
+      },
       "monitorapp.peer.core": {
         "type": "Project"
       },
@@ -90,6 +99,14 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.0, )"
+        }
+      },
+      "monitorapp.peer.replication": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )"
         }
       },
       "Google.Protobuf": {

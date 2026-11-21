@@ -131,8 +131,8 @@ public sealed class PeerPairingGrpcService(
         {
             MinimumMajor = PeerContractRules.ProtocolMajor,
             MaximumMajor = PeerContractRules.ProtocolMajor,
-            MinimumMinor = 0,
-            MaximumMinor = 0,
+            MinimumMinor = PeerContractRules.BilateralSessionProofMinor,
+            MaximumMinor = PeerContractRules.BilateralSessionProofMinor,
         },
         Received = received?.Clone() ?? new ProtocolVersion(),
         SafeMessage = "Peer protocol major is unsupported.",
@@ -216,7 +216,7 @@ public sealed class PeerSessionGrpcService(
                     continue;
                 }
 
-                if (PeerPairingGrpcService.IsUnsupported(request.Hello.ProtocolVersion))
+                if (IsUnsupportedSession(request.Hello.ProtocolVersion))
                 {
                     await responseStream.WriteAsync(new PeerSessionResponse
                     {
@@ -259,9 +259,14 @@ public sealed class PeerSessionGrpcService(
                     continue;
                 }
 
-                if (opened.LocalHello is null || opened.Challenge is null ||
+                if (opened.LocalHello is null || opened.Challenge is null || opened.LocalProof is null ||
                     !PeerContractValidator.Validate(opened.LocalHello).IsValid ||
-                    !PeerContractValidator.Validate(opened.Challenge).IsValid)
+                    !PeerContractValidator.Validate(opened.Challenge).IsValid ||
+                    !PeerContractValidator.Validate(opened.LocalProof).IsValid ||
+                    opened.LocalProof.SessionId != opened.Challenge.SessionId ||
+                    opened.LocalProof.ChallengeId != opened.Challenge.ChallengeId ||
+                    opened.LocalProof.SignerPeerId != opened.LocalHello.PeerId ||
+                    opened.LocalProof.VerifierPeerId != request.Hello.PeerId)
                 {
                     await WriteErrorAsync(
                         responseStream,
@@ -280,6 +285,10 @@ public sealed class PeerSessionGrpcService(
                 await responseStream.WriteAsync(new PeerSessionResponse
                 {
                     Challenge = opened.Challenge.Clone(),
+                }).ConfigureAwait(false);
+                await responseStream.WriteAsync(new PeerSessionResponse
+                {
+                    Proof = opened.LocalProof.Clone(),
                 }).ConfigureAwait(false);
                 continue;
             }
@@ -497,12 +506,25 @@ public sealed class PeerSessionGrpcService(
         {
             await WriteTimeoutAsync(responseStream).ConfigureAwait(false);
         }
+        catch (PeerSessionOperationException exception)
+        {
+            await WriteErrorAsync(
+                responseStream,
+                exception.Code,
+                exception.SafeMessage,
+                exception.Retryable).ConfigureAwait(false);
+        }
     }
 
     private ValueTask<T> BoundedAsync<T>(
         Func<CancellationToken, ValueTask<T>> action,
         CancellationToken cancellationToken) =>
         PeerPairingGrpcService.BoundedAsync(action, options.CoordinatorTimeout, cancellationToken);
+
+    private static bool IsUnsupportedSession(ProtocolVersion? version) =>
+        PeerPairingGrpcService.IsUnsupported(version) ||
+        (version?.Major == PeerContractRules.ProtocolMajor &&
+            version.Minor < PeerContractRules.BilateralSessionProofMinor);
 
     private static string? ValidateCapabilities(CapabilityExchange exchange)
     {

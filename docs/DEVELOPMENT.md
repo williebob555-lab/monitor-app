@@ -26,7 +26,7 @@ For documentation-only changes with no executable instruction or configuration i
 - Reuse controller-era cryptographic, persistence, telemetry, spool, collector, Android, and signed-update work only where tests show that it fits peer semantics.
 - Do not extend `MonitorApp.Controller`, Headscale automation, controller enrollment administration, or a central history store. Those boundaries are superseded.
 
-Create new projects only when executable work needs them. `MonitorApp.Peer.Core`, `MonitorApp.Peer.Persistence`, `MonitorApp.Peer.Application`, `MonitorApp.Peer.Replication`, and `MonitorApp.Peer.Service` now contain the proof/compatibility, SQLite, approval/session, origin-replication, and private gRPC-host boundaries. The next executable boundary is composition into one runnable peer with a local administration/query surface and a two-peer production-protocol test, followed by capability modules/adapters and platform hosts.
+Create new projects only when executable work needs them. `MonitorApp.Peer.Core`, `MonitorApp.Peer.Persistence`, `MonitorApp.Peer.Application`, `MonitorApp.Peer.Replication`, `MonitorApp.Peer.Service`, `MonitorApp.Peer.Transport`, and `MonitorApp.Peer.LocalApi` contain the proof/compatibility, SQLite, approval/session, replication, inbound/outbound transport, and local administration boundaries. `MonitorApp.Peer.Node` composes them as a Windows-only engineering preview with DPAPI identity protection. The next executable boundary is fresh-peer invitation/pairing and a two-peer production-protocol test, followed by capability modules/adapters and other platform hosts.
 
 ## Peer development rules
 

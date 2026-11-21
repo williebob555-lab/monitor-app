@@ -6,6 +6,7 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Service;
 using Xunit;
@@ -57,6 +58,21 @@ public sealed class PeerHostIntegrationTests
     }
 
     [Fact]
+    public async Task SessionWithoutBilateralServerProofSupportFailsCompatibility()
+    {
+        await using var host = await TestHost.StartAsync(new TestCoordinator());
+        using var call = host.Client.PeerSession();
+        var hello = RemoteHello();
+        hello.ProtocolVersion.Minor = 0;
+        await call.RequestStream.WriteAsync(new PeerSessionRequest { Hello = hello });
+
+        Assert.True(await call.ResponseStream.MoveNext());
+        var failure = call.ResponseStream.Current.Incompatibility;
+        Assert.Equal(PeerContractRules.BilateralSessionProofMinor, failure.Supported.MinimumMinor);
+        Assert.Equal(0u, failure.Received.Minor);
+    }
+
+    [Fact]
     public async Task AuthenticatedCapabilityAndHeartbeatSucceed()
     {
         await using var host = await TestHost.StartAsync(new TestCoordinator());
@@ -99,7 +115,7 @@ public sealed class PeerHostIntegrationTests
     private static async Task AuthenticateAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call)
     {
         await WriteHelloAsync(call);
-        var (_, challenge) = await ReadHandshakeAsync(call);
+        var (_, challenge, _) = await ReadHandshakeAsync(call);
         await call.RequestStream.WriteAsync(new PeerSessionRequest
         {
             Proof = new PeerProof
@@ -117,18 +133,20 @@ public sealed class PeerHostIntegrationTests
     private static Task WriteHelloAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call) =>
         call.RequestStream.WriteAsync(new PeerSessionRequest { Hello = RemoteHello() });
 
-    private static async Task<(PeerHello Hello, PeerChallenge Challenge)> ReadHandshakeAsync(
+    private static async Task<(PeerHello Hello, PeerChallenge Challenge, PeerProof Proof)> ReadHandshakeAsync(
         AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call)
     {
         Assert.True(await call.ResponseStream.MoveNext());
         var hello = call.ResponseStream.Current.Hello;
         Assert.True(await call.ResponseStream.MoveNext());
-        return (hello, call.ResponseStream.Current.Challenge);
+        var challenge = call.ResponseStream.Current.Challenge;
+        Assert.True(await call.ResponseStream.MoveNext());
+        return (hello, challenge, call.ResponseStream.Current.Proof);
     }
 
     private static PeerHello RemoteHello() => new()
     {
-        ProtocolVersion = new ProtocolVersion { Major = 1, Minor = 0 },
+        ProtocolVersion = new ProtocolVersion { Major = 1, Minor = PeerContractRules.BilateralSessionProofMinor },
         PeerId = "peer-remote",
         PublicKeySha256 = ByteString.CopyFrom(new byte[32]),
         SessionId = "session-1",
@@ -215,7 +233,7 @@ public sealed class PeerHostIntegrationTests
             return ValueTask.FromResult(new PeerSessionOpenResult(
                 new PeerHello
                 {
-                    ProtocolVersion = new ProtocolVersion { Major = 1 },
+                    ProtocolVersion = new ProtocolVersion { Major = 1, Minor = PeerContractRules.BilateralSessionProofMinor },
                     PeerId = "peer-local",
                     PublicKeySha256 = ByteString.CopyFrom(new byte[32]),
                     SessionId = remoteHello.SessionId,
@@ -230,6 +248,15 @@ public sealed class PeerHostIntegrationTests
                     SignatureAlgorithm = SignatureAlgorithm.EcdsaP256Sha256,
                     CreatedAt = Timestamp.FromDateTimeOffset(now),
                     ExpiresAt = Timestamp.FromDateTimeOffset(now.AddMinutes(1)),
+                },
+                new PeerProof
+                {
+                    SessionId = remoteHello.SessionId,
+                    ChallengeId = "challenge-1",
+                    SignerPeerId = "peer-local",
+                    VerifierPeerId = remoteHello.PeerId,
+                    SignatureAlgorithm = SignatureAlgorithm.EcdsaP256Sha256,
+                    ProofSignature = ByteString.CopyFrom(new byte[64]),
                 }));
         }
 

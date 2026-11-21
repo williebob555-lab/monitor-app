@@ -8,6 +8,8 @@ public static class PeerContractRules
 {
     public const uint ProtocolMajor = 1;
 
+    public const uint BilateralSessionProofMinor = 1;
+
     public const int Sha256Size = 32;
 
     public const int MaximumPort = 65_535;

@@ -11,7 +11,9 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
 - [x] Define and implement the peer-local SQLite schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
 - [x] Implement and test the peer host boundary, durable pairing/session coordinator, and signed origin-replication coordinator.
-- [ ] Compose the production peer coordinators into one runnable service and local administration/query API that collect, persist, query, and replicate without a controller or central database.
+- [x] Compose a Windows engineering-preview node with DPAPI-protected identity, peer listener, outbound reconnect transport, and loopback administration/query page.
+- [ ] Implement the initial fresh-peer invitation/pairing client and server flow through explicit local approval.
+- [ ] Complete production collection and local query/replication composition without a controller or central database.
 - [ ] Add the real two-peer integration test: separate file-backed SQLite stores; pair; exchange; disconnect; collect offline; restart; reconnect; converge; prove ordered origin identity and no duplicate/conflicting sequences.
 - [ ] Add security tests for network membership without app trust, wrong-key/substitution/replay/revocation, safe errors, private-interface binding, and credential redaction.
 

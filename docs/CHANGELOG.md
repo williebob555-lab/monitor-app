@@ -55,6 +55,10 @@ This file records completed user-visible, operational, architectural, packaging,
 - Durable peer application coordination for explicit approval, bilateral pairing, reconnect authentication, restart-safe challenge replay rejection, trust/revocation, capability negotiation, and deterministic duplicate-session admission.
 - Signed origin-replication coordination with trusted-origin validation, bounded range and batch handling, idempotent SQLite persistence, conflict rejection, durable cursor acknowledgement, and gap convergence.
 - Fail-closed ASP.NET Core gRPC peer host with explicit private/loopback binding, message/work/time bounds, authenticated-session gating, safe compatibility/error responses, non-secret local diagnostics, and real loopback integration tests.
+- Protocol 1.1 bilateral reconnect authentication now carries and verifies the server proof before the client sends its proof or any application operation; protocol 1.0 fails explicitly.
+- Outbound peer connector with pinned identity, safe endpoint policy, bounded timeouts/backoff, capability/replication/heartbeat dispatch, and real production-host loopback tests.
+- Loopback-only local administration page/API for identity, trust, pairing decisions, and stored observation metadata with CSRF-protected mutations and redacted output.
+- Launchable Windows peer preview with CurrentUser-DPAPI-protected P-256 identity, shared local database, composed peer/admin hosts, restart-stability tests, and an explicit fresh-pairing limitation.
 
 ### Changed
 

@@ -8,9 +8,17 @@ The confirmed product scope also includes a universal inventory for equipment, s
 
 ## Current status
 
-The repository contains a tested controller-era functional alpha plus an executable equal-peer foundation: versioned peer gRPC contracts; bilateral P-256 pairing/reconnect coordination with explicit approval and durable replay rejection; a versioned peer-local SQLite WAL store; signed, bounded, gap-aware origin replication; and a fail-closed private/loopback gRPC host with authenticated-session gating. These pieces pass focused real-SQLite and loopback-network tests, but the production coordinators are not yet wired into one runnable peer and the real two-peer convergence path is not implemented. The controller/agent deployment and automatic Headscale direction remain **superseded** migration evidence, not a supported release.
+The repository contains a tested controller-era functional alpha plus an executable equal-peer foundation: versioned peer gRPC contracts; bilateral P-256 reconnect coordination with explicit approval and durable replay rejection; a versioned peer-local SQLite WAL store; signed, bounded, gap-aware origin replication; a fail-closed private/loopback gRPC host; an outbound connector; and a loopback local administration page. A Windows preview node now composes those pieces with a restart-stable DPAPI-protected identity. Initial fresh-peer invitation/pairing and the real two-peer convergence path are not implemented yet, so this is an interactive engineering preview rather than a peer release. The controller/agent deployment and automatic Headscale direction remain **superseded** migration evidence.
 
 The current milestone is two production peer services with separate local databases that pair, authenticate independently of Tailscale membership, collect and query locally, disconnect, reconnect, and converge origin-owned history without duplicates. The universal inventory, actual/design split, cable system, constraint modules, sourcing, automation, notifications, local AI, history reconstruction, and final UI are documented plans and are not implemented. See [TODO.md](TODO.md).
+
+## Run the Windows preview
+
+```powershell
+dotnet run --project src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj
+```
+
+Open `http://127.0.0.1:55432/`. The page currently shows the local peer identity, trust and pending-pairing state, and stored-observation query guidance. The peer listener runs on `127.0.0.1:55431` by default. Use `--data-dir`, `--peer-bind`, `--peer-port`, and `--admin-port` to override explicit preview settings. The administration page remains loopback-only, and initial peer invitation is still a pending milestone.
 
 ## Target shape
 
