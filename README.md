@@ -8,7 +8,7 @@ The confirmed product scope also includes a universal inventory for equipment, s
 
 ## Current status
 
-The repository contains a tested controller-era functional alpha: P-256 identity proof, gRPC contracts, SQLite WAL persistence, durable telemetry buffering, Windows/Linux collectors, an Android foreground slice, and signed update metadata. The controller/agent deployment and automatic Headscale direction are now **superseded**. That code is reusable migration evidence, not the intended architecture and not a supported release.
+The repository contains a tested controller-era functional alpha plus the first equal-peer foundation: versioned peer gRPC contracts, bilateral P-256 pairing/reconnect proof logic, protocol negotiation and duplicate-session selection, and a versioned peer-local SQLite WAL store for identity/trust, origin records, replication cursors, observed entities, relationships, capabilities, and collector assignments. The peer network service and two-peer convergence path are not implemented yet. The controller/agent deployment and automatic Headscale direction remain **superseded** migration evidence, not a supported release.
 
 The current milestone is two production peer services with separate local databases that pair, authenticate independently of Tailscale membership, collect and query locally, disconnect, reconnect, and converge origin-owned history without duplicates. The universal inventory, actual/design split, cable system, constraint modules, sourcing, automation, notifications, local AI, history reconstruction, and final UI are documented plans and are not implemented. See [TODO.md](TODO.md).
 

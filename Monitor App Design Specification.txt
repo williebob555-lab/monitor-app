@@ -2045,7 +2045,7 @@ Model families, runtimes, embedding stores, distributed inference versus job rou
 
 33. IMPLEMENTATION STATUS AND CLAIM BOUNDARY
 
-The repository currently implements a tested controller-era monitoring foundation: versioned telemetry contracts, P-256 proof components, file-backed SQLite WAL persistence, durable telemetry buffering, Windows and Linux collection code, an Android foreground slice, loopback gRPC integration coverage, and signed update-manifest verification. These are migration inputs, not a supported equal-peer release.
+The repository currently implements a tested controller-era monitoring foundation plus the first peer-native libraries: generated pairing/session/replication contracts, bilateral P-256 proof and compatibility logic, and a versioned file-backed SQLite WAL peer store for identity/trust, origin records, cursors, observed-device evidence, adapters, and collector assignments. The peer network service, local API, platform key-store integration, durable replay storage, and two-peer convergence path remain unimplemented. The controller-era components are migration inputs, not a supported equal-peer release.
 
 The equal-peer service, universal inventory and object model, actual/design-state split, cable inventory and quick-entry workflow, living schematic, exploded architecture, historical scene replay, physical-design constraint modules, RF coordination, audio/electrical/thermal planning, product sourcing, price tracking, automation engine, push notification delivery, and distributed local-AI routing are planned and not implemented in the current repository unless later change-log and executable test evidence says otherwise.
 

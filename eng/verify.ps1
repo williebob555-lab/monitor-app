@@ -51,6 +51,13 @@ try {
             --filter "Category=SQLite"
     }
 
+    Invoke-VerificationStep "Run peer SQLite persistence integration tests" {
+        dotnet test tests/MonitorApp.Peer.Persistence.Tests/MonitorApp.Peer.Persistence.Tests.csproj `
+            -c Release `
+            --no-build `
+            --filter "Category=SQLite"
+    }
+
     Invoke-VerificationStep "Run controller enrollment and loopback gRPC telemetry tests" {
         dotnet test tests/MonitorApp.Controller.IntegrationTests/MonitorApp.Controller.IntegrationTests.csproj `
             -c Release `

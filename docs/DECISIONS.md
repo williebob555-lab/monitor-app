@@ -306,6 +306,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: Deterministic services remain authoritative and useful without a model. Model family, runtime, embeddings, and hardware acceleration remain open.
 - Revisit condition: After one read-only semantic-search or explanation slice runs on two different peer capability classes.
 
+### T024 First peer-native foundation boundary
+
+- Status: Accepted
+- Decision: Establish the first peer-native slice as generated `monitor.v1` pairing/session/replication contracts, a platform-independent P-256 bilateral proof and compatibility core, and a versioned file-backed SQLite peer store. Keep the network host/session coordinator and platform key storage as the next boundary.
+- Reason: Contract, cryptographic, and persistence invariants can be proven independently before process/network lifecycle makes failures harder to isolate.
+- Evidence: Contract tests use generated types and real signing; peer-core tests cover bilateral proof, substitution, transcript mutation, expiry, replay, compatibility, duplicate sessions, and key immutability; eight real SQLite tests cover restart, trust/revocation, origin ordering/idempotency/conflicts, cursors/gaps, evidence, collector ownership, and credential-safe descriptors.
+- Consequences: These libraries are not a peer release and do not prove Tailscale/private-interface binding, platform-protected keys, durable replay across restart, or two-peer convergence. The root solution and verification script include all three boundaries.
+- Revisit condition: After the production peer service and real two-peer integration test pass.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

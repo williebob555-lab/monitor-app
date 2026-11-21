@@ -26,7 +26,7 @@ For documentation-only changes with no executable instruction or configuration i
 - Reuse controller-era cryptographic, persistence, telemetry, spool, collector, Android, and signed-update work only where tests show that it fits peer semantics.
 - Do not extend `MonitorApp.Controller`, Headscale automation, controller enrollment administration, or a central history store. Those boundaries are superseded.
 
-Create new projects only when executable work needs them. Likely target responsibilities are `MonitorApp.Peer.Core`, `MonitorApp.Peer.Service`, local persistence, capability modules/adapters, and platform hosts; names are not a product requirement.
+Create new projects only when executable work needs them. `MonitorApp.Peer.Core` and `MonitorApp.Peer.Persistence` now contain the platform-independent peer proof/compatibility and SQLite boundaries. The next executable boundary is `MonitorApp.Peer.Service` (name still not a product requirement), followed by capability modules/adapters and platform hosts.
 
 ## Peer development rules
 

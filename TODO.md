@@ -8,8 +8,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Reconcile the agreed inventory/planning, actual-versus-design, cable, physical-constraint, sourcing, automation/notification, distributed-local-AI, and phased-roadmap scope across the documentation without claiming implementation.
 - [x] Make repository preflight, collaboration, progress reporting, and documentation-only verification risk-based to reduce unnecessary usage.
 - [ ] Inventory reusable controller-era contracts, P-256 proof code, SQLite stores, telemetry/spool logic, collectors, Android code, and update verification; identify exact extraction/deletion steps.
-- [ ] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
-- [ ] Define peer-local schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
+- [x] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
+- [x] Define and implement the peer-local SQLite schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
 - [ ] Implement a peer service and local API that collect, persist, query, and replicate without a controller or central database.
 - [ ] Add the real two-peer integration test: separate file-backed SQLite stores; pair; exchange; disconnect; collect offline; restart; reconnect; converge; prove ordered origin identity and no duplicate/conflicting sequences.
 - [ ] Add security tests for network membership without app trust, wrong-key/substitution/replay/revocation, safe errors, private-interface binding, and credential redaction.

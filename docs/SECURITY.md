@@ -83,3 +83,7 @@ Generated facts and recommendations retain model/runtime version and source refe
 - Source and notification adapters protect credentials, restrict egress, redact diagnostics, and reject untrusted destinations and oversized/malicious input.
 - Replicated automation inputs produce at most one owned action and cannot bypass action permissions.
 - AI and retrieved content cannot expand tool grants, modify authoritative facts silently, expose secrets, or dispatch material actions without the ordinary approval path.
+
+## Current peer-foundation evidence
+
+The peer libraries now validate P-256 SPKI structure and SHA-256 fingerprints, bind bilateral pairing/reconnect proofs to both identities and the full session/challenge transcript, enforce fixed P1363 signatures and expiry, detect exact replay, negotiate explicit compatibility, and persist trust/revocation and immutable origin records in SQLite WAL. Credential references are omitted from adapter replication descriptors. Durable replay consumption, protected platform key storage, listener binding, rate limits, revocation over a live session, and two-peer network attacks remain unverified until the peer service exists.

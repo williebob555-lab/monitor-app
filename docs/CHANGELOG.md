@@ -48,6 +48,10 @@ This file records completed user-visible, operational, architectural, packaging,
 - Android Keystore P-256 proof signing, one-time enrollment-field clearing, private non-secret pairing-receipt storage, and platform-independent Android core coverage.
 - Development-signed Android API 36 Release APK build path using the .NET Android workload and JDK 21.
 - Root getting-started guidance and a guarded helper for creating and pushing a new private GitHub repository from a clean committed `main` branch.
+- Versioned `monitor.v1` equal-peer contracts for discovery hints, bilateral pairing, authenticated sessions, capability exchange, origin range/batch replication, durable cursors/acknowledgements, and explicit compatibility failures.
+- Platform-independent peer identity and pairing core with real ECDSA P-256 transcript-bound proofs, replay/expiry handling, protocol negotiation, deterministic duplicate-session selection, and defensive key-material copies.
+- Versioned file-backed SQLite WAL peer store for local identity, trust/revocation, locators, pairing sessions, immutable local and replicated origin records, current queries, replication cursors/gaps, observed-device evidence, relationships, adapter health, capability catalog, and collector assignments.
+- Generated-contract, cryptographic, and eight real file-backed peer-persistence tests in the root solution and verification path.
 
 ### Changed
 

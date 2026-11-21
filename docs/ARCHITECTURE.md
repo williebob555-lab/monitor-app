@@ -9,7 +9,8 @@ This is the target functional architecture after the user explicitly superseded 
 | Capability | Current status | Evidence or next gate |
 | --- | --- | --- |
 | Authentication, telemetry, collectors, SQLite durability, Android foreground snapshot, and update verification | Implemented only in the controller-era alpha | Existing executable tests; reusable only after peer migration proves compatibility |
-| Equal-peer service and origin replication | Target architecture; not yet implemented | Required two-peer production-protocol test |
+| Peer contracts, pairing/reconnect core, and peer-local SQLite schema | Implemented foundation | Generated contract tests, real P-256 tests, and real file-backed SQLite tests |
+| Equal-peer network service and origin replication | Target architecture; not yet implemented | Required two-peer production-protocol test |
 | Universal inventory with separate actual and design state | Confirmed scope; not implemented | Versioned object/relationship schema and plain local client |
 | Cable connector/length inventory | Confirmed scope; not implemented | Cable model, manual template workflow, query, assignment, and constraint tests |
 | Historical scene reconstruction and living/exploded UI | Confirmed scope; not implemented | Snapshot/event reconstruction and functional client before advanced rendering |
@@ -298,6 +299,14 @@ These components are superseded or require migration:
 - agent-to-controller-only session roles;
 - controller archive and Docker Compose release assumptions;
 - Headscale adapter and automatic Headscale setup tasks.
+
+The first peer-native components are now present:
+
+- `monitor.v1` discovery, pairing, authenticated session, capability, origin range/batch, cursor, acknowledgement, and explicit incompatibility contracts;
+- P-256 peer identity abstraction, bilateral transcript-bound pairing/reconnect proof, replay/expiry handling, protocol negotiation, and deterministic duplicate-session selection;
+- versioned file-backed SQLite WAL peer storage for identity, trust/revocation, locators, pairing sessions, immutable origin records, current query, replication cursors/gaps, observed entities and evidence, adapters, capabilities, and collector assignments.
+
+These are library foundations only. There is no production peer listener/session coordinator, local API, platform key-store integration, durable replay store, or real two-peer convergence path yet.
 
 Superseded code remains until the peer path replaces it with executable tests. It must not be packaged or described as the intended product.
 
