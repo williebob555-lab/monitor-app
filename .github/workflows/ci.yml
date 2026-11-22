@@ -34,3 +34,36 @@ jobs:
       - name: Verify functional foundation
         shell: pwsh
         run: ./eng/verify.ps1
+
+  android-build:
+    # Compile-only proof for the workload-specific Android peer app (outside MonitorApp.sln).
+    # No emulator or device behavior is verified here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Install .NET Android workload
+        run: dotnet workload install android
+
+      - name: Restore Android project
+        run: >-
+          dotnet restore src/MonitorApp.Android/MonitorApp.Android.csproj --force-evaluate
+          -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" -p:JavaSdkDirectory="$JAVA_HOME_21_X64"
+
+      - name: Build Android peer app (Release, warnings as errors)
+        run: >-
+          dotnet build src/MonitorApp.Android/MonitorApp.Android.csproj
+          -c Release --no-restore -warnaserror
+          -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" -p:JavaSdkDirectory="$JAVA_HOME_21_X64"
+          -p:AcceptAndroidSDKLicenses=true
+
+      - name: Verify the committed Android lock file is current
+        run: git diff --exit-code -- src/MonitorApp.Android/packages.lock.json
