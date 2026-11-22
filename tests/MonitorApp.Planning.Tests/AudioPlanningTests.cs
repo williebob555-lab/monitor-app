@@ -11,10 +11,17 @@ public sealed class AudioPlanningTests
         AudioConnector connector = AudioConnector.Ts635, AudioSignalKind kind = AudioSignalKind.AnalogAudio) =>
         new()
         {
-            Id = id, DeviceId = device, Direction = direction, Kind = kind,
-            Level = level, Connector = connector, Channels = 1,
-            Balanced = false, ImpedanceOhms = direction == AudioPortDirection.Input ? 100000 : 500,
-            MaximumLevelDbu = 18, ProcessingLatencyMs = 1,
+            Id = id,
+            DeviceId = device,
+            Direction = direction,
+            Kind = kind,
+            Level = level,
+            Connector = connector,
+            Channels = 1,
+            Balanced = false,
+            ImpedanceOhms = direction == AudioPortDirection.Input ? 100000 : 500,
+            MaximumLevelDbu = 18,
+            ProcessingLatencyMs = 1,
         };
 
     private static AudioPlan SignalPlan(AudioPort source, AudioPort sink) =>
@@ -58,9 +65,11 @@ public sealed class AudioPlanningTests
     public void TrsMidiTypeAAndBCannotBeAssumedInterchangeable()
     {
         var output = Port("midi-out", "bass", AudioPortDirection.Output, AudioLevel.Unknown,
-            AudioConnector.Trs35, AudioSignalKind.Midi) with { MidiElectricalStandard = "TRS-A" };
+            AudioConnector.Trs35, AudioSignalKind.Midi) with
+        { MidiElectricalStandard = "TRS-A" };
         var input = Port("midi-in", "pedal", AudioPortDirection.Input, AudioLevel.Unknown,
-            AudioConnector.Trs35, AudioSignalKind.Midi) with { MidiElectricalStandard = "TRS-B" };
+            AudioConnector.Trs35, AudioSignalKind.Midi) with
+        { MidiElectricalStandard = "TRS-B" };
         Assert.Contains(AudioPlanEvaluator.Evaluate(SignalPlan(output, input)).Findings,
             f => f.Code == "midi-electrical-standard" && f.Level == AudioFindingLevel.Unresolved);
     }
@@ -119,19 +128,34 @@ public sealed class AudioPlanningTests
     {
         var board = new RackZone
         {
-            Id = "board", Format = RackFormat.Pedalboard, WidthMm = 450, HeightMm = 300,
-            UsableDepthMm = 90, UnderboardClearanceMm = 18,
-            MaxWeightKg = 10, PowerBudgetWatts = 40, HeatRemovalWatts = 40,
+            Id = "board",
+            Format = RackFormat.Pedalboard,
+            WidthMm = 450,
+            HeightMm = 300,
+            UsableDepthMm = 90,
+            UnderboardClearanceMm = 18,
+            MaxWeightKg = 10,
+            PowerBudgetWatts = 40,
+            HeatRemovalWatts = 40,
         };
         RackEquipment Pedal(string id) => new()
         {
-            Id = id, Name = id, MountFormat = RackFormat.Pedalboard,
+            Id = id,
+            Name = id,
+            MountFormat = RackFormat.Pedalboard,
             MountMethod = MountingMethod.HookAndLoop,
-            WidthMm = 75, HeightMm = 130, BodyDepthMm = 60,
-            LeftCableClearanceMm = 15, RightCableClearanceMm = 15,
-            TopCableClearanceMm = 20, BottomCableClearanceMm = 5,
-            FootAccessClearanceMm = 12, UnderboardRequiredMm = 22,
-            WeightKg = 0.6m, PowerWatts = 3, HeatWatts = 3
+            WidthMm = 75,
+            HeightMm = 130,
+            BodyDepthMm = 60,
+            LeftCableClearanceMm = 15,
+            RightCableClearanceMm = 15,
+            TopCableClearanceMm = 20,
+            BottomCableClearanceMm = 5,
+            FootAccessClearanceMm = 12,
+            UnderboardRequiredMm = 22,
+            WeightKg = 0.6m,
+            PowerWatts = 3,
+            HeatWatts = 3
         };
         var pedalA = Pedal("p1");
         var pedalB = Pedal("p2");

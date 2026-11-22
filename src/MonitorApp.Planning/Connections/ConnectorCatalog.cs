@@ -93,11 +93,11 @@ public sealed class ConnectorCatalog
         Add(ConnectionDomain.Display, "displayport", "displayport,dp++", "displayport|DisplayPort");
         Add(ConnectionDomain.Display, "mini-displayport", "displayport,thunderbolt-1,thunderbolt-2",
             "mini-displayport|Mini DisplayPort / Thunderbolt 1-2");
-        Add(ConnectionDomain.Display, "dvi-d-sl", "dvi-d-tmds", "dvi-d-single|DVI-D Single Link");
-        Add(ConnectionDomain.Display, "dvi-d-dl", "dvi-d-tmds", "dvi-d-dual|DVI-D Dual Link");
-        Add(ConnectionDomain.Display, "dvi-i-sl", "dvi-d-tmds,analog-rgb", "dvi-i-single|DVI-I Single Link");
-        Add(ConnectionDomain.Display, "dvi-i-dl", "dvi-d-tmds,analog-rgb", "dvi-i-dual|DVI-I Dual Link");
-        Add(ConnectionDomain.Display, "dvi-a", "analog-rgb", "dvi-analog|DVI-A");
+        Add(ConnectionDomain.Display, "dvi-d-sl", "dvi-d-tmds", "dvi-d-sl|DVI-D Single Link");
+        Add(ConnectionDomain.Display, "dvi-d-dl", "dvi-d-tmds", "dvi-d-dl|DVI-D Dual Link");
+        Add(ConnectionDomain.Display, "dvi-i-sl", "dvi-d-tmds,analog-rgb", "dvi-i-sl|DVI-I Single Link");
+        Add(ConnectionDomain.Display, "dvi-i-dl", "dvi-d-tmds,analog-rgb", "dvi-i-dl|DVI-I Dual Link");
+        Add(ConnectionDomain.Display, "dvi-a", "analog-rgb", "dvi-a|DVI-A");
         Add(ConnectionDomain.Display, "vga-de15", "analog-rgb", "vga-de15|VGA / DE-15");
         Add(ConnectionDomain.Display, "svideo-mini-din4", "s-video", "svideo|S-Video Mini-DIN 4");
         Add(ConnectionDomain.Display, "scart", "analog-rgb,composite-video", "scart|SCART");

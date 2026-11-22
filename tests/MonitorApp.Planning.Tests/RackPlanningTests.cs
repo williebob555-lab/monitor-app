@@ -80,7 +80,8 @@ public sealed class RackPlanningTests
         ]);
         Assert.Contains(RackLayoutValidator.Evaluate(layout).Findings, f => f.Code == "volume-collision");
 
-        var tooDeep = Layout(items: [s1 with { BodyDepthMm = 600 }]);
+        var tooDeep = Layout(items: [s1 with { BodyDepthMm = 600 }],
+            positions: [RackDimensions.AtRackUnits("deep", "rack", s1.Id, 1)]);
         Assert.Contains(RackLayoutValidator.Evaluate(tooDeep).Findings, f => f.Code == "rear-clearance");
     }
 

@@ -322,7 +322,7 @@ public static class AudioPlanEvaluator
 
     private static decimal? ComputeLongestPath(
         IReadOnlyDictionary<string, decimal> deviceLatency,
-        IReadOnlyDictionary<string, AudioPort> ports,
+        Dictionary<string, AudioPort> ports,
         IReadOnlyList<AudioPatch> patches)
     {
         var paths = new Dictionary<string, List<string>>(StringComparer.Ordinal);

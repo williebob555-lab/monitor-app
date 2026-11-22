@@ -6,7 +6,7 @@ namespace MonitorApp.Planning.Tests;
 [Trait("Category", "Unit")]
 public sealed class ConnectorCompatibilityTests
 {
-    private static IReadOnlySet<string> Set(params string[] x) => x.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static HashSet<string> Set(params string[] x) => x.ToHashSet(StringComparer.OrdinalIgnoreCase);
     private static ConnectionPort P(string id, string type, ConnectionDirection direction, params string[] signals) =>
         new(id, id, type, ConnectorGender.Receptacle, direction, Set(signals),
             Pinout: "standard-fixture", VerifiedSpecification: "fixture");

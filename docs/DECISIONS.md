@@ -675,3 +675,12 @@ This log separates confirmed product constraints from working technical decision
 - Reason: The owner dual-boots and wants to switch OS from the phone without being at the machine, without the risk of leaving a machine stuck in a non-default OS or with an edited boot configuration.
 - Consequences: A switch always means a restart, so all sessions on that install drop and the machine is then shown "booted into <other OS>" when the sibling install connects. Waking a machine needs another peer awake on its LAN.
 - Revisit condition: Writing a shared-ESP grubenv from Windows, UEFI `BootNext` support, or the owner wants a persistent default change.
+
+### T301 Standalone design-planning boundary
+
+- Status: Accepted (working implementation decision within the owner-assigned rack-planning area).
+- Decision: `MonitorApp.Planning` is a pure .NET, design-only domain component. Named project/scenario revision is carried through rack layouts and project evaluation; catalog products, seller offers, proposed parts, and actual-instance references remain distinct. Rack, pedalboard, audio, connector, power, and physical evaluators emit deterministic errors, warnings, or unresolved findings from declared evidence. Unknown dimensions, protocols, power profiles, polarity, ratings, and measurements never become implicit compatibility or safety. The browser prototype may explore interactions and import/export proposal JSON, but the C# domain is the intended authoritative evaluator and neither layer writes actual inventory, controls equipment, or edits Claude-owned UI/runtime modules.
+- Reason: Planning needs executable domain rules before integration, while actual/design separation and unknown-state behavior must remain enforceable independently of any visual scene or device connection.
+- Evidence: `MonitorApp.Planning.Tests` covers project/task/offer identity, rack and nested-subrack geometry, pedalboard clearances, physical constraints, audio/MIDI/CV and pedal DC rules, and connector/protocol/power/adapter compatibility.
+- Consequences: Persistence, promotion into actual inventory, client integration, complete RF coordination, sourcing adapters, and hardware validation require later claims and tests. Compatibility findings are decision support, not authorization to energize equipment or a regulatory/safety certification.
+- Revisit condition: The universal inventory persistence layer or client integrates planning, or a domain requires a versioned serialized/wire contract.

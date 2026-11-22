@@ -50,7 +50,7 @@ public static class RackDimensions
     public static RackPlacement AtRackUnits(string id, string zoneId, string itemId, int bottomUnit,
         decimal leftMm = 0, decimal frontOffsetMm = 0)
     {
-        if (bottomUnit < 1) throw new ArgumentOutOfRangeException(nameof(bottomUnit));
+        ArgumentOutOfRangeException.ThrowIfLessThan(bottomUnit, 1);
         return new RackPlacement(id, zoneId, itemId, leftMm, (bottomUnit - 1) * RackUnitMm, frontOffsetMm);
     }
 
@@ -58,14 +58,17 @@ public static class RackDimensions
     /// <summary>Physical X/Y coordinates on a pedalboard or desktop audio surface, in millimetres.</summary>
     public static RackPlacement AtBoard(string id, string zoneId, string itemId, decimal leftMm, decimal frontToBackMm)
     {
-        if (leftMm < 0 || frontToBackMm < 0) throw new ArgumentOutOfRangeException(nameof(leftMm));
+        ArgumentOutOfRangeException.ThrowIfNegative(leftMm);
+        ArgumentOutOfRangeException.ThrowIfNegative(frontToBackMm);
         return new RackPlacement(id, zoneId, itemId, leftMm, frontToBackMm);
     }
 
     public static RackPlacement AtEurorack(string id, string zoneId, string itemId,
         int firstHp, int row, decimal rowPitchMm, decimal frontOffsetMm = 0)
     {
-        if (firstHp < 1 || row < 1 || rowPitchMm <= 0) throw new ArgumentOutOfRangeException(nameof(firstHp));
+        ArgumentOutOfRangeException.ThrowIfLessThan(firstHp, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(row, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(rowPitchMm, 0);
         return new RackPlacement(id, zoneId, itemId, (firstHp - 1) * EurorackHpMm,
             (row - 1) * rowPitchMm, frontOffsetMm);
     }

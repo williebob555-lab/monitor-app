@@ -27,6 +27,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Add registration tests that allow aggregate operational network metrics but reject ordinary packet/content/flow/communication-identity declarations.
 - [x] Add separately enabled defensive-security capability policy with evidence/confidence, permissions, local processing, and bounded retention.
 - [x] Define and validate the smallest universal object envelope and typed relationship contract needed to keep actual state and named design scenarios separate; include distinct product/offer/instance identity and the connector-length cable slice without starting sourcing, automation, or AI services.
+- [x] Add the standalone T301 design-planning foundation: named project revisions, multi-standard racks and nested subracks, pedalboards, audio/MIDI/CV and pedal DC planning, evidence-aware physical constraints, broad connector knowledge, and a design-only interaction prototype. Persistence, authoritative client integration, actual-inventory promotion, complete RF coordination, and hardware validation remain separate work.
 
 ## Observed devices and LAN topology
 
@@ -89,7 +90,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - Final living-schematic and exploded-architecture rendering.
 - Game-like interactions and cinematic transitions.
 - Full cable inventory UI beyond the bounded object-model slice; QR and dedicated scanner workflows are outside the required path.
-- Physical audio/RF/electrical/thermal constraint engines and plan comparison.
+- Integrated physical/audio/electrical constraint services, complete RF coordination, and authoritative plan comparison beyond the standalone T301 evaluator.
 - Product sourcing, seller adapters, price and availability history.
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.

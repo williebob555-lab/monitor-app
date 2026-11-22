@@ -25,6 +25,7 @@ The earlier controller/agent and automatic self-hosted Headscale plan is superse
 - [`DEVELOPMENT.md`](DEVELOPMENT.md): implementation workflow and platform obligations.
 - [`TESTING.md`](TESTING.md): meaningful tests and release gates.
 - [`SECURITY.md`](SECURITY.md): peer trust, adapter credentials, privacy, and defensive detection.
+- [`PLANNING.md`](PLANNING.md): design-only rack, pedalboard, audio, connector, and project-planning foundation.
 - [`DECISIONS.md`](DECISIONS.md): confirmed constraints and working technical decisions.
 - [`CHANGELOG.md`](CHANGELOG.md): durable completed changes.
 - [`RELEASES.md`](RELEASES.md): release and update trust.

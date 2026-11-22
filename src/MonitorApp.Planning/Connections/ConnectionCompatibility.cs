@@ -228,10 +228,10 @@ public sealed class ConnectionCompatibilityEvaluator(ConnectorCatalog? catalog =
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(converter);
         var issues = new List<ConnectionFinding>();
-        if (!catalog.TryGet(source.ConnectorTypeId, out var sourceType) ||
-            !catalog.TryGet(converter.Input.ConnectorTypeId, out var adapterInput) ||
-            !catalog.TryGet(sink.ConnectorTypeId, out var sinkType) ||
-            !catalog.TryGet(converter.Output.ConnectorTypeId, out var adapterOutput))
+        if (!catalog.TryGet(source.ConnectorTypeId, out var sourceType) || sourceType is null ||
+            !catalog.TryGet(converter.Input.ConnectorTypeId, out var adapterInput) || adapterInput is null ||
+            !catalog.TryGet(sink.ConnectorTypeId, out var sinkType) || sinkType is null ||
+            !catalog.TryGet(converter.Output.ConnectorTypeId, out var adapterOutput) || adapterOutput is null)
         {
             issues.Add(new("unknown-adapter-end", ConnectionFindingLevel.Unknown,
                 "At least one endpoint/adapter connector type is missing from the catalog."));
