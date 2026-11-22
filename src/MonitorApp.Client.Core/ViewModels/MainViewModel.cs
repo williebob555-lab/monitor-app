@@ -51,7 +51,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // Only sources that can initiate pairing (the phone) get the pairing-entry screen.
         if (connection.Source is IPairingInitiator)
         {
-            sections.Add(new PairDeviceViewModel(connection));
+            var pair = new PairDeviceViewModel(connection);
+            pair.Paired += (_, _) => _ = Task.WhenAll(Overview.RefreshAsync(), Environment.RefreshAsync());
+            sections.Add(pair);
         }
 
         sections.Add(Overview);

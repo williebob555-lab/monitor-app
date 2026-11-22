@@ -72,11 +72,15 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
 
     public List<string> Sent { get; } = [];
 
+    public RemoteUpdateStatusDto? UpdateStatus { get; set; }
+
+    public List<PendingPairingDto> PendingPairings { get; } = [];
+
     public bool CanVerifyUserPresence => true;
 
     public ControlTierDescription DescribeTier(ControlActionKind action, TimeSpan? duration = null) => action switch
     {
-        ControlActionKind.PauseCollection => new ControlTierDescription(ControlTierDto.Elevated, true, true),
+        ControlActionKind.PauseCollection or ControlActionKind.ApproveUpdate or ControlActionKind.ApprovePairing => new ControlTierDescription(ControlTierDto.Elevated, true, true),
         _ => new ControlTierDescription(ControlTierDto.Normal, false, true),
     };
 
@@ -96,22 +100,22 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
     public Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default) => Record("unmute", peerId);
 
     public Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<PendingPairingDto>>([]);
+        Task.FromResult<IReadOnlyList<PendingPairingDto>>(PendingPairings.ToArray());
 
     public Task<ControlOutcomeDto> ResolvePairingAsync(string peerId, string pairingId, string fingerprint, bool approve, CancellationToken ct = default) =>
-        Record("pairing", peerId);
+        Record("pairing", peerId, $"{(approve ? "approve" : "deny")}:{pairingId}:{fingerprint}");
 
     public Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default) => Record("enroll", peerId);
 
     public Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default) =>
-        Task.FromResult<RemoteUpdateStatusDto?>(null);
+        Task.FromResult(UpdateStatus);
 
     public Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default) =>
-        Record("update", peerId);
+        Record("update", peerId, $"{stagedVersion}:{stagedDigestHex}");
 
-    private Task<ControlOutcomeDto> Record(string what, string peerId)
+    private Task<ControlOutcomeDto> Record(string what, string peerId, string? detail = null)
     {
-        Sent.Add(what + ":" + peerId);
+        Sent.Add(detail is null ? what + ":" + peerId : what + ":" + peerId + ":" + detail);
         return Task.FromResult(Outcome);
     }
 }

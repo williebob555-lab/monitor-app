@@ -23,6 +23,12 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
     {
     }
 
+    /// <summary>Raised after a pairing succeeds so the shell can refresh what depends on the trusted peers.</summary>
+    public event EventHandler? Paired;
+
+    /// <summary>True when the source can scan a pairing QR with a camera; the view shows the Scan QR button only then.</summary>
+    public bool CanScanQr => Client is IQrPairingSource { CanScanQr: true };
+
     public override Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     [RelayCommand]
@@ -69,5 +75,25 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
         }
 
         StatusMessage = null;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanScanQr))]
+    private async Task ScanQrAsync()
+    {
+        if (Client is not IQrPairingSource scanner)
+        {
+            return;
+        }
+
+        StatusMessage = null;
+        await RunAsync(async () =>
+        {
+            // null means the person backed out of the scanner: no message. ApiValidationException is shown by RunAsync.
+            if (await scanner.ScanAndPairAsync() is { } peer)
+            {
+                StatusMessage = $"Paired with {peer}.";
+                Paired?.Invoke(this, EventArgs.Empty);
+            }
+        });
     }
 }

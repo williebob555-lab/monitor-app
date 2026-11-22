@@ -11,6 +11,12 @@ public sealed record ControlActionRow(ControlActionKind Kind, string Title, Time
     public string AccessibleText => $"{Title}. {TierText}";
 }
 
+/// <summary>A pairing request held by the selected computer, awaiting this device's decision (the fingerprint is what gets confirmed).</summary>
+public sealed record RemotePairingRow(string PairingId, string Name, string Fingerprint, string TierText)
+{
+    public string AccessibleText => $"Pairing request from {Name}, fingerprint {Fingerprint}. {TierText}";
+}
+
 /// <summary>
 /// The inspector's "Controls" section (UI spec 9, 10, 18): operational actions, kept apart from exploration. Offered only
 /// when the data source implements <see cref="IControlSource"/> and a paired device is selected, and never while viewing history.
@@ -38,6 +44,12 @@ public sealed partial class ControlsViewModel : ObservableObject
     [ObservableProperty]
     private bool outcomeIsFailure;
 
+    [ObservableProperty]
+    private RemoteUpdateStatusDto? updateStatus;
+
+    [ObservableProperty]
+    private string updateTierText = string.Empty;
+
     public ControlsViewModel(NodeConnection connection, EnvironmentViewModel environment)
     {
         this.connection = connection;
@@ -49,10 +61,31 @@ public sealed partial class ControlsViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsHistorical));
                 OnPropertyChanged(nameof(CanAct));
                 OnPropertyChanged(nameof(HistoryNotice));
-                RunCommand.NotifyCanExecuteChanged();
+                Notify();
             }
         };
     }
+
+    /// <summary>Completes when the update status and pending pairings for the current selection have loaded (tests await this).</summary>
+    public Task LoadTask { get; private set; } = Task.CompletedTask;
+
+    public ObservableCollection<RemotePairingRow> PendingPairings { get; } = [];
+
+    public bool HasPendingPairings => PendingPairings.Count > 0;
+
+    /// <summary>A staged, verified update exists on a computer that lets this device see it.</summary>
+    public bool HasPendingUpdate => UpdateStatus is { Permitted: true, Available: true, StagedVersion: not null, StagedDigestHex: not null };
+
+    public string? UpdateSummary => HasPendingUpdate
+        ? $"Update {UpdateStatus!.StagedVersion} is staged and verified (installed: {UpdateStatus.InstalledVersion})."
+        : null;
+
+    /// <summary>
+    /// Only when the computer reports this device as permitted: otherwise the fingerprint prompt would fire before a refusal.
+    /// </summary>
+    public bool CanApproveUpdate => HasPendingUpdate && CanAct;
+
+    partial void OnUpdateStatusChanged(RemoteUpdateStatusDto? value) => Notify();
 
     public ObservableCollection<ControlActionRow> Actions { get; } = [];
 
@@ -73,6 +106,8 @@ public sealed partial class ControlsViewModel : ObservableObject
     public void Update(SceneNode? selected)
     {
         node = selected;
+        UpdateStatus = null;
+        PendingPairings.Clear();
         Actions.Clear();
         OutcomeText = null;
         OutcomeIsFailure = false;
@@ -85,7 +120,110 @@ public sealed partial class ControlsViewModel : ObservableObject
             Actions.Add(Row(source, ControlActionKind.MuteAlerts, "Mute alerts for 1 hour", MuteFor));
         }
 
+        LoadTask = IsAvailable ? LoadRemoteAsync(selected!.Id) : Task.CompletedTask;
         Notify();
+    }
+
+    private async Task LoadRemoteAsync(string peerId)
+    {
+        if (connection.Source is not IControlSource source)
+        {
+            return;
+        }
+
+        RemoteUpdateStatusDto? status = null;
+        IReadOnlyList<PendingPairingDto> pairings = [];
+        try
+        {
+            status = await source.ReadUpdateStatusAsync(peerId);
+            pairings = await source.ReadPendingPairingsAsync(peerId);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (LocalApiException)
+        {
+        }
+
+        if (node?.Id != peerId)
+        {
+            return; // selection moved on while loading
+        }
+
+        UpdateStatus = status;
+        UpdateTierText = Row(source, ControlActionKind.ApproveUpdate, string.Empty, null).TierText;
+        PendingPairings.Clear();
+        foreach (var pairing in pairings.Where(p => p.ApprovalState == "PendingApproval"))
+        {
+            PendingPairings.Add(new RemotePairingRow(
+                pairing.PairingId,
+                pairing.DisplayName ?? pairing.RemotePeerId,
+                pairing.FingerprintSha256,
+                Row(source, ControlActionKind.ApprovePairing, string.Empty, null).TierText));
+        }
+
+        Notify();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApproveUpdate))]
+    public async Task ApproveUpdateAsync()
+    {
+        if (node is null || UpdateStatus is not { Permitted: true, StagedVersion: { } version, StagedDigestHex: { } digest }
+            || connection.Source is not IControlSource source || environment.IsHistorical)
+        {
+            return;
+        }
+
+        var target = node;
+        await Send($"Sending: approve update {version}...", target, () => source.ApproveUpdateAsync(target.Id, version, digest));
+        LoadTask = LoadRemoteAsync(target.Id);
+    }
+
+    [RelayCommand]
+    public async Task ResolvePairingAsync(RemotePairingRow? pairing)
+    {
+        await ResolveAsync(pairing, approve: true);
+    }
+
+    [RelayCommand]
+    public async Task DenyPairingAsync(RemotePairingRow? pairing)
+    {
+        await ResolveAsync(pairing, approve: false);
+    }
+
+    private async Task ResolveAsync(RemotePairingRow? pairing, bool approve)
+    {
+        if (pairing is null || node is null || !CanAct || connection.Source is not IControlSource source)
+        {
+            return;
+        }
+
+        var target = node;
+        await Send(
+            $"Sending: {(approve ? "approve" : "deny")} pairing with {pairing.Name}...",
+            target,
+            () => source.ResolvePairingAsync(target.Id, pairing.PairingId, pairing.Fingerprint, approve));
+        LoadTask = LoadRemoteAsync(target.Id);
+    }
+
+    private async Task Send(string progress, SceneNode target, Func<Task<ControlOutcomeDto>> send)
+    {
+        IsBusy = true;
+        OutcomeText = progress;
+        OutcomeIsFailure = false;
+        try
+        {
+            Describe(await send(), target.Label);
+        }
+        catch (OperationCanceledException)
+        {
+            OutcomeText = "Cancelled.";
+            OutcomeIsFailure = true;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanAct))]
@@ -160,6 +298,11 @@ public sealed partial class ControlsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(CanAct));
         OnPropertyChanged(nameof(HistoryNotice));
+        OnPropertyChanged(nameof(HasPendingUpdate));
+        OnPropertyChanged(nameof(UpdateSummary));
+        OnPropertyChanged(nameof(CanApproveUpdate));
+        OnPropertyChanged(nameof(HasPendingPairings));
         RunCommand.NotifyCanExecuteChanged();
+        ApproveUpdateCommand.NotifyCanExecuteChanged();
     }
 }

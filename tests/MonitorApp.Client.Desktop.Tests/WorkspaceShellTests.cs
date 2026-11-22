@@ -164,6 +164,34 @@ public sealed class WorkspaceShellTests
         Pump();
         Assert.Equal("Done: Collection resumed", outcome.Text);
 
+        // Update approval and remote pairing: shown only when the computer says this device is permitted.
+        var controls = model.Shell.Inspector.Controls;
+        source.Sent.Clear();
+        source.UpdateStatus = new RemoteUpdateStatusDto(false, false, "1.0.0", null, null, "Idle", null, false);
+        controls.Update(model.Environment.SelectedNode);
+        await controls.LoadTask;
+        Pump();
+        Assert.False(controls.HasPendingUpdate, "update must stay hidden while not permitted");
+        Assert.False(controls.CanApproveUpdate, "approving while not permitted would prompt for a fingerprint before a refusal");
+        Assert.False(Find<StackPanel>(shell, "UpdatePanel").IsVisible);
+
+        const string Digest = "ab12";
+        source.UpdateStatus = new RemoteUpdateStatusDto(true, true, "1.0.0", "1.1.0", Digest, "Staged", null, false);
+        source.PendingPairings.Add(new PendingPairingDto("pair-1", "peer-new", "New phone", "FEEDBEEF", "PendingApproval", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5)));
+        controls.Update(model.Environment.SelectedNode);
+        await controls.LoadTask;
+        Pump();
+        Assert.True(controls.CanApproveUpdate, "permitted + staged update can be approved");
+        Assert.Contains("1.1.0", controls.UpdateSummary, StringComparison.Ordinal);
+        Assert.Contains("asks for your fingerprint", controls.UpdateTierText, StringComparison.Ordinal);
+        Assert.True(Find<StackPanel>(shell, "UpdatePanel").IsVisible);
+        source.Outcome = new ControlOutcomeDto("Applied", "applied", "Update approved", false);
+        await controls.ApproveUpdateCommand.ExecuteAsync(null);
+        await controls.ResolvePairingCommand.ExecuteAsync(Assert.Single(controls.PendingPairings));
+        Assert.Equal(
+            [$"update:{FakeEnvironmentSource.ServerId}:1.1.0:{Digest}", $"pairing:{FakeEnvironmentSource.ServerId}:approve:pair-1:FEEDBEEF"],
+            source.Sent);
+
         // Relationships are links: following one moves the selection and the breadcrumbs.
         var link = inspector.GetVisualDescendants().OfType<Button>().Single(b => b.IsVisible && b.Command == model.Shell.Inspector.SelectRelatedCommand);
         link.Command!.Execute(link.CommandParameter);

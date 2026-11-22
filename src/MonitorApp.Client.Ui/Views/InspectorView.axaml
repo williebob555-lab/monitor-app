@@ -121,6 +121,32 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <StackPanel Name="UpdatePanel" Spacing="2" IsVisible="{Binding HasPendingUpdate}">
+              <TextBlock Text="{Binding UpdateSummary}" TextWrapping="Wrap" />
+              <Button Name="ApproveUpdateButton" Content="Approve update" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      Command="{Binding ApproveUpdateCommand}" IsEnabled="{Binding CanApproveUpdate}" />
+              <TextBlock Text="{Binding UpdateTierText}" Classes="meta" />
+            </StackPanel>
+            <ItemsControl Name="PendingPairingList" ItemsSource="{Binding PendingPairings}" IsVisible="{Binding HasPendingPairings}"
+                          AutomationProperties.Name="Pairing requests">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RemotePairingRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleText}">
+                    <TextBlock Text="{Binding Name}" />
+                    <TextBlock Text="{Binding Fingerprint}" Classes="meta" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="Approve"
+                              Command="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).ResolvePairingCommand}" CommandParameter="{Binding}"
+                              IsEnabled="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).CanAct}" />
+                      <Button Content="Deny"
+                              Command="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).DenyPairingCommand}" CommandParameter="{Binding}"
+                              IsEnabled="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).CanAct}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding TierText}" Classes="meta" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
             <TextBlock Name="ControlOutcome" Text="{Binding OutcomeText}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
                        IsVisible="{Binding OutcomeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                        Classes.error="{Binding OutcomeIsFailure}" />
