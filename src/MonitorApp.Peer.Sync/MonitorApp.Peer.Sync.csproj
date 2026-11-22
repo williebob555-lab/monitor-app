@@ -4,7 +4,6 @@
     <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
-    <ProjectReference Include="..\MonitorApp.Peer.Service\MonitorApp.Peer.Service.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Transport\MonitorApp.Peer.Transport.csproj" />
   </ItemGroup>
 </Project>

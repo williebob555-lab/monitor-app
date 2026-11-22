@@ -11,15 +11,6 @@ using CorePeerProof = MonitorApp.Peer.Core.PeerProof;
 
 namespace MonitorApp.Peer.Service;
 
-public interface IPeerAdvertisementProvider
-{
-    ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken);
-
-    ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
-        PeerHello remoteHello,
-        CancellationToken cancellationToken);
-}
-
 public sealed class EmptyPeerAdvertisementProvider : IPeerAdvertisementProvider
 {
     public ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(
