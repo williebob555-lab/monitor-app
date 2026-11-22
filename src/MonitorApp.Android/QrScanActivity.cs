@@ -297,7 +297,7 @@ public sealed class QrScanActivity : Activity, TextureView.ISurfaceTextureListen
                     new OutputConfiguration(readerSurface),
                 };
                 device.CreateCaptureSession(new SessionConfiguration(
-                    Android.Hardware.Camera2.Params.SessionType.Regular, outputs, MainExecutor, callback));
+                    (int)global::Android.Hardware.Camera2.Params.SessionType.Regular, outputs, MainExecutor, callback));
             }
             else
             {
