@@ -21,8 +21,18 @@ public sealed class PeerStateTracker
     private readonly SemaphoreSlim gate = new(1, 1);
     private int suspended;
 
-    /// <summary>Stops recording session events (the host is shutting down: sessions ending then say nothing about the peers).</summary>
-    public void Suspend() => Volatile.Write(ref suspended, 1);
+    /// <summary>
+    /// Stops recording session events (the host is shutting down: sessions ending then say nothing about the peers) and
+    /// waits for a flush already writing to the store, so nothing touches the store after the caller disposes it.
+    /// </summary>
+    public async Task SuspendAsync()
+    {
+        Volatile.Write(ref suspended, 1);
+        await gate.WaitAsync().ConfigureAwait(false);
+        gate.Release();
+    }
+
+    private bool IsSuspended => Volatile.Read(ref suspended) != 0;
 
     public PeerStateTracker(PeerStore store, IPeerClock clock, TimeSpan staleAfter, Func<string, bool>? isConnected = null)
     {
@@ -37,7 +47,7 @@ public sealed class PeerStateTracker
     /// <summary>Queues a connectivity change observed now; applied in order by <see cref="FlushAsync"/> (also started in the background).</summary>
     public void NotifySession(string peerId, bool connected, string? reason = null)
     {
-        if (Volatile.Read(ref suspended) != 0)
+        if (IsSuspended)
         {
             return;
         }
@@ -66,6 +76,11 @@ public sealed class PeerStateTracker
         try
         {
             await DrainAsync(cancellationToken).ConfigureAwait(false);
+            if (IsSuspended)
+            {
+                return;
+            }
+
             var now = clock.UtcNow;
             var local = await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false);
             foreach (var peer in await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
@@ -116,7 +131,8 @@ public sealed class PeerStateTracker
 
     private async Task DrainAsync(CancellationToken cancellationToken)
     {
-        while (pending.TryDequeue(out var item))
+        // A background flush queued just before shutdown may only get the gate after SuspendAsync returned.
+        while (!IsSuspended && pending.TryDequeue(out var item))
         {
             var last = await store.ReadLastPeerStateAsync(item.PeerId, cancellationToken).ConfigureAwait(false);
             if (last?.State == PeerConnectivityState.Revoked)

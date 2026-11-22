@@ -348,7 +348,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             }
         }
 
-        peerStates.Suspend();
+        await Step(() => new ValueTask(peerStates.SuspendAsync())).ConfigureAwait(false);
         await Step(() => peerStateTask.DisposeAsync()).ConfigureAwait(false);
         await Step(() => retentionTask.DisposeAsync()).ConfigureAwait(false);
         if (lanTask is not null)
