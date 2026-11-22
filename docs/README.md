@@ -30,6 +30,7 @@ The earlier controller/agent and automatic self-hosted Headscale plan is superse
 - [`RELEASES.md`](RELEASES.md): release and update trust.
 - [`../TODO.md`](../TODO.md): active and near-term work only.
 - [`../AGENTS.md`](../AGENTS.md): mandatory repository instructions.
+- [`COLLABORATION.md`](COLLABORATION.md): shared Claude/ChatGPT work board, claims, branch and PR rules.
 
 ## Current phase
 

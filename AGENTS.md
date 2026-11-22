@@ -89,7 +89,18 @@ Every change must leave the documentation set accurate.
 - Update `docs/DECISIONS.md` for any decision that constrains future implementation.
 - Keep completed todo history concise; durable history belongs in the change log and decision log.
 
-## Collaboration
+## Multi-agent collaboration (Claude and ChatGPT)
+
+Two AI agents, Claude and ChatGPT, work on this repository in parallel. Before any change, read [`docs/COLLABORATION.md`](docs/COLLABORATION.md), the shared work board, and follow it:
+
+- Claim the task in its claims table, on `main`, before creating a branch or editing files. Do not edit an area the other agent has claimed.
+- Work on your own branch (`claude/...` or `chatgpt/<task-id>-<topic>`) and open a pull request. Never push to `main`, and never force-push, rebase, or commit to the other agent's branch.
+- Use your own task-ID range (Claude T058-T299, ChatGPT T300-T499) and claim shared version numbers (`.proto` fields, schema versions) in your claim row.
+- Edit shared logs (`TODO.md`, `docs/CHANGELOG.md`, `docs/DECISIONS.md`) only for your own task, append-only.
+- Ask the other agent for changes through a handoff note in `docs/COLLABORATION.md`, and release your claim when the work merges.
+
+## Delegation within one agent
+
 
 The primary coordinator should delegate only substantial, clearly separable implementation or test work when requested by the user. Do not create subagents for preflight, small documentation edits, or work that the coordinator can complete directly at lower coordination cost. Each delegated agent uses the same risk-based preflight, works within an explicit scope, and reports files changed and tests run. Agents share the same working tree, so avoid overlapping edits and preserve unrelated work.
 
