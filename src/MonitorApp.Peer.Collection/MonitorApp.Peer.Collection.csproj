@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MonitorApp.Agent.Core\MonitorApp.Agent.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
+  </ItemGroup>
+</Project>

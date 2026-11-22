@@ -7,7 +7,7 @@ namespace MonitorApp.Peer.Persistence;
 
 public sealed class PeerStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private const int PublicKeyFingerprintSize = 32;
     private const int P256SignatureSize = 64;
     private readonly string connectionString;
@@ -179,6 +179,20 @@ public sealed class PeerStore
                 FOREIGN KEY(observed_entity_id) REFERENCES observed_entities(entity_id),
                 FOREIGN KEY(adapter_instance_id) REFERENCES adapter_instances(adapter_instance_id)
             );
+            CREATE TABLE IF NOT EXISTS collector_assignment_history (
+                observed_entity_id TEXT NOT NULL,
+                adapter_instance_id TEXT NOT NULL,
+                collector_peer_id TEXT NOT NULL,
+                assigned_at TEXT NOT NULL,
+                released_at TEXT NULL,
+                PRIMARY KEY(observed_entity_id, assigned_at),
+                FOREIGN KEY(observed_entity_id) REFERENCES observed_entities(entity_id),
+                FOREIGN KEY(adapter_instance_id) REFERENCES adapter_instances(adapter_instance_id)
+            );
+            INSERT OR IGNORE INTO collector_assignment_history(
+                observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at, released_at)
+            SELECT observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at, NULL
+            FROM collector_assignments;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
@@ -292,6 +306,33 @@ public sealed class PeerStore
 
         return new TrustedPeer(reader.GetString(0), Bytes(reader, 1), Bytes(reader, 2), NullableString(reader, 3),
             (PeerTrustState)reader.GetInt32(4), Parse(reader.GetString(5)), NullableDate(reader, 6));
+    }
+
+    public async Task<IReadOnlyList<TrustedPeer>> ReadTrustedPeersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT peer_id, public_key_spki, public_key_fingerprint, display_name, trust_state, paired_at, revoked_at
+            FROM trusted_peers
+            ORDER BY peer_id;
+            """;
+        var result = new List<TrustedPeer>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new TrustedPeer(
+                reader.GetString(0),
+                Bytes(reader, 1),
+                Bytes(reader, 2),
+                NullableString(reader, 3),
+                (PeerTrustState)reader.GetInt32(4),
+                Parse(reader.GetString(5)),
+                NullableDate(reader, 6)));
+        }
+
+        return result;
     }
 
     public async Task UpsertPeerLocatorAsync(PeerLocator locator, CancellationToken cancellationToken = default)
@@ -706,11 +747,89 @@ public sealed class PeerStore
         EnsureIdentifier(assignment.ObservedEntityId, nameof(assignment.ObservedEntityId)); EnsureIdentifier(assignment.AdapterInstanceId, nameof(assignment.AdapterInstanceId));
         EnsureIdentifier(assignment.CollectorPeerId, nameof(assignment.CollectorPeerId)); EnsureUtc(assignment.AssignedAt, nameof(assignment.AssignedAt));
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+
+        await using (var adapter = connection.CreateCommand())
+        {
+            adapter.Transaction = transaction;
+            adapter.CommandText = "SELECT collector_peer_id, observed_entity_id FROM adapter_instances WHERE adapter_instance_id = $id;";
+            adapter.Parameters.AddWithValue("$id", assignment.AdapterInstanceId);
+            await using var reader = await adapter.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new ArgumentException("Collector assignment requires an existing adapter instance.", nameof(assignment));
+            }
+
+            if (!string.Equals(reader.GetString(0), assignment.CollectorPeerId, StringComparison.Ordinal) ||
+                reader.IsDBNull(1) ||
+                !string.Equals(reader.GetString(1), assignment.ObservedEntityId, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "Collector assignment must match the adapter's collector peer and observed entity.",
+                    nameof(assignment));
+            }
+        }
+
+        CollectorAssignment? current = null;
+        await using (var readCurrent = connection.CreateCommand())
+        {
+            readCurrent.Transaction = transaction;
+            readCurrent.CommandText = "SELECT observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at FROM collector_assignments WHERE observed_entity_id = $entity;";
+            readCurrent.Parameters.AddWithValue("$entity", assignment.ObservedEntityId);
+            await using var reader = await readCurrent.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                current = new CollectorAssignment(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    Parse(reader.GetString(3)));
+            }
+        }
+
+        if (current == assignment)
+        {
+            return;
+        }
+
+        if (current is not null)
+        {
+            if (assignment.AssignedAt <= current.AssignedAt)
+            {
+                throw new PeerPersistenceConflictException(
+                    "Collector reassignment must be later than the current assignment.");
+            }
+
+            await using var closeHistory = connection.CreateCommand();
+            closeHistory.Transaction = transaction;
+            closeHistory.CommandText = "UPDATE collector_assignment_history SET released_at = $released WHERE observed_entity_id = $entity AND assigned_at = $assigned AND released_at IS NULL;";
+            closeHistory.Parameters.AddWithValue("$released", Format(assignment.AssignedAt));
+            closeHistory.Parameters.AddWithValue("$entity", current.ObservedEntityId);
+            closeHistory.Parameters.AddWithValue("$assigned", Format(current.AssignedAt));
+            if (await closeHistory.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            {
+                throw new PeerPersistenceConflictException("Current collector assignment history is inconsistent.");
+            }
+        }
+
+        await using (var history = connection.CreateCommand())
+        {
+            history.Transaction = transaction;
+            history.CommandText = "INSERT INTO collector_assignment_history(observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at, released_at) VALUES ($entity, $adapter, $collector, $at, NULL);";
+            history.Parameters.AddWithValue("$entity", assignment.ObservedEntityId);
+            history.Parameters.AddWithValue("$adapter", assignment.AdapterInstanceId);
+            history.Parameters.AddWithValue("$collector", assignment.CollectorPeerId);
+            history.Parameters.AddWithValue("$at", Format(assignment.AssignedAt));
+            await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "INSERT INTO collector_assignments(observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at) VALUES ($entity, $adapter, $collector, $at) ON CONFLICT(observed_entity_id) DO UPDATE SET adapter_instance_id = excluded.adapter_instance_id, collector_peer_id = excluded.collector_peer_id, assigned_at = excluded.assigned_at;";
         command.Parameters.AddWithValue("$entity", assignment.ObservedEntityId); command.Parameters.AddWithValue("$adapter", assignment.AdapterInstanceId);
         command.Parameters.AddWithValue("$collector", assignment.CollectorPeerId); command.Parameters.AddWithValue("$at", Format(assignment.AssignedAt));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CollectorAssignment?> ReadCollectorAssignmentAsync(string entityId, CancellationToken cancellationToken = default)
@@ -724,6 +843,30 @@ public sealed class PeerStore
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? new CollectorAssignment(reader.GetString(0), reader.GetString(1), reader.GetString(2), Parse(reader.GetString(3)))
             : null;
+    }
+
+    public async Task<IReadOnlyList<CollectorAssignmentPeriod>> ReadCollectorAssignmentHistoryAsync(
+        string entityId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(entityId, nameof(entityId));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at, released_at FROM collector_assignment_history WHERE observed_entity_id = $entity ORDER BY assigned_at;";
+        command.Parameters.AddWithValue("$entity", entityId);
+        var result = new List<CollectorAssignmentPeriod>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new CollectorAssignmentPeriod(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                Parse(reader.GetString(3)),
+                NullableDate(reader, 4)));
+        }
+
+        return result;
     }
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
@@ -865,6 +1008,10 @@ public sealed class PeerStore
     {
         EnsureIdentifier(claim.EntityId, nameof(claim.EntityId)); EnsureIdentifier(claim.ClaimType, nameof(claim.ClaimType)); EnsureIdentifier(claim.NormalizedValue, nameof(claim.NormalizedValue)); EnsureIdentifier(claim.ObserverPeerId, nameof(claim.ObserverPeerId)); EnsureConfidence(claim.Confidence); EnsureUtc(claim.ObservedAt, nameof(claim.ObservedAt));
         if (!Enum.IsDefined(claim.Strength) || !Enum.IsDefined(claim.EvidenceKind)) throw new ArgumentOutOfRangeException(nameof(claim));
+        if (claim.Strength == IdentityStrength.Strong && ObservedIdentityMatcher.IsNetworkAddressClaim(claim.ClaimType))
+        {
+            throw new ArgumentException("An IP or network address cannot be a strong observed-device identity.", nameof(claim));
+        }
     }
 
     private static void Validate(RelationshipObservation relationship)

@@ -31,6 +31,8 @@ public sealed class PeerStoreTests : IDisposable
         var storedPeer = Assert.IsType<TrustedPeer>(await restarted.ReadTrustedPeerAsync("peer-b"));
         Assert.Equal(PeerTrustState.Revoked, storedPeer.TrustState);
         Assert.Equal(now.AddMinutes(1), storedPeer.RevokedAt);
+        var storedPeers = await restarted.ReadTrustedPeersAsync();
+        Assert.Equal("peer-b", Assert.Single(storedPeers).PeerId);
         var locator = Assert.Single(await restarted.ReadPeerLocatorsAsync("peer-b"));
         Assert.Equal("100.64.0.2", locator.Host);
 
@@ -123,6 +125,153 @@ public sealed class PeerStoreTests : IDisposable
         Assert.Equal("peer-port", relationship.SourceEntityId);
         var assignment = Assert.IsType<CollectorAssignment>(await store.ReadCollectorAssignmentAsync("switch-1"));
         Assert.Equal("peer-a", assignment.CollectorPeerId);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task CollectorReassignmentPreservesDeviceIdentityAttachmentAndOwnershipHistory()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertObservedEntityAsync(new ObservedEntity("ups-1", "ups", now));
+        await store.UpsertObservedEntityAsync(new ObservedEntity("peer-a-usb", "peer-port", now));
+        await store.UpsertObservedEntityAsync(new ObservedEntity("peer-b-usb", "peer-port", now));
+        await store.AddIdentityClaimAsync(new IdentityClaim(
+            "ups-1",
+            "monitor.identity.serial",
+            "UPS-ABC-123",
+            IdentityStrength.Strong,
+            "peer-a",
+            RelationshipEvidenceKind.Reported,
+            1,
+            now));
+        await store.UpsertRelationshipAsync(new RelationshipObservation(
+            "attachment-a",
+            "ups-1",
+            "peer-a-usb",
+            RelationshipKind.AttachedTo,
+            RelationshipEvidenceKind.Reported,
+            "peer-a",
+            1,
+            now,
+            now.AddMinutes(5)));
+        await store.UpsertRelationshipAsync(new RelationshipObservation(
+            "attachment-b",
+            "ups-1",
+            "peer-b-usb",
+            RelationshipKind.AttachedTo,
+            RelationshipEvidenceKind.Reported,
+            "peer-b",
+            1,
+            now.AddMinutes(5),
+            null));
+        await store.UpsertAdapterInstanceAsync(new AdapterInstance(
+            "adapter-ups-a",
+            "monitor.nut",
+            "1.0.0",
+            "peer-a",
+            "ups-1",
+            "secret://peer-a/ups",
+            true));
+        await store.UpsertAdapterInstanceAsync(new AdapterInstance(
+            "adapter-ups-b",
+            "monitor.nut",
+            "1.0.0",
+            "peer-b",
+            "ups-1",
+            "secret://peer-b/ups",
+            true));
+
+        await store.AssignCollectorAsync(new CollectorAssignment(
+            "ups-1",
+            "adapter-ups-a",
+            "peer-a",
+            now));
+        await store.AssignCollectorAsync(new CollectorAssignment(
+            "ups-1",
+            "adapter-ups-b",
+            "peer-b",
+            now.AddMinutes(5)));
+
+        var current = Assert.IsType<CollectorAssignment>(
+            await store.ReadCollectorAssignmentAsync("ups-1"));
+        Assert.Equal("peer-b", current.CollectorPeerId);
+        var history = await store.ReadCollectorAssignmentHistoryAsync("ups-1");
+        Assert.Collection(
+            history,
+            first =>
+            {
+                Assert.Equal("peer-a", first.CollectorPeerId);
+                Assert.Equal(now.AddMinutes(5), first.ReleasedAt);
+            },
+            second =>
+            {
+                Assert.Equal("peer-b", second.CollectorPeerId);
+                Assert.Null(second.ReleasedAt);
+            });
+
+        var identity = Assert.Single(await store.ReadIdentityClaimsAsync("ups-1"));
+        Assert.Equal("UPS-ABC-123", identity.NormalizedValue);
+        Assert.Equal(2, (await store.ReadRelationshipsAsync("ups-1")).Count);
+
+        var restarted = await CreateStoreAsync();
+        Assert.Equal(2, (await restarted.ReadCollectorAssignmentHistoryAsync("ups-1")).Count);
+        Assert.Equal("UPS-ABC-123", Assert.Single(await restarted.ReadIdentityClaimsAsync("ups-1")).NormalizedValue);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void StrongIdentityMatcherUsesStableClaimsAndNeverIpAddressAlone()
+    {
+        var left = new IdentityClaim(
+            "device-left",
+            "monitor.identity.serial",
+            "SERIAL-1",
+            IdentityStrength.Strong,
+            "peer-a",
+            RelationshipEvidenceKind.Reported,
+            1,
+            now);
+        var right = left with { EntityId = "device-right", ObserverPeerId = "peer-b" };
+        Assert.True(ObservedIdentityMatcher.ShareStrongIdentity([left], [right]));
+
+        var leftIp = left with
+        {
+            ClaimType = "monitor.identity.ip_address",
+            NormalizedValue = "192.0.2.10",
+        };
+        var rightIp = leftIp with { EntityId = "device-right", ObserverPeerId = "peer-b" };
+        Assert.False(ObservedIdentityMatcher.ShareStrongIdentity([leftIp], [rightIp]));
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task CollectorAssignmentRejectsAdapterMismatchAndStrongIpIdentity()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertObservedEntityAsync(new ObservedEntity("ups-1", "ups", now));
+        await store.UpsertObservedEntityAsync(new ObservedEntity("ups-2", "ups", now));
+        await store.UpsertAdapterInstanceAsync(new AdapterInstance(
+            "adapter-ups",
+            "monitor.nut",
+            "1.0.0",
+            "peer-a",
+            "ups-1",
+            "secret://peer-a/ups",
+            true));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AssignCollectorAsync(
+            new CollectorAssignment("ups-2", "adapter-ups", "peer-a", now)));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AssignCollectorAsync(
+            new CollectorAssignment("ups-1", "adapter-ups", "peer-b", now)));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AddIdentityClaimAsync(new IdentityClaim(
+            "ups-1",
+            "monitor.identity.ip_address",
+            "192.0.2.10",
+            IdentityStrength.Strong,
+            "peer-a",
+            RelationshipEvidenceKind.Reported,
+            1,
+            now)));
     }
 
     [Fact]

@@ -72,6 +72,7 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         SetState(PeerTransportState.Connecting);
         using var call = new PeerService.PeerServiceClient(channel).PeerSession(cancellationToken: cancellationToken);
         var sentHello = await authentication.CreateHelloAsync(Guid.NewGuid().ToString("N"), cancellationToken).ConfigureAwait(false);
+        await application.PrepareHelloAsync(sentHello, cancellationToken).ConfigureAwait(false);
         RequireHello(sentHello);
         SetState(PeerTransportState.Authenticating);
         await WriteAsync(call, new PeerSessionRequest { Hello = sentHello }, cancellationToken).ConfigureAwait(false);
@@ -87,7 +88,7 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         var capabilities = await ReadExpectedAsync(call, PeerSessionResponse.MessageOneofCase.CapabilityExchange, cancellationToken).ConfigureAwait(false);
 
         SetState(PeerTransportState.Authenticated);
-        await application.OnAuthenticatedAsync(hello.Hello.PeerId, capabilities.CapabilityExchange, cancellationToken).ConfigureAwait(false);
+        await application.OnAuthenticatedAsync(hello.Hello, capabilities.CapabilityExchange, cancellationToken).ConfigureAwait(false);
         await foreach (var request in application.GetPendingRequestsAsync(hello.Hello.PeerId, cancellationToken).WithCancellation(cancellationToken))
             await DispatchAsync(call, hello.Hello.PeerId, request, cancellationToken).ConfigureAwait(false);
 

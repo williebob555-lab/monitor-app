@@ -29,7 +29,7 @@ internal sealed class LocalApiDataSource
         return new LocalRuntimeView(
             "running",
             "Implemented: local identity, trust, pairing administration, and stored observation query. " +
-            "Planned: full experience UI, collectors, platform packaging, and remote browser access.",
+            "Planned: full experience UI, collector administration, platform packaging, and remote browser access.",
             identity is null
                 ? null
                 : new LocalPeerView(identity.PeerId, Convert.ToHexString(identity.PublicKeyFingerprint)),

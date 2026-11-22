@@ -11,7 +11,7 @@ await using var runtime = await PeerNodeRuntime.StartAsync(options, shutdown.Tok
 Console.WriteLine($"Monitor App peer: {runtime.Identity.PeerId}");
 Console.WriteLine($"Fingerprint: {Convert.ToHexString(runtime.Identity.PublicKeyFingerprint).ToLowerInvariant()}");
 Console.WriteLine($"Local administration: {runtime.AdminAddress}");
-Console.WriteLine("Implemented preview: local identity/trust/observations and authenticated peer sessions. Initial peer invitation UI is still in development.");
+Console.WriteLine("Implemented preview: bilateral pairing, local collection/query, automatic reconnect, and origin-history synchronization.");
 try
 {
     await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token).ConfigureAwait(false);

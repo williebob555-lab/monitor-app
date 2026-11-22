@@ -188,3 +188,10 @@ public sealed record CollectorAssignment(
     string AdapterInstanceId,
     string CollectorPeerId,
     DateTimeOffset AssignedAt);
+
+public sealed record CollectorAssignmentPeriod(
+    string ObservedEntityId,
+    string AdapterInstanceId,
+    string CollectorPeerId,
+    DateTimeOffset AssignedAt,
+    DateTimeOffset? ReleasedAt);

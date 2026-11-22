@@ -6,7 +6,8 @@ namespace MonitorApp.Peer.Node;
 
 public sealed class NodePeerInvitationService(
     WindowsDpapiIdentityProvider identity,
-    PeerStore store) : IPeerInvitationService
+    PeerStore store,
+    NodePeerConnectionManager connections) : IPeerInvitationService
 {
     private int invitationInProgress;
 
@@ -57,6 +58,11 @@ public sealed class NodePeerInvitationService(
                     Guid.NewGuid().ToString("N"),
                     InitiatingUserApproved: true,
                     Convert.FromHexString(invitation.ExpectedFingerprintSha256)),
+                cancellationToken).ConfigureAwait(false);
+            await connections.TrackAsync(
+                result.Remote.Identity.PeerId,
+                invitation.Address,
+                invitation.Port,
                 cancellationToken).ConfigureAwait(false);
             return new PeerInvitationResult(
                 PeerInvitationStatus.Dispatched,

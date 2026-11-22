@@ -10,6 +10,7 @@
     <PackageReference Include="coverlet.collector" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\MonitorApp.Peer.Collection\MonitorApp.Peer.Collection.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Node\MonitorApp.Peer.Node.csproj" />
   </ItemGroup>
 </Project>

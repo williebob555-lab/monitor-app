@@ -65,6 +65,14 @@
           "SQLitePCLRaw.core": "2.1.11"
         }
       },
+      "monitorapp.agent.core": {
+        "type": "Project",
+        "dependencies": {
+          "Grpc.Net.Client": "[2.85.0, )",
+          "Microsoft.Data.Sqlite": "[10.0.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )"
+        }
+      },
       "monitorapp.contracts": {
         "type": "Project",
         "dependencies": {
@@ -79,6 +87,17 @@
           "MonitorApp.Contracts": "[1.0.0, )",
           "MonitorApp.Peer.Core": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )"
+        }
+      },
+      "monitorapp.peer.collection": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Agent.Core": "[1.0.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Application": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )",
+          "MonitorApp.Peer.Replication": "[1.0.0, )"
         }
       },
       "monitorapp.peer.core": {
@@ -115,6 +134,16 @@
           "MonitorApp.Peer.Core": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Replication": "[1.0.0, )"
+        }
+      },
+      "monitorapp.peer.sync": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )",
+          "MonitorApp.Peer.Replication": "[1.0.0, )",
+          "MonitorApp.Peer.Service": "[1.0.0, )",
+          "MonitorApp.Peer.Transport": "[1.0.0, )"
         }
       },
       "monitorapp.peer.transport": {

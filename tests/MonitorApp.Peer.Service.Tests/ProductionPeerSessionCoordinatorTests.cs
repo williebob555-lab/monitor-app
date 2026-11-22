@@ -132,6 +132,40 @@ public sealed class ProductionPeerSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task ReachableButUnpairedApplicationIdentityReceivesOnlySafeUnauthorizedError()
+    {
+        await using var fixture = await ProductionFixture.StartAsync();
+        using var unknownKey = EcdsaPeerIdentityKey.Create();
+        var unknown = PeerPublicIdentity.Create("tailnet-member-without-trust", unknownKey);
+        using var call = fixture.Client.PeerSession();
+        await call.RequestStream.WriteAsync(new PeerSessionRequest
+        {
+            Hello = new PeerHello
+            {
+                ProtocolVersion = new ProtocolVersion
+                {
+                    Major = PeerContractRules.ProtocolMajor,
+                    Minor = PeerContractRules.BilateralSessionProofMinor,
+                },
+                PeerId = unknown.PeerId,
+                PublicKeySha256 = ByteString.CopyFrom(unknown.PublicKeyFingerprint),
+                SessionId = "unpaired-network-member",
+            },
+        });
+
+        Assert.True(await call.ResponseStream.MoveNext());
+        var response = call.ResponseStream.Current;
+        Assert.Equal(PeerSessionResponse.MessageOneofCase.Error, response.MessageCase);
+        Assert.Equal(ProtocolErrorCode.Unauthorized, response.Error.Code);
+        Assert.False(response.Error.Retryable);
+        Assert.DoesNotContain(unknown.PeerId, response.Error.SafeMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            Convert.ToHexString(unknown.PublicKeyFingerprint),
+            response.Error.SafeMessage,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ProofCannotBeReplayedIntoASecondDurableChallenge()
     {
         await using var fixture = await ProductionFixture.StartAsync();
@@ -419,7 +453,7 @@ public sealed class ProductionPeerSessionCoordinatorTests
             ]);
 
         public ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
-            string remotePeerId,
+            PeerHello remoteHello,
             CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<OriginCursor>>(
             [
                 new OriginCursor

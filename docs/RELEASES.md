@@ -5,7 +5,7 @@
 The repository has an executable release and update-verification foundation. It does not yet contain a background self-installer. The current safe boundary is:
 
 1. CI verifies source on Windows and Ubuntu.
-2. A release job publishes self-contained controller and agent archives.
+2. A release job publishes self-contained controller, legacy agent, and Windows equal-peer preview archives.
 3. A protected GitHub `release` environment supplies a P-256 signing key.
 4. The release tool creates a signed, versioned manifest containing channel, release version, minimum compatible version, target platform and architecture, HTTPS URL, exact byte size, and SHA-256 for every artifact.
 5. Production update code verifies the pinned public key, signature, channel, version direction, compatibility floor, platform, architecture, size, and hash before an artifact can be considered eligible.
@@ -52,6 +52,7 @@ The initial artifact names are:
 
 - `monitorapp-controller-linux-x64-VERSION.tar.gz`
 - `monitorapp-agent-windows-x64-VERSION.zip`
+- `monitorapp-peer-windows-x64-VERSION.zip`
 - `monitorapp-agent-fedora-x64-VERSION.tar.gz`
 - `monitorapp-agent-ubuntu-x64-VERSION.tar.gz`
 

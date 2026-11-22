@@ -118,7 +118,7 @@ try {
         dotnet format MonitorApp.sln --verify-no-changes --no-restore
     }
 
-    Write-Warning "NOT RUN: separate-process agent/controller, Headscale, and two-peer convergence suites; those projects do not exist yet."
+    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet. The Windows peer node suite covers in-process two-peer offline/restart convergence."
     Write-Warning "NOT RUN: Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu platform suites. Android core tests run in the solution; the workload-specific APK build is a separate documented command."
 
     Write-Host "`nAvailable functional-foundation verification passed."

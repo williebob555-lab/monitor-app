@@ -16,7 +16,7 @@ public interface IPeerAdvertisementProvider
     ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken);
 
     ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
-        string remotePeerId,
+        PeerHello remoteHello,
         CancellationToken cancellationToken);
 }
 
@@ -26,8 +26,125 @@ public sealed class EmptyPeerAdvertisementProvider : IPeerAdvertisementProvider
         CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<CapabilityDescriptor>>([]);
 
     public ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
-        string remotePeerId,
+        PeerHello remoteHello,
         CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<OriginCursor>>([]);
+}
+
+public sealed record PeerAdvertisementOptions(
+    int MaximumCapabilities,
+    int MaximumRemoteOriginStreams)
+{
+    public static PeerAdvertisementOptions Default { get; } = new(256, 256);
+
+    public void Validate()
+    {
+        if (MaximumCapabilities is < 1 or > 4096)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumCapabilities));
+        }
+
+        if (MaximumRemoteOriginStreams is < 1 or > 4096)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumRemoteOriginStreams));
+        }
+    }
+}
+
+public sealed class PeerStoreAdvertisementProvider(
+    PeerStore store,
+    PeerAdvertisementOptions options,
+    TimeProvider? timeProvider = null) : IPeerAdvertisementProvider
+{
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+
+    public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        options.Validate();
+        var stored = await store.ReadCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return stored
+            .Select(capability => new CapabilityDescriptor
+            {
+                ModuleId = NamespacedId(capability.Namespace, capability.CapabilityId),
+                ModuleVersion = capability.Version,
+                DeclarationSha256 = ByteString.CopyFrom(SHA256.HashData(capability.Descriptor)),
+            })
+            .OrderBy(capability => capability.ModuleId, StringComparer.Ordinal)
+            .ThenBy(capability => capability.ModuleVersion, StringComparer.Ordinal)
+            .Take(options.MaximumCapabilities)
+            .ToArray();
+    }
+
+    public async ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
+        PeerHello remoteHello,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(remoteHello);
+        cancellationToken.ThrowIfCancellationRequested();
+        options.Validate();
+        var cursors = new List<OriginCursor>(options.MaximumRemoteOriginStreams + 1);
+        var local = await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false);
+        if (local is not null)
+        {
+            cursors.Add(new OriginCursor
+            {
+                OriginPeerId = local.PeerId,
+                OriginStreamId = local.OriginStreamId,
+                AcceptedThroughSequence = local.NextSequence - 1,
+                UpdatedAt = Timestamp.FromDateTimeOffset(RequireUtc(clock.GetUtcNow())),
+            });
+        }
+
+        var remoteStreams = remoteHello.Cursors
+            .Where(cursor => string.Equals(
+                cursor.OriginPeerId,
+                remoteHello.PeerId,
+                StringComparison.Ordinal))
+            .Select(cursor => cursor.OriginStreamId)
+            .Where(streamId => !string.IsNullOrWhiteSpace(streamId) && streamId.Length <= 512)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(streamId => streamId, StringComparer.Ordinal)
+            .Take(options.MaximumRemoteOriginStreams);
+        foreach (var streamId in remoteStreams)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var state = await store.ReadReplicationCursorAsync(
+                remoteHello.PeerId,
+                remoteHello.PeerId,
+                streamId,
+                cancellationToken).ConfigureAwait(false);
+            if (state.Cursor is not null)
+            {
+                cursors.Add(new OriginCursor
+                {
+                    OriginPeerId = state.Cursor.OriginPeerId,
+                    OriginStreamId = state.Cursor.OriginStreamId,
+                    AcceptedThroughSequence = state.Cursor.AcceptedThrough,
+                    UpdatedAt = Timestamp.FromDateTimeOffset(state.Cursor.UpdatedAt),
+                });
+            }
+        }
+
+        return cursors
+            .OrderBy(cursor => cursor.OriginPeerId, StringComparer.Ordinal)
+            .ThenBy(cursor => cursor.OriginStreamId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string NamespacedId(string @namespace, string capabilityId)
+    {
+        var prefix = @namespace.TrimEnd('.');
+        return capabilityId.StartsWith(prefix + ".", StringComparison.Ordinal)
+            ? capabilityId
+            : prefix + "." + capabilityId;
+    }
+
+    private static DateTimeOffset RequireUtc(DateTimeOffset value) =>
+        value.Offset == TimeSpan.Zero
+            ? value
+            : throw new InvalidOperationException("Advertisement clock must return UTC.");
 }
 
 public sealed class PeerSessionOperationException(
@@ -92,7 +209,7 @@ public sealed class ProductionPeerSessionCoordinator(
             .ConfigureAwait(false);
         var advertisedCapabilities = await advertisement.GetCapabilitiesAsync(cancellationToken)
             .ConfigureAwait(false);
-        var advertisedCursors = await advertisement.GetCursorsAsync(remoteHello.PeerId, cancellationToken)
+        var advertisedCursors = await advertisement.GetCursorsAsync(remoteHello, cancellationToken)
             .ConfigureAwait(false);
         var local = localIdentity.PublicIdentity;
         var hello = new PeerHello
@@ -320,7 +437,8 @@ public static class ProductionPeerServiceRegistration
     public static IServiceCollection AddProductionPeerSessionCoordinator(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<IPeerAdvertisementProvider, EmptyPeerAdvertisementProvider>();
+        services.TryAddSingleton(PeerAdvertisementOptions.Default);
+        services.TryAddSingleton<IPeerAdvertisementProvider, PeerStoreAdvertisementProvider>();
         services.AddSingleton<IPeerSessionCoordinator, ProductionPeerSessionCoordinator>();
         return services;
     }

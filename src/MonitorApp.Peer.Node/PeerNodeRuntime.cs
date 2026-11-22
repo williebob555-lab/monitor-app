@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using MonitorApp.Agent.Core;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Collection;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -13,20 +15,29 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly WebApplication peerApplication;
     private readonly LocalApiHost localApi;
     private readonly WindowsDpapiIdentityProvider identity;
+    private readonly NodePeerConnectionManager connections;
+    private readonly NodeCollectionScheduler collection;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
         LocalApiHost localApi,
-        WindowsDpapiIdentityProvider identity)
+        WindowsDpapiIdentityProvider identity,
+        NodePeerConnectionManager connections,
+        NodeCollectionScheduler collection)
     {
         this.peerApplication = peerApplication;
         this.localApi = localApi;
         this.identity = identity;
+        this.connections = connections;
+        this.collection = collection;
     }
 
     public Uri? AdminAddress => localApi.Address;
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
+
+    public Task<PeerCollectionRunResult> CollectOnceAsync(
+        CancellationToken cancellationToken = default) => collection.RunOnceAsync(cancellationToken);
 
     public static async Task<PeerNodeRuntime> StartAsync(
         NodeOptions options,
@@ -57,7 +68,20 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 TimeSpan.FromMinutes(2)));
         await pairing.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var replication = new OriginReplicationCoordinator(peerStore);
-        var invitationService = new NodePeerInvitationService(identity, peerStore);
+        var capabilityRegistry = new PeerCapabilityRegistry(peerStore);
+        await capabilityRegistry.RegisterAsync(
+            SystemCapabilityDeclaration.Create(),
+            cancellationToken).ConfigureAwait(false);
+        var connections = new NodePeerConnectionManager(identity, peerStore, replication);
+        var invitationService = new NodePeerInvitationService(identity, peerStore, connections);
+        var collection = new NodeCollectionScheduler(
+            new PeerSystemMetricsIngestionBridge(
+                peerStore,
+                identity,
+                new SystemSnapshotCollector(MonitorApp.Contracts.V1.Platform.Windows),
+                PeerCollectionOptions.Default(
+                    $"peer:{identity.PublicIdentity.PeerId}",
+                    Guid.NewGuid().ToString("N"))));
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -93,10 +117,14 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
             await localApi.StartAsync(cancellationToken).ConfigureAwait(false);
-            return new PeerNodeRuntime(peerApplication, localApi, identity);
+            await connections.StartAsync(cancellationToken).ConfigureAwait(false);
+            collection.Start();
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection);
         }
         catch
         {
+            await collection.DisposeAsync().ConfigureAwait(false);
+            await connections.DisposeAsync().ConfigureAwait(false);
             await localApi.DisposeAsync().ConfigureAwait(false);
             await peerApplication.DisposeAsync().ConfigureAwait(false);
             identity.Dispose();
@@ -106,8 +134,18 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await collection.DisposeAsync().ConfigureAwait(false);
+        await connections.DisposeAsync().ConfigureAwait(false);
         await localApi.DisposeAsync().ConfigureAwait(false);
-        await peerApplication.StopAsync().ConfigureAwait(false);
+        using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        try
+        {
+            await peerApplication.StopAsync(shutdown.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+        {
+        }
+
         await peerApplication.DisposeAsync().ConfigureAwait(false);
         identity.Dispose();
     }

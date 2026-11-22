@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using MonitorApp.Contracts;
+using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Node;
 using MonitorApp.Peer.Persistence;
 using Xunit;
@@ -72,6 +74,11 @@ public sealed class PeerNodeRuntimeTests
             Assert.Contains("Monitor App local administration", secondPage, StringComparison.Ordinal);
             Assert.True(File.Exists(Path.Combine(firstRoot, "peer.db")));
             Assert.True(File.Exists(Path.Combine(secondRoot, "peer.db")));
+            var firstStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(firstRoot, "peer.db")));
+            var capability = Assert.Single(await firstStore.ReadCapabilitiesAsync());
+            var declaration = CapabilityModuleDeclaration.Parser.ParseFrom(capability.Descriptor);
+            Assert.Equal("monitor.system", declaration.ModuleId);
+            Assert.True(CapabilityContractValidator.Validate(declaration).IsValid);
         }
         finally
         {
@@ -94,55 +101,7 @@ public sealed class PeerNodeRuntimeTests
                 new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0));
             await using var second = await PeerNodeRuntime.StartAsync(
                 new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0));
-            using var firstClient = CreateCookieClient();
-            using var secondClient = CreateCookieClient();
-            var firstCsrf = await ReadCsrfAsync(firstClient, first.AdminAddress!);
-            var invitation = JsonSerializer.Serialize(new
-            {
-                expectedPeerId = second.Identity.PeerId,
-                address = "127.0.0.1",
-                port = secondPeerPort,
-                expectedFingerprintSha256 = Convert.ToHexString(second.Identity.PublicKeyFingerprint),
-                securityPolicy = "LoopbackPrototype",
-            });
-            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(first.AdminAddress!, "/api/invitations"))
-            {
-                Content = new StringContent(invitation, Encoding.UTF8, "application/json"),
-            };
-            request.Headers.Add("X-CSRF-TOKEN", firstCsrf);
-            var invitationTask = firstClient.SendAsync(request);
-
-            string? pairingId = null;
-            for (var attempt = 0; attempt < 50 && pairingId is null; attempt++)
-            {
-                await Task.Delay(100);
-                var json = await secondClient.GetStringAsync(new Uri(second.AdminAddress!, "/api/pairings"));
-                using var document = JsonDocument.Parse(json);
-                if (document.RootElement.GetArrayLength() > 0)
-                {
-                    pairingId = document.RootElement[0].GetProperty("pairingId").GetString();
-                }
-            }
-
-            Assert.False(string.IsNullOrWhiteSpace(pairingId));
-            var secondCsrf = await ReadCsrfAsync(secondClient, second.AdminAddress!);
-            using var approval = new HttpRequestMessage(
-                HttpMethod.Post,
-                new Uri(second.AdminAddress!, $"/api/pairings/{Uri.EscapeDataString(pairingId!)}/approve"))
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
-            };
-            approval.Headers.Add("X-CSRF-TOKEN", secondCsrf);
-            using var approvalResponse = await secondClient.SendAsync(approval);
-            approvalResponse.EnsureSuccessStatusCode();
-            using var invitationResponse = await invitationTask.WaitAsync(TimeSpan.FromSeconds(15));
-            invitationResponse.EnsureSuccessStatusCode();
-            var result = await invitationResponse.Content.ReadAsStringAsync();
-            using (var resultDocument = JsonDocument.Parse(result))
-            {
-                Assert.Equal(1, resultDocument.RootElement.GetProperty("status").GetInt32());
-                Assert.Contains("Pairing completed", resultDocument.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
-            }
+            await PairAsync(first, second, secondPeerPort);
 
             var firstStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(firstRoot, "peer.db")));
             var secondStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(secondRoot, "peer.db")));
@@ -155,6 +114,202 @@ public sealed class PeerNodeRuntimeTests
         {
             Directory.Delete(firstRoot, recursive: true);
             Directory.Delete(secondRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SeparateStoresCollectOfflineThenReconnectAndConvergeWithoutDuplicates()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var firstRoot = CreateTemporaryDirectory();
+        var secondRoot = CreateTemporaryDirectory();
+        var firstPeerPort = FreePort();
+        var secondPeerPort = FreePort();
+        try
+        {
+            string firstPeerId;
+            string secondPeerId;
+            string firstOriginStreamId;
+            string secondOriginStreamId;
+            int firstInitialCollection;
+            int secondInitialCollection;
+            await using (var first = await PeerNodeRuntime.StartAsync(
+                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0)))
+            await using (var second = await PeerNodeRuntime.StartAsync(
+                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0)))
+            {
+                firstPeerId = first.Identity.PeerId;
+                secondPeerId = second.Identity.PeerId;
+                firstInitialCollection = (await first.CollectOnceAsync()).AppendedRecords;
+                secondInitialCollection = (await second.CollectOnceAsync()).AppendedRecords;
+                Assert.True(firstInitialCollection > 0);
+                Assert.True(secondInitialCollection > 0);
+                await PairAsync(first, second, secondPeerPort);
+                var initialFirstStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(firstRoot, "peer.db")));
+                var initialSecondStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(secondRoot, "peer.db")));
+                firstOriginStreamId = (await initialFirstStore.ReadLocalIdentityAsync())!.OriginStreamId;
+                secondOriginStreamId = (await initialSecondStore.ReadLocalIdentityAsync())!.OriginStreamId;
+                await WaitUntilAsync(async () =>
+                {
+                    var onFirst = await initialFirstStore.ReadOriginRangeAsync(
+                        secondPeerId,
+                        secondOriginStreamId,
+                        1,
+                        10_000);
+                    var onSecond = await initialSecondStore.ReadOriginRangeAsync(
+                        firstPeerId,
+                        firstOriginStreamId,
+                        1,
+                        10_000);
+                    return onFirst.Count == secondInitialCollection &&
+                           onSecond.Count == firstInitialCollection;
+                }, TimeSpan.FromSeconds(20));
+            }
+
+            int firstCollected;
+            await using (var firstOffline = await PeerNodeRuntime.StartAsync(
+                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0)))
+            {
+                firstCollected = (await firstOffline.CollectOnceAsync()).AppendedRecords;
+                Assert.True(firstCollected > 0);
+            }
+
+            int secondCollected;
+            await using (var secondOffline = await PeerNodeRuntime.StartAsync(
+                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0)))
+            {
+                secondCollected = (await secondOffline.CollectOnceAsync()).AppendedRecords;
+                Assert.True(secondCollected > 0);
+            }
+
+            await using var firstRestarted = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0));
+            await using var secondRestarted = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0));
+            var firstStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(firstRoot, "peer.db")));
+            var secondStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(secondRoot, "peer.db")));
+
+            await WaitUntilAsync(async () =>
+            {
+                var onFirst = await firstStore.ReadOriginRangeAsync(
+                    secondPeerId,
+                    secondOriginStreamId,
+                    1,
+                    10_000);
+                var onSecond = await secondStore.ReadOriginRangeAsync(
+                    firstPeerId,
+                    firstOriginStreamId,
+                    1,
+                    10_000);
+                return onFirst.Count == secondInitialCollection + secondCollected &&
+                       onSecond.Count == firstInitialCollection + firstCollected;
+            }, TimeSpan.FromSeconds(20));
+
+            await AssertOriginMatchesAsync(
+                firstStore,
+                secondStore,
+                firstPeerId,
+                firstOriginStreamId,
+                firstInitialCollection + firstCollected);
+            await AssertOriginMatchesAsync(
+                firstStore,
+                secondStore,
+                secondPeerId,
+                secondOriginStreamId,
+                secondInitialCollection + secondCollected);
+        }
+        finally
+        {
+            Directory.Delete(firstRoot, recursive: true);
+            Directory.Delete(secondRoot, recursive: true);
+        }
+    }
+
+    private static async Task PairAsync(
+        PeerNodeRuntime first,
+        PeerNodeRuntime second,
+        int secondPeerPort)
+    {
+        using var firstClient = CreateCookieClient();
+        using var secondClient = CreateCookieClient();
+        var firstCsrf = await ReadCsrfAsync(firstClient, first.AdminAddress!);
+        var invitation = JsonSerializer.Serialize(new
+        {
+            expectedPeerId = second.Identity.PeerId,
+            address = "127.0.0.1",
+            port = secondPeerPort,
+            expectedFingerprintSha256 = Convert.ToHexString(second.Identity.PublicKeyFingerprint),
+            securityPolicy = "LoopbackPrototype",
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(first.AdminAddress!, "/api/invitations"))
+        {
+            Content = new StringContent(invitation, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("X-CSRF-TOKEN", firstCsrf);
+        var invitationTask = firstClient.SendAsync(request);
+
+        string? pairingId = null;
+        for (var attempt = 0; attempt < 50 && pairingId is null; attempt++)
+        {
+            await Task.Delay(100);
+            var json = await secondClient.GetStringAsync(new Uri(second.AdminAddress!, "/api/pairings"));
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.GetArrayLength() > 0)
+            {
+                pairingId = document.RootElement[0].GetProperty("pairingId").GetString();
+            }
+        }
+
+        Assert.False(string.IsNullOrWhiteSpace(pairingId));
+        var secondCsrf = await ReadCsrfAsync(secondClient, second.AdminAddress!);
+        using var approval = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(second.AdminAddress!, $"/api/pairings/{Uri.EscapeDataString(pairingId!)}/approve"))
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        };
+        approval.Headers.Add("X-CSRF-TOKEN", secondCsrf);
+        using var approvalResponse = await secondClient.SendAsync(approval);
+        approvalResponse.EnsureSuccessStatusCode();
+        using var invitationResponse = await invitationTask.WaitAsync(TimeSpan.FromSeconds(15));
+        invitationResponse.EnsureSuccessStatusCode();
+        var result = await invitationResponse.Content.ReadAsStringAsync();
+        using var resultDocument = JsonDocument.Parse(result);
+        Assert.Equal(1, resultDocument.RootElement.GetProperty("status").GetInt32());
+        Assert.Contains(
+            "Pairing completed",
+            resultDocument.RootElement.GetProperty("message").GetString(),
+            StringComparison.Ordinal);
+    }
+
+    private static async Task AssertOriginMatchesAsync(
+        PeerStore first,
+        PeerStore second,
+        string originPeerId,
+        string originStreamId,
+        int expectedCount)
+    {
+        var firstRecords = await first.ReadOriginRangeAsync(originPeerId, originStreamId, 1, 10_000);
+        var secondRecords = await second.ReadOriginRangeAsync(originPeerId, originStreamId, 1, 10_000);
+        Assert.Equal(expectedCount, firstRecords.Count);
+        Assert.Equal(expectedCount, secondRecords.Count);
+        Assert.Equal(
+            Enumerable.Range(1, expectedCount).Select(value => (ulong)value),
+            firstRecords.Select(record => record.Sequence));
+        Assert.Equal(
+            firstRecords.Select(record => Convert.ToHexString(record.ContentHash)),
+            secondRecords.Select(record => Convert.ToHexString(record.ContentHash)));
+        Assert.Equal(
+            firstRecords.Select(record => Convert.ToHexString(record.Signature)),
+            secondRecords.Select(record => Convert.ToHexString(record.Signature)));
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        while (!await condition())
+        {
+            await Task.Delay(100, cancellation.Token);
         }
     }
 

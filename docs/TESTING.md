@@ -11,15 +11,16 @@ The confirmed target is now an equal-peer mesh. Controller/enrollment tests belo
 - **Pairing contract:** two peers introduced by address complete bilateral application-key proof; address/tailnet membership alone fails; wrong key, substitution, replay, expiration, revocation, and incompatible versions fail closed.
 - **Real two-peer integration:** start two production peer servers with separate file-backed SQLite stores, pair them, exchange origin-owned observations, disconnect, restart both, reconnect, and prove eventual convergence, stable identity, ordering, and no duplicate/conflicting sequence acceptance.
 - **Local query:** each peer reads its own and replicated records with explicit origin, source time, ingest time, unit, quality, and freshness; offline cache remains distinguishable from live state.
-- **Observed devices:** adapter tests preserve stable peripheral identity across host reassignment, record typed attachment/collection relationships, and expose adapter capability, health, and freshness. Failover remains unavailable until the second collector is explicitly provisioned.
+- **Observed devices:** real-SQLite tests preserve stable peripheral identity, typed attachment evidence, and current plus historical collector ownership across host reassignment; IP-only claims cannot merge devices as strong identity, and assignments must agree with an explicitly provisioned adapter's entity and peer. Windows adapter tests cover the provisional Yamaha AG06MK2's configured identity/collector, driver evidence, observed time, and explicit unavailable/permission/error quality. The real connected device was inspected through the same fixed Windows PnP properties, but unplug/replug and denied-permission hardware cases remain simulated. Failover remains unavailable until the second collector is explicitly provisioned.
 - **LAN topology:** reconcile reports from multiple peers using strong switch identity rather than IP; retain source/evidence/quality; distinguish reported from inferred links; keep physical LAN and Tailscale overlay separate.
 - **Capability compatibility:** versioned namespaced modules register entities, observations, relationships, sampling/retention, categories, privacy/cost, and inspector descriptors. Unknown compatible modules receive a truthful generated fallback; incompatible modules fail explicitly.
+- **Universal inventory contract:** actual relationships cannot reference design-only objects; design objects and relationships share a named project/scenario revision; product, offer, physical-instance, and design-placeholder identities remain distinct; the first cable slice preserves two connector ends, directionality, and unit-bearing nominal/measured length.
 - **Privacy enforcement:** registration rejects prohibited packet/flow/identity/content observations while permitting declared aggregate operational network metrics. Adapter credentials never serialize into replicated records.
 - **Defensive security:** the capability cannot start without separate enablement; findings require evidence/confidence; deeper flow/packet-derived modes require their own permission and bounded retention.
 
 No platform is supported until its peer service lifecycle, protected identity storage, pairing/reconnect, local persistence/query, update, and required collector behavior pass on that named platform.
 
-## Expanded scope gates (planned, not current suites)
+## Expanded scope gates
 
 - **Actual versus design state:** schema/API/UI tests prove design-only objects, quantities, costs, loads, connections, and warnings never appear as actual inventory or running telemetry. Explicit promotion links an actual instance to its plan/candidate/offer history without mutating the historical plan.
 - **Universal identity:** property and persistence tests distinguish product definition, seller offer, physical instance, observed peer/device, and design placeholder; revisions preserve provenance and typed relationship validity.
@@ -175,7 +176,7 @@ Required security-focused behavior includes:
 
 ## Test commands
 
-The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, legacy controller components, and peer core, persistence, application, replication, and gRPC-host projects with tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
+The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, legacy controller components, and peer core, persistence, application, replication, collection, synchronization, gRPC-host, local-API, and Windows-node projects with tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
 
 ### Documentation-only validation
 
@@ -202,6 +203,8 @@ Current contract tests:
 ```powershell
 dotnet test tests/MonitorApp.Contracts.Tests/MonitorApp.Contracts.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=Contract"
 ```
+
+This suite includes capability-module compatibility, canonical catalog metadata, deterministic purpose-built-versus-fallback inspector selection, credential-free schema checks, ordinary-versus-defensive network-data policy, actual/design separation, distinct product/offer/instance identity, typed relationships, and the connector/length cable contract. The peer-service suite adds real-SQLite capability registration and advertisement coverage. Universal inventory persistence, promotion workflows, matching, and a client remain future gates.
 
 Current domain unit tests:
 
@@ -300,7 +303,7 @@ The root project provides one discoverable verification entry point at `eng/veri
 pwsh ./eng/verify.ps1
 ```
 
-The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract`, runs the real SQLite enrollment/controller telemetry, agent-spool, peer-store, pairing-application, and peer-replication suites, runs controller and peer-host/outbound-transport real loopback HTTP/2 gRPC tests, runs the local administration HTTP suite, and verifies formatting. On Windows it also runs the collector plus the composed node/DPAPI tests. It explicitly reports the fresh-pairing/two-peer end-to-end path, cross-process legacy path, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
+The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract`, runs the real SQLite enrollment/controller telemetry, agent-spool, peer-store, pairing-application, and peer-replication suites, runs controller and peer-host/outbound-transport real loopback HTTP/2 gRPC tests, runs the local administration HTTP suite, and verifies formatting. On Windows it also runs the collector plus the composed node/DPAPI tests, including bilateral web pairing and the separate-store offline-collection/restart/convergence scenario. It explicitly reports the cross-process legacy path, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
 
 The peer foundation suites currently cover generated contract shape and validation; real P-256 bilateral proof and transcript substitution/replay/expiry behavior; compatibility and duplicate-session selection; durable approval, challenge, and replay state; a real file-backed SQLite peer store; signed bounded replication; real Windows-loopback inbound/outbound gRPC; loopback-only local administration with CSRF/redaction/private-address validation; and a composed Windows node with restart-stable DPAPI identity. The composed-node suite starts two fresh nodes, submits an invitation through one local web API, approves it through the other, completes bilateral proof over production gRPC, and verifies active trust in both separate SQLite databases. These tests do not prove packaging/service lifecycle, real TLS/Tailscale deployment, non-Windows protected key storage, collection through the peer node, scheduled reconnect, or two-peer history convergence after outage.
 

@@ -23,13 +23,6 @@ message DiscoveryHint {
   google.protobuf.Timestamp created_at = 4;
 }
 
-message ProtocolCompatibility {
-  uint32 minimum_major = 1;
-  uint32 minimum_minor = 2;
-  uint32 maximum_major = 3;
-  uint32 maximum_minor = 4;
-}
-
 message CompatibilityFailure {
   ProtocolCompatibility supported = 1;
   ProtocolVersion received = 2;

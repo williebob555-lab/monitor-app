@@ -3,12 +3,15 @@
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\MonitorApp.Agent.Core\MonitorApp.Agent.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Collection\MonitorApp.Peer.Collection.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.LocalApi\MonitorApp.Peer.LocalApi.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Service\MonitorApp.Peer.Service.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Sync\MonitorApp.Peer.Sync.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Transport\MonitorApp.Peer.Transport.csproj" />
   </ItemGroup>
 </Project>

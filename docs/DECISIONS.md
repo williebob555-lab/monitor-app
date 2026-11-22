@@ -257,8 +257,8 @@ This log separates confirmed product constraints from working technical decision
 - Status: Accepted
 - Decision: Use immutable origin identity/sequence with per-peer replication cursors and idempotent retry. Keep observed-device identity separate from attachment and collecting peer; configure collector ownership explicitly and never replicate adapter credentials.
 - Reason: This permits offline operation and convergence without consensus while preventing duplicate polling and identity loss.
-- Evidence: Required integration cases in `docs/TESTING.md`.
-- Consequences: Shared-metadata conflict semantics and automatic failover remain deferred.
+- Evidence: Signed origin replication tests cover immutable identity/sequence and durable cursors. Real-SQLite observed-device tests prove matching strong identity across observers, reject IP-only strong identity, preserve typed attachment evidence, validate adapter/entity/collector consistency, and retain current plus historical collector ownership through restart and host reassignment.
+- Consequences: Shared-metadata conflict semantics, adapter-specific discovery, and automatic failover remain deferred. Reassignment requires an explicitly provisioned adapter on the new collector; merely learning the device identity never authorizes polling.
 - Revisit condition: After personal-scale load and reassignment tests.
 
 ### T019 Capability and privacy contract
@@ -272,11 +272,11 @@ This log separates confirmed product constraints from working technical decision
 
 ### T020 Universal object envelope and state planes
 
-- Status: Provisional
+- Status: Accepted
 - Decision: Use a stable shared object envelope plus typed capability extensions and typed relationships. Store actual state and design-scenario state as explicitly scoped assertions/relationships rather than one blended status.
 - Reason: Monitoring, inventory, cables, projects, products, offers, and plans need common identity/provenance without a giant nullable schema or false equivalence.
-- Evidence: Required schema, promotion, query, and UI tests in `docs/TESTING.md`; no implementation evidence yet.
-- Consequences: Product definitions, seller offers, actual instances, and design placeholders remain separate identities. Promotion links records and preserves history.
+- Evidence: Generated-contract tests round-trip the universal envelope, named design scope, provenance/validity, typed relationships, distinct product/offer/physical-instance identities, plan-to-actual cable assignment, and the connector/length cable extension. Negative tests reject actual relationships that reference design-only objects, mismatched design revisions, collapsed identity references, and invalid connector/length metadata.
+- Consequences: Product definitions, seller offers, actual instances, and design placeholders remain separate identities. The contract permits a design relationship to reference an actual object without changing that object's plane. Persistence, explicit promotion events, query projection, and UI remain required before this becomes a usable inventory feature.
 - Revisit condition: After the first plain actual/design inventory client and cable slice.
 
 ### T021 Cable specification and quick-entry boundary
@@ -284,7 +284,7 @@ This log separates confirmed product constraints from working technical decision
 - Status: Provisional
 - Decision: Represent a cable specification with two structured connector ends, directionality, unit-bearing nominal/measured length, ratings, and physical properties; represent actual items or counted batches separately. Make searchable manual connector-pair and length templates the baseline entry path.
 - Reason: This preserves the useful connector-plus-length composition of the legacy sheets while supporting real compatibility, condition, location, connection, and plan-assignment queries without scanner hardware.
-- Evidence: Required cable round-trip, match, constraint, and workflow tests in `docs/TESTING.md`; no implementation evidence yet.
+- Evidence: The initial contract round-trip and rejection tests cover two connector ends, reversible/directional roles, and positive unit-bearing nominal/measured length. Matching, ratings, constraint, persistence, and quick-entry workflow evidence remains required.
 - Consequences: Human labels are optional aliases and do not encode the authoritative record. QR and dedicated scanner support are outside the required cable path.
 - Revisit condition: After user review of connector taxonomy and the first cable inventory prototype.
 
@@ -341,6 +341,33 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Contract, application, service, and transport suites cover pending/approved/rejected/expired/completed states, idempotent retry, changed-identity reuse, wrong proof, replay, revocation, and failure-before-trust. The composed Windows test drives both web approval boundaries and verifies bilateral trust in separate databases.
 - Consequences: The local invitation UI requires the peer ID and SHA-256 fingerprint displayed by the contacted node. Pairing can wait while the remote user approves. Peer discovery shortcuts may be added later only if they preserve the same explicit identity preview and proof boundary.
 - Revisit condition: Revisit only if a better human-verifiable introduction method preserves bilateral approval, transcript binding, and fail-closed trust commit.
+
+### T028 Persisted reconnect and origin synchronization composition
+
+- Status: Accepted for the Windows engineering preview
+- Decision: Persist an explicitly approved peer IP/port separately from its pinned application identity, start one bounded outbound reconnect loop per active stored peer, ingest system snapshots as signed local-origin records, and synchronize direct-origin streams by exchanging advertised heads and durable acknowledgements over the authenticated session. Infer loopback-development versus Tailscale-encrypted transport only from the validated stored IP class; never treat the locator as identity.
+- Reason: The first operational milestone requires collection and eventual convergence after either node and the network path have been unavailable, without adding a controller, relayed origins, or global consensus.
+- Evidence: Focused persistence, service, transport, and Windows node suites pass. The composed test uses separate file-backed SQLite stores and real HTTP/gRPC hosts to pair, exchange, disconnect, collect independently, restart, reconnect with backoff, and compare every sequence, content hash, and origin signature on both nodes.
+- Consequences: The initiator currently owns the reconnect locator; one authenticated session synchronizes both peers' direct-origin streams. This proves Windows loopback behavior only. Locator repair/rotation UI, live-session revocation, Tailscale/TLS deployment, non-Windows key stores/lifecycles, and multi-origin relay remain separate gates.
+- Revisit condition: Revisit the one-connection-per-peer and full-session head advertisement model when continuous high-rate collection or more than one origin stream per peer requires incremental availability exchange.
+
+### T029 Capability declaration and registration boundary
+
+- Status: Accepted
+- Decision: Represent each module as a bounded versioned Protobuf declaration with a lowercase namespaced module id, semantic version, compatible peer-protocol range, declared entity/relationship types, canonical observation metadata, and exactly one generated fallback inspector descriptor. Validate the declaration before persistence or advertisement. Ordinary modules may declare non-network, aggregate operational, and infrastructure-fact data but not communication identities, flows/sessions, query history, packet detail, per-process traffic, or content. Defensive-security modules use a distinct module/privacy class and require explicit enablement, evidence, confidence, and positive retention metadata.
+- Reason: Broad measurement remains useful only if peers can interpret unknown compatible modules truthfully and reject privacy-prohibited declarations before collection begins.
+- Evidence: Contract tests round-trip the catalog schema and reject incompatible versions, missing units/references/fallbacks, and every prohibited ordinary network class. Real-SQLite registry tests prove invalid declarations are not persisted, defensive declarations require their separate policy, and valid declarations advertise the exact version and SHA-256 hash. The Windows node registers and validates its built-in system module on startup.
+- Consequences: Module declarations contain metadata, not credentials or private keys. The current contract validates purpose-built descriptors but selection/routing between purpose-built and generated inspectors remains the next UI-facing gate. Deeper defensive collection still requires local processing, authorization/legal review, and adapter-specific tests beyond declaration acceptance.
+- Revisit condition: Revisit limits and compatibility fields when the first external adapter or rolling module upgrade produces measured requirements.
+
+### T030 First peripheral adapter and peer release artifact
+
+- Status: Accepted for engineering preview
+- Decision: Use the currently connected Yamaha AG06MK2 as a provisional, read-only Windows adapter spike. Query only its fixed USB/PnP identity and driver/attachment properties through a bounded non-interactive process; keep the configured Monitor App entity identity authoritative because this device exposes no trustworthy serial. Package the Windows peer node as a separate self-contained alpha zip rather than presenting the legacy Windows agent as the peer app.
+- Reason: This proves real peripheral availability, freshness, permission/error handling, and packaging without inventing vendor control semantics or treating a port-dependent Windows instance id as permanent identity.
+- Evidence: The real device reports Yamaha USB VID 0499/PID 1757 and driver 2.1.7.5 on Windows. Adapter tests cover available/unavailable/denied/error quality, configured identity/collector, timestamp, and driver evidence. Release packaging includes `monitorapp-peer-windows-x64-VERSION.zip`.
+- Consequences: The adapter has no operational actions and no credentials. USB container/location values are correlation evidence only. The existing `dev-0.1.0` pre-release remains a controller/agent development build; a current peer download requires reviewed committed source, an immutable version tag, configured signing environment, and a successful release workflow.
+- Revisit condition: Replace or extend the spike when the user's normal hardware setup is available or a supported Yamaha API is needed for a concrete read-only job.
 
 ## Rejected directions inherited from the product specification
 
