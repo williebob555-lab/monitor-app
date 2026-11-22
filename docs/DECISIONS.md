@@ -499,6 +499,14 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `RemoteUpdateApprovalTests` (real loopback gRPC, real `NodeUpdateAgent` with fake fetch/download/applier: no grant, no presence, applied exactly once, replay idempotent, digest/version mismatch, nothing staged) and `NodeUpdateAgentTests.BoundApprovalRequiresTheExactStagedVersionAndDigest`.
 - Consequences: Existing grants do not gain update approval. Enrollment of a presence key is allowed for a peer holding only the update grant. A mismatch tells the user to re-read status. Not verified on a real phone or with a real package install.
 - Revisit condition: Adding rollback/skip commands, per-version policies, or a stronger binding to the signed manifest envelope hash.
+### T046 Camera QR scanning on Android through framework camera2 and ZXing
+
+- Status: Accepted (owner-confirmed: a phone pairs by scanning the QR on the computer's admin page, with the typed short code as fallback).
+- Decision: Scanning is a platform service behind `IQrScanner` (Client.Core). The UI binds to `IQrPairingSource.ScanAndPairAsync`, implemented by `InProcessPeerDataSource`: scan, `PeerPairingInvitation.Decode`, then the existing invitation pairing (desktop-side approval is unchanged). Android implements it with a camera2 preview (`TextureView` plus a YUV_420_888 `ImageReader`) whose Y plane is decoded by ZXing.Net `QrFrameDecoder`; only text starting with `monitor-pair1.` is accepted, other QR codes are ignored. `QrScanActivity` requests the `CAMERA` permission itself; denial, no camera, or a camera failure raise `QrScanUnavailableException`, which the data source turns into an `ApiValidationException` that points at the typed code.
+- Reason: Sideloaded APK, so no Google Play Services code scanner; CameraX via Xamarin bindings would add about twenty transitive AndroidX/Kotlin packages (and a large lock-file and vulnerability surface) for a one-screen preview, whereas camera2 is in the framework and ZXing.Net is already pinned.
+- Evidence: `QrScanPairingTests` (real QR encode, frame decode with row padding and noise, real desktop pairing through the real runtime, denial/cancel/junk paths). The Android activity itself has no automated test.
+- Consequences: Portrait-locked scanner; preview aspect assumes a landscape sensor buffer shown in portrait. `CAMERA` is a new dangerous permission (see `docs/SECURITY.md` if the permission list there changes); frames are decoded in memory and never stored or sent. Android compile and device behavior are unverified until the android-build job and a phone run.
+- Revisit condition: Devices whose sensor orientation or preview aspect is wrong, slow decoding, or a maintained binding for a Google-independent scanner.
 
 ### T043 Windows in-place update apply via a detached SYSTEM helper
 

@@ -15,7 +15,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IHostServiceControl, IControlSource, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -23,6 +23,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
     private readonly MobilePeerRuntime runtime;
     private readonly Action? startHost;
     private readonly Action? stopHost;
+    private readonly IQrScanner? qrScanner;
     private readonly PeerHistoryQueryService history;
     private readonly CancellationTokenSource stop = new();
     private readonly Action<IReadOnlyList<MonitorApp.Peer.Alerts.InboxAlert>> alertHandler;
@@ -30,12 +31,14 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
     private int changePending;
 
     public InProcessPeerDataSource(
-        MobilePeerRuntime runtime, TimeSpan? staleAfter = null, Action? startHost = null, Action? stopHost = null)
+        MobilePeerRuntime runtime, TimeSpan? staleAfter = null, Action? startHost = null, Action? stopHost = null,
+        IQrScanner? qrScanner = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         this.runtime = runtime;
         this.startHost = startHost;
         this.stopHost = stopHost;
+        this.qrScanner = qrScanner;
         history = new PeerHistoryQueryService(runtime.Store, new SystemPeerClock(), staleAfter ?? TimeSpan.FromMinutes(5));
         alertHandler = _ => RaiseSoon();
         runtime.NewAlerts += alertHandler;
@@ -210,6 +213,29 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
         }
 
         return await PairAsync(() => runtime.PairAsync(parsed, null, ct)).ConfigureAwait(false);
+    }
+
+    public bool CanScanQr => qrScanner is { IsAvailable: true };
+
+    public async Task<string?> ScanAndPairAsync(CancellationToken ct = default)
+    {
+        if (qrScanner is not { IsAvailable: true })
+        {
+            throw new ApiValidationException("This device cannot scan QR codes. Enter the pairing code shown on the desktop instead.");
+        }
+
+        string? text;
+        try
+        {
+            text = await qrScanner.ScanAsync(ct).ConfigureAwait(false);
+        }
+        catch (QrScanUnavailableException exception)
+        {
+            throw new ApiValidationException(exception.Message + " Enter the pairing code shown on the desktop instead.");
+        }
+
+        // null: the person closed the scanner. Not an error and nothing to pair.
+        return text is null ? null : await PairWithInvitationAsync(text, ct).ConfigureAwait(false);
     }
 
     /// <summary>Pairings are decided on the desktop; the phone has nothing to approve.</summary>
