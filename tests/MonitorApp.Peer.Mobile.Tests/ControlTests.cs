@@ -555,6 +555,15 @@ public sealed class ControlTests
             var refused = await ungranted.Runtime.SendControlAsync(desktopId, ControlRequest.SetAlertPreferences(AlertSeverity.Critical));
             Assert.Equal("not_permitted", refused.ReasonCode);
             Assert.Empty(await desktop.Alerts.ReadPreferencesAsync());
+            // Reading needs the same grant: an ungranted phone is not permitted and learns nothing.
+            var notPermitted = await ungranted.Runtime.ReadAlertPreferencesAsync(desktopId);
+            Assert.False(notPermitted.Permitted);
+            Assert.Empty(notPermitted.MutedRuleKinds);
+            var defaultRead = await phoneA.Runtime.ReadAlertPreferencesAsync(desktopId);
+            Assert.True(defaultRead.Permitted);
+            Assert.Equal(AlertSeverity.Unspecified, defaultRead.MinSeverity);
+            Assert.Empty(defaultRead.MutedRuleKinds);
+            Assert.Null(defaultRead.UpdatedAt);
             Assert.Equal("invalid_payload", (await phoneA.Runtime.SendControlAsync(desktopId,
                 ControlRequest.SetAlertPreferences(AlertSeverity.Info, [new string('x', 200)]))).ReasonCode);
 
@@ -566,6 +575,19 @@ public sealed class ControlTests
             Assert.Equal(phoneA.PeerId, stored.RecipientPeerId);
             Assert.Equal(AlertSeverity.Warning, stored.MinimumSeverity);
             Assert.Equal(["threshold.cpu_high"], stored.MutedRuleKinds);
+            var readBack = await phoneA.Runtime.ReadAlertPreferencesAsync(desktopId);
+            Assert.True(readBack.Permitted);
+            Assert.Equal(AlertSeverity.Warning, readBack.MinSeverity);
+            Assert.Equal(["threshold.cpu_high"], readBack.MutedRuleKinds);
+            Assert.NotNull(readBack.UpdatedAt);
+            // Another phone only ever reads its own (still the default), never A's.
+            var otherRead = await phoneB.Runtime.ReadAlertPreferencesAsync(desktopId);
+            Assert.True(otherRead.Permitted);
+            Assert.Equal(AlertSeverity.Unspecified, otherRead.MinSeverity);
+            Assert.Empty(otherRead.MutedRuleKinds);
+            Assert.Null(otherRead.UpdatedAt);
+            Assert.Contains(await AuditAsync(desktop), entry =>
+                entry.Action == "read_alert_preferences" && entry.PeerId == ungranted.PeerId && entry.Outcome == "refused");
 
             Alert Make(string rule, string subject, AlertSeverity severity) => new(
                 Alert.CreateId(desktopId, rule, subject, DateTimeOffset.UtcNow), 1, rule, subject, desktopId, severity,

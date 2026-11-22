@@ -147,6 +147,47 @@ public sealed class ControlService(
         return response;
     }
 
+    /// <summary>
+    /// Read-only alert preferences of the authenticated caller (never another peer's). Needs trust and the monitoring-controls
+    /// grant, like setting them. Every read, granted or refused, is audited.
+    /// </summary>
+    public async Task<AlertPreferencesResponse> ReadAlertPreferencesAsync(
+        string remotePeerId,
+        AlertPreferencesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = clock.GetUtcNow();
+        var response = new AlertPreferencesResponse { RequestId = request.RequestId };
+        var trusted = await peers.ReadTrustedPeerAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        var grant = await store.ReadGrantAsync(remotePeerId, cancellationToken).ConfigureAwait(false) ??
+            ControlGrant.Default(remotePeerId);
+        var permitted = trusted is { TrustState: PeerTrustState.Active } && grant.MonitoringControls;
+        string reason;
+        if (!permitted)
+        {
+            reason = trusted is not { TrustState: PeerTrustState.Active } ? "untrusted" : "not_permitted";
+        }
+        else
+        {
+            response.Permitted = true;
+            reason = "applied";
+            var own = (await alerts.ReadPreferencesAsync(cancellationToken).ConfigureAwait(false))
+                .FirstOrDefault(item => string.Equals(item.RecipientPeerId, remotePeerId, StringComparison.Ordinal));
+            if (own is not null)
+            {
+                response.MinSeverity = own.MinimumSeverity;
+                response.MutedRuleKinds.AddRange(own.MutedRuleKinds);
+                response.UpdatedAt = Timestamp.FromDateTimeOffset(own.UpdatedAt);
+            }
+        }
+
+        await store.AppendAuditAsync(new ControlAuditEntry(
+            0, now, remotePeerId, Truncate(request.RequestId ?? string.Empty), "read_alert_preferences", ControlRiskTier.Normal.ToString(),
+            permitted ? "applied" : "refused", reason, string.Empty, false, string.Empty), cancellationToken)
+            .ConfigureAwait(false);
+        return response;
+    }
+
     private static bool TryDecodeDigest(string? hex, out byte[] digest)
     {
         digest = [];

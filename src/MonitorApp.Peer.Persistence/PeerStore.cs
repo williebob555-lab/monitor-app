@@ -1090,11 +1090,17 @@ public sealed partial class PeerStore
         left.PublicKeyFingerprint.AsSpan().SequenceEqual(right.PublicKeyFingerprint) && left.KeyProviderReference == right.KeyProviderReference &&
         left.OriginStreamId == right.OriginStreamId && left.NextSequence == right.NextSequence && left.CreatedAt == right.CreatedAt;
 
+    // The receive time of a replicated record is local bookkeeping, not part of the origin's signed content: when two
+    // sessions deliver the same record concurrently, whichever commits first fixes it and the other is an identical retry.
+    // A locally originated record has one writer, so its timestamp stays part of the comparison.
+    private static bool ReceivedAtMatches(StoredOriginRecord stored, OriginRecordWrite write) =>
+        write.Provenance == RecordProvenance.Replicated || stored.ReceivedAt == write.ReceivedAt;
+
     private static bool Equal(StoredOriginRecord stored, OriginRecordWrite write, byte[] hash) =>
         stored.OriginPeerId == write.OriginPeerId && stored.OriginStreamId == write.OriginStreamId && stored.Sequence == write.Sequence &&
         stored.SubjectEntityId == write.SubjectEntityId && stored.AdapterInstanceId == write.AdapterInstanceId && stored.SignalId == write.SignalId &&
         stored.RecordBytes.AsSpan().SequenceEqual(write.RecordBytes) && stored.ContentHash.AsSpan().SequenceEqual(hash) && stored.Signature.AsSpan().SequenceEqual(write.Signature) &&
-        stored.ObservedAt == write.ObservedAt && stored.ReceivedAt == write.ReceivedAt && stored.ReceivedFromPeerId == write.ReceivedFromPeerId &&
+        stored.ObservedAt == write.ObservedAt && ReceivedAtMatches(stored, write) && stored.ReceivedFromPeerId == write.ReceivedFromPeerId &&
         stored.Provenance == write.Provenance && stored.Quality == write.Quality;
 
     private static void Validate(LocalPeerIdentity identity)

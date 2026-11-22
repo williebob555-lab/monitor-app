@@ -287,6 +287,28 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
             () => ControlRequest.SetAlertPreferences(severity, mutedRuleKinds), ct);
     }
 
+    public async Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await runtime.ReadAlertPreferencesAsync(peerId, ct).ConfigureAwait(false);
+            if (!response.Permitted)
+            {
+                return null;
+            }
+
+            return new AlertPreferencesDto(
+                peerId,
+                MonitorApp.Peer.Alerts.AlertPreferences.SeverityName(response.MinSeverity),
+                response.MutedRuleKinds.ToArray(),
+                response.UpdatedAt is null ? null : response.UpdatedAt.ToDateTimeOffset());
+        }
+        catch (MobileControlFailedException)
+        {
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default)
     {
         try

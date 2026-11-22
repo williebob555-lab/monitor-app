@@ -424,6 +424,22 @@ message UpdateStatusResponse {
   bool approval_pending = 9;
 }
 
+// Read-only: the authenticated caller's own alert preferences (never another peer's). Needs the monitoring-controls grant.
+message AlertPreferencesRequest {
+  string request_id = 1;
+}
+
+message AlertPreferencesResponse {
+  string request_id = 1;
+  // False when this peer lacks the monitoring-controls grant (or is not trusted); every other field is then empty.
+  bool permitted = 2;
+  // UNSPECIFIED (0) means everything (also the default when the caller never set preferences).
+  AlertSeverity min_severity = 3;
+  repeated string muted_rule_kinds = 4;
+  // Unset when the caller never set preferences (the default applies).
+  google.protobuf.Timestamp updated_at = 5;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -442,6 +458,7 @@ message PeerSessionRequest {
     ControlCommand control_command = 30;
     PendingPairingsRequest pending_pairings_request = 31;
     UpdateStatusRequest update_status_request = 32;
+    AlertPreferencesRequest alert_preferences_request = 33;
   }
 }
 
@@ -464,5 +481,6 @@ message PeerSessionResponse {
     ControlResult control_result = 30;
     PendingPairingsResponse pending_pairings_response = 31;
     UpdateStatusResponse update_status_response = 32;
+    AlertPreferencesResponse alert_preferences_response = 33;
   }
 }

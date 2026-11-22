@@ -303,27 +303,52 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await retentionTask.DisposeAsync().ConfigureAwait(false);
+        // Every step runs even if an earlier one throws: a faulted background task must not leave the host, the local API
+        // or the identity (and through them the database files) open. Failures are reported once everything is released.
+        List<Exception>? failures = null;
+        async ValueTask Step(Func<ValueTask> action)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        await Step(() => retentionTask.DisposeAsync()).ConfigureAwait(false);
         if (lanTask is not null)
         {
-            await lanTask.DisposeAsync().ConfigureAwait(false);
+            await Step(() => lanTask.DisposeAsync()).ConfigureAwait(false);
         }
 
-        await alertEngine.DisposeAsync().ConfigureAwait(false);
-        await collection.DisposeAsync().ConfigureAwait(false);
-        await connections.DisposeAsync().ConfigureAwait(false);
-        await localApi.DisposeAsync().ConfigureAwait(false);
-        using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        try
+        await Step(() => alertEngine.DisposeAsync()).ConfigureAwait(false);
+        await Step(() => collection.DisposeAsync()).ConfigureAwait(false);
+        await Step(() => connections.DisposeAsync()).ConfigureAwait(false);
+        await Step(() => localApi.DisposeAsync()).ConfigureAwait(false);
+        await Step(async () =>
         {
-            await peerApplication.StopAsync(shutdown.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try
+            {
+                await peerApplication.StopAsync(shutdown.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            {
+            }
+        }).ConfigureAwait(false);
+        await Step(() => peerApplication.DisposeAsync()).ConfigureAwait(false);
+        await Step(() =>
         {
+            identity.Dispose();
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+        if (failures is { Count: > 0 })
+        {
+            throw new AggregateException("Peer node shutdown completed with failures.", failures);
         }
-
-        await peerApplication.DisposeAsync().ConfigureAwait(false);
-        identity.Dispose();
     }
 }
 
