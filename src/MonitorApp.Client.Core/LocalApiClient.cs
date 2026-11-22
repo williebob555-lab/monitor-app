@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;

@@ -148,3 +148,21 @@ public interface IControlSource
     /// <summary>Approves installing the staged update read by <see cref="ReadUpdateStatusAsync"/>. High tier: needs the fingerprint.</summary>
     Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
+/// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
+/// </summary>
+public interface ISecuritySource
+{
+    Task<LocalPresenceStatusDto> GetLocalPresenceStatusAsync(CancellationToken ct = default);
+
+    Task<LocalPresenceStatusDto> EnrollLocalPresenceAsync(CancellationToken ct = default);
+
+    Task<LocalPresenceStatusDto> RemoveLocalPresenceAsync(CancellationToken ct = default);
+
+    /// <summary>Sets what a paired phone may do on this computer. Granting needs fingerprint verification when enforced.</summary>
+    Task SetControlGrantAsync(string peerId, bool monitoringControls, bool pairingApproval, bool updateApproval, CancellationToken ct = default);
+
+    Task ApprovePhonePresenceEnrollmentAsync(string enrollmentId, CancellationToken ct = default);
+}

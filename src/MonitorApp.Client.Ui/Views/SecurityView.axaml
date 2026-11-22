@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.SecurityView" x:DataType="vm:SecurityViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="This computer's fingerprint" Classes="heading" />
+    <TextBlock Text="High-risk actions requested from your phone are approved here with your fingerprint (or Windows Hello)." TextWrapping="Wrap" />
+    <TextBlock Name="StatusLine" Text="{Binding StatusText}" TextWrapping="Wrap" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="{Binding Status.FingerprintSha256, StringFormat='Key fingerprint: {0}'}" TextWrapping="Wrap" IsVisible="{Binding IsEnrolled}" />
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <WrapPanel>
+      <Button Name="EnrollButton" Content="Set up fingerprint" Command="{Binding EnrollCommand}" IsVisible="{Binding IsNotEnrolled}" Margin="0,0,8,0" />
+      <Button Name="RemoveButton" Content="Remove fingerprint" Command="{Binding RemoveCommand}" IsVisible="{Binding IsEnrolled}" Margin="0,0,8,0" />
+      <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+    </WrapPanel>
+  </StackPanel></ScrollViewer>
+</UserControl>

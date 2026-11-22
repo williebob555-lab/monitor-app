@@ -19,6 +19,11 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
     public ObservableCollection<TrustedPeerRow> Peers { get; } = [];
 
+    /// <summary>Per-phone permission panels; empty and hidden when the source cannot manage grants (the in-process phone runtime).</summary>
+    public ObservableCollection<PeerGrantViewModel> Grants { get; } = [];
+
+    public bool CanGrant => Client is ISecuritySource;
+
     public bool IsRevocationPending => PendingRevocation is not null;
 
     public string RevocationPrompt => PendingRevocation is null
@@ -122,9 +127,21 @@ public sealed partial class PairingsViewModel : SectionViewModel
         }
 
         Peers.Clear();
+        var previous = Grants.ToDictionary(g => g.PeerId);
+        Grants.Clear();
         foreach (var peer in peers)
         {
-            Peers.Add(TrustedPeerRow.From(peer));
+            var row = TrustedPeerRow.From(peer);
+            Peers.Add(row);
+            if (CanGrant && row.CanRevoke)
+            {
+                // Keep the person's unsaved toggles across a refresh; current grants cannot be read back.
+                Grants.Add(previous.TryGetValue(row.PeerId, out var kept)
+                    ? kept
+                    : new PeerGrantViewModel(row.PeerId, row.Name, () => Client as ISecuritySource));
+            }
         }
+
+        OnPropertyChanged(nameof(CanGrant));
     }
 }

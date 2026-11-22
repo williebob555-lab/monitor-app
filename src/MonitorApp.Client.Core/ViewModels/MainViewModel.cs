@@ -48,6 +48,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new AsOfViewModel(connection),
             new PairingsViewModel(connection),
         };
+        // Only sources that manage this computer's fingerprint get the security section and the banner.
+        if (connection.Source is ISecuritySource)
+        {
+            Security = new SecurityViewModel(connection);
+            sections.Add(Security);
+        }
+
         // Only sources that can initiate pairing (the phone) get the pairing-entry screen.
         if (connection.Source is IPairingInitiator)
         {
@@ -65,6 +72,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<SectionViewModel> Sections { get; }
 
     public OverviewViewModel Overview { get; }
+
+    /// <summary>This computer's fingerprint status and banner; null when the source cannot manage it.</summary>
+    public SecurityViewModel? Security { get; }
 
     /// <summary>The ecosystem workspace; the default section.</summary>
     public EnvironmentViewModel Environment { get; }
@@ -90,6 +100,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!connection.HasAddress)
         {
             await Overview.RefreshAsync();
+            if (Security is not null)
+            {
+                await Security.RefreshAsync();
+            }
+
             ConnectionStatus = Overview.ErrorMessage is null
                 ? $"Connected to {connection.Source.Description}."
                 : $"Not connected: {Overview.ErrorMessage}";
@@ -106,6 +121,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         connection.Connect(address);
         ConnectionStatus = $"Connecting to {address}...";
         await Overview.RefreshAsync();
+        if (Security is not null)
+        {
+            await Security.RefreshAsync();
+        }
+
         ConnectionStatus = Overview.ErrorMessage is null
             ? $"Connected to {address}."
             : $"Not connected: {Overview.ErrorMessage}";

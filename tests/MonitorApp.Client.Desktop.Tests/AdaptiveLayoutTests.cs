@@ -23,6 +23,7 @@ public sealed class AdaptiveLayoutTests
         [typeof(HistoryViewModel)] = typeof(HistoryView),
         [typeof(AsOfViewModel)] = typeof(AsOfView),
         [typeof(PairingsViewModel)] = typeof(PairingsView),
+        [typeof(SecurityViewModel)] = typeof(SecurityView),
         [typeof(PairDeviceViewModel)] = typeof(PairDeviceView),
         [typeof(OverviewViewModel)] = typeof(OverviewView),
     };

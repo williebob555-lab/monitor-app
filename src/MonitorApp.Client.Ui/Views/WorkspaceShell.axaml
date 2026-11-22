@@ -16,6 +16,7 @@
     <DataTemplate DataType="vm:HistoryViewModel"><views:HistoryView /></DataTemplate>
     <DataTemplate DataType="vm:AsOfViewModel"><views:AsOfView /></DataTemplate>
     <DataTemplate DataType="vm:PairingsViewModel"><views:PairingsView /></DataTemplate>
+    <DataTemplate DataType="vm:SecurityViewModel"><views:SecurityView /></DataTemplate>
     <DataTemplate DataType="vm:PairDeviceViewModel"><views:PairDeviceView /></DataTemplate>
     <DataTemplate DataType="vm:OverviewViewModel"><views:OverviewView /></DataTemplate>
   </UserControl.DataTemplates>
@@ -118,6 +119,16 @@
         <!-- Main workspace: pages by mode, with the historical outline and the search drop-down laid over it. -->
         <Grid Name="Body" Grid.Row="1" Grid.Column="1">
           <DockPanel>
+            <!-- Dismissible, non-blocking: shown while fingerprint approval is not set up on this computer. -->
+            <Border Name="FingerprintBanner" DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1"
+                    IsVisible="{Binding Security.ShowBanner, FallbackValue=False}">
+              <DockPanel Margin="12,8">
+                <Button DockPanel.Dock="Right" Name="DismissBannerButton" Content="Dismiss" Classes="compact flat" Command="{Binding Security.DismissBannerCommand}"
+                        VerticalAlignment="Center" AutomationProperties.Name="Dismiss fingerprint notice" />
+                <TextBlock Name="BannerText" Text="{x:Static vm:SecurityViewModel.BannerText}" TextWrapping="Wrap" VerticalAlignment="Center"
+                           AutomationProperties.LiveSetting="Polite" />
+              </DockPanel>
+            </Border>
             <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" IsVisible="{Binding Shell.ShowsConnection}">
               <StackPanel Spacing="4" Margin="12,8">
                 <WrapPanel IsVisible="{Binding ShowsAddress}">
