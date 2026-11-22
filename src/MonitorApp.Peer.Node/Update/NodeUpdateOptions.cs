@@ -72,7 +72,8 @@ public sealed record NodeUpdateOptions(
 
     public string ManifestCopyPath => Path.Combine(UpdateDirectory, "manifest.json");
 
-    public string Platform => PackageKind == "rpm" ? "fedora" : OperatingSystem.IsWindows() ? "windows" : "ubuntu";
+    /// <summary>Release platform derived from the package kind only, so the choice is explicit and testable on any host.</summary>
+    public string Platform => PackageKind switch { "rpm" => "fedora", "deb" => "ubuntu", _ => "windows" };
 
     public static string DefaultKeyFile() =>
         OperatingSystem.IsWindows()
@@ -109,6 +110,11 @@ public sealed record NodeUpdateOptions(
         if (kind == "auto")
         {
             kind = DetectPackageKind();
+        }
+
+        if (kind is not ("deb" or "rpm" or "zip") || (OperatingSystem.IsWindows() != (kind == "zip")))
+        {
+            throw new ArgumentException("MONITOR_APP_UPDATE_PACKAGE must be 'zip' on Windows and 'deb' or 'rpm' on Linux.");
         }
 
         return new NodeUpdateOptions(

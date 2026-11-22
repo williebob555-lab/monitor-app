@@ -155,6 +155,18 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public void PackageKindDrivesPlatformAndMustMatchTheHost()
+    {
+        var node = new NodeOptions(directory, System.Net.IPAddress.Loopback, 1, 0);
+        var detected = NodeUpdateOptions.FromEnvironment(node, _ => null);
+        Assert.Equal(OperatingSystem.IsWindows() ? "windows" : detected.PackageKind == "rpm" ? "fedora" : "ubuntu", detected.Platform);
+
+        var foreign = OperatingSystem.IsWindows() ? "deb" : "zip";
+        Assert.Throws<ArgumentException>(() => NodeUpdateOptions.FromEnvironment(node, name => name == "MONITOR_APP_UPDATE_PACKAGE" ? foreign : null));
+        Assert.Throws<ArgumentException>(() => NodeUpdateOptions.FromEnvironment(node, name => name == "MONITOR_APP_UPDATE_PACKAGE" ? "msi" : null));
+    }
+
+    [Fact]
     public void FetcherRejectsNonHttpsAndMalformedRepository()
     {
         using var client = new HttpClient();

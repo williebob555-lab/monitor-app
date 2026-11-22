@@ -206,7 +206,8 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
         }
     }
 
-    private bool CanApplyHere => _options.PackageKind is "deb" or "rpm" && !OperatingSystem.IsWindows();
+    // Package kind is validated against the host OS in NodeUpdateOptions.FromEnvironment; Windows ("zip") is download-and-verify only for now.
+    private bool CanApplyHere => _options.PackageKind is "deb" or "rpm";
 
     private async Task ApplyStagedAsync(string approvedBy, CancellationToken cancellationToken)
     {
