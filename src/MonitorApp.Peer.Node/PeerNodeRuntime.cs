@@ -3,6 +3,7 @@ using MonitorApp.Agent.Core;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -122,6 +123,11 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var alertStore = new AlertStore(AlertStoreOptions.Create(databasePath));
         await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var alertRules = AlertRulesConfig.Default;
+        var controlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
+        await controlStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var monitoring = new MonitoringControlState();
+        var controlService = new ControlService(
+            controlStore, peerStore, pairingStore, pairing, alertStore, monitoring, identity);
         var alertEngine = new AlertEngine(new AlertEvaluator(peerStore, alertStore, alertRules), alertStore);
         var capabilityRegistry = new PeerCapabilityRegistry(peerStore);
         await capabilityRegistry.RegisterAsync(
@@ -139,7 +145,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                     Guid.NewGuid().ToString("N"))),
             live?.CollectionInterval,
             interests,
-            identity.PublicIdentity.PeerId);
+            identity.PublicIdentity.PeerId,
+            monitoring);
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -160,6 +167,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton(replication);
                 services.AddSingleton(interests);
                 services.AddSingleton(new AlertDeliveryService(peerStore, alertStore, alertRules));
+                services.AddSingleton(controlService);
                 services.AddProductionPeerSessionCoordinator();
                 services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
                 services.AddProductionPeerPairingCoordinator();
@@ -177,7 +185,9 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             invitationService,
             new PhonePairingOptions([options.PeerBindAddress], options.PeerPort, pairingCodes),
             alertStore,
-            interests);
+            interests,
+            controlService,
+            monitoring);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

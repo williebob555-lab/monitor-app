@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -113,6 +113,22 @@ public sealed class AlertStore
                     received_at TEXT NOT NULL,
                     notified_revision INTEGER NOT NULL DEFAULT 0);
                 INSERT INTO alert_schema_version(singleton_id, version) VALUES (1, 1);
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
+        if (current < 2)
+        {
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_mutes(
+                    scope TEXT PRIMARY KEY,
+                    muted_until TEXT NOT NULL,
+                    muted_by TEXT NOT NULL,
+                    muted_at TEXT NOT NULL);
+                CREATE TABLE alert_operator_acks(
+                    alert_id TEXT PRIMARY KEY,
+                    acknowledged_by TEXT NOT NULL,
+                    acknowledged_at TEXT NOT NULL);
+                UPDATE alert_schema_version SET version = 2 WHERE singleton_id = 1;
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
@@ -309,11 +325,107 @@ public sealed class AlertStore
         var alerts = await QueryAlertsAsync(connection, AlertSelect + """
              WHERE EXISTS (SELECT 1 FROM alert_outbox o WHERE o.recipient_peer_id = $recipient AND o.alert_id = alerts.alert_id
                 AND o.acked_at IS NULL AND o.expires_at > $now)
+                AND NOT EXISTS (SELECT 1 FROM alert_mutes m WHERE m.muted_until > $now AND (m.scope = '*' OR m.scope = alerts.rule_id))
              ORDER BY raised_at, alert_id LIMIT $limit;
             """,
             [("$recipient", recipientPeerId), ("$now", Format(now)), ("$limit", maximum + 1)], cancellationToken)
             .ConfigureAwait(false);
         return (alerts.Take(maximum).ToArray(), alerts.Count > maximum);
+    }
+
+    /// <summary>
+    /// Mutes delivery of alerts for a rule (or every rule with scope "*") until <paramref name="until"/>. Muted alerts
+    /// stay queued in the outbox (until their own expiry) and are delivered after the mute is lifted or lapses.
+    /// </summary>
+    public async Task MuteAsync(
+        string scope, DateTimeOffset until, string mutedBy, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mutedBy);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, null,
+            """
+            INSERT INTO alert_mutes(scope, muted_until, muted_by, muted_at) VALUES ($scope, $until, $by, $at)
+            ON CONFLICT(scope) DO UPDATE SET muted_until = excluded.muted_until, muted_by = excluded.muted_by, muted_at = excluded.muted_at;
+            """,
+            [("$scope", scope), ("$until", Format(until)), ("$by", mutedBy), ("$at", Format(now))],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Lifts a mute and wakes live sessions so queued alerts are delivered promptly. True when one existed.</summary>
+    public async Task<bool> UnmuteAsync(string scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var removed = await ExecuteAsync(connection, null, "DELETE FROM alert_mutes WHERE scope = $scope;",
+            [("$scope", scope)], cancellationToken).ConfigureAwait(false);
+        if (removed > 0)
+        {
+            var recipients = await ReadRecipientsAsync(cancellationToken).ConfigureAwait(false);
+            OutboxEnqueued?.Invoke(recipients);
+        }
+
+        return removed > 0;
+    }
+
+    /// <summary>Mutes still in force at <paramref name="now"/> as (scope, until).</summary>
+    public async Task<IReadOnlyList<(string Scope, DateTimeOffset Until)>> ReadActiveMutesAsync(
+        DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT scope, muted_until FROM alert_mutes WHERE muted_until > $now ORDER BY scope;";
+        command.Parameters.AddWithValue("$now", Format(now));
+        var result = new List<(string, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add((reader.GetString(0), Parse(reader.GetString(1))));
+        }
+
+        return result;
+    }
+
+    /// <summary>Records an operator acknowledgement of a known alert. False when the alert does not exist; idempotent.</summary>
+    public async Task<bool> AcknowledgeByOperatorAsync(
+        string alertId, string acknowledgedBy, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(alertId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(acknowledgedBy);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var exists = connection.CreateCommand();
+        exists.Transaction = transaction;
+        exists.CommandText = "SELECT 1 FROM alerts WHERE alert_id = $id;";
+        exists.Parameters.AddWithValue("$id", alertId);
+        if (await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is null)
+        {
+            return false;
+        }
+
+        await ExecuteAsync(connection, transaction,
+            "INSERT OR IGNORE INTO alert_operator_acks(alert_id, acknowledged_by, acknowledged_at) VALUES ($id, $by, $at);",
+            [("$id", alertId), ("$by", acknowledgedBy), ("$at", Format(now))], cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>Operator acknowledgements as (alert id, acknowledged by, acknowledged at).</summary>
+    public async Task<IReadOnlyList<(string AlertId, string By, DateTimeOffset At)>> ReadOperatorAcknowledgementsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT alert_id, acknowledged_by, acknowledged_at FROM alert_operator_acks ORDER BY acknowledged_at, alert_id;";
+        var result = new List<(string, string, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add((reader.GetString(0), reader.GetString(1), Parse(reader.GetString(2))));
+        }
+
+        return result;
     }
 
     public async Task RecordAttemptsAsync(

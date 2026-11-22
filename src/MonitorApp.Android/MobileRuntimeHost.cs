@@ -30,7 +30,8 @@ internal static class MobileRuntimeHost
             runtime = await MobilePeerRuntime.CreateAsync(
                 MobilePeerOptions.Default(directory, displayName),
                 new KeystorePeerIdentity("monitor-app-peer-v1"),
-                new AndroidDeviceReader(appContext)).ConfigureAwait(false);
+                new AndroidDeviceReader(appContext),
+                new AndroidKeystoreUserPresenceSigner(appContext, "monitor-app-presence-v1")).ConfigureAwait(false);
             return runtime;
         }
         finally
