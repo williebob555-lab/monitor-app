@@ -20,6 +20,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   OLD_VERSION: '0.9.1'
   NEW_VERSION: '0.9.2'
+  PKGONLY_VERSION: '0.9.3'
 
 jobs:
   ubuntu:
@@ -35,33 +36,60 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Build the old and new .deb
+      - name: Build the old, new and package-only .deb, and the signed update fixture
         run: |
           set -euo pipefail
-          # Throwaway trust anchor (a real P-256 SPKI so the update agent starts normally; nothing is signed with it).
-          spki="$(openssl ecparam -name prime256v1 -genkey -noout | openssl pkey -pubout -outform DER | base64 -w0)"
-          printf '{"keyId":"smoke","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$spki" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
+          # Throwaway update key pair (P-256). The public half is baked into every package as /etc/monitor-app/update-key.json;
+          # the private half stays on this runner and signs the manifests the node's own update agent will fetch.
+          openssl ecparam -name prime256v1 -genkey -noout -out "$RUNNER_TEMP/update-key.pem"
+          openssl pkcs8 -topk8 -nocrypt -in "$RUNNER_TEMP/update-key.pem" -outform DER | base64 -w0 > "$RUNNER_TEMP/update-signing-key.b64"
+          openssl pkey -in "$RUNNER_TEMP/update-key.pem" -pubout -outform DER | base64 -w0 > "$RUNNER_TEMP/update-public-key.b64"
+          chmod 600 "$RUNNER_TEMP/update-signing-key.b64" "$RUNNER_TEMP/update-key.pem"
+          printf '{"keyId":"smoke","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$(cat "$RUNNER_TEMP/update-public-key.b64")" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
           mkdir -p /tmp/smoke-pkg
+          # 0.9.1: a real publish. 0.9.2: a second real publish, so its node genuinely reports 0.9.2 (the update helper's
+          # health check compares the marker version with the target version).
           MONITOR_APP_UPDATE_KEY_JSON="$RUNNER_TEMP/update-key.json" \
-          MONITOR_APP_SAVE_STAGE="/tmp/smoke-pkg/stage.tgz" \
           MONITOR_APP_PACKAGES=deb \
             bash eng/packaging/linux/build-packages.sh "$OLD_VERSION" /tmp/smoke-pkg
-          # The newer package reuses the published tree (only the package version differs) to save a second publish.
-          MONITOR_APP_FROM_STAGE="/tmp/smoke-pkg/stage.tgz" \
+          MONITOR_APP_UPDATE_KEY_JSON="$RUNNER_TEMP/update-key.json" \
+          MONITOR_APP_SAVE_STAGE="/tmp/smoke-pkg/stage-new.tgz" \
           MONITOR_APP_PACKAGES=deb \
             bash eng/packaging/linux/build-packages.sh "$NEW_VERSION" /tmp/smoke-pkg
+          # 0.9.3 reuses the 0.9.2 tree (only the package version differs): it installs cleanly but its node reports 0.9.2,
+          # so a health check for 0.9.3 can never pass. That drives the rollback case without touching product code.
+          MONITOR_APP_FROM_STAGE="/tmp/smoke-pkg/stage-new.tgz" \
+          MONITOR_APP_PACKAGES=deb \
+            bash eng/packaging/linux/build-packages.sh "$PKGONLY_VERSION" /tmp/smoke-pkg
           chmod -R a+rX /tmp/smoke-pkg
           ls -l /tmp/smoke-pkg
+          # Signed manifests (real ReleaseTool, throwaway key) + test CA and server certificate for the local HTTPS release server.
+          bash eng/smoke/update-fixture.sh /tmp/smoke-fixture "$GITHUB_REPOSITORY" \
+            "$RUNNER_TEMP/update-signing-key.b64" "$RUNNER_TEMP/update-public-key.b64" \
+            "$NEW_VERSION:/tmp/smoke-pkg/monitor-app_${NEW_VERSION}_amd64.deb" \
+            "$PKGONLY_VERSION:/tmp/smoke-pkg/monitor-app_${PKGONLY_VERSION}_amd64.deb"
+          chmod -R a+rX /tmp/smoke-fixture
+          rm -f "$RUNNER_TEMP/update-key.pem"
 
-      - name: Lifecycle smoke (install, start, readings, restart, upgrade, remove, purge)
-        run: bash eng/smoke/ubuntu-smoke.sh "/tmp/smoke-pkg/monitor-app_${OLD_VERSION}_amd64.deb" "/tmp/smoke-pkg/monitor-app_${NEW_VERSION}_amd64.deb"
+      - name: Lifecycle smoke (install, start, readings, restart, in-place update + rollback via the node's own update agent, apt upgrade, remove, purge)
+        run: |
+          bash eng/smoke/ubuntu-smoke.sh \
+            "/tmp/smoke-pkg/monitor-app_${OLD_VERSION}_amd64.deb" \
+            "/tmp/smoke-pkg/monitor-app_${NEW_VERSION}_amd64.deb" \
+            "/tmp/smoke-pkg/monitor-app_${PKGONLY_VERSION}_amd64.deb" \
+            /tmp/smoke-fixture "$GITHUB_REPOSITORY"
 
       - name: Diagnostics
         if: failure()
         run: |
           systemctl status monitor-app --no-pager -l || true
           journalctl -u monitor-app --no-pager -n 300 || true
-          journalctl -u monitor-app-update --no-pager -n 50 || true
+          journalctl -u monitor-app-update --no-pager -n 100 || true
+          systemctl status monitor-app-update.path monitor-app-update.service --no-pager -l || true
+          sudo ls -laR /var/lib/monitor-app/update /var/lib/monitor-app-helper 2>&1 | head -80 || true
+          sudo cat /var/lib/monitor-app/update/update-state.json /var/lib/monitor-app/update/apply-result.json /var/lib/monitor-app/update/health.json || true
+          sudo tail -40 /var/lib/monitor-app/update/update-audit.jsonl || true
+          tail -40 /tmp/smoke-update/server.log || true
           sudo ls -laR /var/lib/monitor-app /etc/monitor-app /opt/monitor-app 2>&1 | head -120 || true
           dpkg -l monitor-app || true
           ss -ltnp | grep -E '5543[12]' || true
