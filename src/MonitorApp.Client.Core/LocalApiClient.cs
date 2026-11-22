@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -71,6 +71,18 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IViewingSour
     public async Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
         (await GetAsync<AlertsEnvelope>(Url("api/v1/alerts", [("limit", limit.ToString(CultureInfo.InvariantCulture))]), ct)
             .ConfigureAwait(false)).Alerts;
+
+    public Task<IReadOnlyList<PeerStateTransitionDto>> GetPeerStateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<PeerStateTransitionDto>>(Url("api/v1/history/peer-states", [
+            ("from", fromUtc.ToString("O", CultureInfo.InvariantCulture)),
+            ("to", toUtc.ToString("O", CultureInfo.InvariantCulture))]), ct);
+
+    public Task<IReadOnlyList<UpdateEventDto>> GetUpdateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<UpdateEventDto>>(Url("api/v1/history/updates", [
+            ("from", fromUtc.ToString("O", CultureInfo.InvariantCulture)),
+            ("to", toUtc.ToString("O", CultureInfo.InvariantCulture))]), ct);
 
     public Task<CatalogDto> GetCatalogAsync(CancellationToken ct = default) => GetAsync<CatalogDto>("api/v1/catalog", ct);
 

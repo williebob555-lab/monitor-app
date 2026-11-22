@@ -15,7 +15,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -178,6 +178,27 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
                 Escalated: item.Alert.Escalated))
             .ToArray();
     });
+
+    /// <summary>The phone's own record of its desktops' connectivity transitions, oldest first.</summary>
+    public Task<IReadOnlyList<PeerStateTransitionDto>> GetPeerStateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) => Guard(async () =>
+    {
+        if (fromUtc > toUtc)
+        {
+            throw new ApiValidationException("from must not be after to.");
+        }
+
+        await runtime.PeerStates.ReconcileAsync(ct).ConfigureAwait(false);
+        var rows = await runtime.Store.ReadPeerStateTransitionsAsync(fromUtc, toUtc, 5000, ct).ConfigureAwait(false);
+        return (IReadOnlyList<PeerStateTransitionDto>)rows
+            .Select(row => new PeerStateTransitionDto(row.PeerId, row.State.ToString(), row.At, row.Reason))
+            .ToArray();
+    });
+
+    /// <summary>The phone installs no updates itself, so there is nothing to report.</summary>
+    public Task<IReadOnlyList<UpdateEventDto>> GetUpdateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<UpdateEventDto>>([]);
 
     /// <summary>Asks the hosting service (when the head supplied one) to start collection and syncing.</summary>
     public void RequestStart() => startHost?.Invoke();

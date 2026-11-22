@@ -98,9 +98,9 @@ public sealed class UpdateStateStore
         File.Move(temp, _statePath, overwrite: true);
     }
 
-    public void Audit(DateTimeOffset at, string eventName, string detail)
+    public void Audit(DateTimeOffset at, string eventName, string detail, string? version = null)
     {
-        var line = JsonSerializer.Serialize(new { at, @event = eventName, detail });
+        var line = JsonSerializer.Serialize(new { at, @event = eventName, detail, version });
         File.AppendAllText(_auditPath, line + "\n");
     }
 

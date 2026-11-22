@@ -98,6 +98,12 @@ public sealed record CatalogSubjectDto(string SubjectEntityId, IReadOnlyList<Cat
 
 public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IReadOnlyList<string> OriginPeers);
 
+/// <summary>One change of a peer's connectivity state (Paired, Online, Stale, Offline, Revoked) for the history timeline.</summary>
+public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
+
+/// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+public sealed record UpdateEventDto(string Version, string Outcome, DateTimeOffset At, string? Detail = null);
+
 public sealed record AlertDto(
     string AlertId,
     uint Revision,

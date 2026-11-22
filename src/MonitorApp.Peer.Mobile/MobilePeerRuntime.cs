@@ -107,7 +107,17 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
         interests = new LiveInterestRegistry(options.InterestPolicy);
+        PeerStates = new PeerStateTracker(store, new SystemPeerClock(), TimeSpan.FromMinutes(5), peerId =>
+        {
+            lock (gate)
+            {
+                return peerStatus.TryGetValue(peerId, out var status) && status.State == MobileSyncState.Synced;
+            }
+        });
     }
+
+    /// <summary>The phone's own record of when each paired desktop became reachable or unreachable.</summary>
+    public PeerStateTracker PeerStates { get; }
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
 
@@ -608,6 +618,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 failures.Remove(peer.PeerId);
                 notBefore.Remove(peer.PeerId);
                 peerStatus[peer.PeerId] = new MobilePeerSyncStatus(peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
+                PeerStates.NotifySession(peer.PeerId, true);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -815,6 +826,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                         notBefore.Remove(peer.PeerId);
                         peerStatus[peer.PeerId] = new MobilePeerSyncStatus(
                             peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
+                        PeerStates.NotifySession(peer.PeerId, true);
                     }
                 }
             };
@@ -848,6 +860,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 : MobileSyncState.Offline;
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
             peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
+            PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
         }
     }
 

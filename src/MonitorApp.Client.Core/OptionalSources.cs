@@ -10,6 +10,19 @@ public interface IAlertSource
 }
 
 /// <summary>
+/// History feed for the time-travel timeline: durable peer-state transitions ("Fedora offline at 21:14") and update
+/// install outcomes, oldest first and capped. Update events may be empty on a head that installs no updates (the phone).
+/// </summary>
+public interface IHistorySource
+{
+    Task<IReadOnlyList<PeerStateTransitionDto>> GetPeerStateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default);
+
+    Task<IReadOnlyList<UpdateEventDto>> GetUpdateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default);
+}
+
+/// <summary>
 /// Declares that the UI is looking at live data for a peer (null = this device), so the peer can sample faster.
 /// Dispose to stop. Sources without an adaptive-sampling channel do not implement it.
 /// </summary>

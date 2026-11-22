@@ -516,6 +516,49 @@ public sealed class LocalApiHost : IAsyncDisposable
             CancellationToken token) => QueryAsync(() => history.ReconstructAsync(
                 asOf, lookbackSeconds, subjectEntityId, signalId, limit, token)));
 
+        application.MapGet("/api/v1/history/peer-states", async (
+            string? from,
+            string? to,
+            PeerStore store,
+            IPeerClock clock,
+            CancellationToken token) =>
+        {
+            if (!TryReadHistoryRange(from, to, clock, out var start, out var end, out var error))
+            {
+                return Results.BadRequest(new { error });
+            }
+
+            var rows = await store.ReadPeerStateTransitionsAsync(start, end, HistoryFeedCap, token).ConfigureAwait(false);
+            return Results.Json(rows.Select(row => new
+            {
+                peerId = row.PeerId,
+                state = row.State.ToString(),
+                at = row.At,
+                reason = row.Reason,
+            }));
+        });
+        application.MapGet("/api/v1/history/updates", (
+            string? from,
+            string? to,
+            IPeerClock clock,
+            HttpContext context) =>
+        {
+            if (!TryReadHistoryRange(from, to, clock, out var start, out var end, out var error))
+            {
+                return Results.BadRequest(new { error });
+            }
+
+            var events = context.RequestServices.GetService<ILocalUpdateController>() is ILocalUpdateHistory history
+                ? history.GetUpdateHistory(start, end).Take(HistoryFeedCap)
+                : [];
+            return Results.Json(events.Select(item => new
+            {
+                version = item.Version,
+                outcome = item.Outcome,
+                at = item.At,
+                detail = item.Detail,
+            }));
+        });
         application.MapGet("/api/v1/update", (HttpContext context) =>
             context.RequestServices.GetService<ILocalUpdateController>() is { } updates
                 ? Results.Json(updates.GetStatus())
@@ -1009,6 +1052,51 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             viewing?.Dispose();
         }
+    }
+
+    private const int HistoryFeedCap = 5000;
+
+    /// <summary>Parses the history feed range: ISO-8601 instants, to defaults to now and from to 7 days before it; from must not follow to.</summary>
+    private static bool TryReadHistoryRange(
+        string? from, string? to, IPeerClock clock, out DateTimeOffset start, out DateTimeOffset end, out string error)
+    {
+        error = string.Empty;
+        start = end = default;
+        var style = System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        if (to is null)
+        {
+            end = clock.UtcNow.ToUniversalTime();
+        }
+        else if (!DateTimeOffset.TryParse(to, culture, style, out end))
+        {
+            error = "to must be an ISO-8601 timestamp.";
+            return false;
+        }
+
+        if (from is null)
+        {
+            start = end - TimeSpan.FromDays(7);
+        }
+        else if (!DateTimeOffset.TryParse(from, culture, style, out start))
+        {
+            error = "from must be an ISO-8601 timestamp.";
+            return false;
+        }
+
+        if (start > end)
+        {
+            error = "from must not be after to.";
+            return false;
+        }
+
+        if (end - start > TimeSpan.FromDays(366 * 5))
+        {
+            error = "The range may span at most five years.";
+            return false;
+        }
+
+        return true;
     }
 
     private static async Task<IResult> QueryAsync<T>(Func<Task<T>> query)

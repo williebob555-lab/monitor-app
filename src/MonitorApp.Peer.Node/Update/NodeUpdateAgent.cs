@@ -14,7 +14,7 @@ namespace MonitorApp.Peer.Node.Update;
 /// failures are recorded and never staged or applied. The agent also writes the health marker that the
 /// installer-side health check waits for after a restart.
 /// </summary>
-public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateController
+public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateController, ILocalUpdateHistory
 {
     private readonly NodeUpdateOptions _options;
     private readonly UpdateService? _service;
@@ -99,6 +99,59 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 state is { Stage: UpdateStage.Staged } && CanApplyHere,
                 state?.ArtifactSha256);
         }
+    }
+
+    /// <summary>Applied/RolledBack/Failed outcomes from the append-only audit log, oldest first.</summary>
+    public IReadOnlyList<LocalUpdateEvent> GetUpdateHistory(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+    {
+        var result = new List<LocalUpdateEvent>();
+        IReadOnlyList<string> lines;
+        try
+        {
+            lines = new UpdateStateStore(_options.UpdateDirectory).ReadAudit();
+        }
+        catch (IOException)
+        {
+            return result;
+        }
+
+        foreach (var line in lines)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                var at = root.GetProperty("at").GetDateTimeOffset();
+                var name = root.GetProperty("event").GetString() ?? string.Empty;
+                var detail = root.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+                var version = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                if (name == "reconciled" && detail is not null)
+                {
+                    // "<Stage>: <detail>" written when a restart settles an interrupted apply.
+                    var split = detail.IndexOf(':', StringComparison.Ordinal);
+                    name = split > 0 ? detail[..split].ToLowerInvariant() : name;
+                    detail = split > 0 ? detail[(split + 1)..].Trim() : detail;
+                }
+
+                var outcome = name switch
+                {
+                    "applied" => "Applied",
+                    "rolledback" => "RolledBack",
+                    "failed" => "Failed",
+                    _ => null,
+                };
+                if (outcome is not null && at >= fromUtc && at <= toUtc)
+                {
+                    result.Add(new LocalUpdateEvent(version ?? "unknown", outcome, at, detail));
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+            {
+                // A damaged audit line is skipped; the log stays append-only and is never rewritten here.
+            }
+        }
+
+        return result.OrderBy(item => item.At).ToArray();
     }
 
     public Task<bool> ApproveAsync(CancellationToken cancellationToken) => ApproveCoreAsync(null, null, "local-api");
@@ -258,7 +311,7 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 {
                     var stage = outcome.Kind == ApplyOutcomeKind.RolledBack ? UpdateStage.RolledBack : UpdateStage.Failed;
                     store.Write(snapshot with { Active = active with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() } });
-                    store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail);
+                    store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail, active.TargetVersion);
                 }
             }
 

@@ -12,6 +12,15 @@ public sealed record LocalUpdateStatus(
     bool ApprovalPending,
     string? TargetDigest = null);
 
+/// <summary>One install outcome from the update audit log (Applied, RolledBack or Failed).</summary>
+public sealed record LocalUpdateEvent(string Version, string Outcome, DateTimeOffset At, string? Detail);
+
+/// <summary>Optional companion of <see cref="ILocalUpdateController"/>: the install outcomes recorded in the audit log.</summary>
+public interface ILocalUpdateHistory
+{
+    IReadOnlyList<LocalUpdateEvent> GetUpdateHistory(DateTimeOffset fromUtc, DateTimeOffset toUtc);
+}
+
 /// <summary>Implemented by the node's update agent; keeps this project independent of the update library.</summary>
 public interface ILocalUpdateController
 {

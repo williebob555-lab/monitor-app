@@ -42,6 +42,23 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateHistoryListsOnlyInstallOutcomesWithVersionOldestFirstWithinTheRange()
+    {
+        var applier = new RecordingApplier(ApplyOutcomeKind.RolledBack);
+        using var agent = Create(NodeUpdatePolicy.Auto, Envelope("0.1.2", Package), Package, applier);
+        await agent.RunCycleAsync(default);
+        Assert.Equal("RolledBack", agent.GetStatus().Stage);
+
+        var all = ((MonitorApp.Peer.LocalApi.ILocalUpdateHistory)agent)
+            .GetUpdateHistory(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var outcome = Assert.Single(all);
+        Assert.Equal("RolledBack", outcome.Outcome);
+        Assert.Equal("0.1.2", outcome.Version);
+        Assert.Empty(((MonitorApp.Peer.LocalApi.ILocalUpdateHistory)agent)
+            .GetUpdateHistory(DateTimeOffset.UtcNow.AddDays(-3), DateTimeOffset.UtcNow.AddDays(-2)));
+    }
+
+    [Fact]
     public async Task BoundApprovalRequiresTheExactStagedVersionAndDigest()
     {
         var applier = new RecordingApplier();
