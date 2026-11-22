@@ -94,7 +94,7 @@ jobs:
           }
           adb shell input keyevent 82
           echo "=== APK native ABIs ==="
-          unzip -Z1 release/monitorapp-mobile-android-universal-0.1.7.apk | awk -F/ '/^lib\\// {print $2}' | sort -u
+          unzip -Z1 release/monitorapp-mobile-android-universal-0.1.7.apk | grep '^lib/' | cut -d/ -f2 | sort -u || true
           adb install -r release/monitorapp-mobile-android-universal-0.1.7.apk
           adb logcat -c
           adb shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1
