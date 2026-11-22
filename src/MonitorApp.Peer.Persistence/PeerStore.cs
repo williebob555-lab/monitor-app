@@ -13,6 +13,9 @@ public sealed class PeerStore
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
+    /// <summary>Notifies in-process subscribers of origin records newly committed through this store instance.</summary>
+    public PeerLiveFeed Live { get; } = new();
+
     public PeerStore(PeerStoreOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -455,6 +458,10 @@ public sealed class PeerStore
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        Live.Publish(new StoredOriginRecord(
+            write.OriginPeerId, write.OriginStreamId, write.Sequence, write.SubjectEntityId, write.AdapterInstanceId,
+            write.SignalId, write.RecordBytes, hash, write.Signature, write.ObservedAt, write.ReceivedAt,
+            write.ReceivedFromPeerId, write.Provenance, write.Quality));
         return RecordInsertOutcome.Inserted;
     }
 

@@ -224,6 +224,66 @@ public sealed class PeerNodeRuntimeTests
         }
     }
 
+    [Fact]
+    public async Task HeldOpenNodeSessionStreamsNewlyCollectedRecordsBothWaysWithoutReconnecting()
+    {
+        var firstRoot = CreateTemporaryDirectory();
+        var secondRoot = CreateTemporaryDirectory();
+        try
+        {
+            var secondPeerPort = FreePort();
+            await using var first = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(firstRoot, IPAddress.Loopback, FreePort(), 0));
+            await using var second = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0));
+            await PairAsync(first, second, secondPeerPort);
+            var firstStream = (await first.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+            var secondStream = (await second.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+            // The first records may ride the session's initial catch-up; once they arrived the session is held open
+            // and everything measured next can only arrive live (the first node dials once; the heartbeat is 30 s).
+            await CollectAndMeasureAsync(first, second);
+            await CollectAndMeasureAsync(second, first);
+
+            var toSecond = await CollectAndMeasureAsync(first, second);
+            var toFirst = await CollectAndMeasureAsync(second, first);
+            Console.WriteLine($"node live latency: A->B {toSecond.TotalMilliseconds:F1} ms, B->A {toFirst.TotalMilliseconds:F1} ms");
+
+            await AssertOriginMatchesAsync(
+                first.Store, second.Store, first.Identity.PeerId, firstStream,
+                (int)((await first.Store.ReadLocalIdentityAsync())!.NextSequence - 1));
+            await AssertOriginMatchesAsync(
+                first.Store, second.Store, second.Identity.PeerId, secondStream,
+                (int)((await second.Store.ReadLocalIdentityAsync())!.NextSequence - 1));
+        }
+        finally
+        {
+            Directory.Delete(firstRoot, recursive: true);
+            Directory.Delete(secondRoot, recursive: true);
+        }
+    }
+
+    private static async Task<TimeSpan> CollectAndMeasureAsync(PeerNodeRuntime origin, PeerNodeRuntime receiver)
+    {
+        var originId = origin.Identity.PeerId;
+        var committed = new System.Collections.Concurrent.ConcurrentDictionary<ulong, long>();
+        var arrived = new System.Collections.Concurrent.ConcurrentDictionary<ulong, long>();
+        using var localSubscription = origin.Store.Live.Subscribe(record =>
+        {
+            if (record.OriginPeerId == originId) committed.TryAdd(record.Sequence, System.Diagnostics.Stopwatch.GetTimestamp());
+        });
+        using var remoteSubscription = receiver.Store.Live.Subscribe(record =>
+        {
+            if (record.OriginPeerId == originId) arrived.TryAdd(record.Sequence, System.Diagnostics.Stopwatch.GetTimestamp());
+        });
+        var result = await origin.CollectOnceAsync();
+        Assert.True(result.AppendedRecords > 0);
+        var last = result.LastSequence!.Value;
+        await WaitUntilAsync(() => Task.FromResult(arrived.ContainsKey(last)), TimeSpan.FromSeconds(30));
+        var latency = System.Diagnostics.Stopwatch.GetElapsedTime(committed[last], arrived[last]);
+        Assert.True(latency < TimeSpan.FromSeconds(10), $"Live delivery took {latency}.");
+        return latency < TimeSpan.Zero ? TimeSpan.Zero : latency;
+    }
+
     private static async Task PairAsync(
         PeerNodeRuntime first,
         PeerNodeRuntime second,

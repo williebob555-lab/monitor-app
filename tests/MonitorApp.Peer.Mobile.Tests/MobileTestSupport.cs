@@ -83,6 +83,12 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
 
+    public LiveInterestRegistry Interests { get; } = new();
+
+    public IPeerSessionCoordinator SessionCoordinator =>
+        app?.Services.GetRequiredService<IPeerSessionCoordinator>() ??
+        throw new InvalidOperationException("Desktop host is stopped.");
+
     public PeerPairingInvitation Invitation() => new(IPAddress.Loopback, Port, Identity.PeerId, Identity.PublicKeyFingerprint, null);
 
     public static async Task<DesktopPeer> StartAsync(string root)
@@ -124,6 +130,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
             services.AddSingleton<IPeerClock>(new SystemPeerClock());
             services.AddSingleton(Pairing);
             services.AddSingleton(replication);
+            services.AddSingleton(Interests);
             services.AddProductionPeerSessionCoordinator();
             services.AddSingleton(new PeerPairingServiceOptions("test-desktop"));
             services.AddProductionPeerPairingCoordinator();

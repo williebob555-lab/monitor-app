@@ -14,6 +14,8 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
     private readonly ILocalPeerIdentityProvider identity;
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
+    private readonly LiveInterestRegistry? interests;
+    private readonly TimeSpan? heartbeatInterval;
     private readonly CancellationTokenSource lifetime = new();
     private readonly ConcurrentDictionary<string, string> permanentFailures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> connections = new(StringComparer.Ordinal);
@@ -23,8 +25,12 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
     public NodePeerConnectionManager(
         ILocalPeerIdentityProvider identity,
         PeerStore store,
-        OriginReplicationCoordinator replication)
+        OriginReplicationCoordinator replication,
+        LiveInterestRegistry? interests = null,
+        TimeSpan? heartbeatInterval = null)
     {
+        this.interests = interests;
+        this.heartbeatInterval = heartbeatInterval;
         this.identity = identity ?? throw new ArgumentNullException(nameof(identity));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.replication = replication ?? throw new ArgumentNullException(nameof(replication));
@@ -140,9 +146,20 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
                 identity.PublicIdentity,
                 remoteIdentity,
                 identity.IdentityKey);
-            var synchronization = new PeerSyncApplication(store, replication);
+            // Held-open session: after catch-up both origins stream live. The dialer asks the remote to push its own
+            // origin too, because the remote may have no locator to dial back (the same shape as the phone).
+            var synchronization = new PeerSyncApplication(
+                store,
+                replication,
+                live: new PeerSyncLiveOptions(interests, RequestRemotePush: true));
+            var transport = PeerTransportOptions.Create(endpoint);
+            if (heartbeatInterval is { } heartbeat)
+            {
+                transport = transport with { HeartbeatInterval = heartbeat };
+            }
+
             await using var connector = new PeerGrpcConnector(
-                PeerTransportOptions.Create(endpoint),
+                transport,
                 authentication,
                 synchronization);
             await connector.RunAsync(lifetime.Token).ConfigureAwait(false);

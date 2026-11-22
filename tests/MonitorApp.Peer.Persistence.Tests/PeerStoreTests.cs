@@ -45,6 +45,40 @@ public sealed class PeerStoreTests : IDisposable
 
     [Fact]
     [Trait("Category", "SQLite")]
+    public async Task LiveFeedPublishesOnlyNewlyCommittedRecordsAndStopsAfterUnsubscribe()
+    {
+        var store = await CreateStoreAsync();
+        await store.SetLocalIdentityAsync(Identity());
+        var seen = new List<ulong>();
+        var gate = new object();
+        var subscription = store.Live.Subscribe(record =>
+        {
+            lock (gate) seen.Add(record.Sequence);
+        });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var streamed = store.Live.StreamAsync(cancellationToken: cancellation.Token).GetAsyncEnumerator(cancellation.Token);
+        var firstStreamed = streamed.MoveNextAsync().AsTask();
+
+        var first = LocalRecord(1, now, [1, 2, 3]);
+        await store.AppendOriginRecordAsync(first);
+        await store.AppendOriginRecordAsync(first); // identical retry: not new, must not notify
+        await Assert.ThrowsAsync<PeerPersistenceConflictException>(() => store.AppendOriginRecordAsync(LocalRecord(3, now, [7])));
+        await store.AppendOriginRecordAsync(LocalRecord(2, now.AddSeconds(1), [4, 5, 6]));
+
+        Assert.True(await firstStreamed);
+        Assert.Equal(1UL, streamed.Current.Sequence);
+        Assert.Equal(first.RecordBytes, streamed.Current.RecordBytes);
+        lock (gate) Assert.Equal([1UL, 2UL], seen);
+
+        subscription.Dispose();
+        await store.AppendOriginRecordAsync(LocalRecord(3, now.AddSeconds(2), [7]));
+        lock (gate) Assert.Equal([1UL, 2UL], seen);
+        await cancellation.CancelAsync();
+        await streamed.DisposeAsync();
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
     public async Task LocalOriginSequenceIsContiguousAndRetriesAreByteIdentical()
     {
         var store = await CreateStoreAsync();

@@ -1,3 +1,4 @@
+using MonitorApp.Contracts;
 using Google.Protobuf.WellKnownTypes;
 using MonitorApp.Contracts.V1;
 
@@ -44,6 +45,11 @@ public interface IPeerSessionCoordinator
         string remotePeerId,
         PeerHeartbeat heartbeat,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Live push/interest state for an authenticated, held-open session. Null means live sessions are unsupported.
+    /// </summary>
+    IPeerLiveSession? OpenLiveSession(string remotePeerId) => null;
 }
 
 public sealed class PeerPairingSessionContext

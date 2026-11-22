@@ -2,7 +2,9 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
 using MonitorApp.Peer.Service;
@@ -22,6 +24,15 @@ public sealed record PeerSyncOptions(int MaximumBatchRecords, int MaximumBatchBy
     }
 }
 
+/// <summary>
+/// Opts a held-open client session into live origin push. <paramref name="RequestRemotePush"/> is for outbound-only
+/// peers (phones) whose remote cannot dial back; peers that dial each other push their own origin on their own session.
+/// </summary>
+public sealed record PeerSyncLiveOptions(
+    LiveInterestRegistry? Interests,
+    bool RequestRemotePush,
+    int MaximumInFlightBatches = 4);
+
 public sealed class PeerSyncException(string message) : Exception(message);
 
 public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertisementProvider
@@ -29,10 +40,13 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSyncOptions options;
+    private readonly PeerSyncLiveOptions? live;
     private PeerHello? authenticatedRemoteHello;
 
-    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null)
+    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
+        PeerSyncLiveOptions? live = null)
     {
+        this.live = live;
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.replication = replication ?? throw new ArgumentNullException(nameof(replication));
         this.options = options ?? PeerSyncOptions.Default;
@@ -136,6 +150,30 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             throw new PeerSyncException("Origin acknowledgement does not match the local origin stream.");
         await store.UpdateReplicationCursorAsync(new ReplicationCursor(remotePeerId, local.PeerId, local.OriginStreamId,
             cursor.AcceptedThroughSequence, "raw", cursor.UpdatedAt.ToDateTimeOffset()), [], cancellationToken).ConfigureAwait(false);
+    }
+
+    public IPeerLiveSession? OpenLiveSession(string remotePeerId)
+    {
+        if (live is null)
+        {
+            return null;
+        }
+
+        return new PeerLiveSession(new PeerLiveSessionOptions(
+            store,
+            remotePeerId,
+            (request, token) => new ValueTask<OriginRecordBatch>(replication.ReadAsync(request, token)),
+            async token =>
+            {
+                var trusted = await store.ReadTrustedPeerAsync(remotePeerId, token).ConfigureAwait(false);
+                if (trusted is null || trusted.TrustState != PeerTrustState.Active)
+                    throw new PeerSyncException("Peer trust is not active.");
+            },
+            live.Interests,
+            live.RequestRemotePush,
+            live.MaximumInFlightBatches,
+            options.MaximumBatchRecords,
+            options.MaximumBatchBytes));
     }
 
     public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)

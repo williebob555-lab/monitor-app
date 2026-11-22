@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Mime;
+using System.Text.Json;
+using System.Threading.Channels;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -9,6 +11,8 @@ using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.LocalApi;
+
+internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
 
 public sealed class LocalApiHost : IAsyncDisposable
 {
@@ -28,7 +32,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         PairingApplicationStore pairingStore,
         PeerPairingCoordinator pairingCoordinator,
         IPeerClock clock,
-        IPeerInvitationService? invitationService = null)
+        IPeerInvitationService? invitationService = null,
+        LiveInterestRegistry? interests = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -55,6 +60,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         builder.Services.AddSingleton(clock);
         builder.Services.AddSingleton(invitationService ?? new UnavailablePeerInvitationService());
         builder.Services.AddSingleton<PeerInvitationStatusState>();
+        builder.Services.AddSingleton(new LiveFeedOptions(interests));
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
         builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
@@ -130,6 +136,7 @@ public sealed class LocalApiHost : IAsyncDisposable
                 originPeerId, originStreamId, first, take, token).ConfigureAwait(false));
         });
 
+        application.MapGet("/api/v1/live", StreamLiveAsync);
         application.MapGet("/api/v1/catalog", async (PeerHistoryQueryService history, CancellationToken token) =>
             Results.Json(await history.ReadCatalogAsync(token).ConfigureAwait(false)));
         application.MapGet("/api/v1/history", (
@@ -201,6 +208,66 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapGet("/", RenderPageAsync);
+    }
+
+    /// <summary>
+    /// Server-Sent Events: each newly stored observation (local or replicated) as one JSON event, plus periodic
+    /// comments so idle connections stay open. While connected, the viewer counts as live interest in this node's own
+    /// data, which switches its collection to the fast sampling interval.
+    /// </summary>
+    private static async Task StreamLiveAsync(
+        HttpContext context,
+        PeerStore store,
+        PeerHistoryQueryService history,
+        LiveFeedOptions options,
+        CancellationToken token)
+    {
+        var channel = Channel.CreateBounded<StoredOriginRecord>(new BoundedChannelOptions(1024)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+        });
+        using var subscription = store.Live.Subscribe(record => channel.Writer.TryWrite(record));
+        IDisposable? viewing = null;
+        try
+        {
+            var local = await store.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            if (local is not null && options.Interests is not null)
+            {
+                viewing = options.Interests.WatchLocal(local.PeerId);
+            }
+
+            context.Response.ContentType = "text/event-stream";
+            await context.Response.WriteAsync(": connected\n\n", token).ConfigureAwait(false);
+            await context.Response.Body.FlushAsync(token).ConfigureAwait(false);
+            while (!token.IsCancellationRequested)
+            {
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
+                idle.CancelAfter(TimeSpan.FromSeconds(15));
+                try
+                {
+                    var record = await channel.Reader.ReadAsync(idle.Token).ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(history.ToPoint(record, record.ReceivedAt), JsonSerializerOptions.Web);
+                    await context.Response.WriteAsync(
+                        $"id: {record.OriginPeerId}:{record.OriginStreamId}:{record.Sequence}\nevent: observation\ndata: {json}\n\n",
+                        token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    await context.Response.WriteAsync(": keepalive\n\n", token).ConfigureAwait(false);
+                }
+
+                await context.Response.Body.FlushAsync(token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // The viewer disconnected or the host is stopping.
+        }
+        finally
+        {
+            viewing?.Dispose();
+        }
     }
 
     private static async Task<IResult> QueryAsync<T>(Func<Task<T>> query)

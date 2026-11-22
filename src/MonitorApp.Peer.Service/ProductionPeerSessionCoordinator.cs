@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Core;
@@ -155,8 +156,17 @@ public sealed class ProductionPeerSessionCoordinator(
     PeerStore store,
     OriginReplicationCoordinator replication,
     ILocalPeerIdentityProvider localIdentity,
-    IPeerAdvertisementProvider advertisement) : IPeerSessionCoordinator
+    IPeerAdvertisementProvider advertisement,
+    LiveInterestRegistry? interests = null) : IPeerSessionCoordinator
 {
+    public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
+        store,
+        remotePeerId,
+        (request, token) => ReadOriginRangeAsync(remotePeerId, request, token),
+        async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
+        interests,
+        RequestRemotePush: false));
+
     public async ValueTask<PeerSessionOpenResult> OpenAsync(
         PeerHello remoteHello,
         CancellationToken cancellationToken)
@@ -330,7 +340,9 @@ public sealed class ProductionPeerSessionCoordinator(
             cancellationToken).ConfigureAwait(false);
         if (existing.Cursor is not null && cursor.AcceptedThroughSequence < existing.Cursor.AcceptedThrough)
         {
-            throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Acknowledgement would regress a durable cursor.");
+            // A stale acknowledgement (for example from a second concurrent session delivering the same batch)
+            // never lowers a durable cursor; it is simply superseded.
+            return;
         }
 
         await store.UpdateReplicationCursorAsync(
@@ -359,6 +371,8 @@ public sealed class ProductionPeerSessionCoordinator(
         var trusted = await store.ReadTrustedPeerAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
         if (trusted is null || trusted.TrustState != PeerTrustState.Active)
         {
+            // A peer that is no longer trusted must stop holding this origin in fast sampling.
+            interests?.WithdrawRequester(remotePeerId);
             throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
         }
     }

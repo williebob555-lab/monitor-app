@@ -10,6 +10,12 @@ using MonitorApp.Peer.Service;
 
 namespace MonitorApp.Peer.Node;
 
+/// <summary>Tunables for live behaviour; defaults suit production, tests shorten them.</summary>
+public sealed record NodeLiveOptions(
+    TimeSpan? CollectionInterval = null,
+    LiveInterestPolicy? InterestPolicy = null,
+    TimeSpan? HeartbeatInterval = null);
+
 public sealed class PeerNodeRuntime : IAsyncDisposable
 {
     private readonly WebApplication peerApplication;
@@ -17,14 +23,22 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly INodeIdentityProvider identity;
     private readonly NodePeerConnectionManager connections;
     private readonly NodeCollectionScheduler collection;
+    private readonly PeerStore store;
+    private readonly LiveInterestRegistry interests;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
         LocalApiHost localApi,
         INodeIdentityProvider identity,
         NodePeerConnectionManager connections,
-        NodeCollectionScheduler collection)
+        NodeCollectionScheduler collection,
+        PeerStore store,
+        LiveInterestRegistry interests,
+        int peerPort)
     {
+        PeerPort = peerPort;
+        this.store = store;
+        this.interests = interests;
         this.peerApplication = peerApplication;
         this.localApi = localApi;
         this.identity = identity;
@@ -36,14 +50,45 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
 
+    public PeerStore Store => store;
+
+    /// <summary>The port the peer (gRPC) listener was asked to bind.</summary>
+    public int PeerPort { get; }
+
+    /// <summary>The sampling interval currently in force for this node's own collection.</summary>
+    public TimeSpan CurrentCollectionInterval => collection.CurrentInterval;
+
+    public int ActiveLiveInterestCount => interests.ActiveInterestCount;
+
+    /// <summary>
+    /// Newly stored observations (locally collected or replicated) as they commit; the in-process feed a UI subscribes to.
+    /// </summary>
+    public IAsyncEnumerable<StoredOriginRecord> LiveObservations(CancellationToken cancellationToken = default) =>
+        store.Live.StreamAsync(cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// A local UI is viewing live data: with no argument this node's own data (switching its collection to the fast
+    /// interval), otherwise a paired remote peer (declared over the held-open session). Dispose to stop viewing.
+    /// </summary>
+    public IDisposable BeginViewing(string? remotePeerId = null) =>
+        remotePeerId is null
+            ? interests.WatchLocal(identity.PublicIdentity.PeerId)
+            : interests.WatchRemote(remotePeerId);
+
     public Task<PeerCollectionRunResult> CollectOnceAsync(
         CancellationToken cancellationToken = default) => collection.RunOnceAsync(cancellationToken);
 
+    public static Task<PeerNodeRuntime> StartAsync(
+        NodeOptions options,
+        CancellationToken cancellationToken = default) => StartAsync(options, null, cancellationToken);
+
     public static async Task<PeerNodeRuntime> StartAsync(
         NodeOptions options,
+        NodeLiveOptions? live,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        var interests = new LiveInterestRegistry(live?.InterestPolicy);
         // Fails clearly on unsupported OSes and Linux distributions before any state is created.
         var platform = PlatformDetector.DetectCurrent();
         Directory.CreateDirectory(options.DataDirectory);
@@ -74,7 +119,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await capabilityRegistry.RegisterAsync(
             SystemCapabilityDeclaration.Create(),
             cancellationToken).ConfigureAwait(false);
-        var connections = new NodePeerConnectionManager(identity, peerStore, replication);
+        var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval);
         var invitationService = new NodePeerInvitationService(identity, peerStore, connections);
         var collection = new NodeCollectionScheduler(
             new PeerSystemMetricsIngestionBridge(
@@ -83,7 +128,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 new SystemSnapshotCollector(platform),
                 PeerCollectionOptions.Default(
                     $"peer:{identity.PublicIdentity.PeerId}",
-                    Guid.NewGuid().ToString("N"))));
+                    Guid.NewGuid().ToString("N"))),
+            live?.CollectionInterval,
+            interests,
+            identity.PublicIdentity.PeerId);
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -101,6 +149,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton<IPeerClock>(clock);
                 services.AddSingleton(pairing);
                 services.AddSingleton(replication);
+                services.AddSingleton(interests);
                 services.AddProductionPeerSessionCoordinator();
                 services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
                 services.AddProductionPeerPairingCoordinator();
@@ -114,14 +163,15 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             pairingStore,
             pairing,
             clock,
-            invitationService);
+            invitationService,
+            interests);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
             await localApi.StartAsync(cancellationToken).ConfigureAwait(false);
             await connections.StartAsync(cancellationToken).ConfigureAwait(false);
             collection.Start();
-            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection);
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort);
         }
         catch
         {

@@ -16,7 +16,9 @@ public sealed record MobilePeerOptions(
     string DisplayName,
     TimeSpan CollectionInterval,
     TimeSpan SyncInterval,
-    TimeSpan MaximumSyncBackoff)
+    TimeSpan MaximumSyncBackoff,
+    TimeSpan? HeartbeatInterval = null,
+    LiveInterestPolicy? InterestPolicy = null)
 {
     public static MobilePeerOptions Default(string dataDirectory, string displayName) => new(
         dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5));
@@ -68,6 +70,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSystemMetricsIngestionBridge collection;
+    private readonly LiveInterestRegistry interests;
     private readonly object gate = new();
     private readonly Dictionary<string, MobilePeerSyncStatus> peerStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
@@ -88,6 +91,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         this.store = store;
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
+        interests = new LiveInterestRegistry(options.InterestPolicy);
     }
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
@@ -122,6 +126,23 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     }
 
     public PeerStore Store => store;
+
+    /// <summary>
+    /// Newly stored observations (own readings and replicated desktop data) as they commit, for the app UI.
+    /// </summary>
+    public IAsyncEnumerable<StoredOriginRecord> LiveObservations(CancellationToken cancellationToken = default) =>
+        store.Live.StreamAsync(cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// The UI is viewing live data: for a paired desktop peer id the held-open session declares and renews interest so
+    /// that desktop samples fast; with no id the phone itself samples fast. Dispose to stop viewing.
+    /// </summary>
+    public IDisposable BeginViewing(string? remotePeerId = null) =>
+        remotePeerId is null ? interests.WatchLocal(identity.PublicIdentity.PeerId) : interests.WatchRemote(remotePeerId);
+
+    /// <summary>The phone's current collection interval (fast while a desktop is viewing it).</summary>
+    public TimeSpan CurrentCollectionInterval =>
+        interests.EffectiveInterval(identity.PublicIdentity.PeerId, options.CollectionInterval);
 
     public MobileStatus GetStatus()
     {
@@ -279,8 +300,8 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             var token = loopCancellation.Token;
             loops =
             [
-                Task.Run(() => LoopAsync(options.CollectionInterval, () => CollectOnceAsync(token), token), CancellationToken.None),
-                Task.Run(() => LoopAsync(options.SyncInterval, () => SyncOnceAsync(token), token), CancellationToken.None),
+                Task.Run(() => CollectionLoopAsync(token), CancellationToken.None),
+                Task.Run(() => SuperviseSessionsAsync(token), CancellationToken.None),
             ];
         }
     }
@@ -344,6 +365,201 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         }
     }
 
+    private async Task CollectionLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await AdaptiveSampler.RunAsync(
+                async token =>
+                {
+                    try
+                    {
+                        await CollectOnceAsync(token).ConfigureAwait(false);
+                    }
+                    catch (Exception) when (!token.IsCancellationRequested)
+                    {
+                        // Recorded in status by CollectOnceAsync; the loop must outlive any single failure.
+                    }
+                },
+                identity.PublicIdentity.PeerId,
+                options.CollectionInterval,
+                interests,
+                collectImmediately: true,
+                onInterval: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Keeps exactly one long-lived live session per active paired peer: collection data and the desktop's data stream
+    /// both ways over the phone-initiated connection, and a revoked peer's session is dropped.
+    /// </summary>
+    private async Task SuperviseSessionsAsync(CancellationToken cancellationToken)
+    {
+        var running = new Dictionary<string, (CancellationTokenSource Cancellation, Task Session)>(StringComparer.Ordinal);
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var peers = await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false);
+                    var active = peers.Where(item => item.TrustState == PeerTrustState.Active)
+                        .ToDictionary(item => item.PeerId, StringComparer.Ordinal);
+                    foreach (var stale in running.Keys.Where(id => !active.ContainsKey(id)).ToArray())
+                    {
+                        await StopSessionAsync(running[stale]).ConfigureAwait(false);
+                        running.Remove(stale);
+                    }
+
+                    foreach (var peer in active.Values)
+                    {
+                        if (running.TryGetValue(peer.PeerId, out var existing) && !existing.Session.IsCompleted)
+                        {
+                            continue;
+                        }
+
+                        existing.Cancellation?.Dispose();
+                        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        running[peer.PeerId] = (cancellation,
+                            Task.Run(() => PeerSessionLoopAsync(peer.PeerId, cancellation.Token), CancellationToken.None));
+                    }
+
+                    await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            foreach (var session in running.Values)
+            {
+                await StopSessionAsync(session).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task StopSessionAsync((CancellationTokenSource Cancellation, Task Session) session)
+    {
+        await session.Cancellation.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await session.Session.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        session.Cancellation.Dispose();
+    }
+
+    private async Task PeerSessionLoopAsync(string peerId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
+                if (peer is null || peer.TrustState != PeerTrustState.Active)
+                {
+                    return;
+                }
+
+                var locators = await store.ReadPeerLocatorsAsync(peerId, cancellationToken).ConfigureAwait(false);
+                TimeSpan wait;
+                lock (gate)
+                {
+                    peerStatus.TryAdd(peerId, new MobilePeerSyncStatus(peerId, MobileSyncState.NeverSynced, null, null));
+                    wait = notBefore.TryGetValue(peerId, out var until) && DateTimeOffset.UtcNow < until
+                        ? until - DateTimeOffset.UtcNow
+                        : TimeSpan.Zero;
+                }
+
+                if (wait <= TimeSpan.Zero && locators.Count > 0)
+                {
+                    await RunLiveSessionAsync(peer, locators[0], cancellationToken).ConfigureAwait(false);
+                    lock (gate)
+                    {
+                        wait = notBefore.TryGetValue(peerId, out var until) && DateTimeOffset.UtcNow < until
+                            ? until - DateTimeOffset.UtcNow
+                            : options.SyncInterval;
+                    }
+                }
+                else if (wait <= TimeSpan.Zero)
+                {
+                    wait = options.SyncInterval;
+                }
+
+                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    /// <summary>One held-open session (with transport-level reconnect) until cancellation or a permanent refusal.</summary>
+    private async Task RunLiveSessionAsync(TrustedPeer peer, PeerLocator locator, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!System.Net.IPAddress.TryParse(locator.Host, out var address))
+            {
+                throw new InvalidOperationException("A persisted peer locator is not an IP address.");
+            }
+
+            var endpoint = new PeerPairingInvitation(address, locator.Port, peer.PeerId, peer.PublicKeyFingerprint, null)
+                .ToEndpoint();
+            var remote = new PeerPublicIdentity(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint);
+            var transport = PeerTransportOptions.Create(endpoint) with
+            {
+                HeartbeatInterval = options.HeartbeatInterval ?? TimeSpan.FromSeconds(15),
+                InitialReconnectDelay = options.SyncInterval,
+                MaximumReconnectDelay = options.MaximumSyncBackoff,
+            };
+            await using var connector = new PeerGrpcConnector(
+                transport,
+                new P256PeerSessionAuthenticationProvider(identity.PublicIdentity, remote, identity.IdentityKey),
+                new PeerSyncApplication(store, replication, live: new PeerSyncLiveOptions(interests, RequestRemotePush: true)));
+            connector.StateChanged += state =>
+            {
+                if (state == PeerTransportState.Authenticated)
+                {
+                    lock (gate)
+                    {
+                        failures.Remove(peer.PeerId);
+                        notBefore.Remove(peer.PeerId);
+                        peerStatus[peer.PeerId] = new MobilePeerSyncStatus(
+                            peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
+                    }
+                }
+            };
+            connector.SessionFailed += exception => RecordFailure(peer.PeerId, exception);
+            await connector.RunAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or InvalidOperationException or PeerSyncException)
+        {
+            if (exception is not (PeerAuthenticationException or PeerCompatibilityException))
+            {
+                RecordFailure(peer.PeerId, exception);
+            }
+        }
+    }
+
     private void RecordFailure(string peerId, Exception exception)
     {
         lock (gate)
@@ -358,37 +574,11 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             var state = exception is PeerAuthenticationException or PeerCompatibilityException
                 ? MobileSyncState.Refused
                 : MobileSyncState.Offline;
-            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, previous?.LastSuccess, exception.Message);
+            var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
+            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
         }
     }
 
-    private static async Task LoopAsync(TimeSpan interval, Func<Task> work, CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await work().ConfigureAwait(false);
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception)
-            {
-                // Failures are recorded in status by the work itself; the loop must outlive any single failure.
-                try
-                {
-                    await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-            }
-        }
-    }
 
     private sealed class InitiatingUserApproval : IRemotePairingApproval
     {

@@ -159,6 +159,37 @@ message PeerHeartbeat {
   google.protobuf.Timestamp sent_at = 1;
 }
 
+// Live session extensions (additive). A peer opts a held-open session into live origin push and live interest
+// with LiveSubscribe; origin data still travels as OriginRecordBatch/OriginAck over the same signed, idempotent
+// per-origin replication, so cursors and gaps stay authoritative.
+message LiveSubscribe {
+  bool push_origin = 1;
+  bool push_interests = 2;
+  uint32 maximum_in_flight_batches = 3;
+}
+
+message LiveSubscribeAck {
+  bool accepted = 1;
+  uint32 maximum_in_flight_batches = 2;
+  string safe_message = 3;
+}
+
+// Declares that the sender is viewing subject_peer_id's signals. The receiver honours it only for its own origin,
+// only from an actively trusted authenticated peer, and only until the lease expires. lease_seconds == 0 withdraws.
+message LiveInterest {
+  string subject_peer_id = 1;
+  repeated string signal_ids = 2;
+  uint32 lease_seconds = 3;
+}
+
+message LiveInterestAck {
+  string subject_peer_id = 1;
+  bool accepted = 2;
+  uint32 granted_lease_seconds = 3;
+  uint32 sampling_interval_milliseconds = 4;
+  string safe_message = 5;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -168,6 +199,9 @@ message PeerSessionRequest {
     OriginRecordBatch origin_batch = 5;
     OriginAck origin_ack = 6;
     PeerHeartbeat heartbeat = 7;
+    LiveSubscribe live_subscribe = 20;
+    LiveInterest live_interest = 21;
+    LiveInterestAck live_interest_ack = 22;
   }
 }
 
@@ -183,5 +217,8 @@ message PeerSessionResponse {
     CompatibilityFailure incompatibility = 8;
     ProtocolError error = 9;
     PeerProof proof = 10;
+    LiveSubscribeAck live_subscribe_ack = 20;
+    LiveInterest live_interest = 21;
+    LiveInterestAck live_interest_ack = 22;
   }
 }

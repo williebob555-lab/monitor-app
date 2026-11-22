@@ -367,9 +367,9 @@
         "type": "Project",
         "dependencies": {
           "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Application": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Replication": "[1.0.0, )",
-          "MonitorApp.Peer.Service": "[1.0.0, )",
           "MonitorApp.Peer.Transport": "[1.0.0, )"
         }
       },

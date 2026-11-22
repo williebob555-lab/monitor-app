@@ -1,6 +1,7 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using MonitorApp.Contracts;
+using Microsoft.Extensions.Hosting;
 using MonitorApp.Contracts.V1;
 
 namespace MonitorApp.Peer.Service;
@@ -184,21 +185,69 @@ public sealed class PeerPairingGrpcService(
 
 public sealed class PeerSessionGrpcService(
     IPeerSessionCoordinator coordinator,
-    PeerHostOptions options) : PeerService.PeerServiceBase
+    PeerHostOptions options,
+    IHostApplicationLifetime? lifetime = null) : PeerService.PeerServiceBase
 {
     public override async Task PeerSession(
         IAsyncStreamReader<PeerSessionRequest> requestStream,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ServerCallContext context)
     {
+        // Live sessions write from the request loop and from a push task, so every write goes through one gate.
+        using var serialized = new SerializedResponseWriter(responseStream);
+        // Host shutdown must end held-open live sessions promptly or a graceful stop would wait out its timeout.
+        using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            context.CancellationToken,
+            lifetime?.ApplicationStopping ?? CancellationToken.None);
+        var live = new LiveSessionState(sessionCancellation);
+        try
+        {
+            await RunSessionAsync(requestStream, serialized, context, live).ConfigureAwait(false);
+        }
+        finally
+        {
+            await live.StopAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task RunSessionAsync(
+        IAsyncStreamReader<PeerSessionRequest> requestStream,
+        IServerStreamWriter<PeerSessionResponse> responseStream,
+        ServerCallContext context,
+        LiveSessionState live)
+    {
         PeerHello? remoteHello = null;
         PeerHello? localHello = null;
         var authenticated = false;
         var messages = 0;
 
-        while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
+        while (true)
         {
-            if (++messages > options.MaximumMessagesPerSession)
+            bool hasRequest;
+            using (var idle = CancellationTokenSource.CreateLinkedTokenSource(live.Token))
+            {
+                if (live.Active)
+                {
+                    idle.CancelAfter(options.LiveIdleTimeout);
+                }
+
+                try
+                {
+                    hasRequest = await requestStream.MoveNext(idle.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)
+                {
+                    // Idle timeout or a failed push loop ended this live session; the client reconnects from cursors.
+                    return;
+                }
+            }
+
+            if (!hasRequest)
+            {
+                return;
+            }
+
+            if (live.Active ? !live.AllowMessage(options.MaximumMessagesPerSession) : ++messages > options.MaximumMessagesPerSession)
             {
                 await WriteErrorAsync(
                     responseStream,
@@ -358,6 +407,7 @@ public sealed class PeerSessionGrpcService(
                 remoteHello.PeerId,
                 request,
                 responseStream,
+                live,
                 context.CancellationToken).ConfigureAwait(false);
         }
     }
@@ -366,12 +416,63 @@ public sealed class PeerSessionGrpcService(
         string remotePeerId,
         PeerSessionRequest request,
         IServerStreamWriter<PeerSessionResponse> responseStream,
+        LiveSessionState live,
         CancellationToken cancellationToken)
     {
         try
         {
             switch (request.MessageCase)
             {
+                case PeerSessionRequest.MessageOneofCase.LiveSubscribe:
+                    {
+                        var session = live.Session ?? coordinator.OpenLiveSession(remotePeerId);
+                        var subscribe = request.LiveSubscribe;
+                        if (session is null)
+                        {
+                            await responseStream.WriteAsync(new PeerSessionResponse
+                            {
+                                LiveSubscribeAck = new LiveSubscribeAck { Accepted = false, SafeMessage = "Live sessions are not supported." },
+                            }, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+
+                        live.Attach(session);
+                        live.Active = true;
+                        await responseStream.WriteAsync(new PeerSessionResponse
+                        {
+                            LiveSubscribeAck = new LiveSubscribeAck
+                            {
+                                Accepted = true,
+                                MaximumInFlightBatches = (uint)session.MaximumInFlightBatches,
+                            },
+                        }, cancellationToken).ConfigureAwait(false);
+                        if (subscribe.PushOrigin || subscribe.PushInterests)
+                        {
+                            live.StartPush(session, responseStream, subscribe.PushOrigin, subscribe.PushInterests);
+                        }
+
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.LiveInterest:
+                    {
+                        var session = live.Session ?? coordinator.OpenLiveSession(remotePeerId);
+                        if (session is null)
+                        {
+                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                                "Live interest is not supported.", false).ConfigureAwait(false);
+                            return;
+                        }
+
+                        live.Attach(session);
+                        var interestAck = await BoundedAsync(
+                            token => session.AcceptRemoteInterestAsync(request.LiveInterest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { LiveInterestAck = interestAck }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.LiveInterestAck:
+                    break;
                 case PeerSessionRequest.MessageOneofCase.CapabilityExchange:
                     {
                         var validationError = ValidateCapabilities(request.CapabilityExchange);
@@ -476,6 +577,7 @@ public sealed class PeerSessionGrpcService(
                                 return true;
                             },
                             cancellationToken).ConfigureAwait(false);
+                        live.Session?.OnBatchAcknowledged(request.OriginAck.Cursor);
                         break;
                     }
                 case PeerSessionRequest.MessageOneofCase.Heartbeat:
@@ -518,6 +620,153 @@ public sealed class PeerSessionGrpcService(
                 exception.Code,
                 exception.SafeMessage,
                 exception.Retryable).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class SerializedResponseWriter(IServerStreamWriter<PeerSessionResponse> inner)
+        : IServerStreamWriter<PeerSessionResponse>, IDisposable
+    {
+        private readonly SemaphoreSlim gate = new(1, 1);
+
+        public void Dispose() => gate.Dispose();
+
+        public WriteOptions? WriteOptions
+        {
+            get => inner.WriteOptions;
+            set => inner.WriteOptions = value;
+        }
+
+        public Task WriteAsync(PeerSessionResponse message) => WriteAsync(message, CancellationToken.None);
+
+        public async Task WriteAsync(PeerSessionResponse message, CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await inner.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+    }
+
+    /// <summary>Per-session live state: the opt-in flag, rate window, and the background push loop.</summary>
+    private sealed class LiveSessionState(CancellationTokenSource cancellation)
+    {
+        private DateTimeOffset windowStart = DateTimeOffset.UtcNow;
+        private int windowCount;
+        private Task? pushLoop;
+
+        public CancellationToken Token => cancellation.Token;
+
+        public bool Active { get; set; }
+
+        public IPeerLiveSession? Session { get; private set; }
+
+        public void Attach(IPeerLiveSession session) => Session ??= session;
+
+        /// <summary>Held-open sessions are bounded by message rate rather than a lifetime message total.</summary>
+        public bool AllowMessage(int perMinute)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - windowStart >= TimeSpan.FromMinutes(1))
+            {
+                windowStart = now;
+                windowCount = 0;
+            }
+
+            return ++windowCount <= perMinute;
+        }
+
+        public void StartPush(
+            IPeerLiveSession session,
+            IServerStreamWriter<PeerSessionResponse> writer,
+            bool pushOrigin,
+            bool pushInterests) =>
+            pushLoop ??= Task.Run(() => PushAsync(session, writer, pushOrigin, pushInterests), CancellationToken.None);
+
+        public async Task StopAsync()
+        {
+            await cancellation.CancelAsync().ConfigureAwait(false);
+            if (pushLoop is not null)
+            {
+                await pushLoop.ConfigureAwait(false);
+            }
+
+            Session?.Dispose();
+        }
+
+        private async Task PushAsync(
+            IPeerLiveSession session,
+            IServerStreamWriter<PeerSessionResponse> writer,
+            bool pushOrigin,
+            bool pushInterests)
+        {
+            var token = cancellation.Token;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var progressed = false;
+                    while (pushOrigin && await session.TryNextBatchAsync(token).ConfigureAwait(false) is { } batch)
+                    {
+                        if (!PeerContractValidator.Validate(batch).IsValid)
+                        {
+                            throw new PeerSessionOperationException(
+                                ProtocolErrorCode.Internal, "Peer coordinator returned an invalid origin batch.", true);
+                        }
+
+                        await writer.WriteAsync(new PeerSessionResponse { OriginBatch = batch }, token).ConfigureAwait(false);
+                        progressed = true;
+                    }
+
+                    if (pushInterests)
+                    {
+                        foreach (var interest in session.DrainOutgoingInterests())
+                        {
+                            await writer.WriteAsync(new PeerSessionResponse { LiveInterest = interest }, token).ConfigureAwait(false);
+                            progressed = true;
+                        }
+                    }
+
+                    if (!progressed)
+                    {
+                        await session.WaitForActivityAsync(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (PeerSessionOperationException exception)
+            {
+                // Trust withdrawn or the range became unreadable mid-session: tell the peer, then end the session.
+                await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
+                await cancellation.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or InvalidDataException)
+            {
+                await cancellation.CancelAsync().ConfigureAwait(false);
+            }
+        }
+
+        private static async Task TryWriteErrorAsync(
+            IServerStreamWriter<PeerSessionResponse> writer,
+            PeerSessionOperationException exception)
+        {
+            try
+            {
+                await writer.WriteAsync(new PeerSessionResponse
+                {
+                    Error = PeerPairingGrpcService.Error(exception.Code, exception.SafeMessage, exception.Retryable),
+                }).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidOperationException or OperationCanceledException)
+            {
+                // The stream already ended; there is nobody left to tell.
+            }
         }
     }
 

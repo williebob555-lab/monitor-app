@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Mobile\MonitorApp.Peer.Mobile.csproj" />
+    <ProjectReference Include="..\..\src\MonitorApp.Peer.Node\MonitorApp.Peer.Node.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Service\MonitorApp.Peer.Service.csproj" />
   </ItemGroup>
 </Project>

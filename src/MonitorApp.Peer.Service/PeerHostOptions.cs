@@ -11,6 +11,9 @@ public sealed record PeerHostOptions(
     int MaximumMessagesPerSession,
     TimeSpan CoordinatorTimeout)
 {
+    /// <summary>A live (held-open) session with no inbound message for this long is considered dead and closed.</summary>
+    public TimeSpan LiveIdleTimeout { get; init; } = TimeSpan.FromSeconds(120);
+
     public const int DefaultMaximumMessageBytes = 1024 * 1024;
 
     public const int DefaultMaximumMessagesPerSession = 4096;
