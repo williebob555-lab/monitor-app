@@ -32,6 +32,7 @@ public sealed class CiscoSg250PersistenceTests : IDisposable
         Assert.Equal(0, source.ReadCount);
         Assert.Null(await store.ReadLatestAdapterStatusAsync(AdapterId));
 
+        await store.UpsertObservedEntityAsync(new ObservedEntity(SwitchId, "lan.switch", clock.GetUtcNow()));
         await store.UpsertAdapterInstanceAsync(new AdapterInstance(
             AdapterId, "monitor.cisco.sg250", "1", Owner, SwitchId, "local:snmpconfig", true));
         await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.CollectAndPersistAsync());
@@ -128,6 +129,7 @@ public sealed class CiscoSg250PersistenceTests : IDisposable
 
     private static async Task ProvisionAsync(PeerStore store, TestClock clock)
     {
+        await store.UpsertObservedEntityAsync(new ObservedEntity(SwitchId, "lan.switch", clock.GetUtcNow()));
         await store.UpsertAdapterInstanceAsync(new AdapterInstance(
             AdapterId, "monitor.cisco.sg250", "1", Owner, SwitchId, "local:snmpconfig", true));
         await store.AssignCollectorAsync(new CollectorAssignment(SwitchId, AdapterId, Owner, clock.GetUtcNow()));
