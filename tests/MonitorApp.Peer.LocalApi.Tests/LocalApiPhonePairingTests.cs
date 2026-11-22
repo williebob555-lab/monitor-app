@@ -220,7 +220,9 @@ public sealed partial class LocalApiPhonePairingTests : IDisposable
 
         var reader = new BarcodeReaderGeneric
         {
-            Options = new DecodingOptions { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = false },
+            // PureBarcode: the image is a synthetic, axis-aligned render of the exact module grid, so sample modules directly instead of
+            // relying on finder-pattern detection, which can miss on some random payloads and made this test flaky.
+            Options = new DecodingOptions { PossibleFormats = [BarcodeFormat.QR_CODE], PureBarcode = true },
         };
         var result = reader.Decode(new RGBLuminanceSource(gray, pixels, pixels, RGBLuminanceSource.BitmapFormat.Gray8));
         Assert.NotNull(result);
