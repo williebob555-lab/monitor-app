@@ -184,7 +184,7 @@ jobs:
           $msi = Join-Path $PWD "out\monitorapp-windows-x64-$($env:OLD_VERSION)-setup.msi"   # msiexec needs backslashes
           ./eng/packaging/windows/build-msi.ps1 -StageDirectory $stage -Version $env:OLD_VERSION -OutputPath $msi
           $p = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"") -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 80; throw "msiexec install exit $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) { Select-String -Path "$env:RUNNER_TEMP\msi-install.log" -Pattern 'WixQuietExec|return value 3|Error \d{4}|Exception|:\s+(Install|Copy|New|Set|Register|Start)-' -Context 0,3 | ForEach-Object { $_.ToString() }; throw "msiexec install exit $($p.ExitCode)" }
           $svc = Get-Service MonitorApp
           $svc.WaitForStatus('Running', [TimeSpan]::FromSeconds(90))
           if (-not (Test-Path "$env:ProgramFiles\MonitorApp\update-helper.json")) { throw 'update helper marker missing after MSI install' }
