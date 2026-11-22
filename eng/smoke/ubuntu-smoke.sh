@@ -46,7 +46,30 @@ if systemctl is-active --quiet monitor-app; then log "unit is unexpectedly alrea
 endstep
 
 step "enable and start the service"
-sudo systemctl enable --now monitor-app
+sudo systemctl enable monitor-app
+sudo systemctl start --no-block monitor-app
+# systemd still enforces the unit's start timeout; this loop only watches, and snapshots a slow first start so a
+# start that hangs can be diagnosed (which syscalls, sockets and files the node is waiting on).
+snapshot_taken=0
+for second in $(seq 1 150); do
+    state="$(systemctl show monitor-app -p ActiveState --value)"
+    [ "$state" = "activating" ] || break
+    if [ "$second" -ge 30 ] && [ "$snapshot_taken" = 0 ]; then
+        snapshot_taken=1
+        pid="$(systemctl show monitor-app -p MainPID --value)"
+        log "node still starting after ${second}s (pid $pid); snapshot follows"
+        sudo ss -tanpu 2>/dev/null | grep "pid=$pid," || true
+        sudo ls -l "/proc/$pid/fd" 2>/dev/null | sed 's/^.* -> //' | sort | uniq -c | sort -rn | head -40 || true
+        for task in /proc/"$pid"/task/*; do
+            printf '%s %s %s\n' "$(basename "$task")" "$(sudo cat "$task/comm" 2>/dev/null)" "$(sudo cat "$task/wchan" 2>/dev/null)"
+        done | sort -k3 | uniq -c -f1 | head -40 || true
+        if command -v strace >/dev/null 2>&1; then
+            sudo timeout 5 strace -f -tt -p "$pid" -e trace=network,file,poll,epoll_wait 2>&1 | grep -v ENOENT | head -80 || true
+        fi
+        sudo journalctl -u monitor-app --no-pager -n 60 || true
+    fi
+    sleep 1
+done
 systemctl is-enabled --quiet monitor-app || fail "unit not enabled"
 systemctl is-active --quiet monitor-app || fail "unit not active"
 systemctl show monitor-app -p Type -p User -p MainPID -p ActiveState -p SubState
