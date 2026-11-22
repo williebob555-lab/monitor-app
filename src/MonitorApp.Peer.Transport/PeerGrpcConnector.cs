@@ -100,9 +100,14 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         await foreach (var request in application.GetPendingRequestsAsync(hello.Hello.PeerId, cancellationToken).WithCancellation(cancellationToken))
             await DispatchAsync(call, hello.Hello.PeerId, request, cancellationToken).ConfigureAwait(false);
 
+        if (application.WantsAlerts)
+            await PullAlertsAsync(call, hello.Hello.PeerId, cancellationToken).ConfigureAwait(false);
+
         if (!keepAlive)
         {
             await call.RequestStream.CompleteAsync().WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+            // Wait for the remote to finish processing (the alert acknowledgement has no reply of its own).
+            while (await call.ResponseStream.MoveNext(cancellationToken).WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false)) { }
             SetState(PeerTransportState.Stopped);
             return;
         }
@@ -112,6 +117,45 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
             await Task.Delay(options.HeartbeatInterval, cancellationToken).ConfigureAwait(false);
             await WriteAsync(call, new PeerSessionRequest { Heartbeat = new PeerHeartbeat { SentAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow) } }, cancellationToken).ConfigureAwait(false);
             _ = await ReadExpectedAsync(call, PeerSessionResponse.MessageOneofCase.Heartbeat, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private const int MaximumAlertPages = 16;
+
+    private async Task PullAlertsAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call,
+        string remotePeerId, CancellationToken cancellationToken)
+    {
+        for (var page = 0; page < MaximumAlertPages; page++)
+        {
+            var pull = new AlertPull
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                MaximumCount = (uint)PeerContractRules.MaximumAlertsPerBatch,
+            };
+            await WriteAsync(call, new PeerSessionRequest { AlertPull = pull }, cancellationToken).ConfigureAwait(false);
+            if (!await call.ResponseStream.MoveNext(cancellationToken).WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false))
+                throw new PeerTransportException("Peer closed the session unexpectedly.");
+            var response = call.ResponseStream.Current;
+            // A peer that predates alert delivery refuses with InvalidMessage; that must not fail replication.
+            if (response.MessageCase == PeerSessionResponse.MessageOneofCase.Error &&
+                response.Error.Code == ProtocolErrorCode.InvalidMessage)
+                return;
+            if (response.MessageCase == PeerSessionResponse.MessageOneofCase.Error)
+                throw response.Error.Retryable
+                    ? new PeerTransportException(response.Error.SafeMessage)
+                    : new PeerAuthenticationException(response.Error.SafeMessage);
+            if (response.MessageCase != PeerSessionResponse.MessageOneofCase.AlertBatch || response.AlertBatch.RequestId != pull.RequestId)
+                throw new PeerTransportException("Peer returned an unexpected session response.");
+            RequireValid(PeerContractValidator.Validate(response.AlertBatch), "Peer alert batch is invalid.");
+            var ack = await application.AcceptAlertBatchAsync(remotePeerId, response.AlertBatch, cancellationToken).ConfigureAwait(false);
+            if (ack is not null)
+            {
+                RequireValid(PeerContractValidator.Validate(ack), "Local alert acknowledgement is invalid.");
+                await WriteAsync(call, new PeerSessionRequest { AlertAck = ack }, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!response.AlertBatch.HasMore)
+                return;
         }
     }
 

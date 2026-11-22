@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Grpc.Core;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
 using MonitorApp.Peer.Core;
@@ -68,6 +69,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSystemMetricsIngestionBridge collection;
+    private readonly AlertStore alerts;
     private readonly object gate = new();
     private readonly Dictionary<string, MobilePeerSyncStatus> peerStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
@@ -81,8 +83,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         MobilePeerOptions options,
         ILocalPeerIdentityProvider identity,
         PeerStore store,
+        AlertStore alerts,
         PeerSystemMetricsIngestionBridge collection)
     {
+        this.alerts = alerts;
         this.options = options;
         this.identity = identity;
         this.store = store;
@@ -105,6 +109,8 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         Directory.CreateDirectory(options.DataDirectory);
         var store = new PeerStore(PeerStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
         await store.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var alertStore = new AlertStore(AlertStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
+        await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await MobilePeerIdentity.EnsureRegisteredAsync(store, identity, cancellationToken).ConfigureAwait(false);
         await new PeerCapabilityRegistry(store).RegisterAsync(AndroidCapabilityDeclaration.Create(), cancellationToken)
             .ConfigureAwait(false);
@@ -118,10 +124,30 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 Guid.NewGuid().ToString("N"),
                 TimeSpan.FromSeconds(30),
                 256));
-        return new MobilePeerRuntime(options, identity, store, bridge);
+        return new MobilePeerRuntime(options, identity, store, alertStore, bridge);
     }
 
     public PeerStore Store => store;
+
+    /// <summary>
+    /// Raised after a sync (even a partially failed one) when stored alerts still need a user notification.
+    /// The host posts the notification, then calls <see cref="MarkAlertNotifiedAsync"/>; unmarked alerts are
+    /// raised again after the next sync or restart, so a missed notification is never lost.
+    /// </summary>
+    public event Action<IReadOnlyList<InboxAlert>>? NewAlerts;
+
+    /// <summary>Alerts persisted on this phone, active first then most recent; bounded.</summary>
+    public Task<IReadOnlyList<InboxAlert>> ReadAlertsAsync(int limit = 100, CancellationToken cancellationToken = default) =>
+        alerts.ReadInboxAsync(limit, false, cancellationToken);
+
+    public Task<IReadOnlyList<InboxAlert>> ReadPendingNotificationsAsync(CancellationToken cancellationToken = default) =>
+        alerts.ReadInboxAsync(100, true, cancellationToken);
+
+    public Task MarkAlertNotifiedAsync(InboxAlert alert, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alert);
+        return alerts.MarkNotifiedAsync(alert.Alert.AlertId, alert.Alert.Revision, cancellationToken);
+    }
 
     public MobileStatus GetStatus()
     {
@@ -353,8 +379,16 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             await using var connector = new PeerGrpcConnector(
                 PeerTransportOptions.Create(endpoint),
                 new P256PeerSessionAuthenticationProvider(identity.PublicIdentity, remote, identity.IdentityKey),
-                new PeerSyncApplication(store, replication));
-            await connector.SyncOnceAsync(cancellationToken).ConfigureAwait(false);
+                new PeerSyncApplication(store, replication, alerts: alerts));
+            try
+            {
+                await connector.SyncOnceAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await RaiseNewAlertsAsync().ConfigureAwait(false);
+            }
+
             lock (gate)
             {
                 failures.Remove(peer.PeerId);
@@ -370,6 +404,21 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             or IOException or TimeoutException or InvalidOperationException or PeerSyncException or OperationCanceledException)
         {
             RecordFailure(peer.PeerId, exception);
+        }
+    }
+
+    private async Task RaiseNewAlertsAsync()
+    {
+        var handler = NewAlerts;
+        if (handler is null)
+        {
+            return;
+        }
+
+        var pending = await alerts.ReadInboxAsync(100, true, CancellationToken.None).ConfigureAwait(false);
+        if (pending.Count > 0)
+        {
+            handler(pending);
         }
     }
 

@@ -32,6 +32,8 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - Online guessing: every failed redemption counts against a global budget (8 per minute) after which all redemptions, including correct ones, are refused until the window passes. Unknown, expired, used, malformed, and rate-limited attempts return the identical status so the endpoint is not an oracle. This is a denial-of-service trade-off on a private, authenticated network.
 - The invitation payload and code are rendered only on the loopback admin page (CSRF-protected generation, `no-store`, nonce CSP, inline SVG without scripts or style attributes).
 
+- Alerts reach a phone only over its authenticated outbound PeerSession and only while its trust is Active; the outbox is keyed by recipient peer id, acknowledgements are bounded to issued revisions, and the phone accepts only alerts originated by the desktop it authenticated. Alert content is rule/subject identifiers and short operational text; a notification may be visible on the lock screen, so detail text must stay free of credentials and communication identities. Revocation during an already open session is not yet enforced for alert rows beyond the next request.
+
 ## Observed devices, adapters, and LAN infrastructure
 
 Observed devices cannot authenticate as peers. A provisioned peer acts as collection gateway through a reviewed adapter. Every observation identifies the observed entity, collecting peer, adapter/module, source time, evidence, and quality.

@@ -103,9 +103,11 @@ This file records completed user-visible, operational, architectural, packaging,
 - Updated Google Protobuf for gRPC compatibility and pinned a patched SQLite native library after restore rejected a vulnerable transitive version.
 - Pinned GitHub Actions workflow dependencies to reviewed immutable commit hashes.
 - Kept the workload-specific Android project outside the root solution while including Android core/tests so ordinary cross-platform CI verifies shared Android logic without requiring a mobile SDK.
+- Added deterministic remote alerts delivered through the Android app (T032): new `MonitorApp.Peer.Alerts` library (own `alert_schema_version` tables in `peer.db`) with built-in rules (peer not seen for N minutes, observation Unavailable/Error beyond a grace, typed numeric thresholds for disk-free percent and sustained CPU percent), durable alert events, a per-recipient outbox with attempts, acknowledgements and expiry, and a phone-side inbox. Additive `AlertPull`/`AlertBatch`/`AlertAck` messages on `PeerSession` (request fields 8/9, response field 11, reserved ranges), `GET /api/v1/alerts` on the loopback API, `MobilePeerRuntime.NewAlerts`/`ReadAlertsAsync`, and an Android notification channel plus alert list (APK build unverified). New `MonitorApp.Peer.Alerts.Tests` suite and a step for it in `eng/verify.ps1`.
 
 ### Fixed
 
+- One-shot sync (`PeerGrpcConnector.SyncOnceAsync`) now waits for the remote to finish processing before reporting success, so replies-free messages such as an alert acknowledgement are never cut off.
 - Restored platform-neutral NuGet lockfiles after the first private CI run exposed runtime-specific publishing residue; self-contained packaging now isolates runtime locks and fails if it changes any tracked file.
 - Made the private-repository publishing helper tolerate expected missing-remote and missing-repository probes under Windows PowerShell 5 without weakening creation or visibility checks.
 - Preserved last-contact evidence for unknown and unavailable metric observations so an expired device contact now produces Offline instead of masking disconnection behind metric quality.
@@ -114,6 +116,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Security
 
+- Alert delivery requires an authenticated, actively trusted PeerSession; a recipient receives only outbox rows addressed to its own peer id, a revoked or unpaired peer receives nothing and cannot acknowledge, acknowledgements cannot exceed an issued revision, and a phone rejects alerts whose origin is not the authenticated desktop. Alert text is bounded and carries rule and subject identifiers only, never credentials.
 - Established initial trust boundaries and enrollment requirements before implementation.
 - Replaced reusable raw agent credentials in enrollment responses with device public-key proof, SHA-256 fingerprints, and short-lived signed authentication challenges.
 - Added structural rejection of malformed or wrong-curve public keys, incorrect secret/challenge/signature/fingerprint sizes, invalid challenge windows, and safe-error secret echo.

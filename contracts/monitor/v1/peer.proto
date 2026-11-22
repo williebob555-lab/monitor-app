@@ -179,6 +179,63 @@ message PeerHeartbeat {
   google.protobuf.Timestamp sent_at = 1;
 }
 
+enum AlertSeverity {
+  ALERT_SEVERITY_UNSPECIFIED = 0;
+  ALERT_SEVERITY_INFO = 1;
+  ALERT_SEVERITY_WARNING = 2;
+  ALERT_SEVERITY_CRITICAL = 3;
+}
+
+enum AlertState {
+  ALERT_STATE_UNSPECIFIED = 0;
+  ALERT_STATE_RAISED = 1;
+  ALERT_STATE_RESOLVED = 2;
+}
+
+// One alert episode at one revision (1 = raised, 2 = resolved). Owned by origin_peer_id; recipients only
+// display and acknowledge it, they never re-evaluate it.
+message AlertRecord {
+  uint32 schema_version = 1;
+  string alert_id = 2;
+  uint32 revision = 3;
+  string rule_id = 4;
+  string subject_id = 5;
+  string origin_peer_id = 6;
+  AlertSeverity severity = 7;
+  AlertState state = 8;
+  string title = 9;
+  string detail = 10;
+  google.protobuf.Timestamp raised_at = 11;
+  google.protobuf.Timestamp resolved_at = 12;
+  reserved 13 to 20;
+}
+
+// Sent by an authenticated trusted peer to receive alerts addressed to it.
+message AlertPull {
+  string request_id = 1;
+  uint32 maximum_count = 2;
+  reserved 3 to 8;
+}
+
+message AlertBatch {
+  string request_id = 1;
+  repeated AlertRecord alerts = 2;
+  bool has_more = 3;
+  reserved 4 to 8;
+}
+
+message AlertAckEntry {
+  string alert_id = 1;
+  uint32 revision = 2;
+}
+
+// Sent only after the recipient has durably stored the listed alert revisions.
+message AlertAck {
+  string request_id = 1;
+  repeated AlertAckEntry entries = 2;
+  reserved 3 to 8;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -188,6 +245,9 @@ message PeerSessionRequest {
     OriginRecordBatch origin_batch = 5;
     OriginAck origin_ack = 6;
     PeerHeartbeat heartbeat = 7;
+    // Additive alert delivery (phone pulls, acks after a durable write). Fields 10-15 are reserved for it.
+    AlertPull alert_pull = 8;
+    AlertAck alert_ack = 9;
   }
 }
 
@@ -203,5 +263,6 @@ message PeerSessionResponse {
     CompatibilityFailure incompatibility = 8;
     ProtocolError error = 9;
     PeerProof proof = 10;
+    AlertBatch alert_batch = 11;
   }
 }

@@ -115,6 +115,14 @@ Start real controller and agent processes or their production network servers. R
 
 - `PairingShortCodeTests` (Core): normalization, single use, expiry, bounded live codes, global rate-limit lockout. `PeerPairingCodeClientTests` (Transport): a rogue listener without the code and replayed proofs are refused; public/wildcard addresses and malformed codes are rejected. `PeerContractTests`: unary additive lookup shape. `LocalApiPhonePairingTests`: the QR SVG is decoded with ZXing.Net (test project only) back to the exact payload, quiet zone, CSP/nonce with no inline script or style, expiry, loopback/wildcard message, configured-address enforcement, CSRF, pending phone name and fingerprint. `MobilePairingCodeTests`: real loopback gRPC address+code pairing, then desktop approval and persisted bilateral trust; single use; wrong/expired code refusal without leaking identity; rate limiting.
 
+### Alert tests
+
+`tests/MonitorApp.Peer.Alerts.Tests` runs rule evaluation against real SQLite files and the production ingestion bridge (determinism, idempotency across evaluator restart, episode start/resolve, sustained windows, peer-silent, single-owner rule on a replicated copy), outbox durability across store reopen, expiry, recipient isolation, and trust gating. `tests/MonitorApp.Peer.Mobile.Tests/MobileAlertTests.cs` covers desktop raise to phone persistence to acknowledgement over real loopback gRPC, restart re-notification, and revoked/other-recipient isolation. `tests/MonitorApp.Contracts.Tests/AlertContractTests.cs` covers field numbers, unknown-field tolerance, and validator limits. Android notification posting needs device or emulator evidence that does not exist yet.
+
+```text
+dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj -c Release
+```
+
 ### Superseded Headscale integration tests
 
 This suite is no longer a target requirement. Do not add automatic Headscale provisioning. Tailscale is user-managed reachability; test the real peer protocol over loopback for deterministic integration and over a Tailscale path in platform verification.

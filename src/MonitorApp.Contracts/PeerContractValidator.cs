@@ -13,6 +13,12 @@ public static class PeerContractRules
     public const int Sha256Size = 32;
 
     public const int MaximumPort = 65_535;
+
+    public const uint AlertSchemaVersion = 1;
+
+    public const int MaximumAlertsPerBatch = 100;
+
+    public const int MaximumAlertTextBytes = 1024;
 }
 
 public static class PeerContractValidator
@@ -255,6 +261,119 @@ public static class PeerContractValidator
 
         ValidateCursor(ack.Cursor, errors);
         return Result(errors);
+    }
+
+    public static ContractValidationResult Validate(AlertPull? pull)
+    {
+        var errors = new List<string>();
+        if (pull is null)
+        {
+            return ContractValidationResult.Failure(["Alert pull is required."]);
+        }
+
+        RequireText(pull.RequestId, "Request id", errors);
+        if (pull.MaximumCount is 0 or > PeerContractRules.MaximumAlertsPerBatch)
+        {
+            errors.Add($"Maximum alert count must be 1 through {PeerContractRules.MaximumAlertsPerBatch}.");
+        }
+
+        return Result(errors);
+    }
+
+    public static ContractValidationResult Validate(AlertBatch? batch)
+    {
+        var errors = new List<string>();
+        if (batch is null)
+        {
+            return ContractValidationResult.Failure(["Alert batch is required."]);
+        }
+
+        // request_id echoes the pull; it is empty for an unsolicited push on a live session.
+        if (batch.Alerts.Count > PeerContractRules.MaximumAlertsPerBatch)
+        {
+            errors.Add("Alert batch exceeds the maximum alert count.");
+        }
+
+        if (batch.HasMore && batch.Alerts.Count == 0)
+        {
+            errors.Add("An alert batch marked has_more must contain at least one alert.");
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var alert in batch.Alerts)
+        {
+            ValidateAlert(alert, errors);
+            if (!ids.Add(alert.AlertId))
+            {
+                errors.Add("An alert batch may contain each alert id once.");
+            }
+        }
+
+        return Result(errors);
+    }
+
+    public static ContractValidationResult Validate(AlertAck? ack)
+    {
+        var errors = new List<string>();
+        if (ack is null)
+        {
+            return ContractValidationResult.Failure(["Alert acknowledgement is required."]);
+        }
+
+        if (ack.Entries.Count == 0 || ack.Entries.Count > PeerContractRules.MaximumAlertsPerBatch)
+        {
+            errors.Add("Alert acknowledgement must list 1 through the maximum alert count entries.");
+        }
+
+        foreach (var entry in ack.Entries)
+        {
+            RequireText(entry.AlertId, "Alert id", errors);
+            if (entry.Revision == 0)
+            {
+                errors.Add("Alert acknowledgement revision must be positive.");
+            }
+        }
+
+        return Result(errors);
+    }
+
+    private static void ValidateAlert(AlertRecord alert, List<string> errors)
+    {
+        if (alert.SchemaVersion == 0 || alert.SchemaVersion > PeerContractRules.AlertSchemaVersion)
+        {
+            errors.Add("Alert schema version is unsupported.");
+        }
+
+        RequireText(alert.AlertId, "Alert id", errors);
+        RequireText(alert.RuleId, "Alert rule id", errors);
+        RequireText(alert.SubjectId, "Alert subject id", errors);
+        RequireText(alert.OriginPeerId, "Alert origin peer id", errors);
+        RequireText(alert.Title, "Alert title", errors);
+        if (alert.Revision == 0)
+        {
+            errors.Add("Alert revision must be positive.");
+        }
+
+        if (alert.Severity is AlertSeverity.Unspecified || !System.Enum.IsDefined(alert.Severity))
+        {
+            errors.Add("Alert severity is invalid.");
+        }
+
+        if (alert.State is AlertState.Unspecified || !System.Enum.IsDefined(alert.State))
+        {
+            errors.Add("Alert state is invalid.");
+        }
+
+        if (alert.Title.Length > PeerContractRules.MaximumAlertTextBytes ||
+            alert.Detail.Length > PeerContractRules.MaximumAlertTextBytes ||
+            alert.AlertId.Length > 128 || alert.RuleId.Length > 128 || alert.SubjectId.Length > 512 ||
+            alert.OriginPeerId.Length > 128)
+        {
+            errors.Add("Alert text exceeds the maximum length.");
+        }
+
+        ValidateTimestamp(alert.RaisedAt, "Alert raised-at", errors, required: true);
+        ValidateTimestamp(alert.ResolvedAt, "Alert resolved-at", errors, required: alert.State == AlertState.Resolved);
     }
 
     public static ContractValidationResult Validate(CompatibilityFailure? failure)

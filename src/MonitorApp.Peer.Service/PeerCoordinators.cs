@@ -44,6 +44,19 @@ public interface IPeerSessionCoordinator
         string remotePeerId,
         PeerHeartbeat heartbeat,
         CancellationToken cancellationToken);
+
+    /// <summary>Alert delivery is additive; coordinators that do not implement it refuse with InvalidMessage.</summary>
+    ValueTask<AlertBatch> PullAlertsAsync(
+        string remotePeerId,
+        AlertPull pull,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+
+    ValueTask AcceptAlertAckAsync(
+        string remotePeerId,
+        AlertAck acknowledgement,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
 }
 
 public sealed class PeerPairingSessionContext

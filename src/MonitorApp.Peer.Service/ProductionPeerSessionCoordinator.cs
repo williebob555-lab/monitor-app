@@ -3,6 +3,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
@@ -155,7 +156,8 @@ public sealed class ProductionPeerSessionCoordinator(
     PeerStore store,
     OriginReplicationCoordinator replication,
     ILocalPeerIdentityProvider localIdentity,
-    IPeerAdvertisementProvider advertisement) : IPeerSessionCoordinator
+    IPeerAdvertisementProvider advertisement,
+    AlertDeliveryService? alerts = null) : IPeerSessionCoordinator
 {
     public async ValueTask<PeerSessionOpenResult> OpenAsync(
         PeerHello remoteHello,
@@ -356,6 +358,40 @@ public sealed class ProductionPeerSessionCoordinator(
     {
         await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
         return new PeerHeartbeat { SentAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow) };
+    }
+
+    public async ValueTask<AlertBatch> PullAlertsAsync(
+        string remotePeerId,
+        AlertPull pull,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            return await service.PullAsync(remotePeerId, pull, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
+    }
+
+    public async ValueTask AcceptAlertAckAsync(
+        string remotePeerId,
+        AlertAck acknowledgement,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            await service.AcknowledgeAsync(remotePeerId, acknowledgement, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
     }
 
     private async Task RequireActiveAsync(string remotePeerId, CancellationToken cancellationToken)

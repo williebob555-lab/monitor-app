@@ -103,6 +103,12 @@ try {
         }
     }
 
+    Invoke-VerificationStep "Run alert rule, outbox, and delivery tests" {
+        dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run local peer administration API tests" {
         dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
             -c Release `
