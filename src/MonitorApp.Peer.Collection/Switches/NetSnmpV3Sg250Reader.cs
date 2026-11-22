@@ -51,7 +51,7 @@ public sealed class NetSnmpV3Sg250Reader : ISg250SnmpReader
         foreach (var root in Sg250Oids.WalkRoots)
             results.AddRange(await QueryAsync(walkExecutable, root, bulk: true, cancellationToken).ConfigureAwait(false));
 
-        // The chassis MAC is a scalar and requires GET, not GETNEXT/BULKWALK. An absent scalar
+        // The bridge base MAC is a scalar and requires GET, not GETNEXT/BULKWALK. An absent scalar
         // must never invent a strong switch identity or erase otherwise valid interface facts.
         try
         {
