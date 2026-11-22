@@ -618,6 +618,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: A peer can only make a third peer sample fast if that peer is trusted by the relay and has an active session with it; forwarded interest has 0 hops and goes only to the subject, so loops and chains are impossible. A viewer sends relay requests to every connected peer lacking a direct session. Replication of the subject's records to the viewer through the relay is not part of this decision.
 - Revisit condition: Transitive peer introduction or multi-hop record replication, or relay requests needing a routing hint.
 
+### T056 Operator sections on the loopback administration page
+
+- Status: Accepted (stopgap until the Avalonia client covers the same operations).
+- Decision: The existing `/` page gains server-rendered sections for alerts with acknowledge, a per-peer alert-rule editor, control grants (grant, revoke, pending presence-key enrollments), recent peer-state and update history, pinned incidents (pin and unpin) and update status with approve. Peer-provided strings are HTML-encoded server-side. One small inline script (same CSP nonce) posts JSON to the existing loopback endpoints with the page's antiforgery token in `X-CSRF-TOKEN` and writes results with DOM text APIs only.
+- Reason: The loopback APIs for T045 to T055 had no desktop-browser front end, so the owner could not operate them without scripting.
+- Evidence: `LocalApiAdminPageTests` (every section rendered with real stored data, hostile strings escaped, every mutation 403 without the token and accepted with it, API validation text returned for the rule editor).
+- Consequences: No new endpoints and no remote-capable surface. High-risk actions stay gated by the API: granting any permission, approving an update and approving a presence enrollment still need desktop presence when it is enabled, and the page only reports the `presence_*` refusal (it cannot verify the person). Revoking all permissions and rejecting an enrollment need no presence. History here shows the last 7 days, 50 rows per list; the JSON feeds remain the complete source.
+- Revisit condition: The Avalonia client reaches parity, or the page needs presence verification (a browser cannot satisfy it today).
+
 ### T057 Controller-era inventory, Domain deletion, and remaining extraction plan
 
 - Status: Accepted (closes the inventory item in `TODO.md`; extraction steps below remain open work).

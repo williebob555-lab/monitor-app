@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -393,6 +394,7 @@ public sealed class LocalApiHostTests : IDisposable
         }
 
         public AlertStore Alerts { get; }
+        public ControlService? Control { get; private set; }
         public PeerStore PeerStore { get; }
         public PairingApplicationStore ApplicationStore { get; }
         public LocalApiHost Host { get; }
@@ -405,7 +407,8 @@ public sealed class LocalApiHostTests : IDisposable
             IPeerInvitationService? invitationService = null,
             PhonePairingOptions? phonePairing = null,
             ILocalUpdateController? updates = null,
-            LocalPresenceService? presence = null)
+            LocalPresenceService? presence = null,
+            bool withControl = false)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -467,6 +470,14 @@ public sealed class LocalApiHostTests : IDisposable
 
             var alerts = new AlertStore(AlertStoreOptions.Create(databasePath));
             await alerts.InitializeAsync();
+            ControlService? control = null;
+            if (withControl)
+            {
+                var controlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
+                await controlStore.InitializeAsync();
+                control = new ControlService(controlStore, store, appStore, coordinator, alerts, new MonitoringControlState(), identityProvider);
+            }
+
             var host = LocalApiHost.Create(
                 LocalApiOptions.Loopback(databasePath),
                 store,
@@ -477,6 +488,7 @@ public sealed class LocalApiHostTests : IDisposable
                 phonePairing,
                 alerts,
                 updates: updates,
+                control: control,
                 localPresence: presence);
             await host.StartAsync();
             var handler = new HttpClientHandler
@@ -488,6 +500,7 @@ public sealed class LocalApiHostTests : IDisposable
             var fixture = new Fixture(
                 localKey, identityProvider, store, appStore, coordinator, host, client, pending.PairingId!, alerts);
             fixture.remoteKeys.Add(pendingKey);
+            fixture.Control = control;
             return fixture;
         }
 
