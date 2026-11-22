@@ -45,15 +45,75 @@ This log separates confirmed product constraints from working technical decision
 
 ### P006 Self hosted Headscale
 
+- Status: Superseded
+- Decision: The earlier self-hosted Headscale/automatic setup direction is replaced by P007. Tailscale is user-managed reachability only.
+- Consequence: Do not build Headscale automation or treat network membership as application trust.
+
+### P007 Decentralized equal peers
+
 - Status: Confirmed
-- Decision: Secure device pairing uses a self-hosted Headscale network.
-- Consequence: Monitor App must automate platform-specific setup while keeping Headscale separate from telemetry and application authorization.
+- Decision: There is no Monitor App controller, central database, or always-on host. A Tailscale-IP introduction followed by bilateral application pairing connects equal peers directly whenever both services run.
+- Consequence: Each peer collects, stores, queries, and presents locally; pairwise trust is explicit and independent of IP/tailnet membership.
+
+### P008 Origin-owned peer replication
+
+- Status: Confirmed
+- Decision: Origin-owned streams synchronize peer to peer with explicit freshness, offline cache, and eventual convergence; no global consensus is required for origin-owned records.
+- Consequence: Replication uses stable origin identity, cursors, ordering, and idempotency.
+
+### P009 Observed devices and collector gateways
+
+- Status: Confirmed
+- Decision: Peers may observe non-peer peripherals and LAN infrastructure through purpose-built adapters. Identity/history survives attachment-host changes; collector ownership and failover are explicit; credentials remain local.
+- Consequence: Model typed entities/relationships and adapter capability, health, freshness, source, evidence, and quality.
+
+### P010 Broad categorized observation
+
+- Status: Confirmed
+- Decision: Pursue broad measurement through versioned capability modules and a canonical observation catalog, with truthful unavailable states, privacy/cost metadata, adaptive sampling/retention, and purpose-built inspectors.
+- Consequence: The domain model supports domain lenses, exact search, selective customization, and a truthful fallback inspector without becoming a blank dashboard.
+
+### P011 Network privacy and defensive detection
+
+- Status: Confirmed
+- Decision: Aggregate operational network metrics and infrastructure facts are allowed. Communication identities/content, packet capture, flow/session histories, DNS history, per-app traffic, and DPI are prohibited in ordinary monitoring. Defensive detection is a separate explicit capability with evidence/confidence and stricter permission/retention rules.
+- Consequence: Module review and executable registration tests enforce the boundary.
+
+### P012 Actual inventory and design separation
+
+- Status: Confirmed
+- Decision: Monitor App includes both what the user has/is running and what the user is planning/designing, but actual state and named design scenarios remain explicitly distinct in storage, queries, calculations, automation, history, and UI.
+- Consequence: Owned, installed, connected, and running are separate actual facts. Design-only objects or relationships become actual only through an explicit transition that preserves plan, candidate, offer, and decision history.
+
+### P013 Cable connector and length system
+
+- Status: Confirmed
+- Decision: Recreate the useful structure of the user's work cable-code system as a richer cable inventory and planning capability centered on the relationship between both connector ends, unit-bearing length, and additional ratings/parameters.
+- Consequence: Fast reusable manual connector/length templates are required. QR codes and dedicated scanner hardware are not requirements. Cable identity, current possession/location/connection, and planned assignment remain distinct.
+
+### P014 Physical design constraints
+
+- Status: Confirmed
+- Decision: Support modular physical, audio, RF, electrical, thermal, dimensional, mounting, and cable constraints over inventory and plans.
+- Consequence: Findings expose inputs, units, source, assumptions, rule/version, evidence, confidence, and unknowns rather than one unexplained compatibility score.
+
+### P015 Sourcing automation and notifications
+
+- Status: Confirmed
+- Decision: Include candidate products, seller offers, price/availability history, customizable event-condition-action rules, and notifications for conditions such as disconnection, price, availability, inventory movement, and project readiness.
+- Consequence: Product, offer, and actual-instance identity remain separate. The automation engine is independent of UI/AI; push transport and equal-peer execution ownership remain open technical choices.
+
+### P016 Distributed local AI
+
+- Status: Confirmed
+- Decision: Provide optional local-first AI assistance that can route bounded work to capable peers and use permissioned domain tools.
+- Consequence: AI is not a source of truth, identity/trust authority, replication owner, rule runtime, or permission bypass. Model/runtime and routing choices remain open.
 
 ## Technical decisions
 
 ### T001 Functional component boundaries
 
-- Status: Provisional
+- Status: Superseded by T017
 - Decision: Use a self-hosted controller, outbound endpoint agents, an Android client/collector, versioned shared contracts, durable history, and adapters for Headscale and service integrations.
 - Reason: This is the smallest architecture that supports all requested platforms, private connectivity, truthful telemetry, and historical reconstruction.
 - Validation: First end-to-end vertical slice and restart-durability test.
@@ -67,7 +127,7 @@ This log separates confirmed product constraints from working technical decision
 
 ### T003 Headscale adapter boundary
 
-- Status: Accepted
+- Status: Superseded by P007 and T017
 - Decision: Isolate Headscale operations behind an internal adapter and pin a tested supported version.
 - Reason: Registration and policy behavior are external dependencies that must not leak through domain and UI code.
 
@@ -87,7 +147,7 @@ This log separates confirmed product constraints from working technical decision
 ### T006 Implementation stack
 
 - Status: Accepted
-- Decision: Use C# on .NET 10 LTS. Build the controller with ASP.NET Core, use standard gRPC over TLS and HTTP/2 with versioned Protocol Buffer contracts, use a shared .NET worker agent for Windows, Fedora, and Ubuntu, and use Avalonia for the later shared Android, Windows, Fedora, and Ubuntu experience client.
+- Decision: Use C# on .NET 10 LTS, ASP.NET Core hosting where needed, standard gRPC over TLS and HTTP/2 with versioned Protocol Buffer contracts, file-backed SQLite, shared peer/collector code, and Avalonia for the later shared experience client. The earlier controller-specific application of this stack is superseded by T017.
 - Reason: .NET 10 is the current long-term-support release and supports the required desktop and Linux environments. Avalonia provides one client framework across all requested platforms while leaving Android-specific lifecycle and collection behind a platform boundary. ASP.NET Core gRPC supports streaming agent sessions and generated contracts in the same language.
 - Evidence: Current official platform-support documentation covers .NET 10 on supported Windows, Fedora, and Ubuntu releases and Avalonia on Windows, Fedora, Ubuntu, and Android. Executable repository and platform builds remain required before support is claimed.
 - Consequences: Pin the SDK and packages; organize the repository as a .NET solution; keep platform collectors and packaging separately tested; do not start final Avalonia visual work before the functional milestone.
@@ -95,7 +155,7 @@ This log separates confirmed product constraints from working technical decision
 
 ### T007 Controller packaging
 
-- Status: Accepted
+- Status: Superseded by P007 and T017
 - Decision: Use Docker Compose as the first supported controller deployment. Keep Windows, Fedora, and Ubuntu endpoint agents as separate native packages.
 - Reason: Compose provides one bounded, reproducible self-hosted path for the ASP.NET Core controller, pinned Headscale dependency, persistent storage, and TLS configuration without coupling endpoint service installation to the controller host.
 - Evidence: Clean start, restart, upgrade, backup, and restore tests remain release gates for the Compose deployment.
@@ -106,7 +166,7 @@ This log separates confirmed product constraints from working technical decision
 
 - Status: Accepted
 - Decision: Use file-backed SQLite in WAL mode for the first personal-scale functional slice. Use real SQLite in persistence tests and version migrations from the first schema.
-- Reason: SQLite keeps the first self-hosted deployment small while providing transactions, durability, ordered queries, and a practical backup path. The product currently targets one personal-scale controller rather than a multi-writer service.
+- Reason: SQLite keeps each personal-scale peer small while providing transactions, durability, ordered queries, and a practical backup path. Every peer owns a local database; there is no shared central writer.
 - Evidence: The vertical slice must prove concurrent ingestion at the agreed reference workload, restart durability, ordered history queries, migrations, retention, backup, and restore using the production provider and configuration.
 - Consequences: Do not use the EF Core in-memory provider as persistence evidence. Keep persistence behind domain-facing interfaces and avoid SQLite-specific behavior in the protocol.
 - Revisit condition: Revisit after the vertical-slice benchmark and before a multi-controller or large-fleet claim. Consider a client-server database only if SQLite fails the agreed ingestion, query, retention, backup, or restore acceptance conditions, or multiple controller writers become required.
@@ -182,6 +242,132 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Real loopback Kestrel HTTP/2 gRPC tests exercise production client/server code for device-key authentication, upload, owner reads, restart, identical retry, wrong key, cross-stream substitution, replay, and redacted failures. Real SQLite tests repeat authentication, ingest, conflict, current-state, and restart behavior through the production store.
 - Consequences: The controller keeps no reusable agent bearer secret. The agent requires its enrolled private key for every new stream. Loopback plaintext HTTP/2 exists only for development/tests; non-loopback configuration requires HTTPS. Cross-process outage/resume, platform key protection, retention, and bounded history queries remain release gates.
 - Revisit condition: Add an explicit new proof version before changing payload framing, signature algorithm, or challenge semantics; never reinterpret v1.
+
+### T017 Equal-peer migration boundary
+
+- Status: Accepted
+- Decision: Replace controller/agent deployment with one peer service containing device identity, bilateral pairing, local SQLite observation/query, direct replication, collectors/adapters, and a local client boundary. Reuse existing crypto, protocol, persistence, collectors, Android, and update code only where peer tests prove compatibility.
+- Reason: This implements P007 without discarding validated foundations.
+- Evidence: Documentation migration; executable evidence is the bounded two-peer milestone in `TODO.md`.
+- Consequences: Controller, controller enrollment administration, central history, Headscale adapter, and controller artifacts are superseded and receive no new product features.
+- Revisit condition: After the two-peer end-to-end test, refine component names and rolling-upgrade window.
+
+### T018 Origin replication and observed-device ownership
+
+- Status: Accepted
+- Decision: Use immutable origin identity/sequence with per-peer replication cursors and idempotent retry. Keep observed-device identity separate from attachment and collecting peer; configure collector ownership explicitly and never replicate adapter credentials.
+- Reason: This permits offline operation and convergence without consensus while preventing duplicate polling and identity loss.
+- Evidence: Signed origin replication tests cover immutable identity/sequence and durable cursors. Real-SQLite observed-device tests prove matching strong identity across observers, reject IP-only strong identity, preserve typed attachment evidence, validate adapter/entity/collector consistency, and retain current plus historical collector ownership through restart and host reassignment.
+- Consequences: Shared-metadata conflict semantics, adapter-specific discovery, and automatic failover remain deferred. Reassignment requires an explicitly provisioned adapter on the new collector; merely learning the device identity never authorizes polling.
+- Revisit condition: After personal-scale load and reassignment tests.
+
+### T019 Capability and privacy contract
+
+- Status: Accepted
+- Decision: Modules use versioned namespaced declarations and catalog metadata for domain/entity/subsystem/source/unit/temporal behavior/importance/privacy/cost. Registration rejects prohibited ordinary network observations; defensive detection is separately enabled and permissioned.
+- Reason: Broad collection needs compatibility, categorization, and enforceable privacy rather than a fixed narrow allowlist or unbounded plugins.
+- Evidence: Required contract/security tests in `docs/TESTING.md` and `docs/SECURITY.md`.
+- Consequences: Unknown compatible modules receive a truthful generated inspector; important integrations remain purpose-built.
+- Revisit condition: When the first external adapter contract is implemented.
+
+### T020 Universal object envelope and state planes
+
+- Status: Accepted
+- Decision: Use a stable shared object envelope plus typed capability extensions and typed relationships. Store actual state and design-scenario state as explicitly scoped assertions/relationships rather than one blended status.
+- Reason: Monitoring, inventory, cables, projects, products, offers, and plans need common identity/provenance without a giant nullable schema or false equivalence.
+- Evidence: Generated-contract tests round-trip the universal envelope, named design scope, provenance/validity, typed relationships, distinct product/offer/physical-instance identities, plan-to-actual cable assignment, and the connector/length cable extension. Negative tests reject actual relationships that reference design-only objects, mismatched design revisions, collapsed identity references, and invalid connector/length metadata.
+- Consequences: Product definitions, seller offers, actual instances, and design placeholders remain separate identities. The contract permits a design relationship to reference an actual object without changing that object's plane. Persistence, explicit promotion events, query projection, and UI remain required before this becomes a usable inventory feature.
+- Revisit condition: After the first plain actual/design inventory client and cable slice.
+
+### T021 Cable specification and quick-entry boundary
+
+- Status: Provisional
+- Decision: Represent a cable specification with two structured connector ends, directionality, unit-bearing nominal/measured length, ratings, and physical properties; represent actual items or counted batches separately. Make searchable manual connector-pair and length templates the baseline entry path.
+- Reason: This preserves the useful connector-plus-length composition of the legacy sheets while supporting real compatibility, condition, location, connection, and plan-assignment queries without scanner hardware.
+- Evidence: The initial contract round-trip and rejection tests cover two connector ends, reversible/directional roles, and positive unit-bearing nominal/measured length. Matching, ratings, constraint, persistence, and quick-entry workflow evidence remains required.
+- Consequences: Human labels are optional aliases and do not encode the authoritative record. QR and dedicated scanner support are outside the required cable path.
+- Revisit condition: After user review of connector taxonomy and the first cable inventory prototype.
+
+### T022 Deterministic automation ownership
+
+- Status: Provisional
+- Decision: Run versioned event-condition-action rules in a durable deterministic peer service with explicit execution ownership, idempotency, schedule state, cooldown/deduplication, audit, and a notification outbox.
+- Reason: Alerts must survive UI/model shutdown and replicated events must not produce duplicate actions across equal peers.
+- Evidence: Required restart, fake-clock, outbox, and two-peer ownership tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Natural language produces reviewable draft rules only. Notification delivery and operational actions remain adapters with separate permissions.
+- Revisit condition: Before the first live notification adapter.
+
+### T023 Local AI job routing boundary
+
+- Status: Provisional
+- Decision: Initially route a bounded AI job and explicit tool grants to one eligible peer; do not assume cross-peer tensor execution. Store outputs as derived artifacts with model/source provenance.
+- Reason: Whole-job routing satisfies the distributed local-resource goal with a smaller privacy, failure, and scheduling surface.
+- Evidence: Capability, permission, provenance, failure, and resource-policy tests in `docs/TESTING.md`; no implementation evidence yet.
+- Consequences: Deterministic services remain authoritative and useful without a model. Model family, runtime, embeddings, and hardware acceleration remain open.
+- Revisit condition: After one read-only semantic-search or explanation slice runs on two different peer capability classes.
+
+### T024 First peer-native foundation boundary
+
+- Status: Accepted
+- Decision: Establish the first peer-native slice as generated `monitor.v1` pairing/session/replication contracts, a platform-independent P-256 bilateral proof and compatibility core, and a versioned file-backed SQLite peer store. Keep the network host/session coordinator and platform key storage as the next boundary.
+- Reason: Contract, cryptographic, and persistence invariants can be proven independently before process/network lifecycle makes failures harder to isolate.
+- Evidence: Contract tests use generated types and real signing; peer-core tests cover bilateral proof, substitution, transcript mutation, expiry, replay, compatibility, duplicate sessions, and key immutability; eight real SQLite tests cover restart, trust/revocation, origin ordering/idempotency/conflicts, cursors/gaps, evidence, collector ownership, and credential-safe descriptors.
+- Consequences: These libraries are not a peer release and do not prove Tailscale/private-interface binding, platform-protected keys, durable replay across restart, or two-peer convergence. The root solution and verification script include all three boundaries.
+- Revisit condition: After the production peer service and real two-peer integration test pass.
+
+### T025 Split peer service into independently tested coordination boundaries
+
+- Status: Accepted
+- Decision: Separate durable pairing/session coordination, origin-owned replication, and the ASP.NET Core gRPC host into `MonitorApp.Peer.Application`, `MonitorApp.Peer.Replication`, and `MonitorApp.Peer.Service`. Keep the host dependent on narrow coordinator interfaces so security and network behavior can be tested without duplicating cryptographic or persistence rules.
+- Reason: Approval/replay durability, replication convergence, and hostile network input have different invariants and fixtures. Independent components keep each path executable while preserving one future composed peer process.
+- Evidence: Nine real-SQLite application tests, seven signed replication/SQLite tests, and five real Windows-loopback gRPC tests pass in their focused suites.
+- Consequences: Passing component tests does not claim a runnable peer release. Production dependency wiring, local administration/query, protected platform keys, transport deployment, and the separate-store two-peer convergence test remain required.
+- Revisit condition: If composition reveals a boundary that forces duplicate state or weakens end-to-end authentication.
+
+### T026 Windows preview identity and local administration boundary
+
+- Status: Accepted for engineering preview
+- Decision: Compose the first interactable peer as a Windows-specific node using a CurrentUser-DPAPI-protected P-256 key, one local SQLite database, an explicit loopback/private peer listener, and a separate loopback-only administration page. Keep the shared peer, transport, persistence, and local-API libraries platform-neutral.
+- Reason: A real launchable slice exposes composition failures early without pretending that an unprotected portable key file or remote browser administration is acceptable.
+- Evidence: The protected identity survives restart, the key file is not importable as raw PKCS#8 and does not contain public identity bytes, two independent nodes start against separate stores, and both local pages answer over real HTTP. Manual launch also verified the same stable fingerprint across restart.
+- Consequences: This is Windows preview evidence only. Initial fresh pairing, Windows service packaging, non-Windows protected key stores, and full two-peer convergence remain release gates.
+- Revisit condition: Replace the Windows-only composition with platform hosts after each target has an approved protected-key and lifecycle implementation.
+
+### T027 Fresh-pairing approval and trust-commit protocol
+
+- Status: Accepted
+- Decision: Treat the initiating local invitation submission as one explicit approval and require a separate approval on the contacted peer. Bind a caller-supplied pairing ID to the exact peer identity/key/version, reuse one durable challenge, verify the contacted peer's proof before the initiator sends its proof, and commit trust on each side only after the appropriate completed proof/confirmation step.
+- Reason: Address possession or network membership is not identity, and one-sided proof or trust-before-confirmation would allow substitution and ambiguous partial pairing.
+- Evidence: Contract, application, service, and transport suites cover pending/approved/rejected/expired/completed states, idempotent retry, changed-identity reuse, wrong proof, replay, revocation, and failure-before-trust. The composed Windows test drives both web approval boundaries and verifies bilateral trust in separate databases.
+- Consequences: The local invitation UI requires the peer ID and SHA-256 fingerprint displayed by the contacted node. Pairing can wait while the remote user approves. Peer discovery shortcuts may be added later only if they preserve the same explicit identity preview and proof boundary.
+- Revisit condition: Revisit only if a better human-verifiable introduction method preserves bilateral approval, transcript binding, and fail-closed trust commit.
+
+### T028 Persisted reconnect and origin synchronization composition
+
+- Status: Accepted for the Windows engineering preview
+- Decision: Persist an explicitly approved peer IP/port separately from its pinned application identity, start one bounded outbound reconnect loop per active stored peer, ingest system snapshots as signed local-origin records, and synchronize direct-origin streams by exchanging advertised heads and durable acknowledgements over the authenticated session. Infer loopback-development versus Tailscale-encrypted transport only from the validated stored IP class; never treat the locator as identity.
+- Reason: The first operational milestone requires collection and eventual convergence after either node and the network path have been unavailable, without adding a controller, relayed origins, or global consensus.
+- Evidence: Focused persistence, service, transport, and Windows node suites pass. The composed test uses separate file-backed SQLite stores and real HTTP/gRPC hosts to pair, exchange, disconnect, collect independently, restart, reconnect with backoff, and compare every sequence, content hash, and origin signature on both nodes.
+- Consequences: The initiator currently owns the reconnect locator; one authenticated session synchronizes both peers' direct-origin streams. This proves Windows loopback behavior only. Locator repair/rotation UI, live-session revocation, Tailscale/TLS deployment, non-Windows key stores/lifecycles, and multi-origin relay remain separate gates.
+- Revisit condition: Revisit the one-connection-per-peer and full-session head advertisement model when continuous high-rate collection or more than one origin stream per peer requires incremental availability exchange.
+
+### T029 Capability declaration and registration boundary
+
+- Status: Accepted
+- Decision: Represent each module as a bounded versioned Protobuf declaration with a lowercase namespaced module id, semantic version, compatible peer-protocol range, declared entity/relationship types, canonical observation metadata, and exactly one generated fallback inspector descriptor. Validate the declaration before persistence or advertisement. Ordinary modules may declare non-network, aggregate operational, and infrastructure-fact data but not communication identities, flows/sessions, query history, packet detail, per-process traffic, or content. Defensive-security modules use a distinct module/privacy class and require explicit enablement, evidence, confidence, and positive retention metadata.
+- Reason: Broad measurement remains useful only if peers can interpret unknown compatible modules truthfully and reject privacy-prohibited declarations before collection begins.
+- Evidence: Contract tests round-trip the catalog schema and reject incompatible versions, missing units/references/fallbacks, and every prohibited ordinary network class. Real-SQLite registry tests prove invalid declarations are not persisted, defensive declarations require their separate policy, and valid declarations advertise the exact version and SHA-256 hash. The Windows node registers and validates its built-in system module on startup.
+- Consequences: Module declarations contain metadata, not credentials or private keys. The current contract validates purpose-built descriptors but selection/routing between purpose-built and generated inspectors remains the next UI-facing gate. Deeper defensive collection still requires local processing, authorization/legal review, and adapter-specific tests beyond declaration acceptance.
+- Revisit condition: Revisit limits and compatibility fields when the first external adapter or rolling module upgrade produces measured requirements.
+
+### T030 First peripheral adapter and peer release artifact
+
+- Status: Accepted for engineering preview
+- Decision: Use the currently connected Yamaha AG06MK2 as a provisional, read-only Windows adapter spike. Query only its fixed USB/PnP identity and driver/attachment properties through a bounded non-interactive process; keep the configured Monitor App entity identity authoritative because this device exposes no trustworthy serial. Package the Windows peer node as a separate self-contained alpha zip rather than presenting the legacy Windows agent as the peer app.
+- Reason: This proves real peripheral availability, freshness, permission/error handling, and packaging without inventing vendor control semantics or treating a port-dependent Windows instance id as permanent identity.
+- Evidence: The real device reports Yamaha USB VID 0499/PID 1757 and driver 2.1.7.5 on Windows. Adapter tests cover available/unavailable/denied/error quality, configured identity/collector, timestamp, and driver evidence. Release packaging includes `monitorapp-peer-windows-x64-VERSION.zip`.
+- Consequences: The adapter has no operational actions and no credentials. USB container/location values are correlation evidence only. The existing `dev-0.1.0` pre-release remains a controller/agent development build; a current peer download requires reviewed committed source, an immutable version tag, configured signing environment, and a successful release workflow.
+- Revisit condition: Replace or extend the spike when the user's normal hardware setup is available or a supported Yamaha API is needed for a concrete read-only job.
 
 ## Rejected directions inherited from the product specification
 

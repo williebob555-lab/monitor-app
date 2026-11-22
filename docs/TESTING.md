@@ -4,6 +4,36 @@
 
 Tests exist to protect behavior required for Monitor App to enroll devices, collect truthful telemetry, preserve history, survive failure, and operate on Android, Windows, Fedora, and Ubuntu. Test count and coverage percentage are secondary to operational value.
 
+The confirmed target is now an equal-peer mesh. Controller/enrollment tests below remain evidence for reusable legacy components, not proof of the target architecture. New work must prioritize the peer gates in the next section.
+
+## Decentralized peer migration gates
+
+- **Pairing contract:** two peers introduced by address complete bilateral application-key proof; address/tailnet membership alone fails; wrong key, substitution, replay, expiration, revocation, and incompatible versions fail closed.
+- **Real two-peer integration:** start two production peer servers with separate file-backed SQLite stores, pair them, exchange origin-owned observations, disconnect, restart both, reconnect, and prove eventual convergence, stable identity, ordering, and no duplicate/conflicting sequence acceptance.
+- **Local query:** each peer reads its own and replicated records with explicit origin, source time, ingest time, unit, quality, and freshness; offline cache remains distinguishable from live state.
+- **Observed devices:** real-SQLite tests preserve stable peripheral identity, typed attachment evidence, and current plus historical collector ownership across host reassignment; IP-only claims cannot merge devices as strong identity, and assignments must agree with an explicitly provisioned adapter's entity and peer. Windows adapter tests cover the provisional Yamaha AG06MK2's configured identity/collector, driver evidence, observed time, and explicit unavailable/permission/error quality. The real connected device was inspected through the same fixed Windows PnP properties, but unplug/replug and denied-permission hardware cases remain simulated. Failover remains unavailable until the second collector is explicitly provisioned.
+- **LAN topology:** reconcile reports from multiple peers using strong switch identity rather than IP; retain source/evidence/quality; distinguish reported from inferred links; keep physical LAN and Tailscale overlay separate.
+- **Capability compatibility:** versioned namespaced modules register entities, observations, relationships, sampling/retention, categories, privacy/cost, and inspector descriptors. Unknown compatible modules receive a truthful generated fallback; incompatible modules fail explicitly.
+- **Universal inventory contract:** actual relationships cannot reference design-only objects; design objects and relationships share a named project/scenario revision; product, offer, physical-instance, and design-placeholder identities remain distinct; the first cable slice preserves two connector ends, directionality, and unit-bearing nominal/measured length.
+- **Privacy enforcement:** registration rejects prohibited packet/flow/identity/content observations while permitting declared aggregate operational network metrics. Adapter credentials never serialize into replicated records.
+- **Defensive security:** the capability cannot start without separate enablement; findings require evidence/confidence; deeper flow/packet-derived modes require their own permission and bounded retention.
+
+No platform is supported until its peer service lifecycle, protected identity storage, pairing/reconnect, local persistence/query, update, and required collector behavior pass on that named platform.
+
+## Expanded scope gates
+
+- **Actual versus design state:** schema/API/UI tests prove design-only objects, quantities, costs, loads, connections, and warnings never appear as actual inventory or running telemetry. Explicit promotion links an actual instance to its plan/candidate/offer history without mutating the historical plan.
+- **Universal identity:** property and persistence tests distinguish product definition, seller offer, physical instance, observed peer/device, and design placeholder; revisions preserve provenance and typed relationship validity.
+- **Cable model:** round trips preserve two connector ends, directionality/reversibility, exact standard, nominal/measured unit-bearing length, ratings, condition, location/custody, actual connection, reservation, and planned assignment. Matching tests reject wrong direction, insufficient routed length/slack, and incompatible power/data/audio ratings. Manual connector-pair and length templates require no QR or scanner hardware.
+- **Constraint modules:** unit conversion fixtures and reviewed domain cases cover cable, audio, RF, electrical, thermal, dimensional, and mounting rules. Missing/stale inputs produce unresolved findings, not safe/compatible. Findings preserve rule version, inputs, assumptions, plane, evidence, and confidence.
+- **Sourcing and price history:** recorded provider fixtures exercise normalization, currency/source time, offer-versus-product identity, blocked/rate-limited/stale states, and prevention of false zero-price/out-of-stock values. Live provider smoke tests are separately permissioned and never replace deterministic fixtures.
+- **Automation:** fake-clock plus real persistence tests cover restart, schedules, duration thresholds, debounce, cooldown, deduplication, quiet hours, escalation, expiration, idempotency, rule versioning, and durable outbox retry. A two-peer test proves replicated events produce one owned evaluation/action, including ownership reassignment. Historical simulation dispatches nothing.
+- **Notifications:** each adapter tests secret redaction, metadata minimization, offline retry, acknowledgement where supported, invalid destination, provider failure, duplicate suppression, and Android lifecycle limits. A compiled client is not delivery evidence.
+- **Local AI:** tests enforce model/tool capability grants, actual/design context labeling, source/model provenance, input-size limits, prompt-injection resistance at tool boundaries, no silent fact overwrite, and no action-permission bypass. Deterministic behavior is tested without an AI dependency.
+- **History and experience:** reconstruction aligns objects, relationships, observations, automation events, and actual-state time. Plan revisions use design revision history rather than masquerading as observed time. Accessibility tests expose the same plane, values, units, provenance, and findings as the visual scene.
+
+These gates become canonical commands only when their production projects exist. Until then, documentation is not executable evidence.
+
 ## Nonnegotiable quality rules
 
 - Every test must execute in the documented command or be reported as unverified.
@@ -80,7 +110,9 @@ Start real controller and agent processes or their production network servers. R
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
 
-### Headscale integration tests
+### Superseded Headscale integration tests
+
+This suite is no longer a target requirement. Do not add automatic Headscale provisioning. Tailscale is user-managed reachability; test the real peer protocol over loopback for deterministic integration and over a Tailscale path in platform verification.
 
 Use a pinned Headscale container or supported real service. Do not mock Headscale and call the result an integration test. Required cases include:
 
@@ -121,27 +153,13 @@ Before platform support is claimed, test a clean install, upgrade, restart, and 
 - Fedora RPM.
 - Ubuntu DEB.
 - Android APK or application bundle path.
-- Controller deployment package.
+- Peer service and local data package on every applicable platform.
 
 Installation tests must confirm that uninstall removes the application while preserving or removing data according to an explicit user choice.
 
 ### End-to-end functional test
 
-The first required end-to-end scenario is:
-
-1. Start clean controller persistence.
-2. Create an enrollment.
-3. Start a real test agent.
-4. Complete application enrollment.
-5. Register capabilities.
-6. Submit real or controlled collector telemetry.
-7. Read current state from the client-facing API.
-8. Stop the controller while the agent produces additional samples.
-9. Restart the controller and allow the agent to resume.
-10. Query history and prove samples are ordered, identified, and not duplicated.
-11. Restart again and prove node identity and history persist.
-
-This test is a release gate for the functional foundation.
+The first required target end-to-end test is the real two-peer scenario in **Decentralized peer migration gates**: bilateral pairing, local collection/query, offline collection, restart, direct reconnect, and duplicate-safe convergence using separate production SQLite stores. Controller/agent end-to-end tests are legacy component evidence only.
 
 ## Security tests
 
@@ -158,7 +176,19 @@ Required security-focused behavior includes:
 
 ## Test commands
 
-The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, the SQLite enrollment persistence boundary, the ASP.NET Core controller, and their tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
+The accepted stack is .NET 10. The repository currently contains the domain and generated-contract libraries, legacy controller components, and peer core, persistence, application, replication, collection, synchronization, gRPC-host, local-API, and Windows-node projects with tests. Commands for projects that do not exist yet remain canonical future targets and are identified below.
+
+### Documentation-only validation
+
+When only prose documentation or todo/decision/changelog text changes, and no command, contract, configuration, package, schema, or executable behavior changes, run:
+
+```powershell
+git diff --check
+```
+
+Also search for directly affected terminology or links to catch contradictions. The full `eng/verify.ps1` suite is not required for that case. If executable commands, platform claims, generated artifacts, or code-facing configuration changed, run the relevant executable checks and the broader suite in proportion to risk.
+
+If the task is read-only or leaves no tracked repository diff, run no verification command.
 
 Restore and compile:
 
@@ -173,6 +203,8 @@ Current contract tests:
 ```powershell
 dotnet test tests/MonitorApp.Contracts.Tests/MonitorApp.Contracts.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=Contract"
 ```
+
+This suite includes capability-module compatibility, canonical catalog metadata, deterministic purpose-built-versus-fallback inspector selection, credential-free schema checks, ordinary-versus-defensive network-data policy, actual/design separation, distinct product/offer/instance identity, typed relationships, and the connector/length cable contract. The peer-service suite adds real-SQLite capability registration and advertisement coverage. Universal inventory persistence, promotion workflows, matching, and a client remain future gates.
 
 Current domain unit tests:
 
@@ -200,6 +232,21 @@ dotnet test tests/MonitorApp.Agent.Core.Tests/MonitorApp.Agent.Core.Tests.csproj
 dotnet test tests/MonitorApp.Agent.Persistence.Tests/MonitorApp.Agent.Persistence.Tests.csproj -c Release --no-build --filter "Category=SQLite"
 ```
 
+Peer contract, identity/pairing, persistence, replication, and network-host tests:
+
+```powershell
+dotnet test tests/MonitorApp.Contracts.Tests/MonitorApp.Contracts.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=Contract"
+dotnet test tests/MonitorApp.Peer.Core.Tests/MonitorApp.Peer.Core.Tests.csproj -c Release --no-build --filter "Category=Unit"
+dotnet test tests/MonitorApp.Peer.Persistence.Tests/MonitorApp.Peer.Persistence.Tests.csproj -c Release --no-build --filter "Category=Unit|Category=SQLite"
+dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.Replication.Tests/MonitorApp.Peer.Replication.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.Service.Tests/MonitorApp.Peer.Service.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.Transport.Tests/MonitorApp.Peer.Transport.Tests.csproj -c Release --no-build
+dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj -c Release --no-build
+# Windows only:
+dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj -c Release --no-build
+```
+
 Signed update-manifest policy and artifact-integrity tests:
 
 ```powershell
@@ -219,7 +266,7 @@ Cross-process functional end-to-end tests:
 dotnet test tests/MonitorApp.EndToEndTests/MonitorApp.EndToEndTests.csproj -c Release --no-build
 ```
 
-Real Headscale integration tests:
+Legacy Headscale integration commands (superseded; not a release gate):
 
 ```powershell
 docker compose -f tests/e2e/headscale/compose.yml up --build --abort-on-container-exit --exit-code-from e2e
@@ -256,7 +303,9 @@ The root project provides one discoverable verification entry point at `eng/veri
 pwsh ./eng/verify.ps1
 ```
 
-The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract` (including update verification and Android core), runs real SQLite enrollment, controller telemetry, and agent-spool tests, runs controller enrollment plus real loopback HTTP/2 gRPC telemetry tests, runs the Windows collector integration test when the host is Windows, and verifies formatting. It explicitly reports cross-process, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
+The script currently restores locked dependencies, builds with warnings as errors, runs every existing solution test tagged `Unit` or `Contract`, runs the real SQLite enrollment/controller telemetry, agent-spool, peer-store, pairing-application, and peer-replication suites, runs controller and peer-host/outbound-transport real loopback HTTP/2 gRPC tests, runs the local administration HTTP suite, and verifies formatting. On Windows it also runs the collector plus the composed node/DPAPI tests, including bilateral web pairing and the separate-store offline-collection/restart/convergence scenario. It explicitly reports the cross-process legacy path, Headscale, Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu suites as unavailable. The workload-specific Android APK command above remains a separate platform build. Add each missing suite when its project is created; verification must never silently skip a required suite.
+
+The peer foundation suites currently cover generated contract shape and validation; real P-256 bilateral proof and transcript substitution/replay/expiry behavior; compatibility and duplicate-session selection; durable approval, challenge, and replay state; a real file-backed SQLite peer store; signed bounded replication; real Windows-loopback inbound/outbound gRPC; loopback-only local administration with CSRF/redaction/private-address validation; and a composed Windows node with restart-stable DPAPI identity. The composed-node suite starts two fresh nodes, submits an invitation through one local web API, approves it through the other, completes bilateral proof over production gRPC, and verifies active trust in both separate SQLite databases. These tests do not prove packaging/service lifecycle, real TLS/Tailscale deployment, non-Windows protected key storage, collection through the peer node, scheduled reconnect, or two-peer history convergence after outage.
 
 The SQLite enrollment suite uses a real temporary database file with WAL enabled. It covers restart durability, expiration, cancellation, wrong-device intent, wrong signature, replay rejection, concurrent completion from separate store instances, and absence of raw, hexadecimal, or base64 enrollment secrets in database/WAL files. The telemetry case proves stream-challenge replay rejection, durable sequence acknowledgement, identical retry, conflicting retry rejection, latest-metric reads, and restart. The controller suite includes the enrollment service boundary plus a production Kestrel loopback HTTP/2 gRPC path covering authenticated spool upload, owner-gated reads, controller restart, duplicate retry, wrong-key rejection, cross-stream proof rejection, and safe error redaction. It is a real socket/protocol test in the test process; separate controller/agent process testing remains required.
 

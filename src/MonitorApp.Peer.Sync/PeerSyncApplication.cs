@@ -1,0 +1,209 @@
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Persistence;
+using MonitorApp.Peer.Replication;
+using MonitorApp.Peer.Service;
+using MonitorApp.Peer.Transport;
+
+namespace MonitorApp.Peer.Sync;
+
+public sealed record PeerSyncOptions(int MaximumBatchRecords, int MaximumBatchBytes, int MaximumOperationsPerSession, int MaximumCapabilities)
+{
+    public static PeerSyncOptions Default { get; } = new(256, 1024 * 1024, 1024, 1024);
+
+    internal void Validate()
+    {
+        if (MaximumBatchRecords is < 1 or > 10_000 || MaximumBatchBytes < 4096 ||
+            MaximumOperationsPerSession is < 1 or > 100_000 || MaximumCapabilities is < 0 or > 10_000)
+            throw new ArgumentOutOfRangeException(nameof(PeerSyncOptions));
+    }
+}
+
+public sealed class PeerSyncException(string message) : Exception(message);
+
+public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertisementProvider
+{
+    private readonly PeerStore store;
+    private readonly OriginReplicationCoordinator replication;
+    private readonly PeerSyncOptions options;
+    private PeerHello? authenticatedRemoteHello;
+
+    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null)
+    {
+        this.store = store ?? throw new ArgumentNullException(nameof(store));
+        this.replication = replication ?? throw new ArgumentNullException(nameof(replication));
+        this.options = options ?? PeerSyncOptions.Default;
+        this.options.Validate();
+    }
+
+    public CapabilityExchange LocalCapabilities { get; } = new();
+
+    public async ValueTask PrepareHelloAsync(PeerHello localHello, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(localHello);
+        var identity = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
+        if (localHello.PeerId != identity.PeerId)
+            throw new PeerSyncException("Session hello does not match the persisted local identity.");
+        var capabilities = await GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        localHello.Capabilities.Clear();
+        localHello.Capabilities.Add(capabilities);
+        LocalCapabilities.Capabilities.Clear();
+        LocalCapabilities.Capabilities.Add(capabilities.Select(item => item.Clone()));
+        localHello.Cursors.Clear();
+        localHello.Cursors.Add(LocalAvailability(identity, DateTimeOffset.UtcNow));
+    }
+
+    public ValueTask OnAuthenticatedAsync(PeerHello remoteHello, CapabilityExchange remoteCapabilities, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(remoteHello);
+        authenticatedRemoteHello = remoteHello.Clone();
+        return ValueTask.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<PeerSessionRequest> GetPendingRequestsAsync(string remotePeerId,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var remote = authenticatedRemoteHello?.Clone() ?? throw new PeerSyncException("Remote hello is unavailable before synchronization.");
+        if (remote.PeerId != remotePeerId) throw new PeerSyncException("Authenticated peer identity changed.");
+        var local = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
+        var operations = 0;
+
+        var remoteAvailability = remote.Cursors
+            .Where(cursor => cursor.OriginPeerId == remotePeerId)
+            .OrderBy(cursor => cursor.OriginStreamId, StringComparer.Ordinal)
+            .SingleOrDefault();
+        while (remoteAvailability is not null)
+        {
+            var retained = await store.ReadReplicationCursorAsync(remotePeerId, remotePeerId,
+                remoteAvailability.OriginStreamId, cancellationToken).ConfigureAwait(false);
+            var accepted = retained.Cursor?.AcceptedThrough ?? 0;
+            if (accepted >= remoteAvailability.AcceptedThroughSequence) break;
+            EnsureOperationBound(++operations);
+            yield return new PeerSessionRequest
+            {
+                OriginRangeRequest = new OriginRangeRequest
+                {
+                    RequestId = Guid.NewGuid().ToString("N"),
+                    OriginPeerId = remotePeerId,
+                    OriginStreamId = remoteAvailability.OriginStreamId,
+                    FirstSequence = checked(accepted + 1),
+                    LastSequence = remoteAvailability.AcceptedThroughSequence,
+                    MaximumRecordCount = (uint)options.MaximumBatchRecords,
+                    MaximumBatchBytes = (uint)options.MaximumBatchBytes,
+                },
+            };
+        }
+
+        var localHead = local.NextSequence - 1;
+        while (true)
+        {
+            var remoteAck = await store.ReadReplicationCursorAsync(remotePeerId, local.PeerId, local.OriginStreamId, cancellationToken)
+                .ConfigureAwait(false);
+            var accepted = remoteAck.Cursor?.AcceptedThrough ?? 0;
+            if (accepted >= localHead) break;
+            EnsureOperationBound(++operations);
+            var batch = await replication.ReadAsync(new OriginRangeRequest
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                OriginPeerId = local.PeerId,
+                OriginStreamId = local.OriginStreamId,
+                FirstSequence = checked(accepted + 1),
+                LastSequence = localHead,
+                MaximumRecordCount = (uint)options.MaximumBatchRecords,
+                MaximumBatchBytes = (uint)options.MaximumBatchBytes,
+            }, cancellationToken).ConfigureAwait(false);
+            if (batch.Records.Count == 0) throw new PeerSyncException("Local origin availability contains an unexpected gap.");
+            yield return new PeerSessionRequest { OriginBatch = batch };
+        }
+    }
+
+    public async ValueTask<OriginAck> AcceptOriginBatchAsync(string remotePeerId, OriginRecordBatch batch, CancellationToken cancellationToken)
+    {
+        if (batch.Records.Count == 0) throw new PeerSyncException("Remote advertised records but returned an empty batch.");
+        return (await replication.ApplyAsync(remotePeerId, batch, cancellationToken).ConfigureAwait(false)).Acknowledgement;
+    }
+
+    public async ValueTask AcceptOriginAckAsync(string remotePeerId, OriginAck acknowledgement, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(acknowledgement);
+        var local = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
+        var cursor = acknowledgement.Cursor ?? throw new PeerSyncException("Origin acknowledgement cursor is required.");
+        if (cursor.OriginPeerId != local.PeerId || cursor.OriginStreamId != local.OriginStreamId ||
+            cursor.AcceptedThroughSequence > local.NextSequence - 1)
+            throw new PeerSyncException("Origin acknowledgement does not match the local origin stream.");
+        await store.UpdateReplicationCursorAsync(new ReplicationCursor(remotePeerId, local.PeerId, local.OriginStreamId,
+            cursor.AcceptedThroughSequence, "raw", cursor.UpdatedAt.ToDateTimeOffset()), [], cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)
+    {
+        var capabilities = await store.ReadCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        return capabilities.OrderBy(item => item.Namespace, StringComparer.Ordinal).ThenBy(item => item.CapabilityId, StringComparer.Ordinal)
+            .Take(options.MaximumCapabilities)
+            .Select(item => new CapabilityDescriptor
+            {
+                ModuleId = item.CapabilityId.StartsWith(item.Namespace + ".", StringComparison.Ordinal)
+                    ? item.CapabilityId : item.Namespace + "." + item.CapabilityId,
+                ModuleVersion = item.Version,
+                DeclarationSha256 = ByteString.CopyFrom(SHA256.HashData(item.Descriptor)),
+            }).ToArray();
+    }
+
+    public async ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
+        PeerHello remoteHello,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(remoteHello);
+        var identity = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
+        var cursors = new List<OriginCursor>
+        {
+            LocalAvailability(identity, DateTimeOffset.UtcNow),
+        };
+        foreach (var streamId in remoteHello.Cursors
+                     .Where(cursor => cursor.OriginPeerId == remoteHello.PeerId)
+                     .Select(cursor => cursor.OriginStreamId)
+                     .Where(streamId => !string.IsNullOrWhiteSpace(streamId))
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(streamId => streamId, StringComparer.Ordinal))
+        {
+            var retained = await store.ReadReplicationCursorAsync(
+                remoteHello.PeerId,
+                remoteHello.PeerId,
+                streamId,
+                cancellationToken).ConfigureAwait(false);
+            if (retained.Cursor is not null)
+            {
+                cursors.Add(new OriginCursor
+                {
+                    OriginPeerId = retained.Cursor.OriginPeerId,
+                    OriginStreamId = retained.Cursor.OriginStreamId,
+                    AcceptedThroughSequence = retained.Cursor.AcceptedThrough,
+                    UpdatedAt = Timestamp.FromDateTimeOffset(retained.Cursor.UpdatedAt),
+                });
+            }
+        }
+
+        return cursors;
+    }
+
+    private async Task<LocalPeerIdentity> RequireIdentityAsync(CancellationToken cancellationToken) =>
+        await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) ??
+        throw new PeerSyncException("Local peer identity is not initialized.");
+
+    private static OriginCursor LocalAvailability(LocalPeerIdentity identity, DateTimeOffset now) => new()
+    {
+        OriginPeerId = identity.PeerId,
+        OriginStreamId = identity.OriginStreamId,
+        AcceptedThroughSequence = identity.NextSequence - 1,
+        UpdatedAt = Timestamp.FromDateTimeOffset(now),
+    };
+
+    private void EnsureOperationBound(int operations)
+    {
+        if (operations > options.MaximumOperationsPerSession)
+            throw new PeerSyncException("Synchronization exceeded the configured per-session operation bound.");
+    }
+}

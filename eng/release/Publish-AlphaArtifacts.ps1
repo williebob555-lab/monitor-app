@@ -31,11 +31,15 @@ else {
 
 $controllerProject = Join-Path $repositoryRoot 'src/MonitorApp.Controller/MonitorApp.Controller.csproj'
 $agentProject = Join-Path $repositoryRoot 'src/MonitorApp.Agent.Service/MonitorApp.Agent.Service.csproj'
+$peerProject = Join-Path $repositoryRoot 'src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj'
 if (-not (Test-Path -LiteralPath $controllerProject)) {
     throw 'Controller project is required before alpha artifacts can be published.'
 }
 if (-not (Test-Path -LiteralPath $agentProject)) {
     throw 'Agent service project is required before alpha artifacts can be published.'
+}
+if (-not (Test-Path -LiteralPath $peerProject)) {
+    throw 'Windows peer preview project is required before alpha artifacts can be published.'
 }
 
 $restoredRuntimeAssets = @{}
@@ -134,6 +138,10 @@ Publish-ZipArtifact `
     -Project $agentProject `
     -Runtime 'win-x64' `
     -ArtifactName "monitorapp-agent-windows-x64-$Version.zip"
+Publish-ZipArtifact `
+    -Project $peerProject `
+    -Runtime 'win-x64' `
+    -ArtifactName "monitorapp-peer-windows-x64-$Version.zip"
 Publish-TarGzArtifact `
     -Project $agentProject `
     -Runtime 'linux-x64' `

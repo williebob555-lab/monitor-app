@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
+  </ItemGroup>
+</Project>

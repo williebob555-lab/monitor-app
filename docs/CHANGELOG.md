@@ -4,6 +4,17 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Changed
+
+- Replaced the mandatory full-document preflight and default full-suite verification for every edit with a risk-based workflow: always inspect the index, todo, working tree, and governing decisions; read complete documents and run broad tests only when the change scope requires them.
+- Expanded the documented product scope to a universal monitoring, inventory, and design model with an explicit boundary between actual/owned/running state and named plans. Added connector-and-length-centered cable management, physical/audio/RF/electrical/thermal constraints, sourcing and price history, deterministic automation and notifications, optional distributed local AI, and a dependency-ordered roadmap. These are documented plans, not implemented features.
+- Replaced the controller/agent and automatic self-hosted Headscale direction with a confirmed decentralized equal-peer mesh. Tailscale now supplies user-managed reachability only; bilateral application pairing establishes trust.
+- Defined origin-owned peer replication, local storage/query on every peer, explicit freshness/offline cache, and eventual convergence without global consensus.
+- Added observed peripherals and LAN infrastructure as typed entities collected through purpose-built adapters with stable identity, explicit collector ownership, local credentials, and evidence-aware topology reconciliation.
+- Added versioned capability modules, a categorized observation catalog, broad truthful measurement rules, and purpose-built/fallback inspector contracts.
+- Established the aggregate-operational network measurement boundary and separate opt-in defensive security capability. Ordinary packet/content/communication-identity collection remains prohibited.
+- Reframed the current controller alpha as reusable migration evidence rather than the target deployment.
+
 ### Added
 
 - Comprehensive product and architecture specification in `Monitor App Design Specification.txt`.
@@ -37,6 +48,34 @@ This file records completed user-visible, operational, architectural, packaging,
 - Android Keystore P-256 proof signing, one-time enrollment-field clearing, private non-secret pairing-receipt storage, and platform-independent Android core coverage.
 - Development-signed Android API 36 Release APK build path using the .NET Android workload and JDK 21.
 - Root getting-started guidance and a guarded helper for creating and pushing a new private GitHub repository from a clean committed `main` branch.
+- Versioned `monitor.v1` equal-peer contracts for discovery hints, bilateral pairing, authenticated sessions, capability exchange, origin range/batch replication, durable cursors/acknowledgements, and explicit compatibility failures.
+- Platform-independent peer identity and pairing core with real ECDSA P-256 transcript-bound proofs, replay/expiry handling, protocol negotiation, deterministic duplicate-session selection, and defensive key-material copies.
+- Versioned file-backed SQLite WAL peer store for local identity, trust/revocation, locators, pairing sessions, immutable local and replicated origin records, current queries, replication cursors/gaps, observed-device evidence, relationships, adapter health, capability catalog, and collector assignments.
+- Generated-contract, cryptographic, and eight real file-backed peer-persistence tests in the root solution and verification path.
+- Durable peer application coordination for explicit approval, bilateral pairing, reconnect authentication, restart-safe challenge replay rejection, trust/revocation, capability negotiation, and deterministic duplicate-session admission.
+- Signed origin-replication coordination with trusted-origin validation, bounded range and batch handling, idempotent SQLite persistence, conflict rejection, durable cursor acknowledgement, and gap convergence.
+- Fail-closed ASP.NET Core gRPC peer host with explicit private/loopback binding, message/work/time bounds, authenticated-session gating, safe compatibility/error responses, non-secret local diagnostics, and real loopback integration tests.
+- Protocol 1.1 bilateral reconnect authentication now carries and verifies the server proof before the client sends its proof or any application operation; protocol 1.0 fails explicitly.
+- Outbound peer connector with pinned identity, safe endpoint policy, bounded timeouts/backoff, capability/replication/heartbeat dispatch, and real production-host loopback tests.
+- Loopback-only local administration page/API for identity, trust, pairing decisions, and stored observation metadata with CSRF-protected mutations and redacted output.
+- Launchable Windows peer preview with CurrentUser-DPAPI-protected P-256 identity, shared local database, composed peer/admin hosts, and restart-stability tests.
+- Structured protocol-1.1 fresh-pair approval states, identity-bound idempotent pairing IDs, one durable challenge, and production incoming pairing coordination with rejection/expiry/replay/revocation checks.
+- Outbound fresh-pairing client and local invitation form that require explicit initiating/contacted-peer approval, pin the displayed remote identity, verify the server proof first, and persist trust only after completed confirmation.
+- Real two-node browser/API plus gRPC integration coverage proving two fresh DPAPI identities and separate SQLite stores establish bilateral active trust.
+- Peer-native collection and synchronization projects that convert system snapshots into signed local-origin records, advertise bounded capability/cursor state, pull remote ranges, push local batches, and durably retain acknowledgements.
+- Persisted Windows preview reconnect scheduling from paired-peer locators, with bounded backoff and automatic authenticated sessions whenever the stored peer endpoint becomes reachable.
+- A real Windows two-peer integration path that exchanges observations, disconnects both nodes, collects independently while the other node is offline, restarts, reconnects, and proves ordered byte/signature-equivalent convergence without duplicate sequences in separate SQLite stores.
+- Production-host security coverage proving that a reachable but unpaired application identity receives only a non-retryable, credential-safe authorization error and no challenge or application operation.
+- A versioned namespaced capability-module contract and canonical observation catalog covering entity/relationship types, signal value and temporal behavior, source, unit, freshness, importance, privacy, collection cost, sampling, retention, peer compatibility, and generated/purpose-built inspector descriptors.
+- A production capability registry that validates and bounds declarations before SQLite persistence and advertisement, rejects ordinary communication-identity/content/packet/flow/query/per-process traffic categories, and requires separate enablement plus evidence/confidence for defensive-security modules.
+- A validated built-in `monitor.system` declaration for the Windows preview's CPU, memory, storage, aggregate network counters, and collector-health observations.
+- Root verification now reports the in-process Windows two-peer convergence coverage instead of listing that suite as unavailable.
+- Deterministic inspector selection now chooses an installed applicable purpose-built inspector and otherwise returns the validated generated fallback without exposing mutable registry state.
+- Added a versioned universal inventory contract and validator that separate actual state from named design revisions, keep product definitions, seller offers, physical instances, and design placeholders as distinct identities, validate typed relationship provenance/validity, and prevent actual relationships from silently consuming design-only objects.
+- Added the first bounded cable contract slice with two typed connector ends, reversible/directional roles, and positive unit-bearing nominal and measured lengths; sourcing, automation, AI, persistence, matching, and UI workflows remain outside this slice.
+- Strengthened observed-device persistence so IP/network-address claims cannot be strong identity, strong claims can reconcile reports independently of collection host, collector assignments must match their adapter's device and peer, and reassignment retains restart-stable ownership plus attachment history without replicating credential references.
+- Added a provisional read-only Yamaha AG06MK2 Windows adapter probe using the connected device's Yamaha USB identity. It preserves configured app identity separately from port correlation data and reports driver/attachment evidence, freshness, unavailable, permission-denied, and safe error states without device controls.
+- Added the self-contained Windows equal-peer preview zip to alpha release packaging; the existing `dev-0.1.0` GitHub pre-release contains only the older controller/agent generation and no current peer release has been tagged.
 
 ### Changed
 

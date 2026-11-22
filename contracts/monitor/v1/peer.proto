@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package monitor.v1;
+
+option csharp_namespace = "MonitorApp.Contracts.V1";
+
+import "google/protobuf/timestamp.proto";
+import "monitor/v1/common.proto";
+import "monitor/v1/enrollment.proto";
+
+service PeerPairingService {
+  rpc Pair(stream PairingFrame) returns (stream PairingFrame);
+}
+
+service PeerService {
+  rpc PeerSession(stream PeerSessionRequest) returns (stream PeerSessionResponse);
+}
+
+message DiscoveryHint {
+  string host = 1;
+  uint32 port = 2;
+  string expected_peer_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CompatibilityFailure {
+  ProtocolCompatibility supported = 1;
+  ProtocolVersion received = 2;
+  string safe_message = 3;
+}
+
+message PairingHello {
+  ProtocolVersion protocol_version = 1;
+  string pairing_id = 2;
+  string peer_id = 3;
+  string display_name = 4;
+  bytes public_key_spki = 5;
+  bytes public_key_sha256 = 6;
+}
+
+message PeerChallenge {
+  string session_id = 1;
+  string challenge_id = 2;
+  string challenger_peer_id = 3;
+  string challenged_peer_id = 4;
+  bytes proof_challenge = 5;
+  SignatureAlgorithm signature_algorithm = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+message PeerProof {
+  string session_id = 1;
+  string challenge_id = 2;
+  string signer_peer_id = 3;
+  string verifier_peer_id = 4;
+  SignatureAlgorithm signature_algorithm = 5;
+  bytes proof_signature = 6;
+}
+
+message PairingConfirmation {
+  string pairing_id = 1;
+  string local_peer_id = 2;
+  string remote_peer_id = 3;
+  bytes remote_public_key_sha256 = 4;
+  google.protobuf.Timestamp paired_at = 5;
+}
+
+enum PairingApprovalDisposition {
+  PAIRING_APPROVAL_DISPOSITION_UNSPECIFIED = 0;
+  PAIRING_APPROVAL_DISPOSITION_AWAITING_LOCAL_APPROVAL = 1;
+  PAIRING_APPROVAL_DISPOSITION_APPROVED = 2;
+  PAIRING_APPROVAL_DISPOSITION_REJECTED = 3;
+  PAIRING_APPROVAL_DISPOSITION_EXPIRED = 4;
+  PAIRING_APPROVAL_DISPOSITION_COMPLETED = 5;
+}
+
+message PairingApproval {
+  string pairing_id = 1;
+  PairingApprovalDisposition disposition = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  string safe_message = 4;
+}
+
+message PairingFrame {
+  oneof message {
+    PairingHello hello = 1;
+    PeerChallenge challenge = 2;
+    PeerProof proof = 3;
+    PairingConfirmation confirmation = 4;
+    CompatibilityFailure incompatibility = 5;
+    ProtocolError error = 6;
+    PairingApproval approval = 7;
+  }
+}
+
+message CapabilityDescriptor {
+  string module_id = 1;
+  string module_version = 2;
+  bytes declaration_sha256 = 3;
+}
+
+message OriginCursor {
+  string origin_peer_id = 1;
+  string origin_stream_id = 2;
+  uint64 accepted_through_sequence = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message PeerHello {
+  ProtocolVersion protocol_version = 1;
+  string peer_id = 2;
+  bytes public_key_sha256 = 3;
+  string session_id = 4;
+  repeated CapabilityDescriptor capabilities = 5;
+  repeated OriginCursor cursors = 6;
+}
+
+message CapabilityExchange {
+  repeated CapabilityDescriptor capabilities = 1;
+}
+
+message OriginRangeRequest {
+  string request_id = 1;
+  string origin_peer_id = 2;
+  string origin_stream_id = 3;
+  uint64 first_sequence = 4;
+  uint64 last_sequence = 5;
+  uint32 maximum_record_count = 6;
+  uint32 maximum_batch_bytes = 7;
+}
+
+message OriginRecord {
+  string origin_peer_id = 1;
+  string origin_stream_id = 2;
+  uint64 sequence = 3;
+  string subject_entity_id = 4;
+  string capability_id = 5;
+  string signal_id = 6;
+  bytes record_bytes = 7;
+  bytes content_sha256 = 8;
+  bytes origin_signature = 9;
+  google.protobuf.Timestamp observed_at = 10;
+  ObservationQuality quality = 11;
+  SignatureAlgorithm signature_algorithm = 12;
+}
+
+message OriginRecordBatch {
+  string request_id = 1;
+  repeated OriginRecord records = 2;
+  bool has_more = 3;
+}
+
+message OriginAck {
+  OriginCursor cursor = 1;
+}
+
+message PeerHeartbeat {
+  google.protobuf.Timestamp sent_at = 1;
+}
+
+message PeerSessionRequest {
+  oneof message {
+    PeerHello hello = 1;
+    PeerProof proof = 2;
+    CapabilityExchange capability_exchange = 3;
+    OriginRangeRequest origin_range_request = 4;
+    OriginRecordBatch origin_batch = 5;
+    OriginAck origin_ack = 6;
+    PeerHeartbeat heartbeat = 7;
+  }
+}
+
+message PeerSessionResponse {
+  oneof message {
+    PeerHello hello = 1;
+    PeerChallenge challenge = 2;
+    CapabilityExchange capability_exchange = 3;
+    OriginRangeRequest origin_range_request = 4;
+    OriginRecordBatch origin_batch = 5;
+    OriginAck origin_ack = 6;
+    PeerHeartbeat heartbeat = 7;
+    CompatibilityFailure incompatibility = 8;
+    ProtocolError error = 9;
+    PeerProof proof = 10;
+  }
+}
