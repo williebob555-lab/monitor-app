@@ -67,7 +67,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(clock);
         options.Validate();
 
-        var builder = WebApplication.CreateSlimBuilder();
+        // Never the working directory ("/" under systemd): see PeerHostApplication.
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
         builder.WebHost.ConfigureKestrel(server => server.Listen(options.BindAddress, options.Port));
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddAntiforgery(antiforgery =>

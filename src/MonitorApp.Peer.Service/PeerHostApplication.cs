@@ -12,7 +12,13 @@ public static class PeerHostApplication
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var builder = WebApplication.CreateBuilder(args);
+        // The content root defaults to the working directory, which is "/" under systemd: the default configuration's
+        // reload-on-change watcher then walks the whole filesystem with inotify and stalls startup for a minute or more.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = args,
+            ContentRootPath = AppContext.BaseDirectory,
+        });
         var options = PeerHostOptions.FromConfiguration(builder.Configuration);
 
         builder.WebHost.ConfigureKestrel(kestrel =>
