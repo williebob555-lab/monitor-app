@@ -85,6 +85,18 @@ public sealed class CiscoSg250Tests
     }
 
     [Fact]
+    public async Task LocallyAdministeredBridgeMacIsNotAStableSwitchIdentity()
+    {
+        var snapshot = await CollectAsync(
+            new(Sg250Oids.IfDescr + ".1", "STRING: ethernet1"),
+            new(Sg250Oids.IfType + ".1", "INTEGER: ethernetCsmacd(6)"),
+            new(Sg250Oids.BridgeAddress, "Hex-STRING: 02 11 22 33 44 55"));
+        Assert.Equal(Sg250CollectionStatus.Available, snapshot.Status);
+        Assert.Null(snapshot.BridgeMac);
+        Assert.DoesNotContain(snapshot.Topology.Claims, c => c.Strength == IdentityStrength.Strong);
+    }
+
+    [Fact]
     public async Task FailedProbeReturnsEmptyExplicitStateAndNeverLeakedExceptions()
     {
         var denied = await new CiscoSg250Adapter(SwitchId, Owner,
