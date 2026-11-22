@@ -110,10 +110,12 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/work" -w /work fedora:42 bash -ec '
+          # The container runs as root; hand the outputs back to the runner user so later steps can move/delete them.
+          docker run --rm -v "$PWD:/work" -w /work -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" fedora:42 bash -ec '
             dnf install -y rpm-build systemd-rpm-macros tar gzip >/dev/null
             MONITOR_APP_FROM_STAGE=/work/out/stage.tgz MONITOR_APP_PACKAGES=rpm \
               bash eng/packaging/linux/build-packages.sh "'"$VERSION"'" /work/out/rpm
+            chown -R "$HOST_UID:$HOST_GID" /work/out
           '
           cp out/rpm/*.rpm "out/monitorapp-node-fedora-x64-${VERSION}.rpm"
           rm -rf out/rpm out/stage.tgz

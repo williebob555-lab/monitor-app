@@ -123,7 +123,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
         await pairing.InitializeAsync();
         await new PeerCapabilityRegistry(store).RegisterAsync(SystemCapabilityDeclaration.Create());
         var collector = new PeerSystemMetricsIngestionBridge(
-            store, identity, new SystemSnapshotCollector(Platform.Ubuntu),
+            store, identity, new SystemSnapshotCollector(OperatingSystem.IsWindows() ? Platform.Windows : Platform.Ubuntu),
             PeerCollectionOptions.Default($"peer:{identity.PublicIdentity.PeerId}", Guid.NewGuid().ToString("N")));
         var desktop = new DesktopPeer(root, FreePort(), store, pairingStore, pairing, collector, identity);
         desktop.Codes = new PairingShortCodeRegistry(time);

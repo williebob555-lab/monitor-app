@@ -10,5 +10,6 @@ namespace MonitorApp.Client.Desktop.Tests;
 public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        // Real Skia rendering (not headless drawing) so the pinned SkiaSharp native build is exercised by every UI test.
+        AppBuilder.Configure<App>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
