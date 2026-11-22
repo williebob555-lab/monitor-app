@@ -142,6 +142,7 @@
     toastTimer = setTimeout(() => target.classList.remove('shown'), 3400);
   }
 
+  const isSurface = z => z.format === 'pedal' || z.format === 'desktop';
   function fitsFormat(asset, current) {
     return asset.format === current.format ||
       (asset.id === 'blank' && current.format === '19');
@@ -166,7 +167,7 @@
     }
     return 1;
   }
-  function addAsset(assetId, desiredSlot, desiredHp) {
+  function addAsset(assetId, desiredSlot, desiredHp, coordinates) {
     const asset = CATALOG.find(x => x.id === assetId), z = zone();
     if (!asset) return;
     if (!fitsFormat(asset, z)) {
@@ -178,6 +179,13 @@
       const slot = desiredSlot || firstOpenSlot(z, asset);
       const next = itemFromAsset(assetId, z.id, slot, newId);
       if (z.format === 'euro') next.leftHp = desiredHp || firstOpenHp(z, asset, slot);
+      if (isSurface(z)) {
+        const existing = state.placements.filter(p => p.zoneId === z.id).length;
+        next.x = coordinates ? coordinates.x : 18 + (existing % 3) * 115;
+        next.y = coordinates ? coordinates.y : 25 + Math.floor(existing / 3) * 125;
+        next.width = asset.width;
+        next.height = asset.height || 100;
+      }
       state.placements.push(next);
       if (asset.createsZone) {
         state.zones.push({
@@ -204,7 +212,10 @@
   function moveSelected(delta) {
     const item = getItem(selected);
     if (!item || item.zoneId !== zone().id) return;
-    mutate(() => { item.slot = Math.max(1, Math.min(slotLimit(zone()) - footprint(item) + 1, item.slot + delta)); });
+    mutate(() => {
+      if (isSurface(zone())) item.y = Math.max(0, Math.min(zone().height - item.height, (item.y || 0) + delta * 10));
+      else item.slot = Math.max(1, Math.min(slotLimit(zone()) - footprint(item) + 1, item.slot + delta));
+    });
   }
   function openZone(id) {
     if (!state.zones.some(z => z.id === id)) return;
@@ -212,7 +223,68 @@
     save(); render(); toast('Entered nested mount. ↑ Return to enclosure from inspector.');
   }
 
+  function evaluateSurface(z) {
+    const items = state.placements.filter(p => p.zoneId === z.id);
+    const findings = [], occupied = new Set();
+    const add = (level, category, title, message, itemId) =>
+      findings.push({ level, category, title, message, itemId });
+    let watts = 0, heat = 0, weight = 0, unknownPower = 0, unknownHeat = 0, unknownWeight = 0;
+    let maxDepth = 0;
+    const rectangles = [];
+    for (const p of items) {
+      if (p.format !== z.format)
+        add('error', 'Mounting', 'Incompatible surface mount', p.name + ' needs a different mounting interface.', p.id);
+      if (![p.x, p.y, p.width, p.height].every(Number.isFinite) || p.width <= 0 || p.height <= 0) {
+        add('unresolved', 'Geometry', 'Unknown footprint', p.name + ' has incomplete board dimensions.', p.id);
+        continue;
+      }
+      if (p.x < 0 || p.y < 0 || p.x + p.width > z.width || p.y + p.height > z.height)
+        add('error', 'Geometry', 'Board footprint exceeds boundary', p.name + ' extends beyond the board.', p.id);
+      if ([p.leftPad, p.rightPad, p.topPad, p.bottomPad].some(x => x == null))
+        add('unresolved', 'Cables', 'Unknown patch lead clearance', p.name + ' needs measured connector and bend clearances.', p.id);
+      rectangles.push({
+        id: p.id, name: p.name,
+        left: p.x - (p.leftPad || 0), right: p.x + p.width + (p.rightPad || 0),
+        top: p.y - (p.topPad || 0), bottom: p.y + p.height + (p.bottomPad || 0) + (p.footPad || 0)
+      });
+      if (p.depth == null) add('unresolved', 'Depth', 'Pedal height unknown', p.name + ' has no measured height.', p.id);
+      else {
+        maxDepth = Math.max(maxDepth, p.depth);
+        if (p.depth > z.depth - z.reserve)
+          add('error', 'Depth', 'Case lid clearance exceeded', p.name + ' exceeds headroom after reserve.', p.id);
+      }
+      if (p.underboard && z.underboardClearance == null)
+        add('unresolved', 'Underboard', 'Under-board cavity unmeasured', 'Power supply fit is not confirmed.', p.id);
+      if (p.underboard && z.underboardClearance < p.depth)
+        add('error', 'Underboard', 'Power supply is too tall', p.name + ' cannot fit below the mounting deck.', p.id);
+      if (p.watts == null) unknownPower++; else watts += p.watts;
+      if (p.heat == null) unknownHeat++; else heat += p.heat;
+      if (p.weight == null) unknownWeight++; else weight += p.weight;
+    }
+    for (let i = 0; i < rectangles.length; i++)
+      for (let j = i + 1; j < rectangles.length; j++) {
+        const a = rectangles[i], b = rectangles[j];
+        if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)
+          add('warning', 'Access', 'Cable/footswitch clearance overlap',
+            a.name + ' and ' + b.name + ' have overlapping access zones.', a.id);
+      }
+    if (unknownHeat) add('unresolved', 'Thermal', 'Heat model incomplete', unknownHeat + ' items have unknown heat.');
+    if (unknownPower) add('unresolved', 'Electrical', 'Power model incomplete', unknownPower + ' items have unknown power.');
+    if (unknownWeight) add('unresolved', 'Mechanical', 'Weight model incomplete', unknownWeight + ' items have unknown weight.');
+    if (watts > z.maxPower) add('error', 'Electrical', 'Power budget exceeded', watts + ' W exceeds the configured budget.');
+    if (heat > z.maxHeat) add('warning', 'Thermal', 'Heat budget exceeded', heat + ' W exceeds estimated dissipation.');
+    if (weight > z.maxWeight) add('error', 'Mechanical', 'Weight budget exceeded', weight + ' kg exceeds the limit.');
+    add('unresolved', 'Electrical', 'DC power safety unverified',
+      'Polarity, current, isolation, connectors, and actual shared-ground behavior need verification.');
+    add('unresolved', 'EMI / RF', 'Interference geometry unverified',
+      'RF antennas, high-current feeds and audio cabling need explicit routed paths.');
+    add('unresolved', 'Mechanical', 'Foot access and adhesive retention unverified',
+      'Footswitch clearance, transport stability, cable strain and mounting surfaces need physical checks.');
+    return { items, findings, watts, heat, weight, occupied, maxDepth, unknownHeat, unknownPower };
+  }
+
   function evaluate(z) {
+    if (isSurface(z)) return evaluateSurface(z);
     const items = state.placements.filter(p => p.zoneId === z.id);
     const findings = [];
     const add = (level, category, title, message, itemId) =>
@@ -282,10 +354,11 @@
   }
 
   function renderRack() {
-    const z = zone(), euro = z.format === 'euro', e = evaluate(z);
+    const z = zone(), euro = z.format === 'euro', surface = isSurface(z), e = evaluate(z);
     $('rackFormat').value = z.format;
-    $('rackHeight').style.display = euro ? 'none' : '';
-    $('rackHeight').parentElement.style.display = euro ? 'none' : '';
+    $('rackHeight').style.display = euro || surface ? 'none' : '';
+    $('rackHeight').parentElement.style.display = euro || surface ? 'none' : '';
+    $('assemblySelect').value = z.id === 'pedalboard' ? 'pedalboard' : 'main';
     $('rackHeight').value = String(z.units);
     $('sceneViewName').textContent = view === 'front' ? 'FRONT ELEVATION' : view === 'side' ? 'DEPTH SECTION' : 'THERMAL ESTIMATE';
     document.querySelectorAll('[data-view]').forEach(b => {
@@ -294,11 +367,30 @@
     });
     $('rackStage').style.transform = 'scale(' + zoom + ')';
     const unitPx = euro ? 132 : 40;
-    const widthPx = euro ? Math.min(370, z.hp * 4.5) : 296;
-    const heightPx = slotLimit(z) * unitPx;
+    const widthPx = surface ? 450 : euro ? Math.min(370, z.hp * 4.5) : 296;
+    const heightPx = surface ? Math.min(500, Math.round(z.height * 450 / z.width)) : slotLimit(z) * unitPx;
     const widthScale = widthPx / z.width;
     let markup;
-    if (view === 'side') {
+    if (surface && view !== 'side') {
+      const thermal = view === 'thermal';
+      markup = '<div class="board-shell" style="width:' + widthPx + 'px;height:' + heightPx + 'px">';
+      for (const p of e.items) {
+        const invalid = e.findings.some(f => f.itemId === p.id && f.level === 'error');
+        const chosen = p.id === selected;
+        markup += '<div role="button" tabindex="0" draggable="true" data-id="' + h(p.id) +
+          '" aria-label="Inspect ' + h(p.name) + '" class="board-item ' +
+          (chosen ? 'selected ' : '') + (invalid ? 'colliding ' : '') + '" style="left:' +
+          (p.x * widthPx / z.width) + 'px;top:' + (p.y * heightPx / z.height) +
+          'px;width:' + (p.width * widthPx / z.width) + 'px;height:' +
+          (p.height * heightPx / z.height) + 'px">' +
+          '<span class="board-knobs">● &nbsp; ●</span><strong>' + h(p.name) +
+          '</strong><span class="board-foot">◎</span>' +
+          (thermal ? '<small>' + h(p.heat == null ? '? W' : p.heat + ' W') + '</small>' : '') +
+          '</div>';
+      }
+      markup += '<span class="board-watermark">BOARD / ' + h(z.width) + '×' + h(z.height) +
+        ' MM · ILLUSTRATIVE</span></div>';
+    } else if (view === 'side') {
       const maxDepth = z.depth;
       markup = '<div class="depth-shell" style="--reserve:' + (100 * z.reserve / maxDepth) + '%">' +
         '<div class="depth-ruler"></div><div class="depth-safe"></div><div class="depth-door"></div><div class="depth-back"></div>';
@@ -351,12 +443,12 @@
     $('rackVisualization').dataset.widthPx = widthPx;
     $('rackVisualization').dataset.heightPx = heightPx;
     const used = e.occupied.size;
-    $('usedSlots').textContent = used;
-    $('totalSlots').textContent = ' / ' + (euro ? z.rows + ' rows' : z.units + ' U');
+    $('usedSlots').textContent = surface ? e.items.length : used;
+    $('totalSlots').textContent = surface ? ' devices' : ' / ' + (euro ? z.rows + ' rows' : z.units + ' U');
     $('depthValue').textContent = e.items.length ? Math.round(e.maxDepth) : '—';
     $('depthNote').textContent = 'usable ' + (z.depth - z.reserve) + ' mm after reserve';
     $('powerValue').textContent = e.unknownPower ? '≥' + e.watts : e.watts;
-    const blocks = Math.min(42, max);
+    const blocks = surface ? 0 : Math.min(42, slotLimit(z));
     $('fillTrack').innerHTML = Array.from({ length: blocks }, (_, i) =>
       '<i class="' + (e.occupied.has(i + 1) ? 'used' : '') + '"></i>').join('');
     const severity = e.findings.filter(f => f.level === 'error').length;
@@ -378,10 +470,14 @@
       options.map(x => '<option value="' + h(x) + '"' + (value === x ? ' selected' : '') + '>' + h(x) + '</option>').join('') +
       '</select></label>';
   }
+  function surfaceField(z) { return isSurface(z); }
   function renderInspector() {
     const z = zone(), e = evaluate(z), item = !inspectRack && getItem(selected);
     let markup = '';
-    if (tab === 'project') {
+    if (tab === 'audio') {
+      $('inspectorTitle').textContent = 'Signal engineering';
+      markup = '<div class="inspector-section"><div class="section-kicker">CONNECTOR & SIGNAL REVIEW</div><span class="badge-chip">◉ DESIGN DATA ONLY</span><p class="caption-copy">Signal type, connector family, pinout, signal level and power are modeled separately. The connector registry does not assume a plug is electrically compatible merely because it fits.</p></div>';
+    } else if (tab === 'project') {
       $('inspectorTitle').textContent = 'Scenario details';
       markup = '<div class="inspector-section"><div class="section-kicker">PROJECT SCOPE</div><div class="badge-chip">◉ PROPOSED / NOT ACTUAL</div>' +
         '<p class="caption-copy">This project contains candidate products, parts, tasks and proposed rack geometry. No item becomes owned or installed just because it appears here.</p></div>' +
@@ -399,7 +495,7 @@
       markup = '<div class="inspector-section"><div class="section-kicker">SELECTED / ' + h(item.id) + '</div><span class="badge-chip">✳ DESIGN PLACEHOLDER</span>' +
         field('Equipment label', 'name', item.name, 'text') +
         '<div class="field-grid">' +
-        (z.format === 'euro' ? field('First HP', 'leftHp', item.leftHp) +
+        (surfaceField(z) ? field('X position', 'x', item.x) + field('Y position', 'y', item.y) : z.format === 'euro' ? field('First HP', 'leftHp', item.leftHp) +
           field('HP width', 'hp', item.hp) : field('Bottom U', 'slot', item.slot) + field('Rack units', 'u', item.u)) +
         '</div>' +
         (z.format === 'euro' ? '<div class="field-grid">' + field('Row', 'slot', item.slot) + field('Rows tall', 'rows', item.rows) + '</div>' : '') +
@@ -407,6 +503,11 @@
         field('Rear cable gap', 'rear', item.rear, 'number', 'mm') +
         field('Front offset', 'front', item.front, 'number', 'mm') +
         field('Width', 'width', item.width, 'number', 'mm') + '</div>' +
+        (surfaceField(z) ? '<div class="field-grid">' + field('Footprint length', 'height', item.height, 'number', 'mm') +
+          field('Left cable space', 'leftPad', item.leftPad, 'number', 'mm') +
+          field('Right cable space', 'rightPad', item.rightPad, 'number', 'mm') +
+          field('Top cable space', 'topPad', item.topPad, 'number', 'mm') +
+          field('Bottom cable space', 'bottomPad', item.bottomPad, 'number', 'mm') + '</div>' : '') +
         '<div class="section-kicker">PHYSICAL / LOADS</div><div class="field-grid">' +
         field('Nominal power', 'watts', item.watts, 'number', 'W') +
         field('Heat generation', 'heat', item.heat, 'number', 'W') +
@@ -431,6 +532,8 @@
         field('Power allowance', 'maxPower', z.maxPower, 'number', 'W') +
         field('Heat removal', 'maxHeat', z.maxHeat, 'number', 'W') +
         field('Weight limit', 'maxWeight', z.maxWeight, 'number', 'kg') + '</div>' +
+        (isSurface(z) ? '<div class="field-grid">' + field('Board length', 'height', z.height, 'number', 'mm') +
+          field('Underboard clearance', 'underboardClearance', z.underboardClearance, 'number', 'mm') + '</div>' : '') +
         (z.format === 'euro' ? '<div class="field-grid">' + field('HP per row', 'hp', z.hp) +
           field('Row count', 'rows', z.rows) + field('Row pitch', 'rowPitch', z.rowPitch, 'number', 'mm') + '</div>' : '') +
         '<p class="caption-copy">These are design inputs, not manufacturer-verified specs. Front and rear mounting rails, hole patterns and extended drawer loads require additional validation.</p></div>';
@@ -487,13 +590,14 @@
 
   function render() {
     state.currentZoneId = zone().id;
-    const label = tab === 'rack' ? 'RACK STUDIO' : tab === 'project' ? 'PROJECT MAP' : 'SOURCE SIGNALS';
+    const label = tab === 'rack' ? 'RACK STUDIO' : tab === 'audio' ? 'SIGNAL LAB' : tab === 'project' ? 'PROJECT MAP' : 'SOURCE SIGNALS';
     $('topLocation').textContent = label;
-    ['rack', 'project', 'sources'].forEach(x => $(''+x+'Panel').classList.toggle('visible', tab === x));
+    ['rack', 'audio', 'project', 'sources'].forEach(x => $(''+x+'Panel').classList.toggle('visible', tab === x));
     document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $('undoButton').disabled = !undo.length;
     $('redoButton').disabled = !redo.length;
     renderCatalog(); renderRack(); renderInspector(); renderProject(); renderSources();
+    if (window.MonitorRackAudio) window.MonitorRackAudio.render();
   }
   function showInspectorOnMobile() {
     if (window.matchMedia('(max-width:1130px)').matches) document.querySelector('.inspector-pane').classList.add('open');
@@ -547,14 +651,19 @@
     e.preventDefault(); $('canvasRegion').classList.remove('drop-active');
     const asset = e.dataTransfer.getData('application/x-monitor-asset');
     const move = e.dataTransfer.getData('application/x-monitor-placement');
-    const shell = $('rackVisualization').querySelector('.rack-shell');
+    const shell = $('rackVisualization').querySelector('.rack-shell, .board-shell');
     const z = zone();
-    let slot = 1, hp = 1;
+    let slot = 1, hp = 1, boardCoords = null;
     if (shell && view !== 'side') {
       const rect = shell.getBoundingClientRect();
-      const offsetFromBottom = rect.bottom - e.clientY;
-      const unitPx = Number($('rackVisualization').dataset.unitPx) * zoom;
-      slot = Math.max(1, Math.min(slotLimit(z), Math.floor(offsetFromBottom / unitPx) + 1));
+      if (isSurface(z)) {
+        boardCoords = { x: Math.round(Math.max(0,(e.clientX - rect.left)*z.width/rect.width)),
+          y: Math.round(Math.max(0,(e.clientY - rect.top)*z.height/rect.height)) };
+      } else {
+        const offsetFromBottom = rect.bottom - e.clientY;
+        const unitPx = Number($('rackVisualization').dataset.unitPx) * zoom;
+        slot = Math.max(1, Math.min(slotLimit(z), Math.floor(offsetFromBottom / unitPx) + 1));
+      }
       if (z.format === 'euro') {
         const hpPx = (Number($('rackVisualization').dataset.widthPx) / z.hp) * zoom;
         hp = Math.max(1, Math.min(z.hp, Math.floor((e.clientX - rect.left) / hpPx) + 1));
@@ -563,11 +672,14 @@
       toast('Switch to front elevation to position items on the mounting grid.');
       return;
     }
-    if (asset) addAsset(asset, slot, hp);
+    if (asset) addAsset(asset, slot, hp, boardCoords);
     else if (move) {
       const p = getItem(move);
       if (p && p.zoneId === z.id) {
-        mutate(() => { p.slot = slot; if (z.format === 'euro') p.leftHp = hp; });
+        mutate(() => {
+          if (isSurface(z) && boardCoords) { p.x = boardCoords.x; p.y = boardCoords.y; }
+          else { p.slot = slot; if (z.format === 'euro') p.leftHp = hp; }
+        });
         selected = move; inspectRack = false; renderInspector();
       }
     }
@@ -606,6 +718,10 @@
     mutate(() => {
       z.format = format;
       z.width = FORMAT[format].width;
+      if (format === 'pedal' || format === 'desktop') {
+        z.height = z.height || 350; z.depth = z.depth || 105; z.reserve = 10;
+        z.underboardClearance = z.underboardClearance || 20;
+      }
       if (format === 'euro') {
         z.hp = z.hp || 84; z.rows = z.rows || 2; z.rowPitch = z.rowPitch || 133.35;
       }
@@ -613,6 +729,7 @@
     toast('Mount interface changed. Existing equipment is not silently converted.');
   });
   $('rackHeight').addEventListener('change', e => mutate(() => { zone().units = number(e.target.value, zone().units); }));
+  $('assemblySelect').addEventListener('change', e => openZone(e.target.value));
   $('zoomIn').addEventListener('click', () => { zoom = Math.min(1.5, Math.round((zoom + .1) * 10) / 10); $('zoomValue').textContent = Math.round(zoom * 100) + '%'; renderRack(); });
   $('zoomOut').addEventListener('click', () => { zoom = Math.max(.6, Math.round((zoom - .1) * 10) / 10); $('zoomValue').textContent = Math.round(zoom * 100) + '%'; renderRack(); });
   $('undoButton').addEventListener('click', () => restore(undo, redo));
