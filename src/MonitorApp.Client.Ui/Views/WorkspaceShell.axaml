@@ -188,7 +188,7 @@
                 </TabStrip.ItemTemplate>
               </TabStrip>
             </ScrollViewer>
-            <ContentControl Name="PageHost" Content="{Binding Shell.Content}" />
+            <ctl:KeepAliveHost Name="PageHost" Content="{Binding Shell.Content}" />
           </DockPanel>
 
           <!-- Historical state outline: dashed frame plus words, so a recorded view can never pass for live. -->

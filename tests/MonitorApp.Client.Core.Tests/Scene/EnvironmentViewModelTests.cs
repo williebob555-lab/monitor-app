@@ -31,18 +31,19 @@ public sealed class EnvironmentViewModelTests
         Assert.Equal("This device", model.Scene.Find("peer-local")!.Label);
         Assert.Equal("Trusted workstation", model.Scene.Find("peer-trusted")!.Label);
         var device = model.Scene.Find("host-a")!;
-        Assert.Equal(SceneHealth.Degraded, device.Health);
-        Assert.Equal("Battery level reading unavailable", device.HealthReason);
+        // A reading the device does not provide (battery level here) is shown as Unavailable but is not a fault.
+        Assert.Equal(SceneHealth.Healthy, device.Health);
+        Assert.Equal("Unavailable", device.Layers.Single(l => l.Kind == SceneLayerKind.Power).Readings.Single().DisplayValue);
         Assert.Equal(0.5, device.Layers.Single(l => l.Kind == SceneLayerKind.Compute).Fill);
         Assert.Null(device.Layers.Single(l => l.Kind == SceneLayerKind.Power).Fill);
-        Assert.Equal("3 devices · 1 degraded · 2 unknown", model.Summary);
+        Assert.Equal("3 devices · 2 unknown", model.Summary);
         Assert.False(model.IsHistorical);
         Assert.All(model.Scene.Nodes, n => Assert.True(model.Scene.Layout.ContainsKey(n.Id)));
 
         // Outline mirrors the scene: the device is nested under the peer that holds it.
         Assert.Equal(["peer-local", "peer-trusted"], model.Outline.Select(o => o.NodeId));
         Assert.Equal("host-a", Assert.Single(model.Outline[0].Children).NodeId);
-        Assert.Contains("Degraded", model.Outline[0].Children[0].AccessibleText, StringComparison.Ordinal);
+        Assert.Contains("Healthy", model.Outline[0].Children[0].AccessibleText, StringComparison.Ordinal);
 
         // Keyboard navigation walks the outline depth first and wraps.
         model.SelectNextCommand.Execute(null);

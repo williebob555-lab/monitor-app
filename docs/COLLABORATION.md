@@ -112,6 +112,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
 | T061 design doc, scenarios | Claude | #13 | 2026-11-22 |
 | T051-T057 | Claude | #5 | 2026-11-22 |
 | T039-T050 | Claude | #3 | 2026-11-22 |

@@ -16,7 +16,15 @@ public sealed record InspectorReadingRow(
     string Source,
     bool IsFocused)
 {
-    public string AccessibleText => $"{Label}: {Value}. Observed {Time}. Quality {Quality}. Freshness {Freshness}.";
+    /// <summary>When the reading was taken, in plain words; quality codes and source ids are not shown.</summary>
+    public string Meta => Freshness switch
+    {
+        "Stale" or "Offline" => $"Out of date · last updated {Time}",
+        "Unavailable" => $"Checked {Time}",
+        _ => $"Updated {Time}",
+    };
+
+    public string AccessibleText => $"{Label}: {Value}. {Meta}.";
 }
 
 /// <summary>One internal layer of the selected object, with a fill meter only when a true proportion exists.</summary>

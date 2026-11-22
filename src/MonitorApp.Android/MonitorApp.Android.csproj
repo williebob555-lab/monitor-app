@@ -13,6 +13,15 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
+  <!--
+    Release builds are compiled ahead of time in full. With the default (profiled AOT, startup code only) every screen's code was
+    compiled on the phone the first time it ran, which showed up as a pause of about a second when opening a menu or page.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RunAOTCompilation>true</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- Same Avalonia 11.3.x line as the desktop head; the screens come from the shared Client.Ui library. -->
     <PackageReference Include="Avalonia.Android" />

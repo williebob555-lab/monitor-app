@@ -361,7 +361,7 @@ public sealed partial class AlertsViewModel : LiveSectionViewModel
         open.Summary = resolved
             ? $"Raised {DiveText.Clock(alert.RaisedAt)} on {device}, resolved {DiveText.Clock(alert.ResolvedAt)} after {AlertText.Duration((alert.ResolvedAt ?? alert.RaisedAt) - alert.RaisedAt)}."
             : $"Raised {DiveText.Clock(alert.RaisedAt)} on {device}, active for {AlertText.Duration(now - alert.RaisedAt)}.";
-        open.RuleText = $"{RuleTitle(alert)} · rule {alert.RuleId}";
+        open.RuleText = RuleTitle(alert);
         var measure = AlertText.Measure(alert.Detail);
         open.ObservedText = measure?.Observed;
         open.ThresholdText = measure?.Threshold;
