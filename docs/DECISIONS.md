@@ -463,3 +463,12 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Real loopback gRPC and SQLite tests in `MonitorApp.Peer.Mobile.Tests`, `MonitorApp.Peer.Node.Tests`, `MonitorApp.Peer.LocalApi.Tests`, `MonitorApp.Peer.Application.Tests`, `MonitorApp.Peer.Persistence.Tests`.
 - Consequences: Two desktops that dial each other push the same records twice (idempotent; stale acknowledgements are tolerated instead of failing the session). Interest is not relayed across hops. Alerts are still pulled (every 5 s on a live session). Android behavior under Doze and mobile network changes is unverified.
 - Revisit condition: Measured battery cost on a device, a need for per-signal sampling, or relayed multi-hop viewing.
+
+### T040 One adaptive Avalonia UI for desktop, phone, and tablet
+
+- Status: Accepted (user direction: the phone and Android tablet are a mobile command center as usable as the desktop, on one shared client).
+- Decision: All screens, styles, and the `LineChart` live in `MonitorApp.Client.Ui` (net10.0, Avalonia 11.3.x, no desktop-only APIs). `MainView` is the only shell: below 720 px wide it uses an overlay menu plus a bottom bar of the first four sections; otherwise an always-open side pane. Lists are cards that wrap, not data grids; interactive targets are at least 44 px; nothing is hover-only. Heads stay thin (desktop window plus HTTP adapter; Android `AvaloniaMainActivity` plus `InProcessPeerDataSource`). Optional capability interfaces (`IAlertSource`, `IViewingSource`, `IPairingInitiator`, `IHostServiceControl`) keep `IPeerDataSource` small. Live sections (`LiveSectionViewModel`) run only while on screen and declare viewing interest for this device and every trusted peer.
+- Reason: Two UIs would drift; the phone has no HTTP server, and the desktop adapter and the in-process adapter differ only in transport.
+- Evidence: Headless tests at 400x800 and 1100x760; `InProcessPeerDataSourceTests` over a real runtime and desktop peer; Android compile only in CI.
+- Consequences: Desktop loses sortable tables (cards show the same fields). History lists the newest 200 readings (the chart and loaded rows hold all). Camera QR scan remains open. The Android lock file must be regenerated in CI.
+- Revisit condition: Avalonia fails on a target device, or dense desktop tables are required again (add a width-gated table view).

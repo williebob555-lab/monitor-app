@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.ObservationCard" x:DataType="vm:ObservationRow">
+  <Border Classes="card" Margin="0,0,0,8" Padding="12">
+    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+      <StackPanel Grid.Column="0" Spacing="2">
+        <TextBlock Text="{Binding Signal}" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding Subject}" Classes="label" TextWrapping="Wrap" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+        <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Unit}" Classes="label" VerticalAlignment="Bottom" />
+      </StackPanel>
+      <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,6,0,0" Spacing="2">
+        <TextBlock Classes="muted" FontSize="13">
+          <Run Text="{Binding Freshness}" /><Run Text=" / " /><Run Text="{Binding Quality}" /><Run Text=" - " /><Run Text="{Binding Age}" /><Run Text=" ago" />
+        </TextBlock>
+        <TextBlock Text="{Binding ObservedAt}" Classes="muted" FontSize="12" />
+        <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>

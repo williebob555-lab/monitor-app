@@ -1,0 +1,62 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MonitorApp.Client.Ui.MonitorUiStyles">
+  <FluentTheme />
+  <!-- Touch-friendly targets (>= 44 px) everywhere; nothing depends on hover. -->
+  <Style Selector="Button">
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="MinWidth" Value="44" />
+    <Setter Property="Padding" Value="16,8" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="MinHeight" Value="48" />
+  </Style>
+  <Style Selector="TextBlock.error">
+    <Setter Property="Foreground" Value="#E5484D" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.subheading">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Opacity" Value="0.7" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Opacity" Value="0.8" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Padding" Value="14" />
+    <Setter Property="Margin" Value="0,0,0,10" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+    <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" />
+  </Style>
+  <Style Selector="Border.card.alarm">
+    <Setter Property="BorderBrush" Value="#E5484D" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <!-- A form field: label above the control, so forms work at phone width. -->
+  <Style Selector="StackPanel.field">
+    <Setter Property="Spacing" Value="4" />
+    <Setter Property="Margin" Value="0,0,12,8" />
+    <Setter Property="MinWidth" Value="200" />
+  </Style>
+</Styles>

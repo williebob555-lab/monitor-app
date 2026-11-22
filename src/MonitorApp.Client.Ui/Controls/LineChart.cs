@@ -4,7 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using MonitorApp.Client.Core.ViewModels;
 
-namespace MonitorApp.Client.Desktop.Controls;
+namespace MonitorApp.Client.Ui.Controls;
 
 /// <summary>
 /// Minimal line chart over a <see cref="ChartSeries"/>. Each segment is drawn as its own polyline, so

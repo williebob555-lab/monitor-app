@@ -35,21 +35,36 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         this.connection = connection;
         addressText = connection.HasAddress ? connection.Source.Description : string.Empty;
         Overview = new OverviewViewModel(connection);
-        // Further views (for example Alerts) are added here and shown by the shell without other changes.
-        Sections =
-        [
-            Overview,
+        Devices = new DevicesViewModel(connection);
+        var sections = new List<SectionViewModel>
+        {
+            Devices,
+            new AlertsViewModel(connection),
             new StateViewModel(connection),
             new HistoryViewModel(connection),
             new AsOfViewModel(connection),
             new PairingsViewModel(connection),
-        ];
-        selectedSection = Overview;
+        };
+        // Only sources that can initiate pairing (the phone) get the pairing-entry screen.
+        if (connection.Source is IPairingInitiator)
+        {
+            sections.Add(new PairDeviceViewModel(connection));
+        }
+
+        sections.Add(Overview);
+        Sections = sections;
+        selectedSection = Devices;
     }
 
     public IReadOnlyList<SectionViewModel> Sections { get; }
 
     public OverviewViewModel Overview { get; }
+
+    /// <summary>The command-center home screen; the default section.</summary>
+    public DevicesViewModel Devices { get; }
+
+    /// <summary>The sections a compact (phone) layout keeps one tap away in its bottom bar; the rest are in the menu.</summary>
+    public IReadOnlyList<SectionViewModel> PrimarySections => Sections.Take(4).ToArray();
 
     /// <summary>True when the user can choose a node address (HTTP heads); false for fixed in-process sources.</summary>
     public bool ShowsAddress => connection.HasAddress;
