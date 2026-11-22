@@ -1,7 +1,7 @@
-name: Android startup triage (released APK)
+name: Android release APK startup smoke
 
-# This is an integration check for the actual distributable APK, not merely the .NET build.
-# A built/packaged .NET Android app can still crash at process start.
+# Build a release-mode, test-signed APK from the PR, then launch it on an Android emulator.
+# A successful build alone cannot detect an Activity theme or first-frame startup crash.
 on:
   pull_request:
     paths:
@@ -15,22 +15,19 @@ permissions:
   contents: read
 
 jobs:
-  launch-current-preview:
+  launch-release-candidate:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      PREVIEW_TAG: preview-0.1.7
       PACKAGE_ID: app.monitor.selfhosted
     steps:
-      - name: Download signed release APK and verify checksum
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          gh release download "$PREVIEW_TAG" --repo "$GITHUB_REPOSITORY" --dir release \
-            --pattern 'monitorapp-mobile-android-universal-*.apk' --pattern SHA256SUMS
-          (cd release && sha256sum --check --ignore-missing SHA256SUMS)
+      - name: Check out candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
 
       - name: Install Android emulator image
         run: |
@@ -59,7 +56,8 @@ jobs:
           echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           yes | "$sdkmanager_path" --sdk_root="$sdk_root" --licenses >/dev/null || true
           "$sdkmanager_path" --sdk_root="$sdk_root" --install \
-            'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
+            'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools' \
+            'platforms;android-36' 'build-tools;36.0.0'
           echo "no" | "$avdmanager_path" create avd --name monitor-smoke \
             --package 'system-images;android-35;google_apis;x86_64' --force
           "$avdmanager_path" list avd
@@ -70,7 +68,38 @@ jobs:
           }
           sudo chmod 666 /dev/kvm || true
 
-      - name: Boot emulator and launch actual release
+      - name: Install .NET Android workload
+        run: dotnet workload install android
+
+      - name: Build release-mode APK with disposable CI signing key
+        env:
+          SMOKE_KEY_PASS: ci-smoke-key-only
+        run: |
+          set -euo pipefail
+          # Isolated, throwaway key; it is never uploaded, published or provisioned on devices.
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/monitor-smoke.jks" \
+            -alias monitor-smoke -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass "$SMOKE_KEY_PASS" -keypass "$SMOKE_KEY_PASS" \
+            -dname "CN=Monitor App Emulator Smoke,O=CI"
+          dotnet restore src/MonitorApp.Android/MonitorApp.Android.csproj --locked-mode \
+            -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" \
+            -p:JavaSdkDirectory="$JAVA_HOME_21_X64"
+          dotnet publish src/MonitorApp.Android/MonitorApp.Android.csproj \
+            -c Release -f net10.0-android36.0 --no-restore \
+            -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" \
+            -p:JavaSdkDirectory="$JAVA_HOME_21_X64" \
+            -p:AcceptAndroidSDKLicenses=true -p:AndroidPackageFormat=apk \
+            -p:AndroidKeyStore=true \
+            -p:AndroidSigningKeyStore="$RUNNER_TEMP/monitor-smoke.jks" \
+            -p:AndroidSigningKeyAlias=monitor-smoke \
+            -p:AndroidSigningKeyPass=env:SMOKE_KEY_PASS \
+            -p:AndroidSigningStorePass=env:SMOKE_KEY_PASS
+          apk="$(find src/MonitorApp.Android/bin/Release -name '*-Signed.apk' | head -n 1)"
+          [ -n "$apk" ] || { echo "::error::No signed Release APK produced."; exit 1; }
+          mkdir -p release
+          cp "$apk" release/candidate.apk
+
+      - name: Boot emulator and launch candidate APK
         run: |
           set -euo pipefail
           export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$RUNNER_TEMP/monitor-avds}"
@@ -94,8 +123,8 @@ jobs:
           }
           adb shell input keyevent 82
           echo "=== APK native ABIs ==="
-          unzip -Z1 release/monitorapp-mobile-android-universal-0.1.7.apk | grep '^lib/' | cut -d/ -f2 | sort -u || true
-          adb install -r release/monitorapp-mobile-android-universal-0.1.7.apk
+          unzip -Z1 release/candidate.apk | grep '^lib/' | cut -d/ -f2 | sort -u || true
+          adb install -r release/candidate.apk
           adb logcat -c
           adb shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1
           sleep 15
@@ -105,7 +134,7 @@ jobs:
           echo "=== Fatal/managed exception evidence ==="
           grep -Ein -A 28 -B 4 'FATAL EXCEPTION|AndroidRuntime|libmonodroid.*(fail|error)|Unhandled Exception|System\.[A-Za-z]+Exception|Microsoft\.Maui|Avalonia.*Exception|SIGABRT|Fatal signal|Could not load' /tmp/launch.log | tail -n 200 || true
           if ! adb shell pidof "$PACKAGE_ID" >/dev/null; then
-            echo "::error::The released Android application exits/crashes immediately after launch."
+            echo "::error::The candidate Android application exits/crashes immediately after launch."
             exit 1
           fi
-          echo "Released APK remained alive after startup."
+          echo "Release-mode candidate APK remained alive after startup."
