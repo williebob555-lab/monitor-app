@@ -248,10 +248,10 @@ dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.
 dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj -c Release --no-build --filter "Category!=Windows"
 ```
 
-Signed update-manifest policy and artifact-integrity tests:
+Signed update-manifest policy, artifact-integrity, staging/state-machine, apply/rollback tests (includes the `Integration` dpkg sandbox test, which returns early when `/usr/bin/dpkg` and `dpkg-deb` are absent; Windows service control and rpm are not exercised):
 
 ```powershell
-dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj -c Release --no-build --filter "Category=Unit"
+dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj -c Release --no-build 
 dotnet build eng/release/MonitorApp.ReleaseTool/MonitorApp.ReleaseTool.csproj -c Release --no-restore -warnaserror
 ```
 
@@ -322,6 +322,8 @@ The SQLite enrollment suite uses a real temporary database file with WAL enabled
 The agent-spool suite uses a real temporary SQLite WAL file and production serialization. It covers restart durability, monotonic sequence continuation, cumulative prefix deletion, capacity refusal without eviction, refusal to violate controller batch size, and identical retry after upload failure. The Windows collector test calls production operating-system counters and verifies CPU, memory, storage, network-quality semantics, host identity, and boot evidence. Fedora and Ubuntu parser unit tests do not replace platform-local integration or packaging tests.
 
 The update suite signs real manifest bytes with an ephemeral P-256 test key and calls the production verifier and artifact reader. It covers trusted-signature acceptance, wrong-key rejection, downgrade and reinstall rejection, compatibility floors, platform and architecture mismatch, canonical version parsing, and file size and SHA-256 mismatch. The GitHub release workflow, protected environment, generated archives, platform installation, rollback, and Android signing are not verified by those unit tests.
+
+The update pipeline tests add real files and state, ephemeral-key signed manifests with fake network seams, `HttpClient` handler stubs for transport bounds, scripted process/health fakes for rollback orchestration, a real `dpkg-deb` build and `dpkg --root/--admindir` sandbox upgrade, unhealthy-upgrade rollback, and retained-package check, and real temp-directory Windows side-by-side swaps including a zip-slip entry. Windows `sc.exe` control is verified only for command shape.
 
 Self-contained release packaging performs runtime-specific restores into ignored staging lockfiles so the committed NuGet locks remain platform neutral. The release workflow runs `git diff --exit-code` after packaging and fails if any tracked file changes. Local packaging verification must likewise compare the tracked tree before and after archive creation; successful archive output alone is not sufficient evidence.
 

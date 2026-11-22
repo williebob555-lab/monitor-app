@@ -55,6 +55,8 @@ The functional foundation is read-only. Future actions use a distinct permission
 
 Update manifests and artifacts remain signed and target/version/hash checked. Trusted release keys arrive through an authenticated installer or prior trusted release. Never introduce unsigned fallback, silent downgrade, or automatic overwrite as recovery.
 
+Update pipeline trust: sources must be HTTPS but authenticity comes only from the signed manifest; downloads are size-capped and hash-verified into an owner-only staging directory and re-verified immediately before apply; apply requires explicit approval; a failed verification is never staged or applied; the highest seen version is persisted and a downgrade needs an audited per-version authorization; last-known-good is kept until the new version reports healthy; update state corruption fails closed; a crash during apply is reported as Failed. Android never installs silently and relies on the system installer. The health marker is local and unauthenticated, so it proves liveness only on a host the operator already controls.
+
 ## Inventory, planning, and cable data
 
 Actual inventory and running state are security-relevant facts. Design scenarios, candidate products, and proposed connections must not silently change actual state, collector configuration, automation inputs, or device controls. Promotion from design to actual is explicit and audited. Plan overlays must remain clearly labeled so an operator cannot mistake a proposed power, signal, network, or cable path for an installed one.

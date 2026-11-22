@@ -387,6 +387,15 @@ This log separates confirmed product constraints from working technical decision
 - Instrument panel, infrastructure atlas, or focus-and-periphery as the primary visual identity.
 - Decorative gestures that can dispatch real actions.
 
+### T032 Staged update pipeline, consent, and platform apply/rollback
+
+- Status: Accepted (working decision: consent policy needs user confirmation)
+- Decision: `MonitorApp.Update` runs check (HTTPS fetch of the signed manifest) -> verify (T014 checks plus artifact size/SHA-256) -> stage (download to an owner-only staging directory, verify, atomic rename) -> apply behind `IUpdateApplier`, with a persisted `Available/Staged/Applying/Applied/RolledBack/Failed` state file and append-only audit log. Updates are downloaded, verified, and staged automatically but applied only on an explicit `UpdateApproval`; there is no silent install. Staged bytes are re-verified immediately before apply. Anti-rollback: equal/older versions are rejected and the highest manifest version ever seen is persisted; the only escape is a per-version, signed-manifest-only `DowngradeAuthorization` with approver and reason, audited. Linux: `dpkg -i`/`rpm -U` of the staged package, service restart, health marker (fresh file reporting the target version); failure reinstalls the retained last-known-good package, which is replaced only after the new version is healthy. Windows: side-by-side `versions/<v>` directories with a `current` directory symlink swapped while the service is stopped, health check, swap back on failure. Android: no in-app silent install; a verified staged APK is offered for the system installer and reconciled on next launch.
+- Reason: Peers are always-on system services on user machines; an unattended replacement that cannot prove health or restore the previous build would turn an update into an outage, and unattended apply widens the trust surface beyond the signed manifest.
+- Evidence: Real signatures and files, a real `dpkg-deb`/`dpkg --root` sandbox upgrade and rollback, real temp-directory Windows layout swap, and fake process/health/service seams for failure orchestration in `MonitorApp.Update.Tests`.
+- Consequences: Corrupt update state fails closed. A crash during apply is reported as `Failed` on next start, never assumed successful. The first Linux package must seed the retained package (`RetainedPackageStore.Promote`) or the first rollback is `Failed`. Windows execution, systemd integration, rpm, node/service wiring, Android UI/PackageInstaller wiring, and trusted-key delivery remain unverified or TODO.
+- Revisit condition: If the user selects automatic apply in a maintenance window, add it as an explicit policy that still requires health-gated rollback; revisit when package-manager repositories (apt/dnf) replace direct `dpkg`/`rpm` invocation.
+
 ## Decision entry template
 
 ```text
