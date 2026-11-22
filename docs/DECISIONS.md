@@ -663,3 +663,15 @@ This log separates confirmed product constraints from working technical decision
 - Reason: Dual-boot is normal for the owner's machines. Treating the absent OS as a failed device would cause false alarms, and sharing one key across OSes would weaken key protection on both.
 - Consequences: Each viewer stores its own links (`machine_links`), so a link confirmed on the phone is not yet known to the laptop. Per-peer data (history, alerts, rules, grants) stays keyed by peer id, so grants are given per install.
 - Revisit condition: Links should replicate between the owner's devices, or a hardware attestation (TPM) becomes available to bind installs.
+
+### T059 Remote OS switching for dual-boot machines
+
+- Status: Accepted (design; implementation tracked in `TODO.md`).
+- Decision: The owner can restart a dual-boot machine into a chosen OS install from any of their devices. It is a high-risk `SwitchBootTarget` control command: the issuer needs a new `power_control` grant on the target and a presence signature (fingerprint), like update approval.
+  - Only one-time boots. On Linux the root update helper pattern is reused: the unprivileged node writes a request, a root helper started by a systemd path unit re-checks the signed command result, then runs `grub2-reboot`/`grub-reboot <entry>` and `systemctl reboot`. The GRUB default (`saved_entry`, `GRUB_DEFAULT`) is never written, so the next boot after that, or any failed boot, returns to the default entry (Fedora on the owner's laptop).
+  - Supported only where it can be done safely. Linux needs `GRUB_DEFAULT=saved` (Fedora's default) and a grubenv the helper can write; otherwise the install reports `unsupported` with the reason, and the app never edits GRUB configuration. Windows usually cannot write GRUB's grubenv (Fedora keeps it under `/boot`), so a Windows install offers "restart to the default entry" only, which reaches Fedora on the owner's laptop. Choosing any other entry from Windows is reported as unsupported.
+  - The target re-reads its own boot menu and refuses when the entry id is missing or its title differs from `expected_title`.
+  - Wake-on-LAN: a peer on the same LAN as a machine that is off can send a magic packet to the MACs from the machine's last descriptor. That only powers it on into its default entry. Waking into a non-default OS is not possible without the OS running first, so the UI says so.
+- Reason: The owner dual-boots and wants to switch OS from the phone without being at the machine, without the risk of leaving a machine stuck in a non-default OS or with an edited boot configuration.
+- Consequences: A switch always means a restart, so all sessions on that install drop and the machine is then shown "booted into <other OS>" when the sibling install connects. Waking a machine needs another peer awake on its LAN.
+- Revisit condition: Writing a shared-ESP grubenv from Windows, UEFI `BootNext` support, or the owner wants a persistent default change.

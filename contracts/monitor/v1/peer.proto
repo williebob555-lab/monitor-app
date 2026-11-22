@@ -371,6 +371,15 @@ message SetAlertRuleOverrides {
   repeated AlertRuleOverride overrides = 2;
 }
 
+// T059. High-risk: needs the power-control grant and a presence signature. Restarts the target once into entry_id
+// (one-time next boot; the boot loader's default entry is never changed, so a failed boot falls back to it). An empty
+// entry_id restarts into the default entry. The target refuses when its own BootConfiguration does not allow it.
+message SwitchBootTarget {
+  string entry_id = 1;
+  // The title the issuer saw, re-checked by the target so a renumbered menu cannot boot the wrong OS.
+  string expected_title = 2;
+}
+
 message ControlCommand {
   string command_id = 1;
   google.protobuf.Timestamp issued_at = 2;
@@ -391,6 +400,7 @@ message ControlCommand {
     ApproveUpdate approve_update = 18;
     SetAlertPreferences set_alert_preferences = 19;
     SetAlertRuleOverrides set_alert_rule_overrides = 22;
+    SwitchBootTarget switch_boot_target = 23;
   }
   // ECDSA P-256 (IEEE P1363) by the issuer's peer identity key over the canonical command encoding.
   bytes issuer_signature = 20;
