@@ -341,19 +341,38 @@ public sealed class PairingApplicationStore
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ConfigureAsync(connection, cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            MonitorApp.Peer.Persistence.SqliteConnectionTracker.Track(connection);
+            await ConfigureAsync(connection, cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            // A cancelled or failed configuration must not leave an open handle on the database file behind.
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private SqliteConnection Open()
     {
         var connection = new SqliteConnection(connectionString);
-        connection.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA busy_timeout = {checked((int)options.BusyTimeout.TotalMilliseconds)}; PRAGMA foreign_keys = ON;";
-        command.ExecuteNonQuery();
-        return connection;
+        try
+        {
+            connection.Open();
+            MonitorApp.Peer.Persistence.SqliteConnectionTracker.Track(connection);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA busy_timeout = {checked((int)options.BusyTimeout.TotalMilliseconds)}; PRAGMA foreign_keys = ON;";
+            command.ExecuteNonQuery();
+            return connection;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
     }
 
     private async Task ConfigureAsync(SqliteConnection connection, CancellationToken cancellationToken)

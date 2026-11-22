@@ -189,13 +189,15 @@ public sealed class PeerPairingGrpcService(
 public sealed class PeerSessionGrpcService(
     IPeerSessionCoordinator coordinator,
     PeerHostOptions options,
-    IHostApplicationLifetime? lifetime = null) : PeerService.PeerServiceBase
+    IHostApplicationLifetime? lifetime = null,
+    PeerSessionHandlerTracker? handlers = null) : PeerService.PeerServiceBase
 {
     public override async Task PeerSession(
         IAsyncStreamReader<PeerSessionRequest> requestStream,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ServerCallContext context)
     {
+        using var handlerScope = handlers?.Enter();
         // Live sessions write from the request loop and from a push task, so every write goes through one gate.
         using var serialized = new SerializedResponseWriter(responseStream);
         // Host shutdown must end held-open live sessions promptly or a graceful stop would wait out its timeout.
@@ -802,17 +804,34 @@ public sealed class PeerSessionGrpcService(
         public async Task StopAsync()
         {
             await cancellation.CancelAsync().ConfigureAwait(false);
-            if (pushLoop is not null)
+            try
             {
-                await pushLoop.ConfigureAwait(false);
+                // A loop that faulted with anything unexpected must neither skip the other loop nor the session dispose:
+                // both loops are already terminal here, so their failures are only awaited, not rethrown.
+                await AwaitQuietlyAsync(pushLoop).ConfigureAwait(false);
+                await AwaitQuietlyAsync(alertPushLoop).ConfigureAwait(false);
+            }
+            finally
+            {
+                Session?.Dispose();
+            }
+        }
+
+        private static async Task AwaitQuietlyAsync(Task? loop)
+        {
+            if (loop is null)
+            {
+                return;
             }
 
-            if (alertPushLoop is not null)
+            try
             {
-                await alertPushLoop.ConfigureAwait(false);
+                await loop.ConfigureAwait(false);
             }
-
-            Session?.Dispose();
+            catch (Exception)
+            {
+                // The loop is finished either way; the session ends and the client reconnects from its cursors.
+            }
         }
 
         private static readonly TimeSpan AlertPushWait = TimeSpan.FromSeconds(30);
@@ -863,7 +882,7 @@ public sealed class PeerSessionGrpcService(
                 await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException or InvalidDataException)
+            catch (Exception)
             {
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
@@ -917,7 +936,7 @@ public sealed class PeerSessionGrpcService(
                 await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException or InvalidDataException)
+            catch (Exception)
             {
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
