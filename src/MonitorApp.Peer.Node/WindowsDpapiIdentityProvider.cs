@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Core;
@@ -6,7 +7,8 @@ using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.Node;
 
-public sealed class WindowsDpapiIdentityProvider : ILocalPeerIdentityProvider, IDisposable
+[SupportedOSPlatform("windows")]
+public sealed class WindowsDpapiIdentityProvider : INodeIdentityProvider
 {
     private static ReadOnlySpan<byte> FileMagic => "MONITOR-DPAPI-P256-V1\n"u8;
     private readonly EcdsaPeerIdentityKey key;
@@ -85,30 +87,11 @@ public sealed class WindowsDpapiIdentityProvider : ILocalPeerIdentityProvider, I
 
         try
         {
-            var key = EcdsaPeerIdentityKey.ImportPkcs8(privateKey);
-            var publicKey = key.ExportSubjectPublicKeyInfo();
-            var fingerprint = SHA256.HashData(publicKey);
-            var idSuffix = Convert.ToHexString(fingerprint.AsSpan(0, 10)).ToLowerInvariant();
-            var publicIdentity = new PeerPublicIdentity($"peer-{idSuffix}", publicKey, fingerprint);
-            var existing = await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false);
-            if (existing is null)
-            {
-                await store.SetLocalIdentityAsync(new LocalPeerIdentity(
-                    publicIdentity.PeerId,
-                    publicKey,
-                    fingerprint,
-                    $"windows-dpapi:{Path.GetFullPath(keyPath)}",
-                    $"origin-{idSuffix}",
-                    1,
-                    DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
-            }
-            else if (existing.PeerId != publicIdentity.PeerId ||
-                     !CryptographicOperations.FixedTimeEquals(existing.PublicKeyFingerprint, fingerprint))
-            {
-                key.Dispose();
-                throw new CryptographicException("The protected identity key does not match the peer database.");
-            }
-
+            var (key, publicIdentity) = await NodeIdentityProvider.BindAsync(
+                privateKey,
+                store,
+                $"windows-dpapi:{Path.GetFullPath(keyPath)}",
+                cancellationToken).ConfigureAwait(false);
             return new WindowsDpapiIdentityProvider(key, publicIdentity);
         }
         finally

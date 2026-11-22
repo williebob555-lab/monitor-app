@@ -17,6 +17,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Linux engineering preview of the peer node, verified in an Ubuntu 24.04 container only: `MonitorApp.Peer.Node` now targets `net10.0`, selects `PlatformDetector` for the collector (unsupported distributions fail at startup), stores the P-256 identity in `identity.p256` (directory 0700, file 0600 created atomically, load refuses group/other-accessible, symlinked, or foreign-owned files), and defaults its data directory to `$XDG_DATA_HOME/monitor-app` or `~/.local/share/monitor-app`. Runtime pairing and convergence tests, plus Linux identity tests, run on Linux in `eng/verify.ps1`. Windows DPAPI behavior is unchanged. Fedora, packaging, `systemd`, and SELinux are unproven.
 - Comprehensive product and architecture specification in `Monitor App Design Specification.txt`.
 - Repository-wide preflight and documentation rules in `AGENTS.md`.
 - Initial architecture, development, testing, security, and decision documentation.

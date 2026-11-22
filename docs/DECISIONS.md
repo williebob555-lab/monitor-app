@@ -332,6 +332,7 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: The protected identity survives restart, the key file is not importable as raw PKCS#8 and does not contain public identity bytes, two independent nodes start against separate stores, and both local pages answer over real HTTP. Manual launch also verified the same stable fingerprint across restart.
 - Consequences: This is Windows preview evidence only. Initial fresh pairing, Windows service packaging, non-Windows protected key stores, and full two-peer convergence remain release gates.
 - Revisit condition: Replace the Windows-only composition with platform hosts after each target has an approved protected-key and lifecycle implementation.
+- Update: The node now also runs as a Linux engineering preview (`net10.0`, `LinuxFileIdentityProvider` with owner-only `identity.p256`, collector chosen by `PlatformDetector`), verified in an Ubuntu 24.04 container only. File permissions are weaker than DPAPI and are accepted for the preview; RPM/DEB, `systemd`, SELinux, and Fedora remain unproven, so no Linux support is claimed.
 
 ### T027 Fresh-pairing approval and trust-commit protocol
 

@@ -14,6 +14,8 @@ namespace MonitorApp.Peer.Node.Tests;
 public sealed class PeerNodeRuntimeTests
 {
     [Fact]
+    [Trait("Category", "Windows")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public async Task IdentityIsRestartStableAndKeyFileIsNotRawKeyMaterial()
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -53,7 +55,6 @@ public sealed class PeerNodeRuntimeTests
     [Fact]
     public async Task TwoNodesStartWithSeparateStoresAndExposeLocalPages()
     {
-        if (!OperatingSystem.IsWindows()) return;
         var firstRoot = CreateTemporaryDirectory();
         var secondRoot = CreateTemporaryDirectory();
         try
@@ -90,7 +91,6 @@ public sealed class PeerNodeRuntimeTests
     [Fact]
     public async Task TwoFreshNodesPairThroughLocalWebApproval()
     {
-        if (!OperatingSystem.IsWindows()) return;
         var firstRoot = CreateTemporaryDirectory();
         var secondRoot = CreateTemporaryDirectory();
         try
@@ -120,7 +120,6 @@ public sealed class PeerNodeRuntimeTests
     [Fact]
     public async Task SeparateStoresCollectOfflineThenReconnectAndConvergeWithoutDuplicates()
     {
-        if (!OperatingSystem.IsWindows()) return;
         var firstRoot = CreateTemporaryDirectory();
         var secondRoot = CreateTemporaryDirectory();
         var firstPeerPort = FreePort();
@@ -352,9 +351,9 @@ public sealed class PeerNodeRuntimeTests
         return false;
     }
 
-    private sealed class AsyncIdentity(WindowsDpapiIdentityProvider value) : IAsyncDisposable
+    private sealed class AsyncIdentity(INodeIdentityProvider value) : IAsyncDisposable
     {
-        public WindowsDpapiIdentityProvider Value { get; } = value;
+        public INodeIdentityProvider Value { get; } = value;
 
         public ValueTask DisposeAsync()
         {

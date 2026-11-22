@@ -18,10 +18,7 @@ public sealed record NodeOptions(string DataDirectory, IPAddress PeerBindAddress
             values[args[index][2..]] = args[index + 1];
         }
 
-        var defaultRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MonitorApp",
-            "peer-preview");
+        var defaultRoot = DefaultDataDirectory();
         var dataDirectory = Path.GetFullPath(values.GetValueOrDefault("data-dir", defaultRoot));
         var bindText = values.GetValueOrDefault("peer-bind", IPAddress.Loopback.ToString());
         if (!IPAddress.TryParse(bindText, out var bindAddress))
@@ -32,6 +29,25 @@ public sealed record NodeOptions(string DataDirectory, IPAddress PeerBindAddress
         var peerPort = ParsePort(values.GetValueOrDefault("peer-port", "55431"), "peer-port", allowZero: false);
         var adminPort = ParsePort(values.GetValueOrDefault("admin-port", "55432"), "admin-port", allowZero: true);
         return new NodeOptions(dataDirectory, bindAddress, peerPort, adminPort);
+    }
+
+    private static string DefaultDataDirectory()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MonitorApp",
+                "peer-preview");
+        }
+
+        var dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (string.IsNullOrWhiteSpace(dataHome) || !Path.IsPathRooted(dataHome))
+        {
+            dataHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+        }
+
+        return Path.Combine(dataHome, "monitor-app");
     }
 
     private static int ParsePort(string value, string name, bool allowZero)

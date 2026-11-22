@@ -143,7 +143,7 @@ Required target environments:
 - Android emulator for repeatable automated tests.
 - Android physical device for a release smoke test of background and VPN-sensitive behavior.
 
-A Linux container can test portable Linux collection code but does not prove RPM installation, SELinux behavior, `systemd`, or a Fedora release claim. The same distinction applies to Ubuntu packaging and Windows services.
+The peer node tests (restart-stable identity, 0600/0700 key storage and unsafe-permission refusal tagged `Category=Linux`, two-node pairing, and offline convergence) run on Linux in an Ubuntu 24.04 container; that is Linux engineering-preview evidence, not Ubuntu or Fedora support. A Linux container can test portable Linux collection code but does not prove RPM installation, SELinux behavior, `systemd`, or a Fedora release claim. The same distinction applies to Ubuntu packaging and Windows services.
 
 ### Packaging tests
 
@@ -243,8 +243,8 @@ dotnet test tests/MonitorApp.Peer.Replication.Tests/MonitorApp.Peer.Replication.
 dotnet test tests/MonitorApp.Peer.Service.Tests/MonitorApp.Peer.Service.Tests.csproj -c Release --no-build
 dotnet test tests/MonitorApp.Peer.Transport.Tests/MonitorApp.Peer.Transport.Tests.csproj -c Release --no-build
 dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj -c Release --no-build
-# Windows only:
-dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj -c Release --no-build
+# Windows runs everything; Linux runs everything except Category=Windows (DPAPI and Yamaha adapter tests):
+dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj -c Release --no-build --filter "Category!=Windows"
 ```
 
 Signed update-manifest policy and artifact-integrity tests:

@@ -14,14 +14,14 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 {
     private readonly WebApplication peerApplication;
     private readonly LocalApiHost localApi;
-    private readonly WindowsDpapiIdentityProvider identity;
+    private readonly INodeIdentityProvider identity;
     private readonly NodePeerConnectionManager connections;
     private readonly NodeCollectionScheduler collection;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
         LocalApiHost localApi,
-        WindowsDpapiIdentityProvider identity,
+        INodeIdentityProvider identity,
         NodePeerConnectionManager connections,
         NodeCollectionScheduler collection)
     {
@@ -44,6 +44,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        // Fails clearly on unsupported OSes and Linux distributions before any state is created.
+        var platform = PlatformDetector.DetectCurrent();
         Directory.CreateDirectory(options.DataDirectory);
         var databasePath = Path.Combine(options.DataDirectory, "peer.db");
         var peerStore = new PeerStore(PeerStoreOptions.Create(databasePath));
@@ -51,8 +53,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await peerStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await pairingStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-        var identity = await WindowsDpapiIdentityProvider.LoadOrCreateAsync(
-            Path.Combine(options.DataDirectory, "identity.dpapi"),
+        var identity = await NodeIdentityProvider.LoadOrCreateAsync(
+            options.DataDirectory,
             peerStore,
             cancellationToken).ConfigureAwait(false);
         var clock = new SystemPeerClock();
@@ -78,7 +80,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             new PeerSystemMetricsIngestionBridge(
                 peerStore,
                 identity,
-                new SystemSnapshotCollector(MonitorApp.Contracts.V1.Platform.Windows),
+                new SystemSnapshotCollector(platform),
                 PeerCollectionOptions.Default(
                     $"peer:{identity.PublicIdentity.PeerId}",
                     Guid.NewGuid().ToString("N"))));
