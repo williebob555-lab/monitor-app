@@ -90,6 +90,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             "--MonitorApp:Peer:Port", options.PeerPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--MonitorApp:Peer:AllowLoopback", System.Net.IPAddress.IsLoopback(options.PeerBindAddress).ToString(),
         };
+        var pairingCodes = new PairingShortCodeRegistry();
         var peerApplication = await PeerHostApplication.CreateAsync(
             peerArgs,
             services =>
@@ -104,6 +105,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddProductionPeerSessionCoordinator();
                 services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
                 services.AddProductionPeerPairingCoordinator();
+                services.AddSingleton(pairingCodes);
             }, cancellationToken).ConfigureAwait(false);
         var localApi = LocalApiHost.Create(
             new LocalApiOptions(
@@ -114,7 +116,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             pairingStore,
             pairing,
             clock,
-            invitationService);
+            invitationService,
+            new PhonePairingOptions([options.PeerBindAddress], options.PeerPort, pairingCodes));
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

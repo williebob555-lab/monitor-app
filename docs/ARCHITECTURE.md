@@ -369,7 +369,7 @@ Windows and Linux peers run as a system service. `Program.cs` parses `NodeOption
 ### Android
 
 - Outbound-only peer (T031): no listener; the phone dials the desktop and both origin streams replicate over that session. `MonitorApp.Peer.Mobile` (plain net10.0) composes PeerStore, signed-origin ingestion of Android readings (`monitor.android.device`), explicit pairing from a `PeerPairingInvitation`, and a reconnecting sync loop; the identity is injected (`ILocalPeerIdentityProvider`).
-- Phone pairing (T032): `LocalApiHost` renders the "Add a phone" section (`PhonePairingService`, QR via QRCoder as inline SVG). `Peer.Core` holds `PairingShortCode`/`PairingShortCodeRegistry` (shared in-process by the admin page and the peer gRPC host); `Peer.Service` exposes `PeerPairingCodeService.Redeem`; `Peer.Transport.PeerPairingCodeClient` and `MobilePeerRuntime.PairWithCodeAsync` are the phone side, which then runs the normal bilateral pairing.
+- Phone pairing (T033): `LocalApiHost` renders the "Add a phone" section (`PhonePairingService`, QR via QRCoder as inline SVG). `Peer.Core` holds `PairingShortCode`/`PairingShortCodeRegistry` (shared in-process by the admin page and the peer gRPC host); `Peer.Service` exposes `PeerPairingCodeService.Redeem`; `Peer.Transport.PeerPairingCodeClient` and `MobilePeerRuntime.PairWithCodeAsync` are the phone side, which then runs the normal bilateral pairing.
 - `src/MonitorApp.Android` (outside the solution) is a thin shell: a user-started foreground service hosts the runtime (`Start`/`StopAsync`); the activity shows health, pairing, and an empty alert list.
 - Android Keystore identity.
 - Emulator tests plus one physical-device smoke test before support is claimed.

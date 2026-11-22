@@ -388,7 +388,7 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: A phone is reachable only while it dials; a desktop cannot push to an offline phone, it waits for the next phone session. Phone sync is polling (default 15 s) with capped backoff; a refused (revoked) status is reported but local trust is not changed by a remote refusal. Android pairing over non-loopback uses the same plaintext-over-user-managed-private-network policy as desktop peers (Tailscale encrypts); `usesCleartextTraffic` stays false because gRPC uses managed sockets, which is unverified on device. Planned, not implemented: adaptive sampling (about 1 s while viewed, about 30 s otherwise) and tiered retention (7 days full, hourly rollups 1 year, events for years, pinned incidents forever). Alert rules are not implemented; the app shows an honest empty alert list.
 - Revisit condition: Device testing of Doze/OEM battery behavior, or a requirement for desktop-initiated push to phones.
 
-### T032 Phone pairing by QR plus proof-authenticated typed code
+### T033 Phone pairing by QR plus proof-authenticated typed code
 
 - Status: Accepted (working decision)
 - Decision: The desktop admin page shows a 10-minute invitation as an inline SVG QR code (server-rendered with QRCoder) and its text payload. The typed fallback is a one-time 10-character Crockford base32 code resolved through a new additive unary `PeerPairingCodeService.Redeem` RPC on the peer port: the phone sends a PBKDF2-derived lookup id (never the code) and verifies an HMAC proof keyed from the code over the returned peer id and fingerprint, then runs the normal bilateral pairing. Codes live in an in-memory registry (single-use, expiring, bounded, globally rate-limited, uniform failures).
@@ -405,7 +405,7 @@ This log separates confirmed product constraints from working technical decision
 - Instrument panel, infrastructure atlas, or focus-and-periphery as the primary visual identity.
 - Decorative gestures that can dispatch real actions.
 
-### T032 Staged update pipeline, consent, and platform apply/rollback
+### T034 Staged update pipeline, consent, and platform apply/rollback
 
 - Status: Accepted (working decision: consent policy needs user confirmation)
 - Decision: `MonitorApp.Update` runs check (HTTPS fetch of the signed manifest) -> verify (T014 checks plus artifact size/SHA-256) -> stage (download to an owner-only staging directory, verify, atomic rename) -> apply behind `IUpdateApplier`, with a persisted `Available/Staged/Applying/Applied/RolledBack/Failed` state file and append-only audit log. Updates are downloaded, verified, and staged automatically but applied only on an explicit `UpdateApproval`; there is no silent install. Staged bytes are re-verified immediately before apply. Anti-rollback: equal/older versions are rejected and the highest manifest version ever seen is persisted; the only escape is a per-version, signed-manifest-only `DowngradeAuthorization` with approver and reason, audited. Linux: `dpkg -i`/`rpm -U` of the staged package, service restart, health marker (fresh file reporting the target version); failure reinstalls the retained last-known-good package, which is replaced only after the new version is healthy. Windows: side-by-side `versions/<v>` directories with a `current` directory symlink swapped while the service is stopped, health check, swap back on failure. Android: no in-app silent install; a verified staged APK is offered for the system installer and reconciled on next launch.
