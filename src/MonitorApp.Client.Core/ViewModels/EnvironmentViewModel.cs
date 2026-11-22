@@ -59,6 +59,9 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
     /// <summary>True while viewing a chosen past time instead of the live state.</summary>
     public bool IsHistorical => AsOf is not null;
 
+    /// <summary>The source this environment reads, for sibling shell view models (timeline events).</summary>
+    public IPeerDataSource DataSource => Client;
+
     public ObservableCollection<OutlineItem> Outline { get; } = [];
 
     partial void OnSelectedNodeIdChanged(string? value) => SelectedNode = Scene.Find(value);

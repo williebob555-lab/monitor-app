@@ -1,5 +1,6 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace MonitorApp.Client.Core.ViewModels.Shell;
@@ -14,6 +15,8 @@ public sealed partial class TimelineViewModel : ObservableObject
 
     private readonly EnvironmentViewModel environment;
     private readonly TimeProvider timeProvider;
+    private static readonly TimeSpan EventRefreshInterval = TimeSpan.FromSeconds(30);
+    private DateTimeOffset lastEventsLoad = DateTimeOffset.MinValue;
     private bool syncing;
     private double committedPosition = ScrubMaximum;
 
@@ -36,7 +39,62 @@ public sealed partial class TimelineViewModel : ObservableObject
             {
                 SyncFromEnvironment();
             }
+            else if (args.PropertyName == nameof(EnvironmentViewModel.Scene)
+                && this.timeProvider.GetUtcNow() - lastEventsLoad > EventRefreshInterval)
+            {
+                lastEventsLoad = this.timeProvider.GetUtcNow();
+                _ = RefreshEventsAsync();
+            }
         };
+    }
+
+    /// <summary>Events inside the window, oldest first, with their 0..1 position along the strip.</summary>
+    public ObservableCollection<TimelineMarker> Markers { get; } = [];
+
+    public IReadOnlyList<TimelineEvent> Events => Markers.Select(m => m.Event).ToList();
+
+    /// <summary>Re-reads events for the current window from the data source.</summary>
+    [RelayCommand]
+    public async Task RefreshEventsAsync(CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+        var from = now - TimeSpan.FromHours(WindowHours);
+        var events = await TimelineEventSource.LoadAsync(environment.DataSource, from, now, cancellationToken);
+        SetEvents(events);
+    }
+
+    /// <summary>Places already-derived events on the strip (events outside the window are dropped).</summary>
+    public void SetEvents(IEnumerable<TimelineEvent> events)
+    {
+        var now = timeProvider.GetUtcNow();
+        var span = TimeSpan.FromHours(WindowHours);
+        Markers.Clear();
+        foreach (var e in events.OrderBy(e => e.Time))
+        {
+            var fraction = 1 - (now - e.Time) / span;
+            if (fraction is >= 0 and <= 1)
+            {
+                Markers.Add(new TimelineMarker(e, fraction));
+            }
+        }
+
+        OnPropertyChanged(nameof(Events));
+    }
+
+    /// <summary>Scrubs to the event's time and selects the node it is about.</summary>
+    [RelayCommand]
+    public async Task JumpToAsync(TimelineEvent? timelineEvent)
+    {
+        if (timelineEvent is null)
+        {
+            return;
+        }
+
+        await environment.GoToAsync(timelineEvent.Time);
+        if (timelineEvent.SubjectNodeId is { } id && environment.Scene.Find(id) is not null)
+        {
+            environment.SelectedNodeId = id;
+        }
     }
 
     public bool IsHistorical => environment.IsHistorical;
@@ -47,6 +105,7 @@ public sealed partial class TimelineViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(RangeText));
         SyncFromEnvironment();
+        SetEvents(Markers.Select(m => m.Event).ToList());
     }
 
     partial void OnScrubPositionChanged(double value)

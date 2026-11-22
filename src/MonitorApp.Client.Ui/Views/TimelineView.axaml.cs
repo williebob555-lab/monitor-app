@@ -17,6 +17,14 @@ public sealed partial class TimelineView : UserControl
         Scrubber.AddHandler(KeyUpEvent, OnScrubKeyUp, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
+    private void OnMarkerClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is TimelineViewModel model && (sender as Control)?.DataContext is TimelineMarker marker)
+        {
+            _ = model.JumpToAsync(marker.Event);
+        }
+    }
+
     private void OnScrubKeyUp(object? sender, KeyEventArgs e)
     {
         if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown)

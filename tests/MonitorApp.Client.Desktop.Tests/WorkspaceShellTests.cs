@@ -161,6 +161,23 @@ public sealed class WorkspaceShellTests
         Assert.False(model.Environment.IsHistorical, "scrubber at the right end is live");
         Pump();
 
+        // Event markers: real alert history becomes markers; jumping scrubs to the event and selects its device.
+        var timeline = model.Shell.Timeline;
+        await timeline.RefreshEventsAsync();
+        Pump();
+        Assert.True(
+            timeline.Events.Select(e => e.Kind).SequenceEqual([TimelineEventKind.Alert, TimelineEventKind.AlertResolved]),
+            "kinds were: " + string.Join(',', timeline.Events.Select(e => e.Kind)));
+        var alertMarker = timeline.Markers.Single(m => m.Event.Kind == TimelineEventKind.Alert);
+        Assert.True(alertMarker.IsFault && alertMarker.Fraction is > 0 and < 1, $"fraction {alertMarker.Fraction}");
+        Assert.Equal(timeline.Events.Count, Find<ItemsControl>(shell, "EventMarkers").ItemCount);
+        model.Environment.SelectedNodeId = null;
+        await timeline.JumpToAsync(alertMarker.Event);
+        Assert.Equal(alertMarker.Event.Time, model.Environment.AsOf);
+        Assert.True(model.Environment.SelectedNodeId == FakeEnvironmentSource.ServerId, "jump selects " + model.Environment.SelectedNodeId);
+        await model.Environment.ReturnToNowAsync();
+        Pump();
+
         // Not permitted is the expected default and names the computer to grant on.
         var pause = ControlButtons(shell).First();
         await ((IAsyncRelayCommand)pause.Command!).ExecuteAsync(pause.CommandParameter);

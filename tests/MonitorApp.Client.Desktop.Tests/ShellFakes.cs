@@ -66,8 +66,16 @@ internal class FakeEnvironmentSource : IPeerDataSource
 }
 
 /// <summary>A paired-device source that can also send controls. Its answers are scripted per test; it records what was sent.</summary>
-internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource, IViewingSource
+internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource, IViewingSource, IAlertSource
 {
+    /// <summary>One critical alert on the server, raised 5 h ago and resolved 4 h ago.</summary>
+    public Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<AlertDto>>(
+        [
+            new AlertDto("a1", 1, "cpu-high", "peer:" + ServerId, ServerId, "Critical", "Resolved", "CPU saturated", "CPU at 99%",
+                DateTimeOffset.UtcNow.AddHours(-5), DateTimeOffset.UtcNow.AddHours(-4)),
+        ]);
+
     /// <summary>Viewing interest as it happened: "begin:peer:signals" and "end:peer" (peer "local" for this device).</summary>
     public List<string> Viewing { get; } = [];
 
