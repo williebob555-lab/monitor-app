@@ -159,8 +159,10 @@ public sealed class AlertRuleTests
             await peer.Evaluator(Config()).EvaluateOnceAsync();
         }
 
-        var fromA = (await a.Alerts.ReadActiveAsync()).Select(x => (x.RuleId, x.RaisedAt, x.Title, x.Detail.Replace(a.Subject, "S"))).ToArray();
-        var fromB = (await b.Alerts.ReadActiveAsync()).Select(x => (x.RuleId, x.RaisedAt, x.Title, x.Detail.Replace(b.Subject, "S"))).ToArray();
+        // Alert ids embed the origin peer, so simultaneous alerts tie-break differently per peer; compare by rule.
+        var fromA = (await a.Alerts.ReadActiveAsync()).Select(x => (x.RuleId, x.RaisedAt, x.Title, x.Detail.Replace(a.Subject, "S"))).OrderBy(x => x.RuleId, StringComparer.Ordinal).ToArray();
+        // Alert ids embed the origin peer, so simultaneous alerts tie-break differently per peer; compare by rule.
+        var fromB = (await b.Alerts.ReadActiveAsync()).Select(x => (x.RuleId, x.RaisedAt, x.Title, x.Detail.Replace(b.Subject, "S"))).OrderBy(x => x.RuleId, StringComparer.Ordinal).ToArray();
         Assert.Equal(2, fromA.Length);
         Assert.Equal(fromA, fromB);
     }
