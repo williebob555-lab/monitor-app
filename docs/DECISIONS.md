@@ -436,7 +436,7 @@ This log separates confirmed product constraints from working technical decision
 - Revisit condition:
 ```
 
-### T032 Shared Avalonia client over a peer data-source abstraction
+### T036 Shared Avalonia client over a peer data-source abstraction
 
 - Status: Accepted (working choice; Avalonia remains subject to platform proof).
 - Decision: One client codebase. `MonitorApp.Client.Core` (net10.0, no UI dependency) holds view models and `IPeerDataSource` (runtime, peers, pairings, catalog, state, history, approve/reject/revoke, plus `StateChanged`/`SupportsLiveUpdates` for push). The desktop head uses the loopback HTTP adapter `LocalApiClient` (antiforgery handshake per POST, cursor paging with a page cap, errors mapped to unreachable / validation / incompatible). `MonitorApp.Client.Desktop` (Avalonia 11.3, compiled bindings) only contains views. An Android head, which has no local HTTP API, would implement `IPeerDataSource` over the in-process mobile runtime and its replicated SQLite store and reuse Core and the views; it is not created yet.
