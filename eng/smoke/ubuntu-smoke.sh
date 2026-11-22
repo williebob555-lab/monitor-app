@@ -175,7 +175,12 @@ peer_u1="$(wait_api 120)"
 status="$(wait_update_stage Applied "$new_ver" 60)"
 echo "$status" | jq -c .
 [ "$(echo "$status" | jq -r '.installedVersion')" = "$new_ver" ] || fail "node reports installed version $(echo "$status" | jq -r '.installedVersion'), expected $new_ver"
-helper_log | grep -c "apply-update $new_ver: Applied" >/dev/null || { helper_log; fail "helper did not record Applied for $new_ver"; }
+# The node can report the new version a moment before the helper's final journal line is flushed: wait for it.
+for _ in $(seq 1 20); do
+    helper_log | grep -q "apply-update $new_ver: Applied" && break
+    sleep 1
+done
+helper_log | grep -q "apply-update $new_ver: Applied" || { helper_log; fail "helper did not record Applied for $new_ver"; }
 [ "$(sudo jq -r '.version' "$data/update/health.json")" = "$new_ver" ] || fail "health marker does not report $new_ver: $(sudo cat "$data/update/health.json")"
 [ "$(sudo jq -r '.Version' /var/lib/monitor-app-helper/retained/last-known-good.json)" = "$new_ver" ] || fail "retained last-known-good package is not $new_ver"
 systemctl is-enabled --quiet monitor-app || fail "unit lost its enabled state on in-place update"

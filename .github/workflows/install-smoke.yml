@@ -176,10 +176,33 @@ jobs:
         shell: pwsh
         run: ./eng/smoke/windows-smoke.ps1 -ZipPath "$PWD/out/monitorapp-node-windows-x64-$($env:OLD_VERSION).zip"
 
+      - name: MSI smoke (build, silent install under Windows PowerShell 5.1, service runs, uninstall keeps data)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
+          $msi = "$PWD/out/monitorapp-windows-x64-$($env:OLD_VERSION)-setup.msi"
+          ./eng/packaging/windows/build-msi.ps1 -StageDirectory $stage -Version $env:OLD_VERSION -OutputPath $msi
+          $p = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 80; throw "msiexec install exit $($p.ExitCode)" }
+          $svc = Get-Service MonitorApp
+          $svc.WaitForStatus('Running', [TimeSpan]::FromSeconds(90))
+          if (-not (Test-Path "$env:ProgramFiles\MonitorApp\update-helper.json")) { throw 'update helper marker missing after MSI install' }
+          if (-not (Get-ScheduledTask -TaskName MonitorAppUpdate -ErrorAction SilentlyContinue)) { throw 'update helper task missing after MSI install' }
+          $ok = $false
+          foreach ($i in 1..60) { try { Invoke-RestMethod -Uri 'http://127.0.0.1:55432/api/runtime' -TimeoutSec 5 | Out-Null; $ok = $true; break } catch { Start-Sleep 2 } }
+          if (-not $ok) { throw 'admin API did not answer after MSI install' }
+          $p = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\msi-uninstall.log`"") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-uninstall.log" -Tail 80; throw "msiexec uninstall exit $($p.ExitCode)" }
+          if (Get-Service MonitorApp -ErrorAction SilentlyContinue) { throw 'service still registered after MSI uninstall' }
+          if (-not (Test-Path "$env:ProgramData\MonitorApp")) { throw 'MSI uninstall deleted the node data' }
+          Write-Host 'MSI install and uninstall passed.'
+
       - name: Diagnostics
         if: failure()
         shell: pwsh
         run: |
+          Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 120 -ErrorAction SilentlyContinue
           Get-Service MonitorApp -ErrorAction SilentlyContinue | Format-List *
           sc.exe qc MonitorApp
           sc.exe query MonitorApp

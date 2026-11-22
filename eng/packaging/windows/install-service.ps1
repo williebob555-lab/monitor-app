@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 #Requires -RunAsAdministrator
 <#
 Installs the Monitor App peer node as an always-on Windows service running as the virtual account
@@ -95,7 +94,7 @@ $scheduler = New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $scheduler.GetFolder('\').GetTask($taskName).SetSecurityDescriptor($taskSddl, 0)
 # Presence of this admin-owned marker is what lets the node offer "approve and install".
-Set-Content -LiteralPath (Join-Path $InstallDirectory 'update-helper.json') -Value (@{ taskName = $taskName; version = $Version } | ConvertTo-Json -Compress) -Encoding utf8NoBOM
+[System.IO.File]::WriteAllText((Join-Path $InstallDirectory 'update-helper.json'), (@{ taskName = $taskName; version = $Version } | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host "Installed version $Version side by side; update helper task '$taskName' registered."
 Write-Host "Installed service '$name' as $account (delayed auto-start). Start it with: Start-Service $name"
