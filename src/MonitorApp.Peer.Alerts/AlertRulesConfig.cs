@@ -39,6 +39,12 @@ public sealed record AlertRulesConfig(
     /// </summary>
     public TimeSpan RefireCooldown { get; init; } = TimeSpan.FromMinutes(2); // Owner decision 2026-11-22.
 
+    /// <summary>
+    /// Escalation (T051): a Critical alert still raised and unacknowledged this long after it was raised is delivered once
+    /// more to every recipient whose preferences allow it, marked as an escalation. Zero disables escalation.
+    /// </summary>
+    public TimeSpan EscalationAfter { get; init; } = TimeSpan.FromMinutes(15);
+
     public const string PeerSilentRuleId = "peer.silent";
     public const string ObservationUnavailableRuleId = "observation.unavailable";
 
@@ -55,7 +61,7 @@ public sealed record AlertRulesConfig(
 
     public void Validate()
     {
-        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero || RefireCooldown < TimeSpan.Zero)
+        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero || RefireCooldown < TimeSpan.Zero || EscalationAfter < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(AlertRulesConfig));
         }

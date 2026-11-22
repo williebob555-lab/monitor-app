@@ -152,6 +152,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         await application.DisposeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>The acknowledger recorded for an alert acknowledged on this desktop (phones are recorded by peer id).</summary>
+    public const string LocalAcknowledger = "local";
+
     private static void MapEndpoints(WebApplication application)
     {
         application.MapGet("/api/csrf", (HttpContext context, IAntiforgery antiforgery) =>
@@ -207,6 +210,9 @@ public sealed class LocalApiHost : IAsyncDisposable
                 .ConfigureAwait(false);
             var deliveries = (await store.ReadOutboxForAlertsAsync(found.Select(alert => alert.AlertId).ToArray(), token)
                 .ConfigureAwait(false)).ToLookup(entry => entry.AlertId, StringComparer.Ordinal);
+            var acknowledgements = (await store.ReadOperatorAcknowledgementsAsync(token).ConfigureAwait(false))
+                .ToDictionary(item => item.AlertId, StringComparer.Ordinal);
+            var escalations = await store.ReadEscalationsAsync(token).ConfigureAwait(false);
             return Results.Json(new
             {
                 alerts = found.Select(alert => new
@@ -223,12 +229,21 @@ public sealed class LocalApiHost : IAsyncDisposable
                     alert.RaisedAt,
                     alert.ResolvedAt,
 
+                    // Operator acknowledgement (T051): the first acknowledgement wins; acknowledgedBy is a phone's peer id
+                    // or "local" for this desktop. Escalation: set once a Critical alert stayed unacknowledged too long.
+                    acknowledged = acknowledgements.ContainsKey(alert.AlertId),
+                    acknowledgedBy = acknowledgements.TryGetValue(alert.AlertId, out var acknowledgement) ? acknowledgement.By : null,
+                    acknowledgedAt = acknowledgements.TryGetValue(alert.AlertId, out var acknowledgedWhen) ? (DateTimeOffset?)acknowledgedWhen.At : null,
+                    escalated = escalations.ContainsKey(alert.AlertId),
+                    escalatedAt = escalations.TryGetValue(alert.AlertId, out var escalatedWhen) ? (DateTimeOffset?)escalatedWhen : null,
+
                     // Per-recipient delivery of each revision: deliveredAt is when the recipient's durable-write
-                    // acknowledgement arrived (null while pending). There is no user acknowledge or mute state yet.
+                    // acknowledgement arrived (null while pending).
                     deliveries = deliveries[alert.AlertId].Select(entry => new
                     {
                         entry.RecipientPeerId,
                         entry.Revision,
+                        entry.Escalation,
                         entry.EnqueuedAt,
                         entry.Attempts,
                         entry.LastAttemptAt,
@@ -236,6 +251,34 @@ public sealed class LocalApiHost : IAsyncDisposable
                     }),
                 }),
             });
+        });
+        application.MapPost("/api/v1/alerts/{alertId}/acknowledge", async (
+            string alertId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var store = services.GetService<AlertStore>();
+            if (store is null || string.IsNullOrWhiteSpace(alertId) || alertId.Length > 128)
+            {
+                return Results.NotFound(new { error = "No such alert." });
+            }
+
+            // Idempotent; the first acknowledgement (a phone's or this desktop's) is kept.
+            if (!await store.AcknowledgeByOperatorAsync(alertId, LocalAcknowledger, clock.UtcNow, token).ConfigureAwait(false))
+            {
+                return Results.NotFound(new { error = "No such alert." });
+            }
+
+            var recorded = await store.ReadOperatorAcknowledgementAsync(alertId, token).ConfigureAwait(false);
+            return Results.Json(new { alertId, acknowledgedBy = recorded?.By, acknowledgedAt = recorded?.At });
         });
         application.MapGet("/api/v1/alerts/preferences", async (
             IServiceProvider services,

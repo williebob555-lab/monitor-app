@@ -44,6 +44,39 @@ public sealed class ControlReadTests
     }
 
     [Fact]
+    public async Task AcknowledgingAnAlertRoundTripsThroughTheLocalApiAndKeepsTheFirstAcknowledger()
+    {
+        var service = LocalPresenceService.Create(null, LocalPresencePolicy.Off, new SystemPeerClock());
+        await using var node = await NodeFixture.CreateAsync(presence: service, withControl: true);
+        using var client = node.NewClient();
+        var raisedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var phoneAcked = new MonitorApp.Peer.Alerts.Alert(
+            MonitorApp.Peer.Alerts.Alert.CreateId("peer-local", "rule.x", "a", raisedAt), 1, "rule.x", "a", "peer-local",
+            MonitorApp.Contracts.V1.AlertSeverity.Critical, MonitorApp.Contracts.V1.AlertState.Raised, "A", "D", raisedAt, null);
+        var open = phoneAcked with { AlertId = MonitorApp.Peer.Alerts.Alert.CreateId("peer-local", "rule.x", "b", raisedAt), SubjectId = "b", Title = "B" };
+        await node.Alerts!.RaiseAsync(phoneAcked, [], TimeSpan.FromDays(1), raisedAt);
+        await node.Alerts.RaiseAsync(open, [], TimeSpan.FromDays(1), raisedAt);
+        await node.Alerts.AcknowledgeByOperatorAsync(phoneAcked.AlertId, "phone-a", raisedAt.AddMinutes(1));
+
+        var before = (await client.GetAlertsAsync()).ToDictionary(item => item.AlertId);
+        Assert.False(before[open.AlertId].Acknowledged);
+        Assert.Null(before[open.AlertId].AcknowledgedBy);
+        Assert.Equal("phone-a", before[phoneAcked.AlertId].AcknowledgedBy);
+
+        await client.AcknowledgeAlertAsync(open.AlertId);
+        await client.AcknowledgeAlertAsync(open.AlertId);
+        await client.AcknowledgeAlertAsync(phoneAcked.AlertId);
+        var after = (await client.GetAlertsAsync()).ToDictionary(item => item.AlertId);
+        Assert.True(after[open.AlertId].Acknowledged);
+        Assert.Equal("local", after[open.AlertId].AcknowledgedBy);
+        Assert.NotNull(after[open.AlertId].AcknowledgedAt);
+        Assert.Equal("phone-a", after[phoneAcked.AlertId].AcknowledgedBy);
+        Assert.False(after[open.AlertId].Escalated);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => client.AcknowledgeAlertAsync("no-such-alert"));
+    }
+
+    [Fact]
     public async Task AlertPreferencesRoundTripThroughTheLocalApi()
     {
         var service = LocalPresenceService.Create(null, LocalPresencePolicy.Off, new SystemPeerClock());

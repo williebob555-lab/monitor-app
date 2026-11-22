@@ -4,7 +4,7 @@ using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.Alerts;
 
-public sealed record AlertEvaluationResult(int Raised, int Resolved);
+public sealed record AlertEvaluationResult(int Raised, int Resolved, int Escalated = 0);
 
 /// <summary>
 /// Deterministic built-in rule evaluation. Single execution owner: only the peer that collected an observation
@@ -116,7 +116,9 @@ public sealed class AlertEvaluator(
                 }
             }
 
-            return new AlertEvaluationResult(raised, resolved);
+            var escalated = await alerts.EscalateDueAsync(now, config.EscalationAfter, recipients, config.OutboxTtl, cancellationToken)
+                .ConfigureAwait(false);
+            return new AlertEvaluationResult(raised, resolved, escalated.Count);
         }
         finally
         {

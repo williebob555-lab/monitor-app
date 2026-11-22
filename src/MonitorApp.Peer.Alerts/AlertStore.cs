@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -163,6 +163,34 @@ public sealed class AlertStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 5)
+        {
+            // T051: one durable escalation per alert; escalation deliveries are separate outbox rows (same alert and
+            // revision as the raise), and the phone inbox remembers that its copy was escalated.
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_escalations(
+                    alert_id TEXT PRIMARY KEY,
+                    escalated_at TEXT NOT NULL);
+                CREATE TABLE alert_outbox_v5(
+                    recipient_peer_id TEXT NOT NULL,
+                    alert_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    escalation INTEGER NOT NULL DEFAULT 0,
+                    enqueued_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_attempt_at TEXT NULL,
+                    acked_at TEXT NULL,
+                    PRIMARY KEY(recipient_peer_id, alert_id, revision, escalation));
+                INSERT INTO alert_outbox_v5(recipient_peer_id, alert_id, revision, escalation, enqueued_at, expires_at, attempts, last_attempt_at, acked_at)
+                    SELECT recipient_peer_id, alert_id, revision, 0, enqueued_at, expires_at, attempts, last_attempt_at, acked_at FROM alert_outbox;
+                DROP TABLE alert_outbox;
+                ALTER TABLE alert_outbox_v5 RENAME TO alert_outbox;
+                ALTER TABLE alert_inbox ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0;
+                UPDATE alert_schema_version SET version = 5 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -241,6 +269,9 @@ public sealed class AlertStore
             return null;
         }
 
+        await ExecuteAsync(connection, transaction,
+            "DELETE FROM alert_outbox WHERE escalation = 1 AND acked_at IS NULL AND alert_id IN (SELECT alert_id FROM alerts WHERE origin_peer_id = $origin AND rule_id = $rule AND subject_id = $subject AND state = 2);",
+            [("$origin", originPeerId), ("$rule", ruleId), ("$subject", subjectId)], cancellationToken).ConfigureAwait(false);
         Alert resolved;
         await using (var command = connection.CreateCommand())
         {
@@ -370,7 +401,104 @@ public sealed class AlertStore
             """,
             [("$recipient", recipientPeerId), ("$now", Format(now)), ("$limit", maximum + 1)], cancellationToken)
             .ConfigureAwait(false);
-        return (alerts.Take(maximum).ToArray(), alerts.Count > maximum);
+        var page = alerts.Take(maximum).ToList();
+        var escalated = await ReadPendingEscalationsAsync(connection, recipientPeerId, now, cancellationToken).ConfigureAwait(false);
+        for (var index = 0; index < page.Count; index++)
+        {
+            if (page[index].State == AlertState.Raised && escalated.Contains(page[index].AlertId))
+            {
+                page[index] = page[index] with { Escalated = true };
+            }
+        }
+
+        return (page, alerts.Count > maximum);
+    }
+
+    private static async Task<HashSet<string>> ReadPendingEscalationsAsync(
+        SqliteConnection connection, string recipientPeerId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT alert_id FROM alert_outbox WHERE recipient_peer_id = $r AND escalation = 1 AND acked_at IS NULL AND expires_at > $now;";
+        command.Parameters.AddWithValue("$r", recipientPeerId);
+        command.Parameters.AddWithValue("$now", Format(now));
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(reader.GetString(0));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Escalation (T051): every Critical alert still raised, unacknowledged by an operator, raised at least
+    /// <paramref name="after"/> ago and never escalated before is escalated exactly once, durably: the escalation is
+    /// recorded and one escalation delivery is queued for each recipient whose preferences allow the alert, in one
+    /// transaction. Returns the alerts escalated by this call. Zero <paramref name="after"/> disables escalation.
+    /// </summary>
+    public async Task<IReadOnlyList<Alert>> EscalateDueAsync(
+        DateTimeOffset now,
+        TimeSpan after,
+        IReadOnlyCollection<string> recipients,
+        TimeSpan outboxTtl,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipients);
+        if (after <= TimeSpan.Zero)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var due = await QueryAlertsAsync(connection, AlertSelect + """
+             WHERE state = 1 AND severity = 3 AND raised_at <= $cutoff
+               AND NOT EXISTS (SELECT 1 FROM alert_operator_acks a WHERE a.alert_id = alerts.alert_id)
+               AND NOT EXISTS (SELECT 1 FROM alert_escalations e WHERE e.alert_id = alerts.alert_id)
+             ORDER BY raised_at, alert_id;
+            """, [("$cutoff", Format(now - after))], cancellationToken, transaction).ConfigureAwait(false);
+        foreach (var alert in due)
+        {
+            await ExecuteAsync(connection, transaction,
+                "INSERT INTO alert_escalations(alert_id, escalated_at) VALUES ($id, $at);",
+                [("$id", alert.AlertId), ("$at", Format(now))], cancellationToken).ConfigureAwait(false);
+            foreach (var recipient in recipients)
+            {
+                if (await WantsAsync(connection, transaction, recipient, alert, cancellationToken).ConfigureAwait(false))
+                {
+                    await ExecuteAsync(connection, transaction,
+                        "INSERT OR IGNORE INTO alert_outbox(recipient_peer_id, alert_id, revision, escalation, enqueued_at, expires_at) VALUES ($r, $id, 1, 1, $at, $exp);",
+                        [("$r", recipient), ("$id", alert.AlertId), ("$at", Format(now)), ("$exp", Format(now + outboxTtl))],
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        if (due.Count > 0)
+        {
+            OutboxEnqueued?.Invoke(recipients);
+        }
+
+        return due.Select(alert => alert with { Escalated = true }).ToArray();
+    }
+
+    /// <summary>When each alert was escalated (alerts never escalated are absent).</summary>
+    public async Task<IReadOnlyDictionary<string, DateTimeOffset>> ReadEscalationsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT alert_id, escalated_at FROM alert_escalations;";
+        var result = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result[reader.GetString(0)] = Parse(reader.GetString(1));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -514,6 +642,9 @@ public sealed class AlertStore
         await ExecuteAsync(connection, transaction,
             "INSERT OR IGNORE INTO alert_operator_acks(alert_id, acknowledged_by, acknowledged_at) VALUES ($id, $by, $at);",
             [("$id", alertId), ("$by", acknowledgedBy), ("$at", Format(now))], cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, transaction,
+            "DELETE FROM alert_outbox WHERE alert_id = $id AND escalation = 1 AND acked_at IS NULL;",
+            [("$id", alertId)], cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -533,6 +664,20 @@ public sealed class AlertStore
         }
 
         return result;
+    }
+
+    /// <summary>The operator acknowledgement of one alert, or null when nobody has acknowledged it.</summary>
+    public async Task<(string By, DateTimeOffset At)?> ReadOperatorAcknowledgementAsync(
+        string alertId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT acknowledged_by, acknowledged_at FROM alert_operator_acks WHERE alert_id = $id;";
+        command.Parameters.AddWithValue("$id", alertId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? (reader.GetString(0), Parse(reader.GetString(1)))
+            : null;
     }
 
     public async Task RecordAttemptsAsync(
@@ -572,6 +717,35 @@ public sealed class AlertStore
         {
             total += await ExecuteAsync(connection, transaction, """
                 UPDATE alert_outbox SET acked_at = $now
+                WHERE recipient_peer_id = $r AND alert_id = $id AND revision <= $rev AND acked_at IS NULL AND escalation = 0
+                  AND $rev <= (SELECT revision FROM alerts WHERE alert_id = $id);
+                """,
+                [("$now", Format(now)), ("$r", recipientPeerId), ("$id", alertId), ("$rev", (long)revision)],
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return total;
+    }
+
+    /// <summary>
+    /// Acknowledges delivered escalations. An escalated delivery repeats the raise, so this clears both the escalation row and
+    /// the raise rows up to the revision; the same guard against revisions the owner never issued applies.
+    /// </summary>
+    public async Task<int> AcknowledgeEscalationAsync(
+        string recipientPeerId,
+        IEnumerable<(string AlertId, uint Revision)> entries,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var total = 0;
+        foreach (var (alertId, revision) in entries)
+        {
+            total += await ExecuteAsync(connection, transaction, """
+                UPDATE alert_outbox SET acked_at = $now
                 WHERE recipient_peer_id = $r AND alert_id = $id AND revision <= $rev AND acked_at IS NULL
                   AND $rev <= (SELECT revision FROM alerts WHERE alert_id = $id);
                 """,
@@ -590,8 +764,8 @@ public sealed class AlertStore
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at
-            FROM alert_outbox WHERE recipient_peer_id = $r ORDER BY enqueued_at, alert_id, revision;
+            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at, escalation
+            FROM alert_outbox WHERE recipient_peer_id = $r ORDER BY enqueued_at, alert_id, revision, escalation;
             """;
         command.Parameters.AddWithValue("$r", recipientPeerId);
         var result = new List<OutboxEntry>();
@@ -602,7 +776,10 @@ public sealed class AlertStore
                 reader.GetString(0), reader.GetString(1), checked((uint)reader.GetInt64(2)), Parse(reader.GetString(3)),
                 Parse(reader.GetString(4)), reader.GetInt32(5),
                 reader.IsDBNull(6) ? null : Parse(reader.GetString(6)),
-                reader.IsDBNull(7) ? null : Parse(reader.GetString(7))));
+                reader.IsDBNull(7) ? null : Parse(reader.GetString(7)))
+            {
+                Escalation = reader.GetInt32(8) != 0,
+            });
         }
 
         return result;
@@ -623,8 +800,8 @@ public sealed class AlertStore
         await using var command = connection.CreateCommand();
         var names = alertIds.Select((_, index) => "$a" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
         command.CommandText = $"""
-            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at
-            FROM alert_outbox WHERE alert_id IN ({string.Join(',', names)}) ORDER BY alert_id, recipient_peer_id, revision;
+            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at, escalation
+            FROM alert_outbox WHERE alert_id IN ({string.Join(',', names)}) ORDER BY alert_id, recipient_peer_id, revision, escalation;
             """;
         var position = 0;
         foreach (var id in alertIds)
@@ -640,7 +817,10 @@ public sealed class AlertStore
                 reader.GetString(0), reader.GetString(1), checked((uint)reader.GetInt64(2)), Parse(reader.GetString(3)),
                 Parse(reader.GetString(4)), reader.GetInt32(5),
                 reader.IsDBNull(6) ? null : Parse(reader.GetString(6)),
-                reader.IsDBNull(7) ? null : Parse(reader.GetString(7))));
+                reader.IsDBNull(7) ? null : Parse(reader.GetString(7)))
+            {
+                Escalation = reader.GetInt32(8) != 0,
+            });
         }
 
         return result;
@@ -709,18 +889,21 @@ public sealed class AlertStore
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         var changed = await ExecuteAsync(connection, null, """
             INSERT INTO alert_inbox(alert_id, revision, rule_id, subject_id, origin_peer_id, severity, state, title, detail,
-                raised_at, resolved_at, received_at, notified_revision)
-            VALUES ($id, $rev, $rule, $subject, $origin, $severity, $state, $title, $detail, $raised, $resolved, $received, 0)
+                raised_at, resolved_at, received_at, notified_revision, escalated)
+            VALUES ($id, $rev, $rule, $subject, $origin, $severity, $state, $title, $detail, $raised, $resolved, $received, 0, $escalated)
             ON CONFLICT(alert_id) DO UPDATE SET revision = excluded.revision, severity = excluded.severity, state = excluded.state,
-                title = excluded.title, detail = excluded.detail, resolved_at = excluded.resolved_at, received_at = excluded.received_at
-            WHERE excluded.revision > alert_inbox.revision;
+                title = excluded.title, detail = excluded.detail, resolved_at = excluded.resolved_at, received_at = excluded.received_at,
+                notified_revision = CASE WHEN excluded.revision = alert_inbox.revision THEN excluded.revision - 1 ELSE alert_inbox.notified_revision END,
+                escalated = excluded.escalated
+            WHERE excluded.revision > alert_inbox.revision
+               OR (excluded.revision = alert_inbox.revision AND excluded.escalated = 1 AND alert_inbox.escalated = 0);
             """,
             [
                 ("$id", alert.AlertId), ("$rev", (long)alert.Revision), ("$rule", alert.RuleId),
                 ("$subject", alert.SubjectId), ("$origin", alert.OriginPeerId), ("$severity", (int)alert.Severity),
                 ("$state", (int)alert.State), ("$title", alert.Title), ("$detail", alert.Detail),
                 ("$raised", Format(alert.RaisedAt)), ("$resolved", alert.ResolvedAt is { } r ? Format(r) : null),
-                ("$received", Format(receivedAt)),
+                ("$received", Format(receivedAt)), ("$escalated", alert.Escalated ? 1 : 0),
             ], cancellationToken).ConfigureAwait(false);
         return changed > 0;
     }
@@ -733,7 +916,7 @@ public sealed class AlertStore
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT alert_id, revision, rule_id, subject_id, origin_peer_id, severity, state, title, detail, raised_at,
-                resolved_at, received_at, notified_revision
+                resolved_at, received_at, notified_revision, escalated
             FROM alert_inbox
             """ + (onlyUnnotified ? " WHERE notified_revision < revision" : string.Empty) +
             " ORDER BY state ASC, raised_at DESC, alert_id LIMIT $limit;";
@@ -742,7 +925,7 @@ public sealed class AlertStore
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            result.Add(new InboxAlert(ReadAlert(reader), Parse(reader.GetString(11)), checked((uint)reader.GetInt64(12))));
+            result.Add(new InboxAlert(ReadAlert(reader) with { Escalated = reader.GetInt32(13) != 0 }, Parse(reader.GetString(11)), checked((uint)reader.GetInt64(12))));
         }
 
         return result;

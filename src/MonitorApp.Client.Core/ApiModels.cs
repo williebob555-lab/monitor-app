@@ -109,7 +109,11 @@ public sealed record AlertDto(
     string Title,
     string Detail,
     DateTimeOffset RaisedAt,
-    DateTimeOffset? ResolvedAt);
+    DateTimeOffset? ResolvedAt,
+    bool Acknowledged = false,
+    string? AcknowledgedBy = null,
+    DateTimeOffset? AcknowledgedAt = null,
+    bool Escalated = false);
 
 /// <summary>
 /// A recipient's alert preferences on this desktop (T049). <see cref="MinSeverity"/> is "All", "Info", "Warning" or "Critical";

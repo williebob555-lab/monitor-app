@@ -168,6 +168,10 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IViewingSour
             : null;
     }
 
+    /// <summary>Acknowledges an alert on this desktop (recorded as acknowledged by "local"); idempotent, the first acknowledgement is kept.</summary>
+    public Task AcknowledgeAlertAsync(string alertId, CancellationToken ct = default) =>
+        PostAsync($"api/v1/alerts/{Uri.EscapeDataString(alertId)}/acknowledge", ct, body: new { });
+
     /// <summary>Alert preferences of every alert recipient (default: all severities, no opted-out rules).</summary>
     public Task<IReadOnlyList<AlertPreferencesDto>> GetAlertPreferencesAsync(CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<AlertPreferencesDto>>("api/v1/alerts/preferences", ct);

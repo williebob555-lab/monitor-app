@@ -174,7 +174,8 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
                 item.Alert.Title,
                 item.Alert.Detail,
                 item.Alert.RaisedAt,
-                item.Alert.ResolvedAt))
+                item.Alert.ResolvedAt,
+                Escalated: item.Alert.Escalated))
             .ToArray();
     });
 

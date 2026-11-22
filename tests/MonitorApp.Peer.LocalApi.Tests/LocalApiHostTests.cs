@@ -111,6 +111,35 @@ public sealed class LocalApiHostTests : IDisposable
     }
 
     [Fact]
+    public async Task AcknowledgeEndpointNeedsCsrfRecordsTheLocalAcknowledgerAndIsIdempotent()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        var alert = new Alert(
+            Alert.CreateId("peer-local", "rule.x", "s", Now), 1, "rule.x", "s", "peer-local",
+            MonitorApp.Contracts.V1.AlertSeverity.Critical, MonitorApp.Contracts.V1.AlertState.Raised, "T", "D", Now, null);
+        await fixture.Alerts.RaiseAsync(alert, [], TimeSpan.FromDays(1), Now);
+
+        var forbidden = await fixture.Client.PostAsync($"api/v1/alerts/{alert.AlertId}/acknowledge", JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        Assert.Null(await fixture.Alerts.ReadOperatorAcknowledgementAsync(alert.AlertId));
+
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var first = Request(HttpMethod.Post, $"api/v1/alerts/{alert.AlertId}/acknowledge", csrf);
+        using var accepted = JsonDocument.Parse(await (await fixture.Client.SendAsync(first)).Content.ReadAsStringAsync());
+        Assert.Equal("local", accepted.RootElement.GetProperty("acknowledgedBy").GetString());
+        using var second = Request(HttpMethod.Post, $"api/v1/alerts/{alert.AlertId}/acknowledge", csrf);
+        Assert.Equal(HttpStatusCode.OK, (await fixture.Client.SendAsync(second)).StatusCode);
+        using var missing = Request(HttpMethod.Post, "api/v1/alerts/unknown/acknowledge", csrf);
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.SendAsync(missing)).StatusCode);
+
+        using var document = JsonDocument.Parse(await fixture.Client.GetStringAsync("api/v1/alerts"));
+        var item = Assert.Single(document.RootElement.GetProperty("alerts").EnumerateArray());
+        Assert.True(item.GetProperty("acknowledged").GetBoolean());
+        Assert.Equal("local", item.GetProperty("acknowledgedBy").GetString());
+        Assert.False(item.GetProperty("escalated").GetBoolean());
+    }
+
+    [Fact]
     public async Task MutationWithoutCsrfTokenIsForbidden()
     {
         await using var fixture = await Fixture.CreateAsync(directory);

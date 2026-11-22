@@ -241,7 +241,9 @@ message AlertRecord {
   string detail = 10;
   google.protobuf.Timestamp raised_at = 11;
   google.protobuf.Timestamp resolved_at = 12;
-  reserved 13 to 20;
+  // True when this delivery is the one-time escalation of a still-raised, unacknowledged Critical alert (T051).
+  bool escalated = 13;
+  reserved 14 to 20;
 }
 
 // Sent by an authenticated trusted peer to receive alerts addressed to it.
@@ -261,6 +263,8 @@ message AlertBatch {
 message AlertAckEntry {
   string alert_id = 1;
   uint32 revision = 2;
+  // Acknowledges an escalated delivery (AlertRecord.escalated); also clears the raise it repeats.
+  bool escalation = 3;
 }
 
 // Sent only after the recipient has durably stored the listed alert revisions.
