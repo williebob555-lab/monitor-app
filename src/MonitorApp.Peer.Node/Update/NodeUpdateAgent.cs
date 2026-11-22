@@ -65,6 +65,7 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
     public override void Dispose()
     {
         _service?.Dispose();
+        _stateGate.Dispose();
         base.Dispose();
     }
 
@@ -190,9 +191,23 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
             return;
         }
 
+        // A cycle briefly replaces the state with a transient check record; the helper-result watcher must not fold in between.
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_service.Current is { Stage: UpdateStage.Staged or UpdateStage.Applying })
+            await RunCycleCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    private async Task RunCycleCoreAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_service!.Current is { Stage: UpdateStage.Staged or UpdateStage.Applying })
             {
                 return;
             }
@@ -302,20 +317,82 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
         try
         {
             var current = await _service!.ReconcileAsync(_options.InstalledVersion, cancellationToken).ConfigureAwait(false);
-            if (current is { Stage: UpdateStage.Failed or UpdateStage.Applied } && ApplyHelper.TryReadResult(_options.ResultPath) is { } outcome
-                && outcome.TargetVersion == current.TargetVersion)
+            if (!TryFoldHelperResult() && current is { Stage: UpdateStage.Failed } failed && failed.TargetVersion != _options.InstalledVersion.ToString())
             {
-                var store = new UpdateStateStore(_options.UpdateDirectory);
-                var snapshot = store.Read();
-                if (snapshot.Active is { } active && outcome.Kind != ApplyOutcomeKind.Applied)
+                // A rollback restarts this (restored) version before the helper has confirmed it healthy and written its
+                // result, so the outcome usually arrives after startup: keep watching for it for a bounded time.
+                _resultWatch = WatchHelperResultAsync(cancellationToken);
+            }
+            else
+            {
+                File.Delete(_options.ResultPath);
+            }
+        }
+        catch (Exception exception) when (exception is UpdateStateCorruptException or IOException or UpdateStateException)
+        {
+            lock (_statusLock)
+            {
+                _lastError = $"{exception.GetType().Name}: {exception.Message}";
+            }
+        }
+    }
+
+    private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private Task? _resultWatch;
+
+    /// <summary>Folds a recorded RolledBack/Failed helper outcome for the current target into the state; true once consumed.</summary>
+    private bool TryFoldHelperResult()
+    {
+        var current = _service!.Current;
+        if (current is not { Stage: UpdateStage.Failed or UpdateStage.Applied } ||
+            ApplyHelper.TryReadResult(_options.ResultPath) is not { } outcome ||
+            outcome.TargetVersion != current.TargetVersion)
+        {
+            return false;
+        }
+
+        var store = new UpdateStateStore(_options.UpdateDirectory);
+        var snapshot = store.Read();
+        if (snapshot.Active is { } active && outcome.Kind != ApplyOutcomeKind.Applied)
+        {
+            var stage = outcome.Kind == ApplyOutcomeKind.RolledBack ? UpdateStage.RolledBack : UpdateStage.Failed;
+            store.Write(snapshot with { Active = active with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() } });
+            store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail, active.TargetVersion);
+        }
+
+        File.Delete(_options.ResultPath);
+        return true;
+    }
+
+    private async Task WatchHelperResultAsync(CancellationToken cancellationToken)
+    {
+        // The helper confirms the restored version within its health timeout; allow that twice over plus a margin.
+        var deadline = _time.GetUtcNow() + (_options.HealthTimeout * 2) + TimeSpan.FromMinutes(1);
+        try
+        {
+            while (_time.GetUtcNow() < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), _time, cancellationToken).ConfigureAwait(false);
+                if (!await _stateGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 {
-                    var stage = outcome.Kind == ApplyOutcomeKind.RolledBack ? UpdateStage.RolledBack : UpdateStage.Failed;
-                    store.Write(snapshot with { Active = active with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() } });
-                    store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail, active.TargetVersion);
+                    continue;
+                }
+
+                try
+                {
+                    if (TryFoldHelperResult())
+                    {
+                        return;
+                    }
+                }
+                finally
+                {
+                    _stateGate.Release();
                 }
             }
-
-            File.Delete(_options.ResultPath);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception exception) when (exception is UpdateStateCorruptException or IOException or UpdateStateException)
         {
