@@ -87,6 +87,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private CancellationTokenSource? loopCancellation;
     private Task[] loops = [];
     private string? pendingPairingId;
+    private long lastFullCollection = Environment.TickCount64;
     private MobileCollectionStatus collectionStatus = new(null, 0, null);
 
     private MobilePeerRuntime(
@@ -489,12 +490,23 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     public Task RevokeAsync(string peerId, CancellationToken cancellationToken = default) =>
         store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken);
 
-    public async Task<PeerCollectionRunResult> CollectOnceAsync(CancellationToken cancellationToken = default)
+    /// <summary>One full collection (every signal plus the LAN model), as at the normal interval.</summary>
+    public Task<PeerCollectionRunResult> CollectOnceAsync(CancellationToken cancellationToken = default) =>
+        CollectAsync(null, cancellationToken);
+
+    private async Task<PeerCollectionRunResult> CollectAsync(
+        IReadOnlySet<string>? signalFilter, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
-            await lan.RunAsync(cancellationToken).ConfigureAwait(false);
+            var result = await collection.RunOnceAsync(signalFilter, cancellationToken).ConfigureAwait(false);
+            if (signalFilter is null)
+            {
+                // The LAN model is not signal-addressed, so it rides on full collections only.
+                Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+                await lan.RunAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             lock (gate)
             {
                 collectionStatus = new MobileCollectionStatus(result.ObservedAt ?? collectionStatus.LastObservedAt,
@@ -656,7 +668,12 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 {
                     try
                     {
-                        await CollectOnceAsync(token).ConfigureAwait(false);
+                        // Same rule as the desktop scheduler: viewers that named signals narrow the fast loop to
+                        // them, but a full collection still runs once per normal interval.
+                        var filter = interests.FastSignalFilter(identity.PublicIdentity.PeerId);
+                        var fullDue = Environment.TickCount64 - Interlocked.Read(ref lastFullCollection) >=
+                            options.CollectionInterval.TotalMilliseconds;
+                        await CollectAsync(fullDue ? null : filter, token).ConfigureAwait(false);
                     }
                     catch (Exception) when (!token.IsCancellationRequested)
                     {

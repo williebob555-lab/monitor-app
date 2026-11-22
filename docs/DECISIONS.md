@@ -561,7 +561,7 @@ This log separates confirmed product constraints from working technical decision
 - Decision: `LiveInterest.signal_ids` now narrows fast collection: the registry exposes the union of named signals (an empty list from any viewer means all), the node scheduler stores only those signals while interest is active, and still runs a full collection once per normal interval so other history does not go quiet. Viewers declare signals with `BeginViewing(remotePeerId, signalIds)`. When two peers dial each other each holds two sessions to the other; `LivePushChannels` picks one pushing session per remote peer: the session initiated by the peer with the lower peer id (ordinal), else the only or most recent one. The other session stays open (heartbeats, interest) but does not push, and takes over from the persisted replication cursor if the active one ends.
 - Reason: Removes duplicate sends and lets a viewer of one metric cost one metric's collection and push, with no protocol change.
 - Evidence: `PeerNodeRuntimeTests.TwoNodesDialingEachOtherReceiveEveryLiveObservationOnce` and `ViewerAskingForOneSignalReceivesOnlyThatSignalAtTheFastRate` (real loopback gRPC and SQLite).
-- Consequences: Several viewers with different signals share the union, and every viewer receives the union's records. The phone's own collection is not yet narrowed by `signal_ids`. Duplicates remain possible briefly around a channel switch (idempotent).
+- Consequences: Several viewers with different signals share the union, and every viewer receives the union's records. The phone's own collection is narrowed the same way (T053). Duplicates remain possible briefly around a channel switch (idempotent).
 - Revisit condition: Per-viewer push filtering, or measured cost of the union approach.
 
 ### T050 Phone transport in the LAN model
@@ -590,6 +590,15 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `HistoryFeedTests` (two real nodes, peer drops and returns, read through `LocalApiClient`, range validation), `InProcessPeerDataSourceTests.HistoryFeedRecordsTheDesktopGoingOfflineAndBackAndHasNoUpdateEvents`, `NodeUpdateAgentTests.UpdateHistoryListsOnlyInstallOutcomesWithVersionOldestFirstWithinTheRange`.
 - Consequences: A transition is observed by the node that sees it; histories are not replicated, so each device's timeline is its own view. A peer that was `Online` when the node crashed is recorded `Offline` at the next reconcile, not at the crash time. The phone records `Stale` only when its history is next read. The result cap truncates the newest entries of an oversized range.
 - Revisit condition: When a timeline needs a replicated cross-device view, per-peer filtering, or paging beyond the cap.
+
+### T053 Phone-side collection narrowed by live-interest signals
+
+- Status: Accepted (closes the phone gap left open in the signal_ids decision).
+- Decision: `MobilePeerRuntime`'s collection loop asks `LiveInterestRegistry.FastSignalFilter` for the phone's own peer id before each tick and passes the union to `PeerSystemMetricsIngestionBridge.RunOnceAsync(signalFilter)`, the same rule as `NodeCollectionScheduler`: while a viewer named signals, fast ticks store only those, and once per normal interval (`CollectionInterval`) a full collection still runs. The LAN model (`PhoneLanCollection`) is not signal-addressed and runs only on full collections. `CollectOnceAsync` stays a full collection.
+- Reason: A viewer of one phone metric should cost one metric of collection, storage and push, and battery, with no protocol change.
+- Evidence: `LiveCollectionNarrowingTests` (real phone loop, registry, bridge and SQLite).
+- Consequences: A viewer of a `lan.*` signal gets it only at the normal interval. Several viewers share the union.
+- Revisit condition: Signal-addressed LAN collection, or measured battery cost of the full normal-interval collection.
 
 ### T054 Per-peer alert rule overrides (user rule editor)
 
