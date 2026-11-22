@@ -1,3 +1,4 @@
+using MonitorApp.Peer.Application;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Transport;
@@ -5,7 +6,7 @@ using MonitorApp.Peer.Transport;
 namespace MonitorApp.Peer.Node;
 
 public sealed class NodePeerInvitationService(
-    WindowsDpapiIdentityProvider identity,
+    ILocalPeerIdentityProvider identity,
     PeerStore store,
     NodePeerConnectionManager connections) : IPeerInvitationService
 {

@@ -111,14 +111,23 @@ try {
     }
     else {
         Write-Warning "NOT RUN: Windows collector integration tests require Windows."
-        Write-Warning "NOT RUN: Windows peer node and DPAPI identity tests require Windows."
+        Write-Warning "NOT RUN: Windows DPAPI identity and Yamaha adapter tests (Category=Windows) require Windows."
+    }
+
+    if (-not $IsWindows) {
+        Invoke-VerificationStep "Run Linux peer node integration tests" {
+            dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category!=Windows"
+        }
     }
 
     Invoke-VerificationStep "Verify formatting" {
         dotnet format MonitorApp.sln --verify-no-changes --no-restore
     }
 
-    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet. The Windows peer node suite covers in-process two-peer offline/restart convergence."
+    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet. The peer node suite (Windows, and Linux engineering preview) covers in-process two-peer offline/restart convergence."
     Write-Warning "NOT RUN: Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu platform suites. Android core tests run in the solution; the workload-specific APK build is a separate documented command."
 
     Write-Host "`nAvailable functional-foundation verification passed."

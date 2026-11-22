@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
@@ -10,7 +11,7 @@ namespace MonitorApp.Peer.Node;
 
 public sealed class NodePeerConnectionManager : IAsyncDisposable
 {
-    private readonly WindowsDpapiIdentityProvider identity;
+    private readonly ILocalPeerIdentityProvider identity;
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly CancellationTokenSource lifetime = new();
@@ -20,7 +21,7 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
     private bool started;
 
     public NodePeerConnectionManager(
-        WindowsDpapiIdentityProvider identity,
+        ILocalPeerIdentityProvider identity,
         PeerStore store,
         OriginReplicationCoordinator replication)
     {
