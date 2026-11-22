@@ -4,6 +4,7 @@
     <RootNamespace>MonitorApp.Client.Mobile</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="ZXing.Net" />
     <ProjectReference Include="..\MonitorApp.Client.Core\MonitorApp.Client.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Mobile\MonitorApp.Peer.Mobile.csproj" />
   </ItemGroup>

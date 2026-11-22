@@ -29,6 +29,23 @@ public interface IPairingInitiator
 }
 
 /// <summary>
+/// Sources that can pair by scanning the QR code on a computer's admin page with the device camera.
+/// The UI shows a "Scan QR" button only when <see cref="CanScanQr"/> is true and keeps the typed-code path otherwise.
+/// </summary>
+public interface IQrPairingSource
+{
+    /// <summary>True when a camera scanner is available on this device.</summary>
+    bool CanScanQr { get; }
+
+    /// <summary>
+    /// Scans a pairing QR and pairs with the desktop it names. Returns the peer id, or <see langword="null"/> when the
+    /// person cancelled the scanner. Throws <see cref="ApiValidationException"/> with a user-safe message when the camera is
+    /// unavailable or denied (the UI should then point at the typed code) or the scanned code is not a valid invitation.
+    /// </summary>
+    Task<string?> ScanAndPairAsync(CancellationToken ct = default);
+}
+
+/// <summary>
 /// Sources whose host process can be asked to start or stop background collection (the Android foreground service).
 /// Heads that cannot do this do not implement it and the UI offers no buttons.
 /// </summary>

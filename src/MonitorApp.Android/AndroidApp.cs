@@ -51,7 +51,8 @@ public sealed class AndroidApp : Application, IDisposable
             var source = new InProcessPeerDataSource(
                 runtime,
                 startHost: () => PeerForegroundService.Start(context),
-                stopHost: () => PeerForegroundService.Stop(context));
+                stopHost: () => PeerForegroundService.Stop(context),
+                qrScanner: new AndroidQrScanner(context));
             model = new MainViewModel(source);
             view.DataContext = model;
             await model.ConnectAsync().ConfigureAwait(true);

@@ -491,6 +491,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: Owner decision (2026-11-22, decision card): deny by default. A trusted peer without an explicit grant row may issue no control command, including presence-key enrollment, until the administrator grants it on that computer (`POST /api/v1/control/grants/{peerId}`); pairing approval additionally needs an approved biometric key. A phone whose OS invalidates the key (new fingerprint) must be re-approved locally. Pause/mute are not per recipient. Desktop-local biometric (Windows Hello, fprintd) for high-risk UI actions is deferred. Operational actions (power, services, scripts) remain out of scope and would need their own decision, grants and tiers.
 - Revisit condition: Adding operational actions, multi-user roles, per-peer-kind defaults, persisting overrides across restarts, or a hardware-attested presence key (Android key attestation).
 
+### T046 Camera QR scanning on Android through framework camera2 and ZXing
+
+- Status: Accepted (owner-confirmed: a phone pairs by scanning the QR on the computer's admin page, with the typed short code as fallback).
+- Decision: Scanning is a platform service behind `IQrScanner` (Client.Core). The UI binds to `IQrPairingSource.ScanAndPairAsync`, implemented by `InProcessPeerDataSource`: scan, `PeerPairingInvitation.Decode`, then the existing invitation pairing (desktop-side approval is unchanged). Android implements it with a camera2 preview (`TextureView` plus a YUV_420_888 `ImageReader`) whose Y plane is decoded by ZXing.Net `QrFrameDecoder`; only text starting with `monitor-pair1.` is accepted, other QR codes are ignored. `QrScanActivity` requests the `CAMERA` permission itself; denial, no camera, or a camera failure raise `QrScanUnavailableException`, which the data source turns into an `ApiValidationException` that points at the typed code.
+- Reason: Sideloaded APK, so no Google Play Services code scanner; CameraX via Xamarin bindings would add about twenty transitive AndroidX/Kotlin packages (and a large lock-file and vulnerability surface) for a one-screen preview, whereas camera2 is in the framework and ZXing.Net is already pinned.
+- Evidence: `QrScanPairingTests` (real QR encode, frame decode with row padding and noise, real desktop pairing through the real runtime, denial/cancel/junk paths). The Android activity itself has no automated test.
+- Consequences: Portrait-locked scanner; preview aspect assumes a landscape sensor buffer shown in portrait. `CAMERA` is a new dangerous permission (see `docs/SECURITY.md` if the permission list there changes); frames are decoded in memory and never stored or sent. Android compile and device behavior are unverified until the android-build job and a phone run.
+- Revisit condition: Devices whose sensor orientation or preview aspect is wrong, slow decoding, or a maintained binding for a Google-independent scanner.
+
 ### T043 Windows in-place update apply via a detached SYSTEM helper
 
 - Status: Accepted (user direction: updates download and verify automatically, each computer waits for owner approval, Windows runs as an always-on service).
