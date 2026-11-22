@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   launch-current-preview:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       PREVIEW_TAG: preview-0.1.7
@@ -68,7 +68,11 @@ jobs:
             -gpu swiftshader_indirect -no-metrics -memory 2048 > /tmp/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
-          adb wait-for-device
+          timeout 120s adb wait-for-device || {
+            tail -n 90 /tmp/emulator.log
+            echo "::error::Emulator process failed to connect to adb."
+            exit 1
+          }
           for i in $(seq 1 90); do
             if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; then break; fi
             sleep 3
@@ -79,6 +83,8 @@ jobs:
             exit 1
           }
           adb shell input keyevent 82
+          echo "=== APK native ABIs ==="
+          unzip -Z1 release/monitorapp-mobile-android-universal-0.1.7.apk | awk -F/ '/^lib\\// {print $2}' | sort -u
           adb install -r release/monitorapp-mobile-android-universal-0.1.7.apk
           adb logcat -c
           adb shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1
