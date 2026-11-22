@@ -18,6 +18,10 @@ internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
 
 internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval, bool UpdateApproval = false);
 
+internal sealed record LocalPresenceChallengeRequest(string? Action, string? Subject);
+
+internal sealed record LocalPresenceProofRequest(string? PublicKeySpki, string? ChallengeId, string? Signature);
+
 public sealed class LocalApiHost : IAsyncDisposable
 {
     private const string CspNonceKey = "csp-nonce";
@@ -42,7 +46,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         LiveInterestRegistry? interests = null,
         ILocalUpdateController? updates = null,
         ControlService? control = null,
-        MonitoringControlState? monitoring = null)
+        MonitoringControlState? monitoring = null,
+        LocalPresenceService? localPresence = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -89,6 +94,11 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (monitoring is not null)
         {
             builder.Services.AddSingleton(monitoring);
+        }
+
+        if (localPresence is not null)
+        {
+            builder.Services.AddSingleton(localPresence);
         }
 
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
@@ -262,6 +272,13 @@ public sealed class LocalApiHost : IAsyncDisposable
                 return Results.NotFound();
             }
 
+            var blocked = RequirePresence(
+                context, LocalPresenceService.UpdateApproveAction, updates.GetStatus().TargetVersion ?? string.Empty);
+            if (blocked is not null)
+            {
+                return blocked;
+            }
+
             return await updates.ApproveAsync(token).ConfigureAwait(false)
                 ? Results.Json(updates.GetStatus())
                 : Results.Conflict(new { error = "No staged update is awaiting approval." });
@@ -276,6 +293,12 @@ public sealed class LocalApiHost : IAsyncDisposable
             if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var blocked = RequirePresence(context, LocalPresenceService.PairingApproveAction, pairingId);
+            if (blocked is not null)
+            {
+                return blocked;
             }
 
             var pairing = await coordinator.ApprovePairingAsync(pairingId, token).ConfigureAwait(false);
@@ -313,6 +336,7 @@ public sealed class LocalApiHost : IAsyncDisposable
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
         MapControlEndpoints(application);
+        MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>
             Results.Json((await store.ReadPinnedIncidentsAsync(token).ConfigureAwait(false)).Select(PinnedIncidentView.Of)));
         application.MapPost("/api/v1/incidents/pin", async (
@@ -450,6 +474,18 @@ public sealed class LocalApiHost : IAsyncDisposable
                 return Results.BadRequest(new { error = "A grant body is required." });
             }
 
+            if (body.MonitoringControls || body.PairingApproval || body.UpdateApproval)
+            {
+                var blocked = RequirePresence(
+                    context,
+                    LocalPresenceService.ControlGrantAction,
+                    GrantSubject(peerId, body.MonitoringControls, body.PairingApproval, body.UpdateApproval));
+                if (blocked is not null)
+                {
+                    return blocked;
+                }
+            }
+
             await control.SetGrantAsync(new ControlGrant(peerId, body.MonitoringControls, body.PairingApproval, null, body.UpdateApproval), token)
                 .ConfigureAwait(false);
             return Results.Json(new { peerId, body.MonitoringControls, body.PairingApproval, body.UpdateApproval });
@@ -468,6 +504,16 @@ public sealed class LocalApiHost : IAsyncDisposable
                     return Results.StatusCode(StatusCodes.Status403Forbidden);
                 }
 
+                if (approve)
+                {
+                    var blocked = RequirePresence(
+                        context, LocalPresenceService.PresenceEnrollmentApproveAction, enrollmentId);
+                    if (blocked is not null)
+                    {
+                        return blocked;
+                    }
+                }
+
                 var control = services.GetService<ControlService>();
                 var decided = control is null
                     ? null
@@ -477,6 +523,122 @@ public sealed class LocalApiHost : IAsyncDisposable
                     : Results.Json(new { enrollmentId, state = decided.State.ToString() });
             });
         }
+    }
+
+    internal static string GrantSubject(string peerId, bool monitoringControls, bool pairingApproval, bool updateApproval = false) =>
+        FormattableString.Invariant($"{peerId}|monitoring={monitoringControls}|pairing={pairingApproval}|update={updateApproval}");
+
+    /// <summary>
+    /// Enforces the desktop-local presence policy on a high-risk mutation; null means proceed. The refusal body carries a
+    /// machine-readable <c>error</c> code (presence_required, presence_invalid, presence_not_enrolled) so the desktop
+    /// client can obtain a challenge, have the person verified, and retry.
+    /// </summary>
+    private static IResult? RequirePresence(HttpContext context, string action, string subject)
+    {
+        if (context.RequestServices.GetService<LocalPresenceService>() is not { } presence)
+        {
+            return null;
+        }
+
+        var outcome = presence.Check(
+            context.Request.Headers[LocalPresenceService.ChallengeHeader].ToString(),
+            context.Request.Headers[LocalPresenceService.SignatureHeader].ToString(),
+            action,
+            subject);
+        if (outcome == LocalPresenceOutcome.Satisfied)
+        {
+            return null;
+        }
+
+        var code = outcome switch
+        {
+            LocalPresenceOutcome.Required => "presence_required",
+            LocalPresenceOutcome.NotEnrolled => "presence_not_enrolled",
+            _ => "presence_invalid",
+        };
+        return Results.Json(new { error = code, action, subject }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    /// <summary>
+    /// Desktop-local user-presence (T045): status for the UI, one-shot challenges, and enrollment/removal of the
+    /// presence key. The person is verified in the desktop client process, never here.
+    /// </summary>
+    private static void MapLocalPresenceEndpoints(WebApplication application)
+    {
+        application.MapGet("/api/v1/local-presence", (IServiceProvider services) =>
+            services.GetService<LocalPresenceService>() is { } presence
+                ? Results.Json(presence.GetStatus())
+                : Results.Json(new LocalPresenceStatus(nameof(LocalPresencePolicy.Off), false, false, null, null, 0)));
+        application.MapPost("/api/v1/local-presence/challenge", async (
+            LocalPresenceChallengeRequest? body,
+            HttpContext context,
+            IAntiforgery antiforgery) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<LocalPresenceService>() is not { } presence)
+            {
+                return Results.NotFound();
+            }
+
+            var challenge = presence.CreateChallenge(body?.Action, body?.Subject);
+            return challenge is null
+                ? Results.BadRequest(new { error = "Unknown action, invalid subject, or too many pending challenges." })
+                : Results.Json(new
+                {
+                    challenge.ChallengeId,
+                    challenge.Nonce,
+                    challenge.Action,
+                    challenge.Subject,
+                    expiresAtUnixSeconds = challenge.ExpiresAt.ToUnixTimeSeconds(),
+                    payload = Convert.ToBase64String(challenge.Payload),
+                });
+        });
+        application.MapPost("/api/v1/local-presence/enrollment", async (
+            LocalPresenceProofRequest? body,
+            HttpContext context,
+            IAntiforgery antiforgery) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<LocalPresenceService>() is not { } presence)
+            {
+                return Results.NotFound();
+            }
+
+            return presence.TryEnroll(body?.PublicKeySpki, body?.ChallengeId, body?.Signature)
+                ? Results.Json(presence.GetStatus())
+                : Results.Json(
+                    new { error = "Enrollment refused: a key is already enrolled, or the proof of possession is invalid." },
+                    statusCode: StatusCodes.Status409Conflict);
+        });
+        application.MapPost("/api/v1/local-presence/removal", async (
+            LocalPresenceProofRequest? body,
+            HttpContext context,
+            IAntiforgery antiforgery) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<LocalPresenceService>() is not { } presence)
+            {
+                return Results.NotFound();
+            }
+
+            return presence.TryRemove(body?.ChallengeId, body?.Signature)
+                ? Results.Json(presence.GetStatus())
+                : Results.Json(
+                    new { error = "Removal refused: nothing is enrolled, or the proof from the enrolled key is invalid." },
+                    statusCode: StatusCodes.Status403Forbidden);
+        });
     }
 
     /// <summary>

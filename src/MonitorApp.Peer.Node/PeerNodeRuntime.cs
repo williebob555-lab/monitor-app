@@ -259,7 +259,9 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             interests,
             updates,
             controlService,
-            monitoring);
+            monitoring,
+            LocalPresenceService.Create(
+                Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock));
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
