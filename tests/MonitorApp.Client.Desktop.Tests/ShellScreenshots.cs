@@ -62,6 +62,14 @@ public sealed class ShellScreenshots
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
         Dispatcher.UIThread.RunJobs();
+        // Let the sheet slide-up (0.22 s) finish before capturing: the headless render timer only ticks when forced.
+        for (var i = 0; i < 12; i++)
+        {
+            Thread.Sleep(30);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
+
         var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No frame was rendered; is Skia enabled?");
         var path = Path.Combine(dir, name + ".png");
         frame.Save(path);

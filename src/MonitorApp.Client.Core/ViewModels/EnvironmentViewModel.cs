@@ -201,11 +201,15 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
     public static IReadOnlyList<OutlineItem> BuildOutline(SceneGraph graph)
     {
         var ids = graph.Nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
+        static string HealthLine(SceneNode node) =>
+            node.HealthReason.StartsWith(node.Health.ToString(), StringComparison.OrdinalIgnoreCase)
+                ? node.HealthReason
+                : $"{node.Health}: {node.HealthReason}";
         OutlineItem Item(SceneNode node) => new(
             node.Id,
             node.Label,
-            $"{node.Health}: {node.HealthReason}",
-            $"{node.Label}, {KindWord(node.Kind)}. {node.Health}: {node.HealthReason}",
+            HealthLine(node),
+            $"{node.Label}, {KindWord(node.Kind)}. {HealthLine(node)}",
             graph.Nodes.Where(c => c.ParentId == node.Id).Select(Item).ToList(),
             node.Health);
         return graph.Nodes.Where(n => n.ParentId is null || !ids.Contains(n.ParentId)).Select(Item).ToList();
