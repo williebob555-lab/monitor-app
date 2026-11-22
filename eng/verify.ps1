@@ -121,8 +121,14 @@ try {
             --no-build
     }
 
-    Invoke-VerificationStep "Run headless desktop client smoke test" {
+    Invoke-VerificationStep "Run headless shared client UI tests (desktop and phone widths)" {
         dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run in-process phone client data source tests" {
+        dotnet test tests/MonitorApp.Client.Mobile.Tests/MonitorApp.Client.Mobile.Tests.csproj `
             -c Release `
             --no-build
     }

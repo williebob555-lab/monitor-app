@@ -1,0 +1,21 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:views="using:MonitorApp.Client.Ui.Views"
+             x:Class="MonitorApp.Client.Ui.Views.StateView" x:DataType="vm:StateViewModel">
+  <ScrollViewer>
+    <StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+      <TextBlock Text="Current state" Classes="heading" />
+      <WrapPanel>
+        <Button Content="Refresh now" Command="{Binding RefreshCommand}" Margin="0,0,12,0" />
+        <TextBlock Text="{Binding UpdateMode, StringFormat='Updates: {0}'}" VerticalAlignment="Center" />
+      </WrapPanel>
+      <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
+      <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Rows}" AutomationProperties.Name="Current state">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ObservationRow"><views:ObservationCard /></DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -3,7 +3,19 @@ using MonitorApp.Peer.Node.Update;
 
 if (args.Length >= 2 && args[0] == ApplyHelper.HelperArgument)
 {
-    // Root-only helper started by monitor-app-update.service; not part of the normal node.
+    // Privileged helper; not part of the normal node. Linux: root, started by monitor-app-update.path.
+    // Windows: SYSTEM, started on demand by the MonitorAppUpdate scheduled task with an explicit --install-root.
+    if (OperatingSystem.IsWindows())
+    {
+        return args.Length >= 4 && args[2] == WindowsApplyHelper.InstallRootArgument
+            ? await WindowsApplyHelper.RunAsync(
+                args[1],
+                args[3],
+                NodeUpdateOptions.DefaultKeyFile(),
+                Environment.GetEnvironmentVariable("MONITOR_APP_UPDATE_CHANNEL") is { Length: > 0 } windowsChannel ? windowsChannel : "preview").ConfigureAwait(false)
+            : 2;
+    }
+
     return await ApplyHelper.RunHelperAsync(
         args[1],
         NodeUpdateOptions.DefaultKeyFile(),

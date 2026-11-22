@@ -31,6 +31,14 @@ public sealed record AlertRulesConfig(
     IReadOnlyList<ThresholdRule> Thresholds,
     TimeSpan OutboxTtl)
 {
+    /// <summary>
+    /// Debounce, flap side: after an episode of a rule and subject resolves, a new episode of the same rule and
+    /// subject is not raised until this long has passed (the breach is simply delayed, not lost, and keeps its
+    /// original episode start). The hold side is <see cref="ThresholdRule.Sustained"/>,
+    /// <see cref="UnavailableAfter"/> and <see cref="PeerSilentAfter"/>. Working default, to be revisited.
+    /// </summary>
+    public TimeSpan RefireCooldown { get; init; } = TimeSpan.FromMinutes(2); // Owner decision 2026-11-22.
+
     public const string PeerSilentRuleId = "peer.silent";
     public const string ObservationUnavailableRuleId = "observation.unavailable";
 
@@ -39,7 +47,7 @@ public sealed record AlertRulesConfig(
         TimeSpan.FromMinutes(2),
         [
             new ThresholdRule("threshold.disk_free", "Low free disk space", "system.storage.free",
-                "system.storage.total", ThresholdComparison.Below, 10, TimeSpan.Zero, AlertSeverity.Critical),
+                "system.storage.total", ThresholdComparison.Below, 10, TimeSpan.FromMinutes(5), AlertSeverity.Critical),
             new ThresholdRule("threshold.cpu_high", "Sustained high CPU", "system.cpu.utilization", null,
                 ThresholdComparison.Above, 90, TimeSpan.FromMinutes(10), AlertSeverity.Warning),
         ],
@@ -47,7 +55,7 @@ public sealed record AlertRulesConfig(
 
     public void Validate()
     {
-        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero)
+        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero || RefireCooldown < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(AlertRulesConfig));
         }

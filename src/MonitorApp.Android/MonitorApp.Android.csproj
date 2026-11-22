@@ -10,10 +10,18 @@
     <ApplicationDisplayVersion>0.2.0-alpha</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <AndroidUseAapt2>true</AndroidUseAapt2>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Same Avalonia 11.3.x line as the desktop head; the screens come from the shared Client.Ui library. -->
+    <PackageReference Include="Avalonia.Android" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\MonitorApp.Android.Core\MonitorApp.Android.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Client.Mobile\MonitorApp.Client.Mobile.csproj" />
+    <ProjectReference Include="..\MonitorApp.Client.Ui\MonitorApp.Client.Ui.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Mobile\MonitorApp.Peer.Mobile.csproj" />
   </ItemGroup>
 

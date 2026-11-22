@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MonitorApp.Client.Mobile</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MonitorApp.Client.Core\MonitorApp.Client.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Mobile\MonitorApp.Peer.Mobile.csproj" />
+  </ItemGroup>
+</Project>

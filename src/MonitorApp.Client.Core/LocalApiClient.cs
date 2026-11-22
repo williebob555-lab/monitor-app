@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -58,6 +58,10 @@ public sealed class LocalApiClient : IPeerDataSource, IDisposable
 
     public Task<IReadOnlyList<PendingPairingDto>> GetPairingsAsync(CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<PendingPairingDto>>("api/pairings", ct);
+
+    public async Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
+        (await GetAsync<AlertsEnvelope>(Url("api/v1/alerts", [("limit", limit.ToString(CultureInfo.InvariantCulture))]), ct)
+            .ConfigureAwait(false)).Alerts;
 
     public Task<CatalogDto> GetCatalogAsync(CancellationToken ct = default) => GetAsync<CatalogDto>("api/v1/catalog", ct);
 
@@ -240,6 +244,8 @@ public sealed class LocalApiClient : IPeerDataSource, IDisposable
 
         return "The node rejected the request as invalid.";
     }
+
+    private sealed record AlertsEnvelope(IReadOnlyList<AlertDto> Alerts);
 
     private sealed record CsrfDto(string RequestToken);
 

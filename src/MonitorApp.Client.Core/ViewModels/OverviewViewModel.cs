@@ -28,6 +28,33 @@ public sealed partial class OverviewViewModel : SectionViewModel
 
     public ObservableCollection<TrustedPeerRow> Peers { get; } = [];
 
+    /// <summary>True when the host can start and stop background collection (phone foreground service).</summary>
+    public bool HasHostControl => Client is IHostServiceControl;
+
+    [RelayCommand]
+    private async Task StartHostAsync()
+    {
+        if (Client is IHostServiceControl host)
+        {
+            host.RequestStart();
+            StatusMessage = "Starting monitoring.";
+            await Task.Delay(1500);
+            await RefreshAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task StopHostAsync()
+    {
+        if (Client is IHostServiceControl host)
+        {
+            host.RequestStop();
+            StatusMessage = "Stopping monitoring.";
+            await Task.Delay(1500);
+            await RefreshAsync();
+        }
+    }
+
     [RelayCommand]
     public override async Task RefreshAsync(CancellationToken cancellationToken = default)
     {

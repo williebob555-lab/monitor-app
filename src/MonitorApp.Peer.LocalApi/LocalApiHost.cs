@@ -9,11 +9,14 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.LocalApi;
 
 internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
+
+internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval);
 
 public sealed class LocalApiHost : IAsyncDisposable
 {
@@ -37,7 +40,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         PhonePairingOptions? phonePairing = null,
         AlertStore? alertStore = null,
         LiveInterestRegistry? interests = null,
-        ILocalUpdateController? updates = null)
+        ILocalUpdateController? updates = null,
+        ControlService? control = null,
+        MonitoringControlState? monitoring = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -74,6 +79,16 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (updates is not null)
         {
             builder.Services.AddSingleton(updates);
+        }
+
+        if (control is not null)
+        {
+            builder.Services.AddSingleton(control);
+        }
+
+        if (monitoring is not null)
+        {
+            builder.Services.AddSingleton(monitoring);
         }
 
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
@@ -172,6 +187,8 @@ public sealed class LocalApiHost : IAsyncDisposable
 
             var found = await store.ReadActiveAndRecentAsync(clock.UtcNow - TimeSpan.FromDays(7), take, token)
                 .ConfigureAwait(false);
+            var deliveries = (await store.ReadOutboxForAlertsAsync(found.Select(alert => alert.AlertId).ToArray(), token)
+                .ConfigureAwait(false)).ToLookup(entry => entry.AlertId, StringComparer.Ordinal);
             return Results.Json(new
             {
                 alerts = found.Select(alert => new
@@ -187,6 +204,18 @@ public sealed class LocalApiHost : IAsyncDisposable
                     alert.Detail,
                     alert.RaisedAt,
                     alert.ResolvedAt,
+
+                    // Per-recipient delivery of each revision: deliveredAt is when the recipient's durable-write
+                    // acknowledgement arrived (null while pending). There is no user acknowledge or mute state yet.
+                    deliveries = deliveries[alert.AlertId].Select(entry => new
+                    {
+                        entry.RecipientPeerId,
+                        entry.Revision,
+                        entry.EnqueuedAt,
+                        entry.Attempts,
+                        entry.LastAttemptAt,
+                        DeliveredAt = entry.AckedAt,
+                    }),
                 }),
             });
         });
@@ -283,9 +312,171 @@ public sealed class LocalApiHost : IAsyncDisposable
             await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        MapControlEndpoints(application);
+        application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>
+            Results.Json((await store.ReadPinnedIncidentsAsync(token).ConfigureAwait(false)).Select(PinnedIncidentView.Of)));
+        application.MapPost("/api/v1/incidents/pin", async (
+            PinIncidentRequest? body,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            PeerStore store,
+            IPeerClock clock,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (body is null ||
+                string.IsNullOrWhiteSpace(body.Label) || body.Label.Length > 200 ||
+                !TryParseUtc(body.From, out var from) || !TryParseUtc(body.To, out var to) || to <= from ||
+                to - from > TimeSpan.FromDays(31))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "Pinning needs a label (up to 200 characters) and an ISO-8601 UTC from/to window of at most 31 days.",
+                });
+            }
+
+            var incident = new PinnedIncident(Guid.NewGuid().ToString("N"), body.Label.Trim(), from, to, clock.UtcNow.ToUniversalTime());
+            await store.PinIncidentAsync(incident, token).ConfigureAwait(false);
+            return MutationResult(context, PinnedIncidentView.Of(incident));
+        });
+        application.MapPost("/api/v1/incidents/{incidentId}/unpin", async (
+            string incidentId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            PeerStore store,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            // Unpinning only makes the window prunable on the next retention pass; pruned data is never restored.
+            return await store.UnpinIncidentAsync(incidentId, token).ConfigureAwait(false)
+                ? MutationResult(context, new { incidentId, pinned = false })
+                : Results.NotFound(new { error = "No such pinned incident." });
+        });
         application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapPost("/api/phone-invitations", HandlePhoneInvitationAsync);
         application.MapGet("/", RenderPageAsync);
+    }
+
+    /// <summary>
+    /// Remote-control administration on the local (loopback) API: the audit trail, per-peer grants, and approval of
+    /// biometric presence-key enrollments. Mutations need the CSRF token like every other local mutation; a remote
+    /// peer can never reach these endpoints (they are the local administrator's decisions).
+    /// </summary>
+    private static void MapControlEndpoints(WebApplication application)
+    {
+        application.MapGet("/api/v1/audit", async (
+            int? limit,
+            long? beforeId,
+            string? peerId,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var take = limit ?? 100;
+            if (take is < 1 or > 500)
+            {
+                return Results.BadRequest(new { error = "limit must be 1 through 500." });
+            }
+
+            var control = services.GetService<ControlService>();
+            if (control is null)
+            {
+                return Results.Json(new { entries = Array.Empty<object>() });
+            }
+
+            var entries = await control.Store.ReadAuditAsync(take, beforeId, peerId, token).ConfigureAwait(false);
+            return Results.Json(new { entries });
+        });
+        application.MapGet("/api/v1/control", async (
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var control = services.GetService<ControlService>();
+            var monitoring = services.GetService<MonitoringControlState>();
+            var alerts = services.GetService<AlertStore>();
+            var snapshot = monitoring?.Read();
+            var mutes = alerts is null
+                ? []
+                : await alerts.ReadActiveMutesAsync(clock.UtcNow, token).ConfigureAwait(false);
+            return Results.Json(new
+            {
+                grants = control is null ? [] : await control.Store.ReadGrantsAsync(token).ConfigureAwait(false),
+                presenceEnrollments = control is null
+                    ? []
+                    : (await control.Store.ReadEnrollmentsAsync(token).ConfigureAwait(false)).Select(item => new
+                    {
+                        item.EnrollmentId,
+                        item.PeerId,
+                        fingerprintSha256 = Convert.ToHexString(item.Fingerprint),
+                        state = item.State.ToString(),
+                        item.RequestedAt,
+                        item.DecidedAt,
+                    }),
+                monitoring = snapshot is null
+                    ? null
+                    : new
+                    {
+                        pauses = snapshot.Pauses.Select(pair => new { scope = pair.Key, until = pair.Value }),
+                        intervalOverrideSeconds = snapshot.IntervalOverride?.TotalSeconds,
+                        intervalOverrideUntil = snapshot.IntervalOverrideUntil,
+                    },
+                alertMutes = mutes.Select(item => new { item.Scope, item.Until }),
+            });
+        });
+        application.MapPost("/api/v1/control/grants/{peerId}", async (
+            string peerId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var control = services.GetService<ControlService>();
+            var body = await context.Request.ReadFromJsonAsync<ControlGrantInput>(token).ConfigureAwait(false);
+            if (control is null || body is null)
+            {
+                return Results.BadRequest(new { error = "A grant body is required." });
+            }
+
+            await control.SetGrantAsync(new ControlGrant(peerId, body.MonitoringControls, body.PairingApproval, null), token)
+                .ConfigureAwait(false);
+            return Results.Json(new { peerId, body.MonitoringControls, body.PairingApproval });
+        });
+        foreach (var (verb, approve) in new[] { ("approve", true), ("reject", false) })
+        {
+            application.MapPost("/api/v1/control/presence-enrollments/{enrollmentId}/" + verb, async (
+                string enrollmentId,
+                HttpContext context,
+                IAntiforgery antiforgery,
+                IServiceProvider services,
+                CancellationToken token) =>
+            {
+                if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                var control = services.GetService<ControlService>();
+                var decided = control is null
+                    ? null
+                    : await control.DecideEnrollmentAsync(enrollmentId, approve, token).ConfigureAwait(false);
+                return decided is null
+                    ? Results.NotFound(new { error = "No pending enrollment with that id." })
+                    : Results.Json(new { enrollmentId, state = decided.State.ToString() });
+            });
+        }
     }
 
     /// <summary>
@@ -493,8 +684,37 @@ public sealed class LocalApiHost : IAsyncDisposable
         }
     }
 
+    private static bool TryParseUtc(string? text, out DateTimeOffset value)
+    {
+        value = default;
+        if (!DateTimeOffset.TryParse(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return false;
+        }
+
+        value = parsed.ToUniversalTime();
+        return true;
+    }
+
     private static IResult MutationResult(HttpContext context, object value) =>
         context.Request.HasFormContentType
             ? Results.Redirect("/", permanent: false, preserveMethod: false)
             : Results.Json(value);
+}
+
+/// <summary>Pin a time window of raw observations against retention pruning.</summary>
+internal sealed record PinIncidentRequest(string? Label, string? From, string? To);
+
+internal sealed record PinnedIncidentView(string IncidentId, string Label, string From, string To, string CreatedAt)
+{
+    public static PinnedIncidentView Of(PinnedIncident incident) => new(
+        incident.IncidentId,
+        incident.Label,
+        incident.From.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        incident.To.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        incident.CreatedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
 }

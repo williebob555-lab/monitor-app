@@ -69,6 +69,12 @@ public sealed partial class HistoryViewModel : SectionViewModel
 
     public ObservableCollection<ObservationRow> Rows { get; } = [];
 
+    /// <summary>Most readings the card list shows (newest first); the chart and <see cref="Rows"/> hold everything loaded.</summary>
+    public const int DisplayLimit = 200;
+
+    /// <summary>The newest <see cref="DisplayLimit"/> readings for card lists, which are not virtualized.</summary>
+    public ObservableCollection<ObservationRow> DisplayRows { get; } = [];
+
     public bool IsCustom => SelectedPreset.Preset == HistoryPreset.Custom;
 
     public int MaxPages { get; set; } = LocalApiClient.DefaultMaxPages;
@@ -105,9 +111,15 @@ public sealed partial class HistoryViewModel : SectionViewModel
                 PageSize,
                 cancellationToken);
             Rows.Clear();
+            DisplayRows.Clear();
             foreach (var point in result.Points)
             {
                 Rows.Add(ObservationRow.From(point));
+            }
+
+            foreach (var row in Rows.Reverse().Take(DisplayLimit))
+            {
+                DisplayRows.Add(row);
             }
 
             Summary = $"{result.Points.Count} reading(s) from {Format.Time(from)} to {Format.Time(to)} " +
@@ -115,6 +127,11 @@ public sealed partial class HistoryViewModel : SectionViewModel
                 (result.MoreAvailable
                     ? $" Stopped after {MaxPages} pages; more readings exist. Narrow the time range or filters."
                     : string.Empty);
+            if (Rows.Count > DisplayLimit)
+            {
+                Summary += $" Listing the newest {DisplayLimit}; the chart uses all of them.";
+            }
+
             UpdateChart(result.Points);
         });
     }

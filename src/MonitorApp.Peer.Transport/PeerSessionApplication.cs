@@ -13,6 +13,15 @@ public interface IPeerSessionApplication
         ValueTask.CompletedTask;
     IAsyncEnumerable<PeerSessionRequest> GetPendingRequestsAsync(string remotePeerId, CancellationToken cancellationToken);
     ValueTask<OriginAck> AcceptOriginBatchAsync(string remotePeerId, OriginRecordBatch batch, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The origin answered a range request with RANGE_PRUNED. Records the pruned range as intentionally absent and
+    /// returns the acknowledgement to send (the cursor resumes after the range), or null when this application does
+    /// not handle pruned ranges (the session then fails as for any other protocol error).
+    /// </summary>
+    ValueTask<OriginAck?> AcceptRangePrunedAsync(string remotePeerId, PrunedRange range, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<OriginAck?>(null);
+
     ValueTask AcceptOriginAckAsync(string remotePeerId, OriginAck acknowledgement, CancellationToken cancellationToken);
 
     /// <summary>

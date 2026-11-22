@@ -46,7 +46,8 @@ public sealed record NodeUpdateTrust(string KeyId, byte[] PublicKeySpki, string 
 /// Update-agent configuration. Environment variables (the packaged unit loads /etc/monitor-app/node.conf):
 /// MONITOR_APP_UPDATE_POLICY=approve|auto (default approve), MONITOR_APP_UPDATE_REPO=owner/repo,
 /// MONITOR_APP_UPDATE_KEY_FILE, MONITOR_APP_UPDATE_API_URL (HTTPS), MONITOR_APP_UPDATE_INTERVAL_HOURS (default 6),
-/// MONITOR_APP_UPDATE_CHANNEL (default preview), MONITOR_APP_UPDATE_PACKAGE=auto|deb|rpm.
+/// MONITOR_APP_UPDATE_CHANNEL (default preview), MONITOR_APP_UPDATE_PACKAGE=auto|deb|rpm|zip,
+/// MONITOR_APP_INSTALL_ROOT (Windows versioned install root).
 /// </summary>
 public sealed record NodeUpdateOptions(
     NodeUpdatePolicy Policy,
@@ -58,9 +59,25 @@ public sealed record NodeUpdateOptions(
     string KeyFilePath,
     string PackageKind,
     ReleaseVersion InstalledVersion,
-    TimeSpan HealthTimeout)
+    TimeSpan HealthTimeout,
+    string? InstallRoot = null)
 {
     public const string PolicyVariable = "MONITOR_APP_UPDATE_POLICY";
+
+    /// <summary>Windows only: the versioned install root (set on the service by install-service.ps1).</summary>
+    public const string InstallRootVariable = "MONITOR_APP_INSTALL_ROOT";
+
+    /// <summary>
+    /// Whether this node can install a staged update itself. deb/rpm hand off to the root helper started by the systemd
+    /// path unit; Windows "zip" only when the admin-installed detached helper is registered in the versioned install root.
+    /// Without it the node still downloads and verifies, but never offers approval.
+    /// </summary>
+    public bool CanApplyHere => PackageKind switch
+    {
+        "deb" or "rpm" => true,
+        "zip" => WindowsApplyHelper.IsInstalled(InstallRoot),
+        _ => false,
+    };
 
     public string HealthMarkerPath => Path.Combine(UpdateDirectory, "health.json");
 
@@ -127,7 +144,8 @@ public sealed record NodeUpdateOptions(
             keyFile,
             kind,
             InstalledVersionFromAssembly(),
-            TimeSpan.FromSeconds(90));
+            TimeSpan.FromSeconds(90),
+            Get(InstallRootVariable));
     }
 
     public static ReleaseVersion InstalledVersionFromAssembly()

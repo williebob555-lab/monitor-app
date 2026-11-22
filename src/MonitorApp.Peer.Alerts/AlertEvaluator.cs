@@ -93,6 +93,11 @@ public sealed class AlertEvaluator(
                 cancellationToken.ThrowIfCancellationRequested();
                 if (outcome.Verdict == Verdict.Breach)
                 {
+                    if (await InCooldownAsync(local.PeerId, outcome, now, cancellationToken).ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
                     var alert = new Alert(
                         Alert.CreateId(local.PeerId, outcome.RuleId, outcome.SubjectId, outcome.At),
                         1, outcome.RuleId, outcome.SubjectId, local.PeerId, outcome.Severity, AlertState.Raised,
@@ -117,6 +122,27 @@ public sealed class AlertEvaluator(
         {
             Volatile.Write(ref running, 0);
         }
+    }
+
+    /// <summary>
+    /// True while a resolved episode of the same rule and subject is younger than the re-fire cooldown, so a
+    /// flapping condition produces one alert per cooldown window instead of one per flap. An active episode is not a
+    /// cooldown case (the store ignores a duplicate raise).
+    /// </summary>
+    private async Task<bool> InCooldownAsync(
+        string localPeerId,
+        Outcome outcome,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (config.RefireCooldown <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        var resolvedAt = await alerts.ReadLastResolvedAtAsync(localPeerId, outcome.RuleId, outcome.SubjectId, cancellationToken)
+            .ConfigureAwait(false);
+        return resolvedAt is { } resolved && now - resolved < config.RefireCooldown;
     }
 
     private async Task<Outcome> EvaluateUnavailableAsync(

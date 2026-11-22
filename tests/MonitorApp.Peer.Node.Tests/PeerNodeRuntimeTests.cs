@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Node;
 using MonitorApp.Peer.Persistence;
 using Xunit;
@@ -13,6 +14,80 @@ namespace MonitorApp.Peer.Node.Tests;
 
 public sealed class PeerNodeRuntimeTests
 {
+    // Tests that compare exact record counts disable the scheduled self-LAN collection, which adds its own records.
+    private static readonly NodeLiveOptions NoLan = new(CollectSelfLan: false);
+
+    /// <summary>
+    /// The origin prunes its oldest records (real retention service, scheduled on the node), then a replica pairs and
+    /// replicates over the real gRPC session. Whichever side dials, the replica must mark the pruned range intentionally
+    /// absent, resume after it, and converge with its cursor at the origin head and no gap.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReplicaMarksPrunedRangeAbsentAndConvergesWhetherTheOriginOrTheReplicaDials(bool originDials)
+    {
+        var originRoot = CreateTemporaryDirectory();
+        var replicaRoot = CreateTemporaryDirectory();
+        try
+        {
+            var replicaPort = FreePort();
+            var originPort = FreePort();
+            var time = new ManualTimeProvider(DateTimeOffset.UtcNow.AddDays(30));
+            var policy = new PeerRetentionPolicy(TimeSpan.FromDays(7), TimeSpan.FromDays(365), TimeSpan.FromDays(7), TimeSpan.FromDays(30));
+            await using var origin = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(originRoot, IPAddress.Loopback, originPort, 0),
+                new NodeLiveOptions(CollectSelfLan: false, Time: time, Retention: policy));
+            await using var replica = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(replicaRoot, IPAddress.Loopback, replicaPort, 0), NoLan);
+            var stream = (await origin.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+
+            var pruned = (await origin.CollectOnceAsync()).AppendedRecords;
+            var runs = origin.RetentionSchedule.RunCount;
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
+            {
+                while (origin.RetentionSchedule.RunCount <= runs)
+                {
+                    time.Advance(TimeSpan.FromHours(1));
+                    await Task.Delay(50, timeout.Token);
+                }
+            }
+
+            Assert.Empty(await origin.Store.ReadOriginRangeAsync(origin.Identity.PeerId, stream, 1, 10_000));
+            var kept = (await origin.CollectOnceAsync()).AppendedRecords;
+            var head = (ulong)(pruned + kept);
+
+            if (originDials)
+            {
+                await PairAsync(origin, replica, replicaPort);
+            }
+            else
+            {
+                await PairAsync(replica, origin, originPort);
+            }
+
+            await WaitUntilAsync(async () =>
+                (await replica.Store.ReadReplicationCursorAsync(origin.Identity.PeerId, origin.Identity.PeerId, stream)).Cursor?.AcceptedThrough == head,
+                TimeSpan.FromSeconds(20));
+            var state = await replica.Store.ReadReplicationCursorAsync(origin.Identity.PeerId, origin.Identity.PeerId, stream);
+            Assert.Empty(state.Gaps);
+            var replicated = await replica.Store.ReadOriginRangeAsync(origin.Identity.PeerId, stream, 1, 10_000);
+            Assert.Equal(Enumerable.Range(pruned + 1, kept).Select(value => (ulong)value), replicated.Select(record => record.Sequence));
+            var range = await replica.Store.ReadPrunedRangeContainingAsync(origin.Identity.PeerId, stream, 1);
+            Assert.Equal((1UL, (ulong)pruned), (range!.FirstSequence, range.LastSequence));
+
+            // The origin learned where the replica is, so its own retention no longer waits for it.
+            await WaitUntilAsync(async () =>
+                (await origin.Store.ReadReplicationCursorAsync(replica.Identity.PeerId, origin.Identity.PeerId, stream)).Cursor?.AcceptedThrough == head,
+                TimeSpan.FromSeconds(20));
+        }
+        finally
+        {
+            Directory.Delete(originRoot, recursive: true);
+            Directory.Delete(replicaRoot, recursive: true);
+        }
+    }
+
     [Fact]
     [Trait("Category", "Windows")]
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
@@ -48,7 +123,7 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            DeleteDirectory(root, recursive: true);
         }
     }
 
@@ -83,8 +158,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -112,8 +187,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -133,9 +208,9 @@ public sealed class PeerNodeRuntimeTests
             int firstInitialCollection;
             int secondInitialCollection;
             await using (var first = await PeerNodeRuntime.StartAsync(
-                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0)))
+                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0), NoLan))
             await using (var second = await PeerNodeRuntime.StartAsync(
-                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0)))
+                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0), NoLan))
             {
                 firstPeerId = first.Identity.PeerId;
                 secondPeerId = second.Identity.PeerId;
@@ -167,7 +242,7 @@ public sealed class PeerNodeRuntimeTests
 
             int firstCollected;
             await using (var firstOffline = await PeerNodeRuntime.StartAsync(
-                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0)))
+                             new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0), NoLan))
             {
                 firstCollected = (await firstOffline.CollectOnceAsync()).AppendedRecords;
                 Assert.True(firstCollected > 0);
@@ -175,16 +250,16 @@ public sealed class PeerNodeRuntimeTests
 
             int secondCollected;
             await using (var secondOffline = await PeerNodeRuntime.StartAsync(
-                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0)))
+                             new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0), NoLan))
             {
                 secondCollected = (await secondOffline.CollectOnceAsync()).AppendedRecords;
                 Assert.True(secondCollected > 0);
             }
 
             await using var firstRestarted = await PeerNodeRuntime.StartAsync(
-                new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0));
+                new NodeOptions(firstRoot, IPAddress.Loopback, firstPeerPort, 0), NoLan);
             await using var secondRestarted = await PeerNodeRuntime.StartAsync(
-                new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0));
+                new NodeOptions(secondRoot, IPAddress.Loopback, secondPeerPort, 0), NoLan);
             var firstStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(firstRoot, "peer.db")));
             var secondStore = new PeerStore(PeerStoreOptions.Create(Path.Combine(secondRoot, "peer.db")));
 
@@ -219,8 +294,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -257,8 +332,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -419,6 +494,35 @@ public sealed class PeerNodeRuntimeTests
         {
             Value.Dispose();
             return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Windows keeps pooled SQLite handles (and briefly, handles of just-stopped background work) open after a runtime is
+    /// disposed, so the temp directory delete clears the pools and retries briefly instead of failing a passing test.
+    /// </summary>
+    private static void DeleteDirectory(string path, bool recursive = true)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                Directory.Delete(path, recursive);
+                return;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return;
+            }
+            catch (IOException) when (attempt < 20)
+            {
+                Thread.Sleep(250);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 20)
+            {
+                Thread.Sleep(250);
+            }
         }
     }
 }

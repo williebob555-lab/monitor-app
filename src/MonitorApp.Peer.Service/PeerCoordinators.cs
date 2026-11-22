@@ -58,11 +58,38 @@ public interface IPeerSessionCoordinator
         CancellationToken cancellationToken) =>
         throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
 
+    /// <summary>
+    /// Live-session alert push: the next pending batch for the recipient as soon as one exists, or null after the timeout.
+    /// Only called after a successful <see cref="PullAlertsAsync"/> on the same session.
+    /// </summary>
+    ValueTask<AlertBatch?> WaitForAlertPushAsync(
+        string remotePeerId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+
     ValueTask AcceptAlertAckAsync(
         string remotePeerId,
         AlertAck acknowledgement,
         CancellationToken cancellationToken) =>
         throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+
+    /// <summary>
+    /// Remote monitoring control is additive; coordinators that do not implement it refuse with InvalidMessage. The
+    /// session id lets the implementation check that the command is bound to this very authenticated session.
+    /// </summary>
+    ValueTask<ControlResult> ExecuteControlAsync(
+        string remotePeerId,
+        string sessionId,
+        ControlCommand command,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+
+    ValueTask<PendingPairingsResponse> ReadPendingPairingsAsync(
+        string remotePeerId,
+        PendingPairingsRequest request,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
 }
 
 public sealed class PeerPairingSessionContext

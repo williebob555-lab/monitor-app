@@ -143,6 +143,38 @@ public sealed class PairingApplicationStore
             : null;
     }
 
+    /// <summary>Pairing requests awaiting local approval that have not expired, oldest first.</summary>
+    public async Task<IReadOnlyList<PairingSnapshot>> ReadAwaitingApprovalAsync(
+        DateTimeOffset now,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT pairing_id, remote_peer_id, remote_public_key_spki, remote_public_key_fingerprint,
+                display_name, local_role, approval_state, protocol_major, protocol_minor,
+                remote_capabilities_json, created_at, expires_at
+            FROM pairing_approvals WHERE approval_state = $pending
+            ORDER BY created_at, pairing_id LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$pending", (int)PairingApprovalState.PendingApproval);
+        command.Parameters.AddWithValue("$limit", limit);
+        var result = new List<PairingSnapshot>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var pairing = ReadPairing(reader);
+            if (pairing.ExpiresAt > now)
+            {
+                result.Add(pairing);
+            }
+        }
+
+        return result;
+    }
+
     public async Task<bool> TransitionPairingAsync(
         string pairingId,
         PairingApprovalState expected,

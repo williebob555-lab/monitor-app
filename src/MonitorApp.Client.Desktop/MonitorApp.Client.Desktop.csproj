@@ -9,10 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" />
-    <PackageReference Include="Avalonia.Themes.Fluent" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\MonitorApp.Client.Core\MonitorApp.Client.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Client.Ui\MonitorApp.Client.Ui.csproj" />
   </ItemGroup>
 </Project>

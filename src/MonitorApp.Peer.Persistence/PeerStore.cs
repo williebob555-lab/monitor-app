@@ -788,6 +788,20 @@ public sealed partial class PeerStore
         return result;
     }
 
+    /// <summary>Relationships observed by the peer that have not been ended (no ValidTo), oldest first.</summary>
+    public async Task<IReadOnlyList<RelationshipObservation>> ReadOpenRelationshipsByObserverAsync(string observerPeerId, CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(observerPeerId, nameof(observerPeerId));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT relationship_id, source_entity_id, target_entity_id, relationship_kind, evidence_kind, observer_peer_id, confidence, valid_from, valid_to FROM relationship_observations WHERE observer_peer_id = $observer AND valid_to IS NULL ORDER BY valid_from, relationship_id;";
+        command.Parameters.AddWithValue("$observer", observerPeerId);
+        var result = new List<RelationshipObservation>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) result.Add(new RelationshipObservation(reader.GetString(0), reader.GetString(1), reader.GetString(2), (RelationshipKind)reader.GetInt32(3), (RelationshipEvidenceKind)reader.GetInt32(4), reader.GetString(5), reader.GetDouble(6), Parse(reader.GetString(7)), NullableDate(reader, 8)));
+        return result;
+    }
+
     public async Task UpsertAdapterInstanceAsync(AdapterInstance adapter, CancellationToken cancellationToken = default)
     {
         Validate(adapter);
