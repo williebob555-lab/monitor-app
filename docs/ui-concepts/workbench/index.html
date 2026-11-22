@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Monitor Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1114;--panel:#15181c;--edge:#2a3038;--ink:#e6e9ed;--dim:#8b94a0;--ok:#3ecf8e;--xfer:#38b6e8;--warn:#f0b429;--fail:#ef5350;--plan:#a78bfa;--off:#6b7280;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 var(--sans);display:flex;flex-direction:column;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer}
+header{height:52px;flex:none;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid var(--edge);background:var(--panel)}
+.brand{font-weight:600;letter-spacing:.02em;white-space:nowrap}.brand i{font-style:normal;color:var(--dim);font-weight:400}
+#title{font-family:var(--mono);font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#title b{color:var(--ink);font-weight:500}
+.sp{flex:1}
+.ex{display:flex;align-items:center;gap:8px;font:11px var(--mono);color:var(--dim);text-transform:uppercase}
+input[type=range]{accent-color:var(--xfer);height:28px}
+#clock{font:13px var(--mono);color:var(--ok);white-space:nowrap}
+#clock.rec{color:var(--ink)}
+main{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+#bench{flex:1;min-height:0;position:relative;overflow:hidden;background:
+ linear-gradient(var(--bg),transparent 30%),
+ repeating-linear-gradient(0deg,#ffffff06 0 1px,transparent 1px 32px),repeating-linear-gradient(90deg,#ffffff06 0 1px,transparent 1px 32px),var(--bg)}
+#bench.rec{box-shadow:inset 0 0 0 2px #ffffff30}
+#bench.sbx{box-shadow:inset 0 0 0 2px #a78bfa66}
+#bench.drop{outline:2px dashed var(--plan);outline-offset:-8px}
+#svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#lead{position:absolute;inset:0;pointer-events:none;width:100%;height:100%}
+.banner{position:absolute;left:50%;top:10px;transform:translateX(-50%);font:12px var(--mono);padding:5px 12px;border:1px solid #ffffff40;background:repeating-linear-gradient(135deg,#1d2127 0 8px,#252b33 8px 16px);border-radius:3px;white-space:nowrap;z-index:3}
+.banner.sb{border-color:var(--plan);color:var(--plan)}
+.part{cursor:pointer}.part:hover .top{stroke-width:2}
+.top,.fr,.sd{stroke-linejoin:round}
+.nm{font:500 12.5px var(--sans);fill:var(--ink)}.sw{font:500 10.5px var(--mono);letter-spacing:.04em}.sb{font:11px var(--mono);fill:var(--dim)}
+.tag{font:500 10.5px var(--mono);fill:var(--dim);letter-spacing:.12em}
+.flow{fill:none;stroke-width:2;stroke-dasharray:7 7;animation:fl 1s linear infinite;opacity:.85}
+@keyframes fl{to{stroke-dashoffset:-14}}
+.pulse{animation:pl 1.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pl{50%{opacity:.25}}
+.dim{opacity:.5}
+#co{position:absolute;z-index:5;width:310px;background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px;box-shadow:0 12px 40px #000a;display:none}
+#co h3{font-size:15px;font-weight:600;display:flex;justify-content:space-between;gap:8px}
+#co h3 button{background:none;border:0;color:var(--dim);font-size:18px;line-height:1;min-width:32px;min-height:32px}
+#co .stl{font:500 11.5px var(--mono);margin:2px 0 8px;letter-spacing:.04em}
+#co p{color:#c3c9d1;font-size:13px;margin:6px 0}
+#co p.m{font:12px var(--mono);color:var(--dim)}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.btn{min-height:40px;padding:0 14px;border-radius:4px;background:#1f242a;border:1px solid var(--edge);font-size:13px}
+.btn:hover{border-color:#4a5360}.btn.pri{background:#1b3a30;border-color:var(--ok)}.btn.pl{border-color:var(--plan);color:var(--plan);background:#241e38}
+.btn.on{background:#173044;border-color:var(--xfer)}.btn[disabled]{opacity:.4;cursor:not-allowed;border-style:dashed}
+.sim{border:1px dashed var(--plan);border-radius:4px;padding:8px 10px;margin-top:8px;font:12px var(--mono);color:#cfc3f5;background:#a78bfa12}
+.sim div{margin:3px 0}
+#time{flex:none;display:flex;align-items:center;gap:14px;padding:6px 20px 8px;background:var(--panel);border-top:1px solid var(--edge);position:relative;z-index:4}
+#time label{font:11px var(--mono);color:var(--dim);white-space:nowrap}
+#tw{flex:1;position:relative;height:44px}
+#tw input{position:absolute;left:0;right:0;top:0;width:100%}
+#tw span{position:absolute;top:26px;font:10px var(--mono);color:var(--dim);transform:translateX(-50%);white-space:nowrap}
+#tw span:before{content:"";position:absolute;left:50%;top:-8px;height:6px;border-left:1px solid var(--dim)}
+#live{min-height:36px}
+#tray{flex:none;height:112px;background:#121519;border-top:1px solid var(--edge);padding:8px 20px;display:flex;gap:14px;align-items:center;overflow-x:auto}
+#tray h4{font:500 10.5px var(--mono);color:var(--dim);letter-spacing:.12em;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap}
+.chip{flex:none;width:122px;height:92px;border:1px solid var(--edge);border-radius:5px;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;text-align:center;padding:4px;cursor:grab;user-select:none}
+.chip.cur{border-color:#e6e9ed88}.chip.pl{border:1px dashed var(--plan)}
+.chip b{font:500 12px var(--sans)}.chip small{font:10.5px var(--mono)}
+#tgl{display:none}
+#fp{position:fixed;inset:0;background:#000b;z-index:20;display:none;align-items:center;justify-content:center}
+#fp>div{width:min(340px,92vw);background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:24px;text-align:center}
+#fp h3{font-size:16px;margin-bottom:4px}#fp p{color:var(--dim);font-size:13px;margin-bottom:16px}
+#ring{width:92px;height:92px;margin:0 auto 14px;border-radius:50%;border:2px solid var(--xfer);display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
+#ring.scan:after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--xfer);animation:sc 1s ease-out infinite}
+#ring.ok{border-color:var(--ok)}
+@keyframes sc{to{transform:scale(1.35);opacity:0}}
+@media(max-width:700px){
+ header{height:46px;padding:0 16px;gap:10px}.brand i,.ex span{display:none}.ex input{width:84px}
+ #clock{font-size:12px}
+ #time{padding:6px 16px 6px;gap:10px}#time label{display:none}
+ #tray{position:fixed;left:0;right:0;bottom:0;z-index:12;height:auto;max-height:60vh;transform:translateY(calc(100% - 46px));transition:transform .25s;flex-wrap:wrap;padding:46px 16px 20px;justify-content:center;overflow:auto}
+ #tray.open{transform:none}#tray h4{display:none}
+ .chip{width:calc(33% - 8px);min-width:100px;height:84px}
+ #tgl{display:flex;position:fixed;left:0;right:0;bottom:0;height:46px;z-index:13;background:#121519;border:0;border-top:1px solid var(--edge);align-items:center;justify-content:center;gap:8px;font:12px var(--mono);color:var(--dim)}
+ main{padding-bottom:46px}
+ #tw span:nth-of-type(even){display:none}.sb{font-size:9.5px}
+ #co{left:0!important;right:0;top:auto!important;bottom:46px;width:auto;border-radius:10px 10px 0 0;max-height:52vh;overflow:auto;padding:14px 16px}
+ #lead{display:none}
+ .banner{font-size:11px;top:6px}
+}
+</style></head><body>
+<header>
+ <div class="brand">Monitor <i>/ Workbench</i></div>
+ <div id="title"></div><div class="sp"></div>
+ <div class="ex"><span>Explode</span><input id="ex" type="range" min="0" max="100" value="80" aria-label="Explode assembly"></div>
+ <div id="clock"></div>
+</header>
+<main>
+ <div id="bench"><svg id="svg"></svg><svg id="lead"></svg><div id="bn"></div><div id="co"></div></div>
+ <div id="time"><label>AS OF</label><div id="tw"><input id="tr" type="range" min="1200" max="1403" value="1403" aria-label="As-of time"></div><button class="btn" id="live">Live</button></div>
+ <div id="tray"></div>
+</main>
+<button id="tgl"></button>
+<div id="fp"><div><h3 id="fpt"></h3><p id="fpd"></p><div id="ring" tabindex="0" role="button" aria-label="Touch fingerprint sensor"><svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#38b6e8" stroke-width="2" stroke-linecap="round"><path d="M12 22a12 12 0 0 1 24 0M16 40c2-4 2-8 2-12a6 6 0 0 1 12 0c0 6 1 9 3 12M24 40c1-4 1-8 1-12M10 30c0-3 0-5 1-8"/></svg></div><p id="fps">Touch the sensor to confirm</p><button class="btn" id="fpc">Cancel</button></div></div>
+<script>
+const $=s=>document.querySelector(s),C={ok:'#3ecf8e',xfer:'#38b6e8',warn:'#f0b429',stale:'#f0b429',pend:'#f0b429',fail:'#ef5350',plan:'#a78bfa',off:'#6b7280'};
+const W={ok:'OK',xfer:'SYNCING',warn:'DEGRADED',stale:'STALE',pend:'PENDING',fail:'FAILED',plan:'PLANNED',off:'OFFLINE'};
+const S={sys:'server',t:1403,e:.8,sel:null,ack:false,paused:{},rate:'5 s',upd:{},paired:false,nas:false,wired:false,tick:0,sec:0};
+const live=()=>S.t>=1403,hm=t=>String(t/60|0).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+const fedOff=()=>S.t>=1274,tabSt=()=>S.t>=1351,syncOn=()=>S.t>=1385,verified=()=>S.t>=1400;
+const j=(b,a,s=0,d=0)=>(b+Math.sin(S.tick*1.3+s)*a+Math.cos(S.tick*.7+s*2)*a*.5).toFixed(d);
+const P=(id,n,kind,st,s,o={})=>({id,n,kind,st,s,...o});
+const pz=()=>S.paused[S.sys];
+function coll(extra){const p=pz();return P('col','Collector','svc',p?'warn':'ok',()=>p?'paused · rate '+S.rate:'sampling '+S.rate,{w:p?'PAUSED':null,d:'Collection agent on this peer. Pausing stops new samples; existing history stays replicated.',kind2:'col'})}
+function upd(){const done=S.upd[S.sys];return P('upd','Update 0.4.2','svc',done?'ok':verified()?'pend':'xfer',()=>done?'installed 0.4.2':verified()?'verified · awaiting you':'downloading…',{w:done?'INSTALLED':verified()?'APPROVE':null,kind2:'upd',d:'Signed package, checksum verified at 23:20. Installing needs your fingerprint.'})}
+function devSt(id){return id==='fedora'?(fedOff()?'off':'ok'):id==='tablet'?(tabSt()?'stale':'ok'):'ok'}
+function sysDef(id){
+ const hp=()=>j(94,.2,1,0)>=94?94:94;
+ if(id==='server'){
+  const bk=S.wired?'plan':'fail', L=[
+  ['Network',[P('nic','eth0','net','xfer',()=>'192.168.1.20 · 1 Gb',{d:'Wired uplink to router 192.168.1.1.'}),P('ts','Tailscale','net','ok',()=>'3 peers · 1 relayed')]],
+  ['Host',[P('cpu','CPU','chip','ok',()=>j(23,4,1)+'% load',{live:1}),P('ram','RAM','chip','ok',()=>(11.2+ +j(0,.15,2,2)).toFixed(1)+' / 32 GB',{live:1}),P('temp','Thermals','chip','ok',()=>j(52,1,3)+' °C',{live:1})]],
+  ['Storage',[P('nvme','NVMe · system','disk','ok',()=>'41% used',{pct:41}),P('hdd','HDD · data','disk','fail',()=>'94% used · 6% free',{pct:94,w:'CRITICAL',d:'1.88 of 2.0 TB used. The nightly backup set needs ~310 GB free on this drive, so it cannot finish. This is the root cause of 3 failed backups.'})]],
+  ['Services',[P('sync','Syncthing','svc',syncOn()?'xfer':'ok',()=>syncOn()?'← Laptop '+j(112,6,4)+' Mb/s':'idle',{d:'Receiving Photos from Laptop (2.1 GB).'}),P('media','Media server','svc','warn',()=>'transcode queue 9',{d:'Degraded: transcodes are slow while the HDD is near-full.'}),P('backup','Backup','svc',bk,()=>S.wired?'→ NAS (proposed)':S.ack?'3 failed nights · ack':'failed 3 nights · 02:00',{w:S.wired?'WOULD PASS':S.ack?'FAILED · ACK':null,kind2:'bk'}),coll(),upd()]],
+  ['Data',[P('photos','Photos','data','ok',()=>'412 GB'),P('mlib','Media library','data','ok',()=>'1.1 TB'),P('bset','Backup set','data',bk==='plan'?'plan':'warn',()=>'310 GB · stale 3 d')]]];
+  if(S.nas)L.unshift(['Proposed',[P('nas','NAS · 4-bay','nas','plan',()=>S.wired?'4 TB free · wired':'not wired',{kind:'nas',d:'Planned purchase, not owned. Sandbox only: nothing here touches your real network.'})]]);
+  const F=[['nic','sync','xfer'],['sync','photos','xfer'],['backup','hdd','fail']];if(S.wired)F.push(['nas','backup','plan']);
+  return{n:'Home server',os:'Ubuntu 24.04 · 192.168.1.20',L,F}}
+ if(id==='laptop')return{n:'Laptop',os:'Windows 11',L:[
+  ['Network',[P('wifi','Wi-Fi 5 GHz','net',syncOn()?'xfer':'ok',()=>'−58 dBm'+(syncOn()?' · '+j(112,6,4)+' Mb/s':''))]],
+  ['Host',[P('cpu','CPU','chip','ok',()=>j(18,3,1)+'% load',{live:1}),P('ram','RAM','chip','ok',()=>(9.4+ +j(0,.1,2,2)).toFixed(1)+' / 16 GB',{live:1})]],
+  ['Storage',[P('ssd','NVMe SSD','disk','ok',()=>'62% used',{pct:62})]],
+  ['Services',[P('ps','Photos sync','svc',syncOn()?'xfer':'ok',()=>syncOn()?'→ server · '+Math.min(99,40+S.sec*.08*(S.t>=1403)).toFixed(0)+'% of 2.1 GB':'idle',{d:'Syncing Photos to the Home server, started 23:05.'}),coll(),upd()]],
+  ['Data',[P('ph','Photos','data','ok',()=>'2.1 GB queued')]]],
+  F:[['ps','wifi','xfer']]};
+ if(id==='fedora'){const s=devSt('fedora'),o=s==='off',z=(a,b)=>o?'offline since 21:14':a;return{n:'Fedora box',os:'Fedora 41 · wired',L:[
+  ['Network',[P('eth','Ethernet','net',s,()=>z('wired 1 Gb'),{d:o?'Went offline at 21:14. No samples since; last known state is shown greyed.':''})]],
+  ['Host',[P('cpu','CPU','chip',s,()=>z('9% load')),P('ram','RAM','chip',s,()=>z('6.1 / 16 GB'))]],
+  ['Storage',[P('d','SSD','disk',s,()=>z('48% used'),{pct:48})]],
+  ['Services',[P('fs','Syncthing','svc',s,()=>z('idle')),P('col','Collector','svc',s,()=>z('sampling 5 s'))]],
+  ['Data',[P('fd','Projects','data',s,()=>z('210 GB'))]]],F:[]}}
+ if(id==='tablet'){const s=devSt('tablet'),o=s==='stale',z=a=>o?'last seen 22:31':a;return{n:'Tablet',os:'Android 14',L:[
+  ['Network',[P('w','Wi-Fi','net',s,()=>z('2.4 GHz'),{d:o?'Stale: no report since 22:31. It may be asleep or out of range, which is different from offline.':''})]],
+  ['Host',[P('b','Battery','chip',s,()=>z('71%'))]],['Services',[P('col','Collector','svc',s,()=>z('sampling 30 s'))]],['Data',[P('c','Photo cache','data',s,()=>z('3.2 GB'))]]],F:[]}}
+ if(id==='phone')return{n:'Phone',os:'Android 15 · away',L:[
+  ['Network',[P('lte','LTE','net','ok',()=>'away from home'),P('tsr','Tailscale relay','net','warn',()=>'relayed '+j(180,12,5)+' ms',{live:1})]],
+  ['Host',[P('bat','Battery','chip','ok',()=>'charging 64%')]],['Services',[P('col','Collector','svc','ok',()=>'sampling 30 s')]]],F:[['lte','tsr','xfer']]};
+ if(id==='router')return{n:'Home router',os:'Gateway 192.168.1.1',L:[
+  ['Network',[P('wan','WAN','net','ok',()=>'ISP link up'),P('lan','LAN','net','ok',()=>'5 clients')]],['Host',[P('gw','Gateway','chip','ok',()=>'192.168.1.1')]],['Services',[P('dhcp','DHCP','svc','ok',()=>'12 leases'),P('dns','DNS','svc','ok',()=>'cached')]]],F:[]};
+ if(id==='watch'){const d=S.paired;return{n:'Pixel-Watch',os:d?'Paired':'Pairing request',L:[
+  ['Network',[P('req','Pair request','net',d?'ok':'pend',()=>d?'paired just now':'asks to join',{w:d?'PAIRED':'APPROVE',kind2:'pair',d:'A new device asks to join this network. Approving shares observations with it, so it needs your fingerprint.'})]],
+  ['Host',[P('wd','Pixel-Watch','chip',d?'ok':'pend',()=>d?'sampling 30 s':'unpaired')]]],F:[['req','wd','xfer']]}}
+ if(id==='network'){const D=[['server','Home server',S.ack?'fail':'fail'],['laptop','Laptop','xfer'],['fedora','Fedora box',devSt('fedora')],['tablet','Tablet',devSt('tablet')],['phone','Phone','ok']];
+  return{n:'Home network',os:'5 peers · 1 pending',L:[
+  ['Network',[P('rt','Router','net','ok',()=>'192.168.1.1',{go:'router'}),P('tsn','Tailscale','net','ok',()=>'phone relayed')]],
+  ['Devices',D.map(([i,n,s])=>P('n_'+i,n,'chip',i==='server'?'warn':s,()=>({server:'1 fault · Backup',laptop:'syncing 112 Mb/s',fedora:fedOff()?'offline 21:14':'online',tablet:tabSt()?'last seen 22:31':'online',phone:'LTE · relayed'})[i],{go:i,w:i==='server'?'1 FAULT':null})).concat([P('n_watch','Pixel-Watch','chip',S.paired?'ok':'pend',()=>S.paired?'paired':'asks to pair',{go:'watch'})])],
+  ['Services',[P('s1','Syncthing','svc','xfer',()=>'3 peers'),P('s2','Media','svc','warn',()=>'degraded'),P('s3','Backup','svc','fail',()=>'3 nights',{go:'server'})]]],F:[['n_laptop','n_server','xfer'],['s3','n_server','fail'],['n_phone','tsn','xfer']]}}
+}
+const chips=[['server','Home server'],['laptop','Laptop'],['fedora','Fedora box'],['tablet','Tablet'],['phone','Phone'],['router','Router'],['network','Whole home'],['watch','Pixel-Watch'],['nas','NAS (planned)']];
+function chipSt(i){return i==='server'?'warn':i==='fedora'?devSt('fedora'):i==='tablet'?devSt('tablet'):i==='watch'?(S.paired?'ok':'pend'):i==='nas'?'plan':'ok'}
+function drawTray(){const w=['server','OK'];$('#tray').innerHTML='<h4>PARTS TRAY</h4>'+chips.map(([i,n])=>{const s=chipSt(i),c=C[s];const lab=i==='server'?'1 FAULT':i==='nas'?'PLANNED · sandbox':i==='watch'?(S.paired?'PAIRED':'PENDING'):W[s];
+ return`<div class="chip ${i===S.sys?'cur':''} ${i==='nas'?'pl':''}" draggable="true" data-i="${i}"><svg width="40" height="26" viewBox="0 0 40 26"><path d="M8 7h22l4-5H12z" fill="#2a313a" stroke="${c}" ${s==='off'||i==='nas'?'stroke-dasharray="3 2"':''}/><rect x="4" y="7" width="26" height="14" fill="#1b2027" stroke="${c}" ${s==='off'||i==='nas'?'stroke-dasharray="3 2"':''}/><circle cx="9" cy="14" r="2" fill="${c}"/></svg><b>${n}</b><small style="color:${c}">${lab}</small></div>`}).join('');
+ $('#tgl').innerHTML='Parts tray · '+chips.length+' systems &nbsp;'+($('#tray').classList.contains('open')?'▼':'▲')}
+let A={};
+const ph0=()=>innerWidth<700,trim=t=>t.length>17?t.slice(0,16)+'…':t;
+function draw(p,x,y,bw,o){const ph=ph0(); // returns svg for a box
+ const c=C[p.st],off=p.st==='off',dash=(off||p.st==='plan'||p.st==='stale')?'stroke-dasharray="4 3"':'',bh=p.bh||(p.kind==='nas'?38:p.kind==='svc'?30:p.kind==='data'?22:26),sel=S.sel===p.id;
+ const f=off?'#181c21':'#1b2027',t=off?'#1e2328':'#272e37',sd=off?'#14171b':'#14181d';
+ let s=`<g class="part ${off?'dim':''}" data-id="${p.id}">`;
+ if(p.st==='fail')s+=`<ellipse class="pulse" cx="${x+5}" cy="${y+bh/2+10}" rx="${bw/2+22}" ry="${bh/2+22}" fill="${c}" opacity=".22" filter="url(#bl)"/>`;
+ s+=`<polygon class="sd" points="${x+bw/2},${y+16} ${x+bw/2+10},${y} ${x+bw/2+10},${y+bh} ${x+bw/2},${y+16+bh}" fill="${sd}" stroke="${c}" stroke-width="1" ${dash}/>`;
+ s+=`<rect class="fr" x="${x-bw/2}" y="${y+16}" width="${bw}" height="${bh}" fill="${f}" stroke="${c}" ${dash}/>`;
+ if(p.pct!=null){const h=Math.round((bh-6)*p.pct/100);s+=`<rect x="${x-bw/2+4}" y="${y+16+bh-3-h}" width="8" height="${h}" fill="${c}" opacity=".9"/><rect x="${x-bw/2+4}" y="${y+19}" width="8" height="${bh-6}" fill="none" stroke="#ffffff22"/>`}
+ s+=`<polygon class="top" points="${x-bw/2+10},${y} ${x+bw/2+10},${y} ${x+bw/2},${y+16} ${x-bw/2},${y+16}" fill="${t}" stroke="${sel?'#fff':c}" stroke-width="${sel?2.5:1.5}" ${dash}/>`;
+ if(p.kind==='disk')s+=`<ellipse cx="${x+5}" cy="${y+8}" rx="13" ry="5" fill="none" stroke="#ffffff40"/><circle cx="${x+5}" cy="${y+8}" r="1.5" fill="#ffffff60"/>`;
+ if(p.kind==='chip')for(let i=0;i<5;i++)s+=`<line x1="${x-bw/2+10+i*10}" y1="${y+16}" x2="${x-bw/2+10+i*10}" y2="${y+20}" stroke="#ffffff30"/>`;
+ if(p.kind==='nas')for(let i=0;i<4;i++)s+=`<rect x="${x-bw/2+6+i*13}" y="${y+22}" width="10" height="${bh-12}" fill="none" stroke="${c}" opacity=".7"/>`;
+ if(p.kind==='data')s+=`<line x1="${x-bw/2}" y1="${y+16+bh/2}" x2="${x+bw/2}" y2="${y+16+bh/2}" stroke="#ffffff22"/>`;
+ if(p.kind==='net')s+=`<line x1="${x+bw/2-8}" y1="${y+3}" x2="${x+bw/2-8}" y2="${y-9}" stroke="${c}" stroke-width="2"/><circle cx="${x+bw/2-8}" cy="${y-10}" r="2.5" fill="${c}"/>`;
+ s+=`<circle cx="${x+bw/2-7}" cy="${y+16+bh/2}" r="3" fill="${c}" class="${p.st==='xfer'?'pulse':''}"/>`;
+ const ly=y+16+bh+15,w=p.w||W[p.st];
+ s+=`<text class="nm" x="${x+5}" y="${ly}" text-anchor="middle">${p.n}</text><text class="sw" x="${x+5}" y="${ly+14}" text-anchor="middle" fill="${c}">${p.st==='ok'?'●':p.st==='off'?'○':p.st==='fail'?'▲':p.st==='plan'?'◇':'◆'} ${w}</text><text class="sb" id="sub-${p.id}" x="${x+5}" y="${ly+28}" text-anchor="middle">${ph?trim(p.s()):p.s()}</text></g>`;
+ A[p.id]={x:x+5,y:y+6};return s}
+function render(){
+ const d=sysDef(S.sys),ph=innerWidth<700,cols=ph?3:5,cw=ph?100:152,SK=ph?30:64,x0=ph?20:140,PITCH=104,TOP=ph?44:50;
+ A={};let y=TOP,out='',tags='',gap=8+S.e*(ph?28:44),parts={};const plates=[];
+ d.L.forEach(([nm,ps],li)=>{const rows=Math.ceil(ps.length/cols),H=rows*PITCH+6,pr=nm==='Proposed';
+  const W2=cols*cw+SK;
+  out+=`<g><polygon points="${x0+SK},${y} ${x0+W2},${y} ${x0+W2-SK},${y+H} ${x0},${y+H}" fill="${pr?'#a78bfa10':'#15181c'}" stroke="${pr?C.plan:'#2f3640'}" ${pr?'stroke-dasharray="6 4"':''}/><polygon points="${x0},${y+H} ${x0+W2-SK},${y+H} ${x0+W2-SK},${y+H+5} ${x0},${y+H+5}" fill="${pr?'#241e38':'#0c0e10'}" stroke="${pr?C.plan:'#2f3640'}" ${pr?'stroke-dasharray="6 4"':''}/></g>`;
+  tags+=ph?`<text class="tag" transform="translate(11 ${y+H/2}) rotate(-90)" text-anchor="middle">${nm.toUpperCase()}</text>`:`<text class="tag" x="14" y="${y+H/2-2}">0${li+1}</text><text class="tag" x="14" y="${y+H/2+14}" fill="${pr?C.plan:'#8b94a0'}">${nm.toUpperCase()}</text><line x1="64" y1="${y+H/2}" x2="${x0+SK*.5}" y2="${y+H/2}" stroke="#3a424c" stroke-dasharray="2 3"/>`;
+  ps.forEach((p,i)=>{const r=i/cols|0,c=i%cols,n=Math.min(cols,ps.length-r*cols),f=(r*PITCH+30)/H,cx=x0+SK*(1-f)+cw*(c+(cols-n)/2+.5)+ (cols-n)*0;out+=draw(p,cx,y+r*PITCH+12,ph?50:62);parts[p.id]=p});
+  y+=H+gap});
+ const flows=d.F.map(([a,b,k])=>{if(!A[a]||!A[b])return'';const p=A[a],q=A[b],m=(p.y+q.y)/2,dx=Math.abs(p.x-q.x)<20?-60:0;return`<path class="flow" style="animation-duration:${k==='fail'?'2s':'1s'}" stroke="${C[k]}" ${k==='plan'?'stroke-dasharray="3 6"':''} d="M${p.x} ${p.y} C${p.x+dx} ${m},${q.x+dx} ${m},${q.x} ${q.y}"/>`}).join('');
+ const vw=x0+cols*cw+SK+16,vh=y+4;
+ $('#svg').setAttribute('viewBox',`0 0 ${vw} ${vh}`);
+ $('#svg').innerHTML=`<defs><filter id="bl"><feGaussianBlur stdDeviation="9"/></filter></defs>`+out+flows+tags;
+ S.parts=parts;
+ $('#title').innerHTML=`<b>${d.n}</b> · ${d.os}`;
+ const rec=!live();$('#bench').className=(rec?'rec ':'')+(S.nas&&S.sys==='server'?'sbx':'');
+ $('#bn').innerHTML=rec?`<div class="banner">RECORDED · as of ${hm(S.t)} · not live</div>`:S.nas&&S.sys==='server'?`<div class="banner sb">SANDBOX · proposed changes · planning only</div>`:'';
+ $('#svg').style.filter=rec?'saturate(.75)':'';
+ drawTray();showCo();clk()}
+function clk(){const c=$('#clock');c.className=live()?'':'rec';const s=S.sec;c.textContent=live()?'● LIVE 23:'+String(23+(s/60|0)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'):'◷ RECORDED '+hm(S.t)}
+function load(id){if(id==='nas'){S.nas=true;if(S.sys!=='server')S.sys='server';S.sel='nas'}else{S.sys=id;S.sel=null}$('#tray').classList.remove('open');render()}
+/* callout */
+function acts(p){const a=[],k=p.kind2,add=(l,f,c='')=>a.push([l,f,c]);
+ if(p.go)add('Put on the bench',()=>load(p.go),'pri');
+ if(k==='bk'){if(!S.ack)add('Acknowledge alert',()=>{S.ack=true;render()},'pri');add('Trace to HDD',()=>{S.sel='hdd';render()});if(S.nas&&!S.wired)add('Connect NAS target',()=>{S.wired=true;S.sel='nas';render()},'pl')}
+ if(p.id==='hdd')add('Trace to Backup',()=>{S.sel='backup';render()});
+ if(k==='col'){add(pz()?'Resume collection':'Pause collection',()=>{S.paused[S.sys]=!pz();render()},pz()?'pri':'');['1 s','5 s','30 s'].forEach(r=>add(r,()=>{S.rate=r;render()},S.rate===r?'on':''))}
+ if(k==='upd'&&verified()&&!S.upd[S.sys])add('Approve update 0.4.2',()=>fp('Approve update 0.4.2','Install on '+sysDef(S.sys).n+' and restart the peer.',()=>{S.upd[S.sys]=1;render()}),'pri');
+ if(k==='pair'&&!S.paired)add('Approve pairing',()=>fp('Approve pairing','Let Pixel-Watch join this network and receive observations.',()=>{S.paired=true;render()}),'pri');
+ if(p.id==='nas'){if(!S.wired)add('Connect to Backup',()=>{S.wired=true;render()},'pl');else add('Disconnect',()=>{S.wired=false;render()},'pl');add('Remove from bench',()=>{S.nas=S.wired=false;S.sel=null;render()})}
+ return a}
+function showCo(){const el=$('#co'),p=S.parts&&S.parts[S.sel];if(!p){el.style.display='none';$('#lead').innerHTML='';return}
+ const c=C[p.st],w=p.w||W[p.st];let h=`<h3>${p.n}<button id="cx" aria-label="Close">×</button></h3><div class="stl" style="color:${c}">${w} · <span id="cs">${p.s()}</span></div>`;
+ if(p.d)h+=`<p>${p.d}</p>`;
+ if(p.id==='backup'){h+=`<p class="m">02:00 failed (3rd night) · target /mnt/data 94% full → linked to HDD · data</p>`}
+ if(p.id==='nas'&&S.wired)h+=`<div class="sim"><div>◇ Backup target: NAS · 4 TB free (HDD: 6% free)</div><div>◇ Outcome: backup would <b>succeed</b> · 310 GB set, ~1.4 h at 1 Gb</div><div>◇ Cost est.: NAS ~$480 + 2×4 TB ~$190 = ~$670 once · ~$28/yr power</div></div>`;
+ const A2=live()?acts(p):[];h+=`<div class="acts">`+A2.map(([l,,c],i)=>`<button class="btn ${c}" data-a="${i}">${l}</button>`).join('')+(p.id==='nas'?`<button class="btn pl" disabled>Apply · planning only</button>`:'')+`</div>`;
+ if(!live()&&(acts(p).length))h+=`<p class="m">Recorded view: controls disabled. Return to Live to act.</p>`;
+ el.innerHTML=h;el.style.display='block';$('#cx').onclick=()=>{S.sel=null;render()};
+ el.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>A2[b.dataset.a][1]());
+ if(innerWidth>=700){const g=$('#svg [data-id="'+p.id+'"]'),bb=$('#bench').getBoundingClientRect();if(!g)return;const r=g.getBoundingClientRect(),h2=el.offsetHeight;
+  let left=bb.width-330;let top=Math.max(8,Math.min(bb.height-h2-8,r.top-bb.top-20));el.style.left=left+'px';el.style.top=top+'px';
+  const x1=r.left+r.width/2-bb.left,y1=r.top+r.height/2-bb.top,x2=left,y2=top+24;
+  $('#lead').innerHTML=`<path d="M${x1} ${y1} L${(x1+x2)/2} ${y2} L${x2} ${y2}" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="4 3"/><circle cx="${x1}" cy="${y1}" r="4" fill="${c}"/>`}}
+/* fingerprint */
+let fpOk=null;function fp(t,d,ok){fpOk=ok;$('#fpt').textContent=t;$('#fpd').textContent=d;$('#fps').textContent='Touch the sensor to confirm';$('#ring').className='';$('#fp').style.display='flex'}
+$('#ring').onclick=()=>{const r=$('#ring');if(r.className)return;r.className='scan';$('#fps').textContent='Scanning…';setTimeout(()=>{r.className='ok';$('#fps').textContent='✓ Verified';setTimeout(()=>{$('#fp').style.display='none';fpOk&&fpOk()},500)},1100)};
+$('#fpc').onclick=()=>$('#fp').style.display='none';
+/* events */
+$('#svg').addEventListener('click',e=>{const g=e.target.closest('.part');S.sel=g?g.dataset.id:null;render()});
+$('#tray').addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)load(c.dataset.i)});
+$('#tray').addEventListener('dragstart',e=>e.dataTransfer.setData('text',e.target.closest('.chip').dataset.i));
+$('#bench').addEventListener('dragover',e=>{e.preventDefault();$('#bench').classList.add('drop')});
+$('#bench').addEventListener('dragleave',()=>$('#bench').classList.remove('drop'));
+$('#bench').addEventListener('drop',e=>{e.preventDefault();$('#bench').classList.remove('drop');load(e.dataTransfer.getData('text'))});
+$('#tgl').onclick=()=>{$('#tray').classList.toggle('open');drawTray()};
+$('#ex').oninput=e=>{S.e=e.target.value/100;render()};
+$('#tr').oninput=e=>{S.t=+e.target.value;render()};
+$('#live').onclick=()=>{S.t=1403;$('#tr').value=1403;render()};
+const ptr=new Map();let pd=0;
+$('#svg').addEventListener('pointerdown',e=>ptr.set(e.pointerId,e));
+$('#svg').addEventListener('pointermove',e=>{if(!ptr.has(e.pointerId))return;ptr.set(e.pointerId,e);if(ptr.size===2){const[a,b]=[...ptr.values()],d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);if(pd){S.e=Math.max(0,Math.min(1,S.e+(d-pd)/250));$('#ex').value=S.e*100;render()}pd=d}});
+['pointerup','pointercancel'].forEach(n=>$('#svg').addEventListener(n,e=>{ptr.delete(e.pointerId);pd=0}));
+$('#bench').addEventListener('wheel',e=>{if(e.ctrlKey){e.preventDefault();S.e=Math.max(0,Math.min(1,S.e-e.deltaY/200));$('#ex').value=S.e*100;render()}},{passive:false});
+addEventListener('resize',render);
+/* time ticks */
+$('#tw').insertAdjacentHTML('beforeend',[[1274,'21:14 Fedora off'],[1351,'22:31 Tablet'],[1385,'23:05 sync'],[1400,'23:20 update']].map(([t,l],i)=>`<span style="left:${(t-1200)/203*100}%;top:${i%2?36:26}px">${l}</span>`).join(''));
+/* live tick */
+setInterval(()=>{S.tick++;if(live())S.sec++;clk();
+ for(const id in S.parts){const p=S.parts[id],el=document.getElementById('sub-'+id);if(!el||(p.live&&pz())||!live()&&p.live)continue;let v=p.s();if(innerWidth<700)v=trim(v);if(el.textContent!==v)el.textContent=v}
+ const cs=$('#cs');if(cs&&S.parts[S.sel])cs.textContent=S.parts[S.sel].s()},1000);
+render();
+</script></body></html>

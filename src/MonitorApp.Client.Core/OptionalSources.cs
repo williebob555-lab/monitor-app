@@ -24,7 +24,9 @@ public interface IHistorySource
 
 /// <summary>
 /// Declares that the UI is looking at live data for a peer (null = this device), so the peer can sample faster.
-/// Dispose to stop. Sources without an adaptive-sampling channel do not implement it.
+/// Dispose to stop. Sources without an adaptive-sampling channel do not implement it. The source keeps the interest
+/// alive (renewing its lease) until the returned scope is disposed. <paramref name="signalIds"/> limits fast sampling to
+/// those signals; null or empty means all. The desktop HTTP client has no such channel yet and does not implement this.
 /// </summary>
 public interface IViewingSource
 {
@@ -187,4 +189,28 @@ public interface IControlSource
 
     /// <summary>Approves installing the staged update read by <see cref="ReadUpdateStatusAsync"/>. High tier: needs the fingerprint.</summary>
     Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
+/// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
+/// </summary>
+public interface ISecuritySource
+{
+    Task<LocalPresenceStatusDto> GetLocalPresenceStatusAsync(CancellationToken ct = default);
+
+    Task<LocalPresenceStatusDto> EnrollLocalPresenceAsync(CancellationToken ct = default);
+
+    Task<LocalPresenceStatusDto> RemoveLocalPresenceAsync(CancellationToken ct = default);
+
+    /// <summary>Sets what a paired phone may do on this computer. Granting needs fingerprint verification when enforced.</summary>
+    Task SetControlGrantAsync(string peerId, bool monitoringControls, bool pairingApproval, bool updateApproval, CancellationToken ct = default);
+
+    Task ApprovePhonePresenceEnrollmentAsync(string enrollmentId, CancellationToken ct = default);
+
+    /// <summary>The stored grants for phones that have one; a paired phone absent from the list has none (denied everything).</summary>
+    Task<IReadOnlyList<ControlGrantDto>> GetControlGrantsAsync(CancellationToken ct = default);
+
+    /// <summary>Phone fingerprint-key enrollments waiting for this computer's owner to approve.</summary>
+    Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default);
 }

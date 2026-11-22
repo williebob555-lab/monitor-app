@@ -50,13 +50,13 @@ public sealed class CommandCenterViewModelTests
     }
 
     [Fact]
-    public async Task DevicesAndAlertsSectionsWorkOverTheHttpAdapterAndDefaultToDevicesHome()
+    public async Task DevicesAndAlertsSectionsWorkOverTheHttpAdapterAndDefaultToTheEcosystem()
     {
         await using var node = await NodeFixture.CreateAsync();
         await node.AddNumberAsync(Now.AddMinutes(-1), 0.5);
         using var main = new MainViewModel(node.Address);
 
-        Assert.Same(main.Devices, main.SelectedSection);
+        Assert.Same(main.Environment, main.SelectedSection);
         Assert.DoesNotContain(main.Sections, section => section is PairDeviceViewModel);
         Assert.Equal(4, main.PrimarySections.Count);
 
@@ -69,6 +69,8 @@ public sealed class CommandCenterViewModelTests
         Assert.Null(alerts.ErrorMessage);
         Assert.Empty(alerts.Alerts);
         Assert.Equal("No alerts.", alerts.Summary);
+        Assert.True(alerts.IsHome && alerts.Home.IsAllClear && alerts.Home.Headline == "All clear" && alerts.Home.Groups.Count == 0,
+            $"empty alerts home: '{alerts.Home.Headline}', {alerts.Home.Groups.Count} groups");
     }
 
     [Fact]

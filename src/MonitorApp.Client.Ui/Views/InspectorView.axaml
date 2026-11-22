@@ -1,0 +1,160 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels.Shell"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
+             x:Name="Root"
+             x:Class="MonitorApp.Client.Ui.Views.InspectorView" x:DataType="vm:InspectorViewModel">
+  <!-- Object-specific inspector (UI spec 9): identity and provenance, one section per layer, relationships, then controls. -->
+  <Grid RowDefinitions="Auto,*" AutomationProperties.Name="Inspector">
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="16,12,8,8">
+      <StackPanel Grid.Column="0" Spacing="2">
+        <TextBlock Text="{Binding TypeText}" Classes="section" IsVisible="{Binding HasSelection}" />
+        <TextBlock Text="{Binding Title}" Name="InspectorTitle" Classes="heading" />
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasSelection}">
+          <Path Classes="marker" Data="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthShape}}"
+                Fill="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthBrush}}" />
+          <TextBlock Text="{Binding HealthText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="{Binding HealthReason}" Classes="muted" IsVisible="{Binding HasSelection}" />
+        <TextBlock Text="{Binding LiveSamplingText}" Name="LiveSampling" Classes="meta" IsVisible="{Binding IsLiveSampling}"
+                   AutomationProperties.Name="Sampling this device every second while you inspect it" />
+        <TextBlock Text="{Binding Provenance}" Classes="meta" IsVisible="{Binding HasSelection}"
+                   AutomationProperties.Name="Where this information comes from" />
+      </StackPanel>
+      <Button Grid.Column="1" Classes="compact flat" Command="{Binding CloseCommand}" VerticalAlignment="Top"
+              AutomationProperties.Name="Close inspector" ToolTip.Tip="Close inspector (Esc)">
+        <Path Classes="icon" Data="{StaticResource Icon.close}" Width="16" Height="16" />
+      </Button>
+    </Grid>
+    <ScrollViewer Grid.Row="1">
+      <StackPanel Spacing="4" Margin="16,0,16,16">
+        <TextBlock Text="Select an object in the workspace, the outline or search to inspect it." Classes="muted"
+                   IsVisible="{Binding !HasSelection}" />
+
+        <ItemsControl ItemsSource="{Binding Layers}" IsVisible="{Binding HasLayers}" AutomationProperties.Name="Layers">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:InspectorLayerRow">
+              <StackPanel Spacing="4" Margin="0,8,0,4" AutomationProperties.Name="{Binding AccessibleText}">
+                <Border Classes="rule" Margin="0,0,0,8" />
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Title}" Classes="section" VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <Path Classes="marker" Data="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthShape}}"
+                          Fill="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthBrush}}" />
+                    <TextBlock Text="{Binding HealthText}" Classes="meta" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="{Binding Summary}" Classes="value" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasFill}">
+                  <ProgressBar Classes="fill" Minimum="0" Maximum="1" Value="{Binding Fill}" VerticalAlignment="Center"
+                               AutomationProperties.Name="{Binding Title, StringFormat='{}{0} fill'}" />
+                  <TextBlock Grid.Column="1" Text="{Binding FillText}" Classes="meta" Margin="8,0,0,0" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Readings}" Margin="0,4,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:InspectorReadingRow">
+                      <Border Padding="0,4" BorderThickness="0,0,0,0" AutomationProperties.Name="{Binding AccessibleText}">
+                        <StackPanel Spacing="0">
+                          <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="1" Text="{Binding Value}" Classes="value" FontWeight="SemiBold" />
+                          </Grid>
+                          <TextBlock Classes="meta">
+                            <Run Text="{Binding Time}" /><Run Text=" · " /><Run Text="{Binding Quality}" /><Run Text=" · " /><Run Text="{Binding Freshness}" /><Run Text=" · " /><Run Text="{Binding Source}" />
+                          </TextBlock>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <StackPanel IsVisible="{Binding HasRelationships}" Spacing="2" Margin="0,8,0,0">
+          <Border Classes="rule" Margin="0,0,0,8" />
+          <TextBlock Text="Relationships" Classes="section" />
+          <ItemsControl ItemsSource="{Binding Relationships}" AutomationProperties.Name="Relationships">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RelationshipRow">
+                <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0,4"
+                        Command="{Binding #Root.((vm:InspectorViewModel)DataContext).SelectRelatedCommand}" CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding AccessibleText}" ToolTip.Tip="{Binding Description}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Path Classes="marker" Data="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthShape}}"
+                          Fill="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthBrush}}" Margin="0,0,8,0" />
+                    <StackPanel Grid.Column="1">
+                      <TextBlock>
+                        <Run Text="{Binding Direction}" Foreground="{DynamicResource Brush.TextSecondary}" /><Run Text=" " /><Run Text="{Binding OtherName}" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding Description}" Classes="meta" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Text="{Binding KindText}" Classes="meta" VerticalAlignment="Center" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- Operational actions are visibly apart from exploration (spec 18). -->
+        <Border Classes="card" Margin="0,16,0,0" BorderBrush="{DynamicResource Brush.LineStrong}"
+                IsVisible="{Binding Controls.IsAvailable}">
+          <StackPanel Name="ControlsPanel" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel" Spacing="8">
+            <TextBlock Text="Controls" Classes="section" />
+            <TextBlock Text="These ask the device itself to change what it does. A device accepts them only after its owner has granted this one."
+                       Classes="muted" />
+            <TextBlock Text="{Binding HistoryNotice}" Classes="meta" Foreground="{DynamicResource Brush.Warning}"
+                       IsVisible="{Binding IsHistorical}" AutomationProperties.LiveSetting="Polite" />
+            <ItemsControl ItemsSource="{Binding Actions}" AutomationProperties.Name="Controls">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ControlActionRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8">
+                    <Button Content="{Binding Title}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Command="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).RunCommand}" CommandParameter="{Binding}"
+                            IsEnabled="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).CanAct}"
+                            AutomationProperties.Name="{Binding AccessibleText}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Classes="icon" Data="{StaticResource Icon.lock}" Width="14" Height="14"
+                            Stroke="{DynamicResource Brush.Warning}" IsVisible="{Binding RequiresPresence}" />
+                      <TextBlock Text="{Binding TierText}" Classes="meta" />
+                    </StackPanel>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Name="UpdatePanel" Spacing="2" IsVisible="{Binding HasPendingUpdate}">
+              <TextBlock Text="{Binding UpdateSummary}" TextWrapping="Wrap" />
+              <Button Name="ApproveUpdateButton" Content="Approve update" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      Command="{Binding ApproveUpdateCommand}" IsEnabled="{Binding CanApproveUpdate}" />
+              <TextBlock Text="{Binding UpdateTierText}" Classes="meta" />
+            </StackPanel>
+            <ItemsControl Name="PendingPairingList" ItemsSource="{Binding PendingPairings}" IsVisible="{Binding HasPendingPairings}"
+                          AutomationProperties.Name="Pairing requests">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RemotePairingRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleText}">
+                    <TextBlock Text="{Binding Name}" />
+                    <TextBlock Text="{Binding Fingerprint}" Classes="meta" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="Approve"
+                              Command="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).ResolvePairingCommand}" CommandParameter="{Binding}"
+                              IsEnabled="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).CanAct}" />
+                      <Button Content="Deny"
+                              Command="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).DenyPairingCommand}" CommandParameter="{Binding}"
+                              IsEnabled="{Binding #ControlsPanel.((vm:ControlsViewModel)DataContext).CanAct}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding TierText}" Classes="meta" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Name="ControlOutcome" Text="{Binding OutcomeText}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                       IsVisible="{Binding OutcomeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       Classes.error="{Binding OutcomeIsFailure}" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>
