@@ -29,6 +29,7 @@ public sealed class Sg250ReadException(Sg250CollectionStatus status) : Exception
 public static class Sg250Oids
 {
     public const string IfDescr = ".1.3.6.1.2.1.2.2.1.2";
+    public const string IfType = ".1.3.6.1.2.1.2.2.1.3";
     public const string IfAdminStatus = ".1.3.6.1.2.1.2.2.1.7";
     public const string IfOperStatus = ".1.3.6.1.2.1.2.2.1.8";
     public const string IfName = ".1.3.6.1.2.1.31.1.1.1.1";
@@ -39,7 +40,7 @@ public static class Sg250Oids
 
     public static readonly IReadOnlyList<string> WalkRoots =
     [
-        IfDescr, IfName, IfAdminStatus, IfOperStatus, IfHighSpeed, BridgePortIfIndex, BridgePortPvid,
+        IfDescr, IfType, IfName, IfAdminStatus, IfOperStatus, IfHighSpeed, BridgePortIfIndex, BridgePortPvid,
     ];
 }
 
@@ -139,6 +140,9 @@ public sealed class CiscoSg250Adapter
         var ports = new List<Sg250Port>();
         foreach (var i in indexes)
         {
+            // The IF-MIB also lists VLAN interfaces, loopbacks and LAGs. A port needs
+            // a reported ethernetCsmacd(6) type; unknown types are not physical ports.
+            if (GetNumber(byOid, Sg250Oids.IfType, i) != 6) continue;
             var name = GetText(byOid, Sg250Oids.IfName, i) ?? GetText(byOid, Sg250Oids.IfDescr, i);
             if (string.IsNullOrWhiteSpace(name)) continue;
             var speed = GetNumber(byOid, Sg250Oids.IfHighSpeed, i);
