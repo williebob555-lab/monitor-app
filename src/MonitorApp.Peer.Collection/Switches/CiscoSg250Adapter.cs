@@ -73,6 +73,9 @@ public sealed class CiscoSg250Adapter
     private readonly ISg250SnmpReader reader;
     private readonly TimeProvider clock;
 
+    public string SwitchEntityId => switchEntityId;
+    public string CollectorPeerId => collectorPeerId;
+
     public CiscoSg250Adapter(
         string switchEntityId,
         string collectorPeerId,
