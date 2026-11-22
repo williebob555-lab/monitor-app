@@ -62,7 +62,7 @@ public sealed class MainActivity : Activity
         var scroll = new ScrollView(this);
         scroll.AddView(content);
         SetContentView(scroll);
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
+        if (OperatingSystem.IsAndroidVersionAtLeast(33) &&
             CheckSelfPermission(Manifest.Permission.PostNotifications) != Permission.Granted)
         {
             RequestPermissions([Manifest.Permission.PostNotifications], 1);
@@ -76,7 +76,7 @@ public sealed class MainActivity : Activity
         tick = new Java.Lang.Runnable(() =>
         {
             _ = RefreshAsync();
-            ui?.PostDelayed(tick, 2000);
+            ui?.PostDelayed(tick!, 2000);
         });
         ui.Post(tick);
     }
@@ -100,16 +100,29 @@ public sealed class MainActivity : Activity
                 .AppendLine(CultureInfo.InvariantCulture, $"Peer id: {status.PeerId}")
                 .AppendLine(CultureInfo.InvariantCulture, $"Fingerprint (SHA-256): {status.FingerprintHex}")
                 .AppendLine(CultureInfo.InvariantCulture, $"Service: {(status.Running ? "running" : "stopped")}")
-                .AppendLine(CultureInfo.InvariantCulture,
-                    $"Last collection: {status.Collection.LastObservedAt?.ToString("O", CultureInfo.InvariantCulture) ?? "none"}" +
-                    $" ({status.Collection.LastAppendedRecords} records)" +
-                    (status.Collection.LastError is null ? string.Empty : $", error {status.Collection.LastError}"));
+                .Append(CultureInfo.InvariantCulture,
+                    $"Last collection: {status.Collection.LastObservedAt?.ToString("O", CultureInfo.InvariantCulture) ?? "none"}")
+                .Append(CultureInfo.InvariantCulture, $" ({status.Collection.LastAppendedRecords} records)");
+            if (status.Collection.LastError is not null)
+            {
+                text.Append(CultureInfo.InvariantCulture, $", error {status.Collection.LastError}");
+            }
+
+            text.AppendLine();
             foreach (var peer in status.Peers)
             {
-                text.AppendLine(CultureInfo.InvariantCulture,
-                    $"Desktop {peer.PeerId}: {peer.State}" +
-                    $"{(peer.LastSuccess is { } at ? $", last sync {at:O}" : string.Empty)}" +
-                    $"{(peer.LastError is null ? string.Empty : $" ({peer.LastError})")}");
+                text.Append(CultureInfo.InvariantCulture, $"Desktop {peer.PeerId}: {peer.State}");
+                if (peer.LastSuccess is { } at)
+                {
+                    text.Append(CultureInfo.InvariantCulture, $", last sync {at:O}");
+                }
+
+                if (peer.LastError is not null)
+                {
+                    text.Append(CultureInfo.InvariantCulture, $" ({peer.LastError})");
+                }
+
+                text.AppendLine();
             }
 
             if (status.Peers.Count == 0)

@@ -6,7 +6,7 @@ using MonitorApp.Peer.Mobile;
 namespace MonitorApp.Android;
 
 /// <summary>Peer identity whose P-256 private key never leaves Android Keystore.</summary>
-public sealed class KeystorePeerIdentity : ILocalPeerIdentityProvider
+public sealed class KeystorePeerIdentity : ILocalPeerIdentityProvider, IDisposable
 {
     private readonly KeystoreKey key;
 
@@ -20,6 +20,8 @@ public sealed class KeystorePeerIdentity : ILocalPeerIdentityProvider
     public PeerPublicIdentity PublicIdentity { get; }
 
     public IPeerIdentityKey IdentityKey => key;
+
+    public void Dispose() => key.Dispose();
 
     private sealed class KeystoreKey(IDeviceKeySigner signer) : IPeerIdentityKey
     {

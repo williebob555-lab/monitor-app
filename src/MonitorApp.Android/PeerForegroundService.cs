@@ -36,7 +36,14 @@ public sealed class PeerForegroundService : Service
             return StartCommandResult.NotSticky;
         }
 
-        StartForeground(NotificationId, BuildNotification(), ForegroundService.TypeSpecialUse);
+        if (OperatingSystem.IsAndroidVersionAtLeast(34))
+        {
+            StartForeground(NotificationId, BuildNotification(), ForegroundService.TypeSpecialUse);
+        }
+        else
+        {
+            StartForeground(NotificationId, BuildNotification());
+        }
         _ = StartRuntimeAsync();
         // The user starts monitoring explicitly; do not resurrect it silently after a process kill.
         return StartCommandResult.NotSticky;

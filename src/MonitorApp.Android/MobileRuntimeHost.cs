@@ -24,7 +24,9 @@ internal static class MobileRuntimeHost
 
             var appContext = context.ApplicationContext ?? context;
             var directory = Path.Combine(appContext.FilesDir!.AbsolutePath, "peer");
-            var displayName = $"{global::Android.OS.Build.Manufacturer} {global::Android.OS.Build.Model}";
+            var manufacturer = global::Android.OS.Build.Manufacturer;
+            var model = global::Android.OS.Build.Model;
+            var displayName = $"{manufacturer} {model}";
             runtime = await MobilePeerRuntime.CreateAsync(
                 MobilePeerOptions.Default(directory, displayName),
                 new KeystorePeerIdentity("monitor-app-peer-v1"),
