@@ -81,6 +81,8 @@ Add a row before starting. Remove it (move it to section 7) when the PR merges o
 | T060 (reserved) | Retire controller-era code per the T057 plan: stop publishing the controller and agent archives, then delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core` | Claude | not started | | those projects, `MonitorApp.sln`, `.github/workflows/`, `eng/` | none | 2026-11-22 |
 | T300 | Read-only managed-switch adapter spike for the existing Cisco SG250: configured switch identity, local credentials, reported vs inferred evidence, explicit unavailable/permission/error states; no edits to Claude-owned peer/proto/schema modules | ChatGPT | `chatgpt/T300-sg250-adapter` | | new `Peer.Collection/Switches` adapter, its isolated tests, scoped docs | none | 2026-11-22 |
 
+| T301 | Hardware-independent project/scenario planning and multi-standard rack layout core (height/depth/19in/10in/23in/Eurorack/custom), testable panel projection and constraint findings; no Claude-owned UI changes | ChatGPT | `chatgpt/T301-project-rack-planning` | pending | new `src/MonitorApp.Planning` and `tests/MonitorApp.Planning.Tests`, project registration and scoped docs | no proto/schema bump | 2026-11-22 |
+
 ## 7. Recently finished
 
 Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
