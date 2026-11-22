@@ -58,9 +58,7 @@
                             <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
                             <TextBlock Grid.Column="1" Text="{Binding Value}" Classes="value" FontWeight="SemiBold" />
                           </Grid>
-                          <TextBlock Classes="meta">
-                            <Run Text="{Binding Time}" /><Run Text=" · " /><Run Text="{Binding Quality}" /><Run Text=" · " /><Run Text="{Binding Freshness}" /><Run Text=" · " /><Run Text="{Binding Source}" />
-                          </TextBlock>
+                          <TextBlock Classes="meta" Text="{Binding Meta}" />
                         </StackPanel>
                       </Border>
                     </DataTemplate>

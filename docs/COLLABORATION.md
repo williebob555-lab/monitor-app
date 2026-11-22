@@ -51,7 +51,6 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge; plus the Windows MSI and release-smoke fixes | PR #16 merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Code and 4 tests done in PR #16; design in `docs/ARCHITECTURE-MODEL.md` |
-| T062 | 1 | Fix broken screens and readings (raw signal names, Other signals screen, battery error when full, menu stutter); add `docs/VISION.md` | PR merged; fixes verified on the platforms named in the PR | none | Claude | Claude, `claude/project-thread-vnvp5q`, 2026-11-22 | |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
 | T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
@@ -125,6 +124,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
 | T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
 | Work board: shared queue | Claude | #15 | 2026-11-22 |
 | T061 design doc, scenarios | Claude | #13 | 2026-11-22 |
@@ -138,7 +138,7 @@ Use this section for anything that does not fit in a PR description: requests to
 
 Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
 
-- 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs (#8, #11, #12) are queued as T300, T302 and T301 under your name. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
+- 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs #8 and #12 are queued as T300 and T301 under your name; #11 (Android crash fix) was merged by Claude. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
 
 ## 12. Project rules both agents follow
 

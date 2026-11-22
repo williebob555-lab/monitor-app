@@ -22,8 +22,9 @@ public sealed record NodeHealth(SceneHealth Health, string Reason, DateTimeOffse
 /// peer never produce Offline (revoked peers are simply not shown by the projector).</item>
 /// <item>Stale: freshness "Stale", or "Fresh" with an age over <see cref="HealthOptions.StaleAfter"/>. Contact
 /// may merely be delayed; it says nothing about the device being off.</item>
-/// <item>Degraded: the collector explicitly reported the reading unavailable (freshness "Unavailable" or quality
-/// Unavailable, PermissionDenied or Error).</item>
+/// <item>Degraded: the collector explicitly reported a failure (quality PermissionDenied or Error).</item>
+/// <item>Not counted: a reading the device simply does not provide (quality Unavailable, such as Wi-Fi link speed on a phone using
+/// mobile data). It is classified Unknown, which never outweighs a healthy reading, so it cannot turn a working device "Degraded".</item>
 /// <item>Healthy: quality Valid or Estimated, freshness "Fresh", age within the limit.</item>
 /// <item>Unknown: anything unrecognised, or no readings at all.</item>
 /// </list>
@@ -41,9 +42,14 @@ public sealed class HealthClassifier(HealthOptions? options = null)
             return SceneHealth.Offline;
         }
 
-        if (string.Equals(freshness, "Unavailable", StringComparison.Ordinal) || IsExplicitFailure(quality))
+        if (IsExplicitFailure(quality))
         {
             return SceneHealth.Degraded;
+        }
+
+        if (string.Equals(freshness, "Unavailable", StringComparison.Ordinal) || string.Equals(quality, "Unavailable", StringComparison.Ordinal))
+        {
+            return SceneHealth.Unknown; // not provided by this device: shown as "Unavailable", never counted as a fault
         }
 
         if (string.Equals(freshness, "Stale", StringComparison.Ordinal))
@@ -107,7 +113,7 @@ public sealed class HealthClassifier(HealthOptions? options = null)
             SceneHealth.Degraded => DegradedReason(classified.Where(c => c.Health == SceneHealth.Degraded).Select(c => c.Reading).ToList()),
             SceneHealth.Stale => $"Last reading {AgeText(minAge)} ago",
             SceneHealth.Healthy => $"Updated {AgeText(minAge)} ago",
-            _ => "Readings could not be classified",
+            _ => "No usable readings yet",
         };
         return new NodeHealth(health, reason, newest);
     }
@@ -132,12 +138,12 @@ public sealed class HealthClassifier(HealthOptions? options = null)
     };
 
     private static bool IsExplicitFailure(string quality) =>
-        quality is "Unavailable" or "PermissionDenied" or "Error";
+        quality is "PermissionDenied" or "Error";
 
     private static string DegradedReason(List<SceneReading> degraded)
     {
         var first = degraded[0];
-        var text = $"{first.Label} reading unavailable";
+        var text = $"{first.Label} could not be read";
         text += first.Quality switch
         {
             "PermissionDenied" => " (permission denied)",

@@ -153,6 +153,57 @@ public sealed class DiveViewModelTests
         Assert.Equal(3, source.Sent.Count);
     }
 
+    /// <summary>
+    /// The phone screens Wilson reported (2026-11-22): a full battery read as an error, and a part page repeated its summary three times
+    /// under raw signal ids with a wall of "Unavailable (Unavailable)" rows.
+    /// </summary>
+    [Fact]
+    public void FullBatteryIsGoodAndPartPagesShowPlainReadingsOnly()
+    {
+        var now = DateTimeOffset.UtcNow;
+        using var model = new MainViewModel(new ControlFake());
+        var scene = SampleEnvironment.Create(now);
+        var phone = scene.Find(SampleEnvironment.Phone)!;
+        SceneReading Read(HistoryPointDto point) => SignalCatalog.ToReading(point);
+        HistoryPointDto Flag(string signal, bool value) =>
+            new(phone.Id, "stream", 1, phone.Id, signal, now, now, "monitor.lan.self", "Observed", "Valid", "Fresh", 5,
+                new ObservationValueDto("boolean", null, null, value), "Boolean", null);
+        HistoryPointDto Missing(string signal) =>
+            new(phone.Id, "stream", 1, phone.Id, signal, now, now, "monitor.lan.self", "Observed", "Unavailable", "Unavailable", 5, null, "MegabitsPerSecond", null);
+        var readings = new[]
+        {
+            Read(Point(phone.Id, SignalIds.BatteryLevel, 1.0, "Ratio", now)),
+            Read(Flag(SignalIds.BatteryCharging, true)),
+            Read(Flag(SignalIds.NetworkConnected, true)),
+            Read(Flag("lan.link.cellular.up", true)),
+            Read(Missing("lan.link.cellular.bandwidth_down_mbps")),
+            Read(Missing("lan.link.wifi.speed_mbps")),
+        };
+        var updated = phone with { Layers = LayerBuilder.Build(readings, new HealthClassifier()) };
+        model.Environment.ShowScene(scene with { Nodes = scene.Nodes.Select(n => n.Id == phone.Id ? updated : n).ToList() });
+        var dive = model.Shell.Dive;
+
+        dive.GoTo(phone.Id, "power");
+        var battery = Assert.IsType<DivePartPage>(dive.Page);
+        Assert.False(battery.IsCritical, "a full battery is not a fault");
+        Assert.Equal("100% charged", battery.Badge.Text);
+        Assert.NotEqual(DiveLevel.Critical, battery.Gauge!.Level);
+        Assert.Equal(DiveLevel.Critical, DiveViewModel.Level(SceneLayerKind.Power, 0.05));
+        Assert.Equal(DiveLevel.Critical, DiveViewModel.Level(SceneLayerKind.Storage, 0.95));
+
+        dive.GoTo(phone.Id, "connectivity");
+        var links = Assert.IsType<DivePartPage>(dive.Page);
+        Assert.Equal("Inside " + phone.Label, links.Context);
+        Assert.Equal("Connected · Link up: Mobile data", links.Summary);
+        Assert.False(links.HasStatement, "the summary is not repeated below the heading");
+        Assert.Equal(["Internet: Connected", "Mobile data link: Up"], links.Readings.Select(r => $"{r.Label}: {r.Value}"));
+        Assert.All(links.Readings, r => Assert.StartsWith("Updated ", r.Meta, StringComparison.Ordinal));
+        Assert.Equal(2, links.UnavailableCount);
+        Assert.False(links.ShowUnavailable, "unavailable readings are folded away");
+        Assert.Equal("Show 2 readings this device doesn't provide", links.UnavailableToggleText);
+        Assert.Equal(SceneHealth.Healthy, updated.Layers.Single(l => l.Id == "connectivity").Health);
+    }
+
     private static SceneGraph WithServerStorage(SceneGraph scene, double free, double total)
     {
         var server = scene.Find(SampleEnvironment.Server)!;
