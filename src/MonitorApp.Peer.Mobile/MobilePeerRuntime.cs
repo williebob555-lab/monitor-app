@@ -360,6 +360,50 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The desktop's update state (installed version, staged version and digest, state, last error). Read-only; the response
+    /// has <c>Permitted = false</c> and nothing else when the desktop has not granted this phone update approval.
+    /// </summary>
+    public async Task<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.ReadUpdateStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
+    /// Approves installing the update a desktop has staged, bound to the exact version and digest from
+    /// <paramref name="status"/> (a prior <see cref="ReadUpdateStatusAsync"/>). Needs a biometric confirmation; the desktop
+    /// refuses when its staged update has changed since the status was read.
+    /// </summary>
+    public Task<ControlResult> ApproveUpdateAsync(
+        string targetPeerId,
+        UpdateStatusResponse status,
+        string? commandId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (status.StagedVersion.Length == 0 || status.StagedArtifactSha256.Length != 32)
+        {
+            throw new MobileControlFailedException("The desktop has no staged update to approve.");
+        }
+
+        return SendControlAsync(
+            targetPeerId,
+            ControlRequest.ApproveUpdate(status.StagedVersion, status.StagedArtifactSha256.ToByteArray()),
+            commandId,
+            cancellationToken);
+    }
+
     private async Task<PeerGrpcConnector> ConnectAsync(string targetPeerId, CancellationToken cancellationToken)
     {
         var peer = await store.ReadTrustedPeerAsync(targetPeerId, cancellationToken).ConfigureAwait(false);

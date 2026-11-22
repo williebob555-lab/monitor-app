@@ -107,7 +107,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerPairingInvitation Invitation() => new(IPAddress.Loopback, Port, Identity.PeerId, Identity.PublicKeyFingerprint, null);
 
-    public static async Task<DesktopPeer> StartAsync(string root, TimeProvider? time = null)
+    public static async Task<DesktopPeer> StartAsync(string root, TimeProvider? time = null, IRemoteUpdateGateway? updates = null)
     {
         Directory.CreateDirectory(root);
         var identity = new SoftwareIdentity();
@@ -132,7 +132,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
         desktop.ControlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
         await desktop.ControlStore.InitializeAsync();
         desktop.Control = new ControlService(
-            desktop.ControlStore, store, pairingStore, pairing, desktop.Alerts, desktop.Monitoring, identity);
+            desktop.ControlStore, store, pairingStore, pairing, desktop.Alerts, desktop.Monitoring, identity, updates: updates);
         await desktop.StartHostAsync();
         return desktop;
     }
