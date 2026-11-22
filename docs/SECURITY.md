@@ -40,6 +40,8 @@ Adapter and managed-switch credentials stay in the provisioned collector peer's 
 
 Topology evidence distinguishes reported facts from inference and carries source, time, quality, and confidence. Deduplicate switches with strong identity such as serial or chassis MAC, never IP alone.
 
+LAN self-observation reads only the local peer's own interfaces (sysfs/procfs or OS interface APIs). It never reads ARP/neighbor tables, never collects gateway or other hosts' MACs, and never records flows or DNS. IP-derived claims (subnet, gateway IP) are weak and cannot establish identity or merge entities.
+
 ## Collection breadth and privacy
 
 “Anything that can be measured should be measured” means broad capability coverage with truthful categorization, not unlimited surveillance. Capability registration declares privacy class, cost, sampling/retention metadata, and required permissions. Secrets, authentication material, message/document contents, unrelated file contents, and unrelated payloads are excluded. Sensitive or high-cost categories require visible, explicit enablement.

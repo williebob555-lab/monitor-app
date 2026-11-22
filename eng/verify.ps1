@@ -58,6 +58,12 @@ try {
             --filter "Category=SQLite"
     }
 
+    Invoke-VerificationStep "Run peer LAN self-observation collector tests" {
+        dotnet test tests/MonitorApp.Peer.Collection.Tests/MonitorApp.Peer.Collection.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run peer pairing application tests" {
         dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj `
             -c Release `

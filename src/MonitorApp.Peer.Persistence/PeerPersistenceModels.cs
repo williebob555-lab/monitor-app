@@ -34,6 +34,9 @@ public enum RelationshipKind
     MemberOfVlan = 4,
     UplinkTo = 5,
     ReachableOverOverlay = 6,
+    MemberOfSegment = 7,
+    RoutesVia = 8,
+    ProbableSameSegment = 9,
 }
 
 public enum RecordInsertOutcome

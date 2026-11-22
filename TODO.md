@@ -30,7 +30,8 @@ This file contains active and near-term tasks only. Read it with the required do
 
 - [x] Define and test stable observed-device/component identity, typed attachment evidence, and explicit collector-assignment history independent of collection host; IP addresses cannot act as strong merge identity.
 - [x] Implement a provisional read-only Yamaha AG06MK2 Windows adapter spike from connected hardware; preserve configured identity/collector, driver and attachment evidence, freshness, explicit unavailable/permission/error states, and the tested host-reassignment boundary.
-- [ ] Define physical LAN entities for switches, ports, VLANs, uplinks, peers, and peripherals separately from the Tailscale overlay.
+- [x] Define physical LAN entities for switches, ports, VLANs, uplinks, peers, and peripherals separately from the Tailscale overlay. (Contracts `LanTopology`; self-observed only, switch/port are types plus unknown-upstream placeholders.)
+- [ ] Register `SelfLanCollector` (Peer.Collection.Lan) in the Peer.Node collection loop on a schedule; emit link speed/duplex/MTU/state as observations once PeerStore schema v4 lands; add Android coarse transport mapping from `NetworkTransportSummary`; validate on a real Windows host; invalidate (set `ValidTo`) relationships for vanished interfaces.
 - [ ] Implement one bounded managed-switch adapter spike selected from available equipment; preserve reported/inferred evidence and reconcile multi-peer reports by strong identity, not IP.
 - [ ] Keep collector ownership explicit, credentials local, and failover disabled until another peer is separately provisioned; test these boundaries.
 
