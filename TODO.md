@@ -37,6 +37,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [ ] Validate the LAN collector on a real Windows host.
 - [ ] On a real Android device: read `NetCapability.NotMetered` and `LinkDownstreamBandwidthKbps`/`LinkUpstreamBandwidthKbps` in `AndroidDeviceReader` and pass them to `NetworkTransportSummary.Create` (not wired: no Android SDK to compile against), and verify transport changes (Wi-Fi to cellular, VPN, airplane mode) end ValidTo as the tests expect.
 - [ ] Implement one bounded managed-switch adapter spike selected from available equipment; preserve reported/inferred evidence and reconcile multi-peer reports by strong identity, not IP.
+  - T300 ChatGPT: isolated SG250 read-only SNMPv3 reader, switch/port/PVID projection, identity and failure-state tests are implemented on a separate branch; **not yet integrated** with the node, collector-assignment persistence, scheduled polling or a real switch. Verify the real SG250 and a supported host, then wire only with the owner of the node/persistence area. See `docs/SWITCH_ADAPTER.md`.
 - [ ] Keep collector ownership explicit, credentials local, and failover disabled until another peer is separately provisioned; test these boundaries.
 
 ## Platform and release gates
