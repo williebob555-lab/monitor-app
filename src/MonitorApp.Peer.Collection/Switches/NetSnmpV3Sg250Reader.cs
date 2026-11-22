@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.Net;
 using System.Text;
 
@@ -78,7 +77,7 @@ public sealed class NetSnmpV3Sg250Reader : ISg250SnmpReader
             CreateNoWindow = true,
         };
         // Net-SNMP uses the provisioned user-local snmp.conf for defAuthPassphrase/defPrivPassphrase.
-        // No -A/-X secrets, shell, local environment inheritance of credentials, or arbitrary OIDs.
+        // No -A/-X secrets, shell, or arbitrary caller-supplied OIDs.
         start.Environment["SNMPCONFPATH"] = configDirectory;
         foreach (var arg in new[] { "-v3", "-l", "authPriv", "-u", securityName, "-On", "-t", "2", "-r", "0" })
             start.ArgumentList.Add(arg);
