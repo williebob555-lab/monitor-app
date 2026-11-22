@@ -10,6 +10,11 @@ public enum RackFormat
     OpenRack21 = 5,
     ShelfSpace = 6,
     Custom = 7,
+    Pedalboard = 8,
+    Api500Series = 9,
+    Modular4U = 10,
+    Modular5U = 11,
+    DesktopAudio = 12,
 }
 
 public enum MountingMethod
@@ -20,6 +25,10 @@ public enum MountingMethod
     Shelf = 4,
     ChassisInsert = 5,
     Freestanding = 6,
+    HookAndLoop = 7,
+    DualLock = 8,
+    BoardClamp = 9,
+    BoardScrews = 10,
 }
 
 public static class RackDimensions
@@ -46,6 +55,13 @@ public static class RackDimensions
     }
 
     /// <summary>1-based HP and row coordinates, both increasing from lower/left.</summary>
+    /// <summary>Physical X/Y coordinates on a pedalboard or desktop audio surface, in millimetres.</summary>
+    public static RackPlacement AtBoard(string id, string zoneId, string itemId, decimal leftMm, decimal frontToBackMm)
+    {
+        if (leftMm < 0 || frontToBackMm < 0) throw new ArgumentOutOfRangeException(nameof(leftMm));
+        return new RackPlacement(id, zoneId, itemId, leftMm, frontToBackMm);
+    }
+
     public static RackPlacement AtEurorack(string id, string zoneId, string itemId,
         int firstHp, int row, decimal rowPitchMm, decimal frontOffsetMm = 0)
     {
@@ -79,6 +95,10 @@ public sealed record RackZone
     public int? EurorackRows { get; init; }
     public decimal? EurorackRowPitchMm { get; init; }
     public string? ParentPlacementId { get; init; }
+    /// <summary>Freeform pedal/desktop board: bottom-to-top axis is board depth; UsableDepthMm is vertical headroom.</summary>
+    public decimal? UnderboardClearanceMm { get; init; }
+    public decimal? FrontFootAccessMm { get; init; }
+    public string? SurfaceMaterial { get; init; }
 }
 
 public sealed record RackEquipment
@@ -90,6 +110,13 @@ public sealed record RackEquipment
     public decimal? WidthMm { get; init; }
     public decimal? HeightMm { get; init; }
     public decimal? BodyDepthMm { get; init; }
+    /// <summary>For pedal/desktop boards, HeightMm is footprint length and BodyDepthMm is above-deck height.</summary>
+    public decimal? LeftCableClearanceMm { get; init; }
+    public decimal? RightCableClearanceMm { get; init; }
+    public decimal? TopCableClearanceMm { get; init; }
+    public decimal? BottomCableClearanceMm { get; init; }
+    public decimal? FootAccessClearanceMm { get; init; }
+    public decimal? UnderboardRequiredMm { get; init; }
     public int? RackUnitsTall { get; init; }
     public int? EurorackHpWide { get; init; }
     public int? EurorackRowsTall { get; init; }
