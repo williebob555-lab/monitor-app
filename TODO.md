@@ -7,7 +7,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Record the confirmed decentralized product direction and supersede controller/Headscale deployment guidance.
 - [x] Reconcile the agreed inventory/planning, actual-versus-design, cable, physical-constraint, sourcing, automation/notification, distributed-local-AI, and phased-roadmap scope across the documentation without claiming implementation.
 - [x] Make repository preflight, collaboration, progress reporting, and documentation-only verification risk-based to reduce unnecessary usage.
-- [ ] Inventory reusable controller-era contracts, P-256 proof code, SQLite stores, telemetry/spool logic, collectors, Android code, and update verification; identify exact extraction/deletion steps.
+- [x] Inventory reusable controller-era contracts, P-256 proof code, SQLite stores, telemetry/spool logic, collectors, Android code, and update verification; identify exact extraction/deletion steps (T057: unused `MonitorApp.Domain` deleted; the extraction and deletion steps for Controller, Agent.Service, Persistence, Agent.Core and Android.Core are in `docs/DECISIONS.md`).
+- [ ] Execute the T057 extraction plan: stop publishing controller and legacy agent archives, then delete Controller, Persistence, Agent.Service, Agent.Core and enrollment-only Android.Core types.
 - [x] Define versioned peer contracts for discovery hint, bilateral pairing, authenticated reconnect, capability exchange, origin stream query, replication cursor, and explicit compatibility failure.
 - [x] Define and implement the peer-local SQLite schema for application identity/trust, entities/relationships, origin observations, replicated observations, cursors, capability catalog, collector assignments, and adapter health.
 - [x] Implement and test the peer host boundary, durable pairing/session coordinator, and signed origin-replication coordinator.

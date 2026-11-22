@@ -4,6 +4,10 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Removed
+
+- Deleted the unused controller-era `MonitorApp.Domain` project and `MonitorApp.Domain.Tests` (T057); no peer, client, update, Android, CI, release or packaging code referenced them. Recorded the inventory of the remaining controller-era projects and the ordered extraction plan in `docs/DECISIONS.md`.
+
 ### Added
 
 - Install smoke proves the real in-place update on Ubuntu with systemd (not yet run on GitHub): after installing 0.9.1 the node's own update agent fetches a ReleaseTool-signed 0.9.2 manifest from a local HTTPS release server (throwaway test CA installed in the system trust store, `MONITOR_APP_UPDATE_API_URL` and interval in `node.conf`, no node-side bypass), stages it with the right SHA-256, waits for approval (antiforgery `POST /api/v1/update/approve`), and the root helper units install it with health marker, retained last-known-good package, unchanged peer id and identity, and readings still flowing. A 0.9.3 package whose payload is the 0.9.2 build installs but can never report 0.9.3 healthy, which exercises the rollback to the retained 0.9.2 and the `RolledBack` state. New `eng/smoke/update-fixture.sh` and `eng/smoke/update-server.py`; the 0.9.2 package is now a second real publish; diagnostics dump update state, audit log, helper journal and server log.
