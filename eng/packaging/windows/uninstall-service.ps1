@@ -22,6 +22,12 @@ if ($service) {
     & sc.exe delete $name | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc.exe delete failed ($LASTEXITCODE)" }
 }
+if (Get-ScheduledTask -TaskName 'MonitorAppUpdate' -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName 'MonitorAppUpdate' -Confirm:$false
+}
+# Remove the 'current' directory symlink itself first so recursion can never follow it.
+$currentLink = Join-Path $InstallDirectory 'current'
+if (Test-Path -LiteralPath $currentLink) { [System.IO.Directory]::Delete($currentLink) }
 if (Test-Path $InstallDirectory) { Remove-Item -Recurse -Force $InstallDirectory }
 if ($Purge) {
     if (Test-Path $DataDirectory) { Remove-Item -Recurse -Force $DataDirectory }
