@@ -40,13 +40,15 @@ public static class AdaptiveSampler
         var first = true;
         while (!cancellationToken.IsCancellationRequested)
         {
+            // The period runs from the start of a collection, not its end, so a slow collector (Windows counters can
+            // take about a second) still samples at the target rate; an overrunning collection starts the next at once.
+            var waited = Stopwatch.StartNew();
             if (!first || collectImmediately)
             {
                 await work(cancellationToken).ConfigureAwait(false);
             }
 
             first = false;
-            var waited = Stopwatch.StartNew();
             while (true)
             {
                 // A manual interval replaces the configured normal interval; live interest may still make it faster.
