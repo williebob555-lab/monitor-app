@@ -53,7 +53,9 @@ public sealed class LinuxSelfInterfaceCollector(
         if (!Directory.Exists(sysClassNet)) return SelfInterfaceSnapshot.Unsupported($"{sysClassNet} is not available.", now);
         try
         {
-            var vlans = File.Exists(procVlanConfig) ? SelfInterfaceParsers.ParseVlanConfig(File.ReadAllText(procVlanConfig)) : new Dictionary<string, (int, string)>();
+            // /proc/net/vlan/config is root-only (0600) on many hosts: unreadable means "VLAN membership unknown", not a failed collection.
+            var vlanText = ReadFile(procVlanConfig);
+            var vlans = vlanText is null ? new Dictionary<string, (int, string)>() : SelfInterfaceParsers.ParseVlanConfig(vlanText);
             var list = new List<SelfInterface>();
             foreach (var dir in Directory.EnumerateDirectories(sysClassNet).Order(StringComparer.Ordinal))
             {
@@ -81,7 +83,8 @@ public sealed class LinuxSelfInterfaceCollector(
                     medium == InterfaceMedium.Overlay ? [] : subnets(name), vlanId, parent));
             }
 
-            var gateways = File.Exists(procRoute) ? SelfInterfaceParsers.ParseDefaultRoutes(File.ReadAllText(procRoute)) : [];
+            var routeText = ReadFile(procRoute);
+            var gateways = routeText is null ? [] : SelfInterfaceParsers.ParseDefaultRoutes(routeText);
             return new SelfInterfaceSnapshot(SelfCollectionState.Collected, null, list, gateways, now);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -90,9 +93,11 @@ public sealed class LinuxSelfInterfaceCollector(
         }
     }
 
-    private static string? Read(string dir, string file)
+    private static string? Read(string dir, string file) => ReadFile(Path.Combine(dir, file));
+
+    private static string? ReadFile(string path)
     {
-        try { return File.ReadAllText(Path.Combine(dir, file)); }
+        try { return File.ReadAllText(path); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; } // e.g. speed on a down link
     }
 }

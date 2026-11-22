@@ -100,13 +100,27 @@ public sealed class SelfLanTests : IDisposable
     {
         if (!OperatingSystem.IsLinux() || !Directory.Exists("/sys/class/net")) return;
         var snap = SelfInterfaceCollectorFactory.Create().Collect(Now);
-        Assert.Equal(SelfCollectionState.Collected, snap.State);
+        Assert.True(snap.State == SelfCollectionState.Collected, $"State {snap.State}: {snap.Reason}");
         var lo = Assert.Single(snap.Interfaces, i => i.Name == "lo");
         Assert.Equal(InterfaceMedium.Loopback, lo.Medium);
         Assert.False(lo.IsPhysical);
         Assert.All(snap.Interfaces, i => Assert.True(i.Mtu is null or > 0));
         var fragment = LanTopologyBuilder.Build("peer-a", snap);
         Assert.All(fragment.Relationships, r => Assert.True(LanTopologyValidator.Validate(r.Contract).IsValid));
+    }
+
+    [Fact]
+    [Trait("Category", "Linux")]
+    public void UnreadableVlanAndRouteFilesLeaveCollectionSuccessfulWithUnknownMembership()
+    {
+        if (!OperatingSystem.IsLinux() || !Directory.Exists("/sys/class/net")) return;
+        // /proc/self/mem exists but reading it from offset 0 fails (EIO), like a root-only
+        // /proc/net/vlan/config does for the unprivileged service user.
+        const string unreadable = "/proc/self/mem";
+        var snap = new LinuxSelfInterfaceCollector(procRoute: unreadable, procVlanConfig: unreadable).Collect(Now);
+        Assert.True(snap.State == SelfCollectionState.Collected, $"State {snap.State}: {snap.Reason}");
+        Assert.Empty(snap.Gateways);
+        Assert.All(snap.Interfaces, i => Assert.Null(i.VlanId));
     }
 
     private static SelfInterfaceSnapshot Snapshot(string cidr, string gw) => new(SelfCollectionState.Collected, null,
