@@ -87,6 +87,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private CancellationTokenSource? loopCancellation;
     private Task[] loops = [];
     private string? pendingPairingId;
+    private long lastFullCollection = Environment.TickCount64;
     private MobileCollectionStatus collectionStatus = new(null, 0, null);
 
     private MobilePeerRuntime(
@@ -107,7 +108,17 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
         interests = new LiveInterestRegistry(options.InterestPolicy);
+        PeerStates = new PeerStateTracker(store, new SystemPeerClock(), TimeSpan.FromMinutes(5), peerId =>
+        {
+            lock (gate)
+            {
+                return peerStatus.TryGetValue(peerId, out var status) && status.State == MobileSyncState.Synced;
+            }
+        });
     }
+
+    /// <summary>The phone's own record of when each paired desktop became reachable or unreachable.</summary>
+    public PeerStateTracker PeerStates { get; }
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
 
@@ -391,6 +402,26 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     }
 
     /// <summary>
+    /// The desktop's effective alert rules (defaults plus overrides). Read-only; the response has <c>Permitted = false</c> and
+    /// nothing else when the desktop has not granted this phone monitoring controls.
+    /// </summary>
+    public async Task<AlertRulesResponse> ReadAlertRulesAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.ReadAlertRulesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
     /// The desktop's update state (installed version, staged version and digest, state, last error). Read-only; the response
     /// has <c>Permitted = false</c> and nothing else when the desktop has not granted this phone update approval.
     /// </summary>
@@ -459,12 +490,23 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     public Task RevokeAsync(string peerId, CancellationToken cancellationToken = default) =>
         store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken);
 
-    public async Task<PeerCollectionRunResult> CollectOnceAsync(CancellationToken cancellationToken = default)
+    /// <summary>One full collection (every signal plus the LAN model), as at the normal interval.</summary>
+    public Task<PeerCollectionRunResult> CollectOnceAsync(CancellationToken cancellationToken = default) =>
+        CollectAsync(null, cancellationToken);
+
+    private async Task<PeerCollectionRunResult> CollectAsync(
+        IReadOnlySet<string>? signalFilter, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
-            await lan.RunAsync(cancellationToken).ConfigureAwait(false);
+            var result = await collection.RunOnceAsync(signalFilter, cancellationToken).ConfigureAwait(false);
+            if (signalFilter is null)
+            {
+                // The LAN model is not signal-addressed, so it rides on full collections only.
+                Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+                await lan.RunAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             lock (gate)
             {
                 collectionStatus = new MobileCollectionStatus(result.ObservedAt ?? collectionStatus.LastObservedAt,
@@ -588,6 +630,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 failures.Remove(peer.PeerId);
                 notBefore.Remove(peer.PeerId);
                 peerStatus[peer.PeerId] = new MobilePeerSyncStatus(peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
+                PeerStates.NotifySession(peer.PeerId, true);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -625,7 +668,12 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 {
                     try
                     {
-                        await CollectOnceAsync(token).ConfigureAwait(false);
+                        // Same rule as the desktop scheduler: viewers that named signals narrow the fast loop to
+                        // them, but a full collection still runs once per normal interval.
+                        var filter = interests.FastSignalFilter(identity.PublicIdentity.PeerId);
+                        var fullDue = Environment.TickCount64 - Interlocked.Read(ref lastFullCollection) >=
+                            options.CollectionInterval.TotalMilliseconds;
+                        await CollectAsync(fullDue ? null : filter, token).ConfigureAwait(false);
                     }
                     catch (Exception) when (!token.IsCancellationRequested)
                     {
@@ -795,6 +843,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                         notBefore.Remove(peer.PeerId);
                         peerStatus[peer.PeerId] = new MobilePeerSyncStatus(
                             peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
+                        PeerStates.NotifySession(peer.PeerId, true);
                     }
                 }
             };
@@ -828,6 +877,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 : MobileSyncState.Offline;
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
             peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
+            PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
         }
     }
 

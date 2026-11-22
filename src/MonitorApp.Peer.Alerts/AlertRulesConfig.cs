@@ -24,7 +24,10 @@ public sealed record ThresholdRule(
     TimeSpan Sustained,
     AlertSeverity Severity);
 
-/// <summary>Typed configuration for the built-in alert rules. There is intentionally no user rule editor yet.</summary>
+/// <summary>
+/// Typed configuration for the built-in alert rules. Per-peer user overrides (T054, <see cref="AlertRuleCatalog"/>) are stored
+/// in the alert store and applied on top of these defaults by the evaluator.
+/// </summary>
 public sealed record AlertRulesConfig(
     TimeSpan PeerSilentAfter,
     TimeSpan UnavailableAfter,
@@ -39,6 +42,12 @@ public sealed record AlertRulesConfig(
     /// </summary>
     public TimeSpan RefireCooldown { get; init; } = TimeSpan.FromMinutes(2); // Owner decision 2026-11-22.
 
+    /// <summary>
+    /// Escalation (T051): a Critical alert still raised and unacknowledged this long after it was raised is delivered once
+    /// more to every recipient whose preferences allow it, marked as an escalation. Zero disables escalation.
+    /// </summary>
+    public TimeSpan EscalationAfter { get; init; } = TimeSpan.FromMinutes(15);
+
     public const string PeerSilentRuleId = "peer.silent";
     public const string ObservationUnavailableRuleId = "observation.unavailable";
 
@@ -50,12 +59,14 @@ public sealed record AlertRulesConfig(
                 "system.storage.total", ThresholdComparison.Below, 10, TimeSpan.FromMinutes(5), AlertSeverity.Critical),
             new ThresholdRule("threshold.cpu_high", "Sustained high CPU", "system.cpu.utilization", null,
                 ThresholdComparison.Above, 90, TimeSpan.FromMinutes(10), AlertSeverity.Warning),
+            new ThresholdRule("threshold.memory_high", "Sustained high memory", "system.memory.used",
+                "system.memory.total", ThresholdComparison.Above, 90, TimeSpan.FromMinutes(10), AlertSeverity.Warning),
         ],
         TimeSpan.FromDays(7));
 
     public void Validate()
     {
-        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero || RefireCooldown < TimeSpan.Zero)
+        if (PeerSilentAfter <= TimeSpan.Zero || UnavailableAfter < TimeSpan.Zero || OutboxTtl <= TimeSpan.Zero || RefireCooldown < TimeSpan.Zero || EscalationAfter < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(AlertRulesConfig));
         }

@@ -90,10 +90,16 @@ public sealed class AlertDeliveryService(
     {
         ArgumentNullException.ThrowIfNull(ack);
         await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        var now = clock.GetUtcNow().ToUniversalTime();
         await alerts.AcknowledgeAsync(
             remotePeerId,
-            ack.Entries.Select(item => (item.AlertId, item.Revision)),
-            clock.GetUtcNow().ToUniversalTime(),
+            ack.Entries.Where(item => !item.Escalation).Select(item => (item.AlertId, item.Revision)),
+            now,
+            cancellationToken).ConfigureAwait(false);
+        await alerts.AcknowledgeEscalationAsync(
+            remotePeerId,
+            ack.Entries.Where(item => item.Escalation).Select(item => (item.AlertId, item.Revision)),
+            now,
             cancellationToken).ConfigureAwait(false);
     }
 

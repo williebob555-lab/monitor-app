@@ -76,7 +76,7 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         {
             if (record.OriginPeerId != remotePeerId) throw new PeerSyncException("Alert origin does not match the authenticated peer.");
             await alerts.StoreInboundAsync(Alert.FromContract(record), now, cancellationToken).ConfigureAwait(false);
-            ack.Entries.Add(new AlertAckEntry { AlertId = record.AlertId, Revision = record.Revision });
+            ack.Entries.Add(new AlertAckEntry { AlertId = record.AlertId, Revision = record.Revision, Escalation = record.Escalated });
         }
 
         if (live?.AlertsStored is { } stored)

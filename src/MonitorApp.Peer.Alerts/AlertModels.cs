@@ -24,6 +24,9 @@ public sealed record Alert(
     DateTimeOffset RaisedAt,
     DateTimeOffset? ResolvedAt)
 {
+    /// <summary>True for the one-time escalation delivery of a raised, unacknowledged Critical alert (T051); never stored on the owner's alert row.</summary>
+    public bool Escalated { get; init; }
+
     /// <summary>
     /// Stable id: the same owner, rule, subject and episode start always yield the same id, so re-evaluation
     /// and crash recovery can never create a second alert for one episode.
@@ -50,6 +53,7 @@ public sealed record Alert(
             Title = Title,
             Detail = Detail,
             RaisedAt = Timestamp.FromDateTimeOffset(RaisedAt),
+            Escalated = Escalated,
         };
         if (ResolvedAt is { } resolved)
         {
@@ -73,7 +77,10 @@ public sealed record Alert(
             record.Title,
             record.Detail,
             record.RaisedAt.ToDateTimeOffset(),
-            record.ResolvedAt is null ? null : record.ResolvedAt.ToDateTimeOffset());
+            record.ResolvedAt is null ? null : record.ResolvedAt.ToDateTimeOffset())
+        {
+            Escalated = record.Escalated,
+        };
     }
 }
 
@@ -91,7 +98,11 @@ public sealed record OutboxEntry(
     DateTimeOffset ExpiresAt,
     int Attempts,
     DateTimeOffset? LastAttemptAt,
-    DateTimeOffset? AckedAt);
+    DateTimeOffset? AckedAt)
+{
+    /// <summary>True for the one-time escalation delivery of the alert (T051); false for the raise or resolve.</summary>
+    public bool Escalation { get; init; }
+}
 
 public sealed class AlertDeliveryUnauthorizedException(string message) : Exception(message);
 

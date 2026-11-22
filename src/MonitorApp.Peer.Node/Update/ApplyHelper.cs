@@ -28,7 +28,7 @@ public static class ApplyHelper
                 ? JsonSerializer.Deserialize<ApplyHelperOutcome>(File.ReadAllBytes(path), SerializerOptions)
                 : null;
         }
-        catch (Exception exception) when (exception is IOException or JsonException)
+        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
         {
             return null;
         }
@@ -162,8 +162,18 @@ public static class ApplyHelper
             Console.WriteLine($"apply-update {target}: {kind}: {detail}");
             File.Delete(resultPath);
             var bytes = JsonSerializer.SerializeToUtf8Bytes(new ApplyHelperOutcome(target.ToString(), kind, detail), SerializerOptions);
-            // CreateNew never follows a symlink the unprivileged service might have planted.
+            // CreateNew never follows a symlink the unprivileged service might have planted. The helper runs as root, so
+            // the result is made readable (not writable) by the service that owns the 0700 update directory; without
+            // that the node can never fold a rollback outcome into its state.
             await using var stream = new FileStream(resultPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            if (!OperatingSystem.IsWindows())
+            {
+                // On the handle (no path race) and explicit, so the helper unit's UMask=0077 does not strip it.
+                File.SetUnixFileMode(
+                    stream.SafeFileHandle,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            }
+
             await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
             return kind == ApplyOutcomeKind.Applied ? 0 : 1;
         }
