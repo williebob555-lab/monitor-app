@@ -14,7 +14,7 @@ namespace MonitorApp.Android;
 /// The runtime itself is owned by <see cref="MobileRuntimeHost"/> (shared with the foreground service); this class
 /// only reads it, so closing the UI never stops monitoring.
 /// </summary>
-public sealed class AndroidApp : Application, IDisposable
+public sealed class AndroidApp : Avalonia.Application, IDisposable
 {
     private MainViewModel? model;
 
