@@ -130,6 +130,19 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         return response.PendingPairingsResponse;
     }
 
+    /// <summary>Asks a trusted desktop for its update state (installed/staged version and digest); read-only.</summary>
+    public async Task<UpdateStatusResponse> ReadUpdateStatusAsync(CancellationToken cancellationToken)
+    {
+        using var call = await OpenAuthenticatedAsync(Guid.NewGuid().ToString("N"), cancellationToken).ConfigureAwait(false);
+        var request = new UpdateStatusRequest { RequestId = Guid.NewGuid().ToString("N") };
+        await WriteAsync(call.Call, new PeerSessionRequest { UpdateStatusRequest = request }, cancellationToken).ConfigureAwait(false);
+        var response = await ReadExpectedAsync(call.Call, PeerSessionResponse.MessageOneofCase.UpdateStatusResponse, cancellationToken)
+            .ConfigureAwait(false);
+        await call.Call.RequestStream.CompleteAsync().WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+        SetState(PeerTransportState.Stopped);
+        return response.UpdateStatusResponse;
+    }
+
     private sealed class SessionCall(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call, PeerHello remote, CapabilityExchange capabilities)
         : IDisposable
     {

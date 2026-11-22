@@ -35,6 +35,7 @@ public static class ControlPolicy
     public static readonly TimeSpan MaximumSamplingInterval = TimeSpan.FromHours(1);
 
     public const int MaximumIdLength = 128;
+    public const int MaximumVersionLength = 64;
     public const int MinimumNonceBytes = 16;
     public const int MaximumNonceBytes = 64;
 
@@ -49,6 +50,7 @@ public static class ControlPolicy
         ControlCommand.PayloadOneofCase.ResolvePairing =>
             command.ResolvePairing.Approve ? "approve_pairing" : "reject_pairing",
         ControlCommand.PayloadOneofCase.EnrollPresenceKey => "enroll_presence_key",
+        ControlCommand.PayloadOneofCase.ApproveUpdate => "approve_update",
         _ => "unknown",
     };
 
@@ -60,6 +62,7 @@ public static class ControlPolicy
     {
         ControlCommand.PayloadOneofCase.ResolvePairing when command.ResolvePairing.Approve => ControlRiskTier.High,
         ControlCommand.PayloadOneofCase.EnrollPresenceKey => ControlRiskTier.High,
+        ControlCommand.PayloadOneofCase.ApproveUpdate => ControlRiskTier.High,
         ControlCommand.PayloadOneofCase.PauseCollection =>
             command.PauseCollection.DurationSeconds == 0 ||
             TimeSpan.FromSeconds(command.PauseCollection.DurationSeconds) > ElevatedPauseThreshold
@@ -124,6 +127,12 @@ public static class ControlPolicy
             case ControlCommand.PayloadOneofCase.EnrollPresenceKey:
                 return command.EnrollPresenceKey.PresencePublicKeySpki.Length is 0 or > 256 ||
                     command.EnrollPresenceKey.ProofOfPossession.Length is 0 or > 128
+                    ? "invalid_payload"
+                    : null;
+            case ControlCommand.PayloadOneofCase.ApproveUpdate:
+                return string.IsNullOrWhiteSpace(command.ApproveUpdate.Version) ||
+                    command.ApproveUpdate.Version.Length > MaximumVersionLength ||
+                    command.ApproveUpdate.ArtifactSha256.Length != 32
                     ? "invalid_payload"
                     : null;
             default:

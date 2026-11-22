@@ -11,7 +11,8 @@ public sealed record ControlStoreOptions(string DatabasePath, TimeSpan BusyTimeo
 }
 
 /// <summary>What a trusted peer may ask this desktop to do. Presence requirements are policy, never grantable away.</summary>
-public sealed record ControlGrant(string PeerId, bool MonitoringControls, bool PairingApproval, DateTimeOffset? UpdatedAt)
+public sealed record ControlGrant(
+    string PeerId, bool MonitoringControls, bool PairingApproval, DateTimeOffset? UpdatedAt, bool UpdateApproval = false)
 {
     /// <summary>
     /// Owner decision (2026-11-22): deny by default. A newly paired device can read replicated data but may not issue any control
@@ -19,7 +20,7 @@ public sealed record ControlGrant(string PeerId, bool MonitoringControls, bool P
     /// </summary>
     public static ControlGrant Default(string peerId) => new(peerId, false, false, null);
 
-    public bool AllowsAnything => MonitoringControls || PairingApproval;
+    public bool AllowsAnything => MonitoringControls || PairingApproval || UpdateApproval;
 }
 
 public enum PresenceEnrollmentState
@@ -69,7 +70,7 @@ public sealed record ControlAuditEntry(
 /// </summary>
 public sealed class ControlStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -170,6 +171,15 @@ public sealed class ControlStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 2)
+        {
+            // Additive: remote update approval is a separate, deny-by-default grant flag.
+            await ExecuteAsync(connection, transaction, """
+                ALTER TABLE control_grants ADD COLUMN update_approval INTEGER NOT NULL DEFAULT 0;
+                UPDATE control_schema_version SET version = 2 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -177,7 +187,7 @@ public sealed class ControlStore
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT peer_id, monitoring_controls, pairing_approval, updated_at FROM control_grants WHERE peer_id = $p;";
+        command.CommandText = "SELECT peer_id, monitoring_controls, pairing_approval, updated_at, update_approval FROM control_grants WHERE peer_id = $p;";
         command.Parameters.AddWithValue("$p", peerId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadGrant(reader) : null;
@@ -187,7 +197,7 @@ public sealed class ControlStore
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT peer_id, monitoring_controls, pairing_approval, updated_at FROM control_grants ORDER BY peer_id;";
+        command.CommandText = "SELECT peer_id, monitoring_controls, pairing_approval, updated_at, update_approval FROM control_grants ORDER BY peer_id;";
         var result = new List<ControlGrant>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -204,11 +214,13 @@ public sealed class ControlStore
         ArgumentException.ThrowIfNullOrWhiteSpace(grant.PeerId);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(connection, null, """
-            INSERT INTO control_grants(peer_id, monitoring_controls, pairing_approval, updated_at) VALUES ($p, $m, $a, $at)
+            INSERT INTO control_grants(peer_id, monitoring_controls, pairing_approval, updated_at, update_approval) VALUES ($p, $m, $a, $at, $u)
             ON CONFLICT(peer_id) DO UPDATE SET monitoring_controls = excluded.monitoring_controls,
-                pairing_approval = excluded.pairing_approval, updated_at = excluded.updated_at;
+                pairing_approval = excluded.pairing_approval, updated_at = excluded.updated_at,
+                update_approval = excluded.update_approval;
             """,
-            [("$p", grant.PeerId), ("$m", grant.MonitoringControls ? 1 : 0), ("$a", grant.PairingApproval ? 1 : 0), ("$at", Format(now))],
+            [("$p", grant.PeerId), ("$m", grant.MonitoringControls ? 1 : 0), ("$a", grant.PairingApproval ? 1 : 0), ("$at", Format(now)),
+                ("$u", grant.UpdateApproval ? 1 : 0)],
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -402,7 +414,7 @@ public sealed class ControlStore
     private static PresenceEnrollment? FirstOrNull(IReadOnlyList<PresenceEnrollment> items) => items.Count > 0 ? items[0] : null;
 
     private static ControlGrant ReadGrant(SqliteDataReader reader) => new(
-        reader.GetString(0), reader.GetInt32(1) == 1, reader.GetInt32(2) == 1, Parse(reader.GetString(3)));
+        reader.GetString(0), reader.GetInt32(1) == 1, reader.GetInt32(2) == 1, Parse(reader.GetString(3)), reader.GetInt32(4) == 1);
 
     private static async Task<IReadOnlyList<PresenceEnrollment>> QueryEnrollmentsAsync(
         SqliteConnection connection,

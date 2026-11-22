@@ -16,7 +16,7 @@ namespace MonitorApp.Peer.LocalApi;
 
 internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
 
-internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval);
+internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval, bool UpdateApproval = false);
 
 public sealed class LocalApiHost : IAsyncDisposable
 {
@@ -450,9 +450,9 @@ public sealed class LocalApiHost : IAsyncDisposable
                 return Results.BadRequest(new { error = "A grant body is required." });
             }
 
-            await control.SetGrantAsync(new ControlGrant(peerId, body.MonitoringControls, body.PairingApproval, null), token)
+            await control.SetGrantAsync(new ControlGrant(peerId, body.MonitoringControls, body.PairingApproval, null, body.UpdateApproval), token)
                 .ConfigureAwait(false);
-            return Results.Json(new { peerId, body.MonitoringControls, body.PairingApproval });
+            return Results.Json(new { peerId, body.MonitoringControls, body.PairingApproval, body.UpdateApproval });
         });
         foreach (var (verb, approve) in new[] { ("approve", true), ("reject", false) })
         {

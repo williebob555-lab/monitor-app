@@ -480,6 +480,17 @@ public sealed class ProductionPeerSessionCoordinator(
         return await service.ExecuteAsync(remotePeerId, sessionId, command, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string remotePeerId,
+        UpdateStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        return await service.ReadUpdateStatusAsync(remotePeerId, request, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<PendingPairingsResponse> ReadPendingPairingsAsync(
         string remotePeerId,
         PendingPairingsRequest request,

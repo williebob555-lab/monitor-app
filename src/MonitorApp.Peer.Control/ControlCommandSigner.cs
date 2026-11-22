@@ -57,6 +57,13 @@ public sealed class ControlRequest
             Approve = approve,
         });
 
+    /// <summary>
+    /// Approves installing the update the desktop has staged. Bound to the exact version and artifact SHA-256 the person
+    /// was shown (from the desktop's update status); the desktop refuses if its staged update has since changed.
+    /// </summary>
+    public static ControlRequest ApproveUpdate(string version, byte[] artifactSha256) => new(command =>
+        command.ApproveUpdate = new ApproveUpdate { Version = version, ArtifactSha256 = ByteString.CopyFrom(artifactSha256) });
+
     /// <summary>Registers this device's biometric presence key with the desktop (needs local approval there).</summary>
     public static ControlRequest EnrollPresenceKey() => new(_ => { }, enrollsPresenceKey: true);
 
@@ -150,6 +157,7 @@ public sealed class ControlCommandSigner(
     private static string Describe(ControlCommand command) => ControlPolicy.ActionName(command) switch
     {
         "approve_pairing" => "Approve a new device to join this monitoring network.",
+        "approve_update" => "Install the update staged on the desktop.",
         "pause_collection" => "Pause monitoring on the desktop for a long time.",
         "mute_alerts" => "Mute alerts on the desktop for a long time.",
         var other => "Confirm " + other.Replace('_', ' ') + ".",
