@@ -266,6 +266,45 @@ public sealed class InProcessPeerDataSourceTests
         }
     }
 
+    [Fact]
+    public async Task HistoryFeedRecordsTheDesktopGoingOfflineAndBackAndHasNoUpdateEvents()
+    {
+        var desktopRoot = TestDirectories.Create();
+        var phoneRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            using var identity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(Options(phoneRoot), identity, new ScriptedDeviceReader());
+            using var source = new InProcessPeerDataSource(phone);
+            Assert.IsAssignableFrom<IHistorySource>(source);
+            var from = DateTimeOffset.UtcNow.AddMinutes(-1);
+
+            await PairAsync(phone, desktop, "pairing-history-1");
+            Assert.Equal(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()).State);
+            await desktop.StopHostAsync();
+            Assert.Equal(MobileSyncState.Offline, Assert.Single(await phone.SyncOnceAsync()).State);
+            await desktop.StartHostAsync();
+            await WaitAsync(async () =>
+            {
+                await phone.SyncOnceAsync();
+                var rows = await source.GetPeerStateHistoryAsync(from, DateTimeOffset.UtcNow.AddMinutes(1));
+                return rows.Count(row => row.State == "Online") >= 2;
+            });
+
+            var history = await source.GetPeerStateHistoryAsync(from, DateTimeOffset.UtcNow.AddMinutes(1));
+            Assert.All(history, row => Assert.Equal(desktop.Identity.PeerId, row.PeerId));
+            Assert.Equal(["Paired", "Online", "Offline", "Online"], history.Select(row => row.State));
+            Assert.Equal(history.OrderBy(row => row.At).Select(row => row.At), history.Select(row => row.At));
+            Assert.Empty(await source.GetUpdateHistoryAsync(from, DateTimeOffset.UtcNow));
+            Assert.Empty(await source.GetPeerStateHistoryAsync(from.AddDays(-9), from.AddDays(-8)));
+        }
+        finally
+        {
+            Cleanup(desktopRoot, phoneRoot);
+        }
+    }
+
     private static async Task PairAsync(MobilePeerRuntime phone, DesktopPeer desktop, string pairingId)
     {
         var pairTask = phone.PairAsync(desktop.Invitation(), pairingId);

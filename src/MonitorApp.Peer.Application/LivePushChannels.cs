@@ -15,6 +15,9 @@ public sealed class LivePushChannels
     private readonly Dictionary<string, long> pushed = new(StringComparer.Ordinal);
     private long order;
 
+    /// <summary>Raised (outside the lock) when a remote peer's first session joins (true) or its last session ends (false).</summary>
+    public event Action<string, bool>? ConnectivityChanged;
+
     /// <summary>Registers a session; dispose the result when the session ends.</summary>
     public Channel Join(string remotePeerId, string localPeerId, bool locallyInitiated, Action onChange)
     {
@@ -35,6 +38,11 @@ public sealed class LivePushChannels
 
             list.Add(channel);
             peers = [.. list];
+        }
+
+        if (peers.Count == 1)
+        {
+            ConnectivityChanged?.Invoke(remotePeerId, true);
         }
 
         NotifyOthers(peers, channel);
@@ -135,6 +143,11 @@ public sealed class LivePushChannels
                 {
                     owner.byRemote.Remove(remotePeerId);
                 }
+            }
+
+            if (peers.Count == 0)
+            {
+                owner.ConnectivityChanged?.Invoke(remotePeerId, false);
             }
 
             NotifyOthers(peers, this);

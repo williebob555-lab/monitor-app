@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -71,6 +71,18 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     public async Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
         (await GetAsync<AlertsEnvelope>(Url("api/v1/alerts", [("limit", limit.ToString(CultureInfo.InvariantCulture))]), ct)
             .ConfigureAwait(false)).Alerts;
+
+    public Task<IReadOnlyList<PeerStateTransitionDto>> GetPeerStateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<PeerStateTransitionDto>>(Url("api/v1/history/peer-states", [
+            ("from", fromUtc.ToString("O", CultureInfo.InvariantCulture)),
+            ("to", toUtc.ToString("O", CultureInfo.InvariantCulture))]), ct);
+
+    public Task<IReadOnlyList<UpdateEventDto>> GetUpdateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<UpdateEventDto>>(Url("api/v1/history/updates", [
+            ("from", fromUtc.ToString("O", CultureInfo.InvariantCulture)),
+            ("to", toUtc.ToString("O", CultureInfo.InvariantCulture))]), ct);
 
     public Task<CatalogDto> GetCatalogAsync(CancellationToken ct = default) => GetAsync<CatalogDto>("api/v1/catalog", ct);
 
@@ -168,6 +180,10 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
             : null;
     }
 
+    /// <summary>Acknowledges an alert on this desktop (recorded as acknowledged by "local"); idempotent, the first acknowledgement is kept.</summary>
+    public Task AcknowledgeAlertAsync(string alertId, CancellationToken ct = default) =>
+        PostAsync($"api/v1/alerts/{Uri.EscapeDataString(alertId)}/acknowledge", ct, body: new { });
+
     /// <summary>Alert preferences of every alert recipient (default: all severities, no opted-out rules).</summary>
     public Task<IReadOnlyList<AlertPreferencesDto>> GetAlertPreferencesAsync(CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<AlertPreferencesDto>>("api/v1/alerts/preferences", ct);
@@ -179,6 +195,21 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
             $"api/v1/alerts/preferences/{Uri.EscapeDataString(peerId)}",
             ct,
             body: new { minSeverity, mutedRuleKinds });
+
+    /// <summary>Effective alert rules on this desktop (T054): the CPU, memory and disk rules, and peer-not-seen per trusted peer, with defaults and accepted ranges.</summary>
+    public Task<IReadOnlyList<AlertRuleDto>> GetAlertRulesAsync(CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<AlertRuleDto>>("api/v1/alerts/rules", ct);
+
+    /// <summary>
+    /// Replaces the rule overrides for <paramref name="subjectPeerId"/> (this desktop for CPU, memory and disk; a trusted peer for
+    /// peer not seen). An empty list restores the defaults. The server rejects out-of-range thresholds with 400.
+    /// </summary>
+    public Task SetAlertRulesAsync(
+        string subjectPeerId, IReadOnlyCollection<AlertRuleOverrideDto> overrides, CancellationToken ct = default) =>
+        PostAsync(
+            $"api/v1/alerts/rules/{Uri.EscapeDataString(subjectPeerId)}",
+            ct,
+            body: new { overrides });
 
     /// <summary>Phone presence-key enrollments waiting for approval (newest first), with the key fingerprint to compare on the phone.</summary>
     public Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default) =>

@@ -117,6 +117,18 @@ public static class ControlCanonical
                 }
 
                 break;
+            case ControlCommand.PayloadOneofCase.SetAlertRuleOverrides:
+                WriteString(buffer, command.SetAlertRuleOverrides.SubjectPeerId);
+                WriteLong(buffer, command.SetAlertRuleOverrides.Overrides.Count);
+                foreach (var item in command.SetAlertRuleOverrides.Overrides)
+                {
+                    WriteString(buffer, item.RuleId);
+                    WriteLong(buffer, item.Enabled ? 1 : 0);
+                    WriteLong(buffer, item.HasThreshold ? 1 : 0);
+                    WriteLong(buffer, item.HasThreshold ? BitConverter.DoubleToInt64Bits(item.Threshold) : 0);
+                }
+
+                break;
             case ControlCommand.PayloadOneofCase.ResolvePairing:
                 WriteString(buffer, command.ResolvePairing.PairingId);
                 WriteBytes(buffer, command.ResolvePairing.RemotePublicKeySha256.Span);

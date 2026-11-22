@@ -241,6 +241,12 @@ public sealed class DiveViewModelTests
         public Task<ControlOutcomeDto> SetAlertPreferencesAsync(
             string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default) => Record("prefs", peerId);
 
+        public Task<IReadOnlyList<AlertRuleDto>?> ReadAlertRulesAsync(string peerId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<AlertRuleDto>?>(null);
+
+        public Task<ControlOutcomeDto> SetAlertRulesAsync(string peerId, string? minSeverity, IReadOnlyCollection<AlertRuleOverrideDto> overrides, CancellationToken ct = default) =>
+            Task.FromResult(new ControlOutcomeDto("Refused", "not_permitted", "not in this fake", false));
+
         public Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default) => Task.FromResult<AlertPreferencesDto?>(null);
 
         public Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default) =>

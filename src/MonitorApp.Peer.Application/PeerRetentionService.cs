@@ -43,7 +43,8 @@ public sealed record PeerRetentionReport(
     int RawRetainedTransitions,
     int RawHeldForReplication,
     int PrunedRangesWritten,
-    int RollupsDeleted);
+    int RollupsDeleted,
+    int PeerStateTransitionsDeleted = 0);
 
 public sealed class PeerRetentionService
 {
@@ -84,9 +85,12 @@ public sealed class PeerRetentionService
 
         var rollupsDeleted = await store.PruneHourlyRollupsBeforeAsync(
             FloorToHour(now - Policy.RollupRetention), cancellationToken).ConfigureAwait(false);
+        // Peer-state history is an event stream: it follows event retention (5 years by default).
+        var statesDeleted = await store.PrunePeerStateTransitionsBeforeAsync(now - Policy.EventRetention, cancellationToken)
+            .ConfigureAwait(false);
         return new PeerRetentionReport(
             now, rawCutoff, hours, rows, prune.Deleted, prune.RetainedPinned, prune.RetainedTransitions,
-            prune.RetainedAwaitingReplication, prune.PrunedRangesWritten, rollupsDeleted);
+            prune.RetainedAwaitingReplication, prune.PrunedRangesWritten, rollupsDeleted, statesDeleted);
     }
 
     // Hours older than the raw cutoff are finalised once (existing rows kept even if raw is only partly left);

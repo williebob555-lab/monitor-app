@@ -92,6 +92,64 @@ public sealed class LiveInterestRegistryTests
     }
 
     [Fact]
+    public void RelayedInterestIsOnlyPassedToItsSubjectWithNoHopsAndEndsWithTheOriginatingLease()
+    {
+        var clock = new ManualTime();
+        var registry = new LiveInterestRegistry(
+            new LiveInterestPolicy(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(30), 2, 4), clock);
+        LiveInterest Relayed(string subject, uint lease, uint hops, params string[] signals)
+        {
+            var interest = new LiveInterest { SubjectPeerId = subject, LeaseSeconds = lease, RelayHopsRemaining = hops };
+            interest.SignalIds.AddRange(signals);
+            return interest;
+        }
+
+        // No hop, too many hops and asking the relay to relay for the requester itself are refused.
+        Assert.False(registry.Grant("peer-phone", Local, Relayed("peer-b", 20, 0)).Accepted);
+        Assert.False(registry.Grant("peer-phone", Local, Relayed("peer-b", 20, 2)).Accepted);
+        Assert.False(registry.Grant("peer-phone", Local, Relayed("peer-phone", 20, 1)).Accepted);
+        Assert.Equal(0, registry.RelayedInterestCount);
+
+        Assert.True(registry.Grant("peer-phone", Local, Relayed("peer-b", 20, 1, "cpu")).Accepted);
+        Assert.True(registry.Grant("peer-other", Local, Relayed("peer-b", 20, 1, "disk")).Accepted);
+        Assert.False(registry.Grant("peer-third", Local, Relayed("peer-c", 20, 1)).Accepted); // relay table is capped
+        // Relaying never changes how this peer samples itself, and nothing is declared to other peers.
+        Assert.False(registry.HasActiveInterest(Local));
+        Assert.False(registry.HasActiveInterest("peer-b"));
+        Assert.Empty(registry.OutgoingInterestsFor("peer-c"));
+
+        var outgoing = Assert.Single(registry.OutgoingInterestsFor("peer-b"));
+        Assert.Equal(0u, outgoing.RelayHops);
+        Assert.Equal(["cpu", "disk"], outgoing.Signals);
+        Assert.Equal(TimeSpan.FromSeconds(20), outgoing.Lease);
+
+        // The forwarded lease never outlives the originating one.
+        clock.Advance(TimeSpan.FromSeconds(15));
+        Assert.Equal(TimeSpan.FromSeconds(5), Assert.Single(registry.OutgoingInterestsFor("peer-b")).Lease);
+        registry.WithdrawRequester("peer-other");
+        Assert.Equal(["cpu"], Assert.Single(registry.OutgoingInterestsFor("peer-b")).Signals);
+        clock.Advance(TimeSpan.FromSeconds(6));
+        Assert.Empty(registry.OutgoingInterestsFor("peer-b"));
+        Assert.Equal(0, registry.RelayedInterestCount);
+    }
+
+    [Fact]
+    public void LocalWatchesAskConnectedPeersToRelayOnlyWhenNoDirectSessionExists()
+    {
+        var registry = new LiveInterestRegistry();
+        using var watch = registry.WatchRemote("peer-b", ["cpu"]);
+
+        var direct = Assert.Single(registry.OutgoingInterestsFor("peer-b"));
+        Assert.Equal(0u, direct.RelayHops);
+        var viaRelay = Assert.Single(registry.OutgoingInterestsFor("peer-a"));
+        Assert.Equal(("peer-b", 1u), (viaRelay.Subject, viaRelay.RelayHops));
+        Assert.Equal(["cpu"], viaRelay.Signals);
+
+        using var channel = registry.PushChannels.Join("peer-b", Local, true, () => { });
+        Assert.Empty(registry.OutgoingInterestsFor("peer-a"));
+    }
+
+    [Fact]
     public async Task AdaptiveSamplerSwitchesToTheFastIntervalOnInterestAndBackWhenItLapses()
     {
         var registry = new LiveInterestRegistry(

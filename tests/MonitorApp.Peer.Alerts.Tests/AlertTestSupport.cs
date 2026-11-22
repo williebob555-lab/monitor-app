@@ -85,7 +85,7 @@ internal sealed class TestPeer : ILocalPeerIdentityProvider, IAsyncDisposable
 
     /// <summary>Collects one scripted snapshot observed at <paramref name="at"/> and advances this peer's clock to it.</summary>
     public async Task CollectAsync(DateTimeOffset at, double? cpu = null, ulong? freeBytes = null,
-        ObservationQuality quality = ObservationQuality.Valid)
+        ObservationQuality quality = ObservationQuality.Valid, ulong? memoryUsed = null)
     {
         clock.Set(at);
         var metrics = new List<CollectedMetric>();
@@ -95,6 +95,12 @@ internal sealed class TestPeer : ILocalPeerIdentityProvider, IAsyncDisposable
         {
             metrics.Add(new CollectedMetric("system.storage.total", MetricUnit.Bytes, quality, new MetricValue { UnsignedIntegerValue = 100 }));
             metrics.Add(new CollectedMetric("system.storage.free", MetricUnit.Bytes, quality, new MetricValue { UnsignedIntegerValue = f }));
+        }
+
+        if (memoryUsed is { } used)
+        {
+            metrics.Add(new CollectedMetric("system.memory.total", MetricUnit.Bytes, quality, new MetricValue { UnsignedIntegerValue = 100 }));
+            metrics.Add(new CollectedMetric("system.memory.used", MetricUnit.Bytes, quality, new MetricValue { UnsignedIntegerValue = used }));
         }
 
         if (quality is ObservationQuality.Unavailable or ObservationQuality.Error)

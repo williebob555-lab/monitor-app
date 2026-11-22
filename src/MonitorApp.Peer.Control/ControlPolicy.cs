@@ -1,4 +1,5 @@
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 
 namespace MonitorApp.Peer.Control;
 
@@ -49,6 +50,7 @@ public static class ControlPolicy
         ControlCommand.PayloadOneofCase.MuteAlerts => "mute_alerts",
         ControlCommand.PayloadOneofCase.UnmuteAlerts => "unmute_alerts",
         ControlCommand.PayloadOneofCase.SetAlertPreferences => "set_alert_preferences",
+        ControlCommand.PayloadOneofCase.SetAlertRuleOverrides => "set_alert_rule_overrides",
         ControlCommand.PayloadOneofCase.ResolvePairing =>
             command.ResolvePairing.Approve ? "approve_pairing" : "reject_pairing",
         ControlCommand.PayloadOneofCase.EnrollPresenceKey => "enroll_presence_key",
@@ -65,6 +67,8 @@ public static class ControlPolicy
         ControlCommand.PayloadOneofCase.ResolvePairing when command.ResolvePairing.Approve => ControlRiskTier.High,
         ControlCommand.PayloadOneofCase.EnrollPresenceKey => ControlRiskTier.High,
         ControlCommand.PayloadOneofCase.ApproveUpdate => ControlRiskTier.High,
+        // Changes (or disables) what alerts fire for every recipient, unlike a phone's own preferences, so it needs the biometric.
+        ControlCommand.PayloadOneofCase.SetAlertRuleOverrides => ControlRiskTier.Elevated,
         ControlCommand.PayloadOneofCase.PauseCollection =>
             command.PauseCollection.DurationSeconds == 0 ||
             TimeSpan.FromSeconds(command.PauseCollection.DurationSeconds) > ElevatedPauseThreshold
@@ -125,6 +129,15 @@ public static class ControlPolicy
                 return prefs.MinSeverity is < AlertSeverity.Unspecified or > AlertSeverity.Critical ||
                     prefs.MutedRuleKinds.Count > MaximumMutedRuleKinds ||
                     prefs.MutedRuleKinds.Any(kind => string.IsNullOrWhiteSpace(kind) || kind.Length > MaximumIdLength)
+                    ? "invalid_payload"
+                    : null;
+            case ControlCommand.PayloadOneofCase.SetAlertRuleOverrides:
+                var rules = command.SetAlertRuleOverrides;
+                return rules.SubjectPeerId.Length > MaximumIdLength ||
+                    rules.Overrides.Any(item => item.RuleId.Length > MaximumIdLength) ||
+                    AlertRuleCatalog.Validate(rules.Overrides
+                        .Select(item => new AlertRuleOverrideInput(item.RuleId, item.Enabled, item.HasThreshold ? item.Threshold : null))
+                        .ToArray()) is not null
                     ? "invalid_payload"
                     : null;
             case ControlCommand.PayloadOneofCase.ResolvePairing:

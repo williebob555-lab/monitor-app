@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -108,6 +109,35 @@ public sealed class LocalApiHostTests : IDisposable
         Assert.Equal(JsonValueKind.String, deliveries["peer-phone-a"].GetProperty("deliveredAt").ValueKind);
         Assert.Equal(JsonValueKind.Null, deliveries["peer-phone-b"].GetProperty("deliveredAt").ValueKind);
         Assert.Equal(1, deliveries["peer-phone-a"].GetProperty("revision").GetInt32());
+    }
+
+    [Fact]
+    public async Task AcknowledgeEndpointNeedsCsrfRecordsTheLocalAcknowledgerAndIsIdempotent()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        var alert = new Alert(
+            Alert.CreateId("peer-local", "rule.x", "s", Now), 1, "rule.x", "s", "peer-local",
+            MonitorApp.Contracts.V1.AlertSeverity.Critical, MonitorApp.Contracts.V1.AlertState.Raised, "T", "D", Now, null);
+        await fixture.Alerts.RaiseAsync(alert, [], TimeSpan.FromDays(1), Now);
+
+        var forbidden = await fixture.Client.PostAsync($"api/v1/alerts/{alert.AlertId}/acknowledge", JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        Assert.Null(await fixture.Alerts.ReadOperatorAcknowledgementAsync(alert.AlertId));
+
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var first = Request(HttpMethod.Post, $"api/v1/alerts/{alert.AlertId}/acknowledge", csrf);
+        using var accepted = JsonDocument.Parse(await (await fixture.Client.SendAsync(first)).Content.ReadAsStringAsync());
+        Assert.Equal("local", accepted.RootElement.GetProperty("acknowledgedBy").GetString());
+        using var second = Request(HttpMethod.Post, $"api/v1/alerts/{alert.AlertId}/acknowledge", csrf);
+        Assert.Equal(HttpStatusCode.OK, (await fixture.Client.SendAsync(second)).StatusCode);
+        using var missing = Request(HttpMethod.Post, "api/v1/alerts/unknown/acknowledge", csrf);
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.SendAsync(missing)).StatusCode);
+
+        using var document = JsonDocument.Parse(await fixture.Client.GetStringAsync("api/v1/alerts"));
+        var item = Assert.Single(document.RootElement.GetProperty("alerts").EnumerateArray());
+        Assert.True(item.GetProperty("acknowledged").GetBoolean());
+        Assert.Equal("local", item.GetProperty("acknowledgedBy").GetString());
+        Assert.False(item.GetProperty("escalated").GetBoolean());
     }
 
     [Fact]
@@ -364,6 +394,7 @@ public sealed class LocalApiHostTests : IDisposable
         }
 
         public AlertStore Alerts { get; }
+        public ControlService? Control { get; private set; }
         public PeerStore PeerStore { get; }
         public PairingApplicationStore ApplicationStore { get; }
         public LocalApiHost Host { get; }
@@ -376,7 +407,8 @@ public sealed class LocalApiHostTests : IDisposable
             IPeerInvitationService? invitationService = null,
             PhonePairingOptions? phonePairing = null,
             ILocalUpdateController? updates = null,
-            LocalPresenceService? presence = null)
+            LocalPresenceService? presence = null,
+            bool withControl = false)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -438,6 +470,14 @@ public sealed class LocalApiHostTests : IDisposable
 
             var alerts = new AlertStore(AlertStoreOptions.Create(databasePath));
             await alerts.InitializeAsync();
+            ControlService? control = null;
+            if (withControl)
+            {
+                var controlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
+                await controlStore.InitializeAsync();
+                control = new ControlService(controlStore, store, appStore, coordinator, alerts, new MonitoringControlState(), identityProvider);
+            }
+
             var host = LocalApiHost.Create(
                 LocalApiOptions.Loopback(databasePath),
                 store,
@@ -448,6 +488,7 @@ public sealed class LocalApiHostTests : IDisposable
                 phonePairing,
                 alerts,
                 updates: updates,
+                control: control,
                 localPresence: presence);
             await host.StartAsync();
             var handler = new HttpClientHandler
@@ -459,6 +500,7 @@ public sealed class LocalApiHostTests : IDisposable
             var fixture = new Fixture(
                 localKey, identityProvider, store, appStore, coordinator, host, client, pending.PairingId!, alerts);
             fixture.remoteKeys.Add(pendingKey);
+            fixture.Control = control;
             return fixture;
         }
 

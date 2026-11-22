@@ -15,7 +15,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -174,9 +174,31 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
                 item.Alert.Title,
                 item.Alert.Detail,
                 item.Alert.RaisedAt,
-                item.Alert.ResolvedAt))
+                item.Alert.ResolvedAt,
+                Escalated: item.Alert.Escalated))
             .ToArray();
     });
+
+    /// <summary>The phone's own record of its desktops' connectivity transitions, oldest first.</summary>
+    public Task<IReadOnlyList<PeerStateTransitionDto>> GetPeerStateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) => Guard(async () =>
+    {
+        if (fromUtc > toUtc)
+        {
+            throw new ApiValidationException("from must not be after to.");
+        }
+
+        await runtime.PeerStates.ReconcileAsync(ct).ConfigureAwait(false);
+        var rows = await runtime.Store.ReadPeerStateTransitionsAsync(fromUtc, toUtc, 5000, ct).ConfigureAwait(false);
+        return (IReadOnlyList<PeerStateTransitionDto>)rows
+            .Select(row => new PeerStateTransitionDto(row.PeerId, row.State.ToString(), row.At, row.Reason))
+            .ToArray();
+    });
+
+    /// <summary>The phone installs no updates itself, so there is nothing to report.</summary>
+    public Task<IReadOnlyList<UpdateEventDto>> GetUpdateHistoryAsync(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<UpdateEventDto>>([]);
 
     /// <summary>Asks the hosting service (when the head supplied one) to start collection and syncing.</summary>
     public void RequestStart() => startHost?.Invoke();
@@ -285,6 +307,41 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
 
         return SendAsync(peerId, ControlActionKind.SetAlertPreferences, null,
             () => ControlRequest.SetAlertPreferences(severity, mutedRuleKinds), ct);
+    }
+
+    public Task<ControlOutcomeDto> SetAlertRulesAsync(
+        string peerId, string? subjectPeerId, IReadOnlyCollection<AlertRuleOverrideDto> ruleOverrides, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(ruleOverrides);
+        var inputs = ruleOverrides.Select(item => new MonitorApp.Peer.Alerts.AlertRuleOverrideInput(item.RuleId, item.Enabled, item.Threshold)).ToArray();
+        if (MonitorApp.Peer.Alerts.AlertRuleCatalog.Validate(inputs) is { } problem)
+        {
+            // Rejected locally with the same ranges the desktop enforces, so the person sees why before any biometric prompt.
+            return Task.FromResult(new ControlOutcomeDto("Refused", "invalid_payload", problem, false));
+        }
+
+        return SendAsync(peerId, ControlActionKind.SetAlertRules, null,
+            () => ControlRequest.SetAlertRuleOverrides(subjectPeerId, inputs), ct);
+    }
+
+    public async Task<IReadOnlyList<AlertRuleDto>?> ReadAlertRulesAsync(string peerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await runtime.ReadAlertRulesAsync(peerId, ct).ConfigureAwait(false);
+            if (!response.Permitted)
+            {
+                return null;
+            }
+
+            return response.Rules.Select(item => new AlertRuleDto(
+                item.SubjectPeerId, item.RuleId, item.Title, item.Unit, item.DefaultThreshold, item.Threshold, item.Enabled,
+                item.Overridden, item.Minimum, item.Maximum, item.UpdatedAt is null ? null : item.UpdatedAt.ToDateTimeOffset())).ToArray();
+        }
+        catch (MobileControlFailedException)
+        {
+            return null;
+        }
     }
 
     public async Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default)

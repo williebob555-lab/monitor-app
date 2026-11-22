@@ -23,6 +23,10 @@ internal sealed record LiveInterestInput(string? PeerId, string[]? SignalIds);
 
 internal sealed record AlertPreferencesInput(string? MinSeverity, string[]? MutedRuleKinds);
 
+internal sealed record AlertRuleOverrideBody(string? RuleId, bool? Enabled, double? Threshold);
+
+internal sealed record AlertRulesInput(AlertRuleOverrideBody[]? Overrides);
+
 internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval, bool UpdateApproval = false);
 
 internal sealed record LocalPresenceChallengeRequest(string? Action, string? Subject);
@@ -63,7 +67,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(clock);
         options.Validate();
 
-        var builder = WebApplication.CreateSlimBuilder();
+        // Never the working directory ("/" under systemd): see PeerHostApplication.
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
         builder.WebHost.ConfigureKestrel(server => server.Listen(options.BindAddress, options.Port));
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddAntiforgery(antiforgery =>
@@ -152,6 +157,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         await application.DisposeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>The acknowledger recorded for an alert acknowledged on this desktop (phones are recorded by peer id).</summary>
+    public const string LocalAcknowledger = "local";
+
     private static void MapEndpoints(WebApplication application)
     {
         application.MapGet("/api/csrf", (HttpContext context, IAntiforgery antiforgery) =>
@@ -207,6 +215,9 @@ public sealed class LocalApiHost : IAsyncDisposable
                 .ConfigureAwait(false);
             var deliveries = (await store.ReadOutboxForAlertsAsync(found.Select(alert => alert.AlertId).ToArray(), token)
                 .ConfigureAwait(false)).ToLookup(entry => entry.AlertId, StringComparer.Ordinal);
+            var acknowledgements = (await store.ReadOperatorAcknowledgementsAsync(token).ConfigureAwait(false))
+                .ToDictionary(item => item.AlertId, StringComparer.Ordinal);
+            var escalations = await store.ReadEscalationsAsync(token).ConfigureAwait(false);
             return Results.Json(new
             {
                 alerts = found.Select(alert => new
@@ -223,12 +234,21 @@ public sealed class LocalApiHost : IAsyncDisposable
                     alert.RaisedAt,
                     alert.ResolvedAt,
 
+                    // Operator acknowledgement (T051): the first acknowledgement wins; acknowledgedBy is a phone's peer id
+                    // or "local" for this desktop. Escalation: set once a Critical alert stayed unacknowledged too long.
+                    acknowledged = acknowledgements.ContainsKey(alert.AlertId),
+                    acknowledgedBy = acknowledgements.TryGetValue(alert.AlertId, out var acknowledgement) ? acknowledgement.By : null,
+                    acknowledgedAt = acknowledgements.TryGetValue(alert.AlertId, out var acknowledgedWhen) ? (DateTimeOffset?)acknowledgedWhen.At : null,
+                    escalated = escalations.ContainsKey(alert.AlertId),
+                    escalatedAt = escalations.TryGetValue(alert.AlertId, out var escalatedWhen) ? (DateTimeOffset?)escalatedWhen : null,
+
                     // Per-recipient delivery of each revision: deliveredAt is when the recipient's durable-write
-                    // acknowledgement arrived (null while pending). There is no user acknowledge or mute state yet.
+                    // acknowledgement arrived (null while pending).
                     deliveries = deliveries[alert.AlertId].Select(entry => new
                     {
                         entry.RecipientPeerId,
                         entry.Revision,
+                        entry.Escalation,
                         entry.EnqueuedAt,
                         entry.Attempts,
                         entry.LastAttemptAt,
@@ -236,6 +256,34 @@ public sealed class LocalApiHost : IAsyncDisposable
                     }),
                 }),
             });
+        });
+        application.MapPost("/api/v1/alerts/{alertId}/acknowledge", async (
+            string alertId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var store = services.GetService<AlertStore>();
+            if (store is null || string.IsNullOrWhiteSpace(alertId) || alertId.Length > 128)
+            {
+                return Results.NotFound(new { error = "No such alert." });
+            }
+
+            // Idempotent; the first acknowledgement (a phone's or this desktop's) is kept.
+            if (!await store.AcknowledgeByOperatorAsync(alertId, LocalAcknowledger, clock.UtcNow, token).ConfigureAwait(false))
+            {
+                return Results.NotFound(new { error = "No such alert." });
+            }
+
+            var recorded = await store.ReadOperatorAcknowledgementAsync(alertId, token).ConfigureAwait(false);
+            return Results.Json(new { alertId, acknowledgedBy = recorded?.By, acknowledgedAt = recorded?.At });
         });
         application.MapGet("/api/v1/alerts/preferences", async (
             IServiceProvider services,
@@ -284,6 +332,80 @@ public sealed class LocalApiHost : IAsyncDisposable
                 minSeverity = AlertPreferences.SeverityName(severity),
                 mutedRuleKinds = (body.MutedRuleKinds ?? []).Select(kind => kind.Trim()).Where(kind => kind.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal),
             });
+        });
+        application.MapGet("/api/v1/alerts/rules", async (
+            PeerStore peerStore,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var store = services.GetService<AlertStore>();
+            var local = await peerStore.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            if (store is null || local is null)
+            {
+                return Results.Json(Array.Empty<object>());
+            }
+
+            var active = (await peerStore.ReadTrustedPeersAsync(token).ConfigureAwait(false))
+                .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId);
+            var overrides = await store.ReadRuleOverridesAsync(token).ConfigureAwait(false);
+            return Results.Json(AlertRuleCatalog.Describe(services.GetService<AlertRulesConfig>() ?? AlertRulesConfig.Default, local.PeerId, active, overrides)
+                .Select(item => new
+                {
+                    subjectPeerId = item.SubjectPeerId,
+                    ruleId = item.RuleId,
+                    title = item.Title,
+                    unit = item.Unit,
+                    defaultThreshold = item.DefaultThreshold,
+                    threshold = item.Threshold,
+                    enabled = item.Enabled,
+                    overridden = item.Overridden,
+                    minimum = item.Minimum,
+                    maximum = item.Maximum,
+                    updatedAt = item.UpdatedAt,
+                }));
+        });
+        application.MapPost("/api/v1/alerts/rules/{peerId}", async (
+            string peerId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IPeerClock clock,
+            PeerStore peerStore,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var store = services.GetService<AlertStore>();
+            AlertRulesInput? body;
+            try
+            {
+                body = await context.Request.ReadFromJsonAsync<AlertRulesInput>(token).ConfigureAwait(false);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                body = null;
+            }
+
+            var local = await peerStore.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            if (store is null || local is null || body?.Overrides is null || body.Overrides.Any(item => item is null || item.Enabled is null))
+            {
+                return Results.BadRequest(new { error = "A peer id and a list of overrides (ruleId, enabled, optional threshold) are required." });
+            }
+
+            var inputs = body.Overrides.Select(item => new AlertRuleOverrideInput(item.RuleId ?? string.Empty, item.Enabled!.Value, item.Threshold)).ToArray();
+            var active = (await peerStore.ReadTrustedPeersAsync(token).ConfigureAwait(false))
+                .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId).ToHashSet(StringComparer.Ordinal);
+            var problem = AlertRuleCatalog.Validate(inputs) ?? AlertRuleCatalog.ValidateSubject(peerId, local.PeerId, active, inputs);
+            if (problem is not null)
+            {
+                return Results.BadRequest(new { error = problem });
+            }
+
+            await store.SetRuleOverridesAsync(peerId, inputs, clock.UtcNow, token).ConfigureAwait(false);
+            return Results.Json(new { peerId, overrides = inputs.Select(item => new { ruleId = item.RuleId, enabled = item.Enabled, threshold = item.Threshold }) });
         });
         application.MapPost("/api/v1/live/interest", async (
             HttpContext context,
@@ -403,6 +525,49 @@ public sealed class LocalApiHost : IAsyncDisposable
             CancellationToken token) => QueryAsync(() => history.ReconstructAsync(
                 asOf, lookbackSeconds, subjectEntityId, signalId, limit, token)));
 
+        application.MapGet("/api/v1/history/peer-states", async (
+            string? from,
+            string? to,
+            PeerStore store,
+            IPeerClock clock,
+            CancellationToken token) =>
+        {
+            if (!TryReadHistoryRange(from, to, clock, out var start, out var end, out var error))
+            {
+                return Results.BadRequest(new { error });
+            }
+
+            var rows = await store.ReadPeerStateTransitionsAsync(start, end, HistoryFeedCap, token).ConfigureAwait(false);
+            return Results.Json(rows.Select(row => new
+            {
+                peerId = row.PeerId,
+                state = row.State.ToString(),
+                at = row.At,
+                reason = row.Reason,
+            }));
+        });
+        application.MapGet("/api/v1/history/updates", (
+            string? from,
+            string? to,
+            IPeerClock clock,
+            HttpContext context) =>
+        {
+            if (!TryReadHistoryRange(from, to, clock, out var start, out var end, out var error))
+            {
+                return Results.BadRequest(new { error });
+            }
+
+            var events = context.RequestServices.GetService<ILocalUpdateController>() is ILocalUpdateHistory history
+                ? history.GetUpdateHistory(start, end).Take(HistoryFeedCap)
+                : [];
+            return Results.Json(events.Select(item => new
+            {
+                version = item.Version,
+                outcome = item.Outcome,
+                at = item.At,
+                detail = item.Detail,
+            }));
+        });
         application.MapGet("/api/v1/update", (HttpContext context) =>
             context.RequestServices.GetService<ILocalUpdateController>() is { } updates
                 ? Results.Json(updates.GetStatus())
@@ -898,6 +1063,51 @@ public sealed class LocalApiHost : IAsyncDisposable
         }
     }
 
+    private const int HistoryFeedCap = 5000;
+
+    /// <summary>Parses the history feed range: ISO-8601 instants, to defaults to now and from to 7 days before it; from must not follow to.</summary>
+    private static bool TryReadHistoryRange(
+        string? from, string? to, IPeerClock clock, out DateTimeOffset start, out DateTimeOffset end, out string error)
+    {
+        error = string.Empty;
+        start = end = default;
+        var style = System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        if (to is null)
+        {
+            end = clock.UtcNow.ToUniversalTime();
+        }
+        else if (!DateTimeOffset.TryParse(to, culture, style, out end))
+        {
+            error = "to must be an ISO-8601 timestamp.";
+            return false;
+        }
+
+        if (from is null)
+        {
+            start = end - TimeSpan.FromDays(7);
+        }
+        else if (!DateTimeOffset.TryParse(from, culture, style, out start))
+        {
+            error = "from must be an ISO-8601 timestamp.";
+            return false;
+        }
+
+        if (start > end)
+        {
+            error = "from must not be after to.";
+            return false;
+        }
+
+        if (end - start > TimeSpan.FromDays(366 * 5))
+        {
+            error = "The range may span at most five years.";
+            return false;
+        }
+
+        return true;
+    }
+
     private static async Task<IResult> QueryAsync<T>(Func<Task<T>> query)
     {
         try
@@ -981,6 +1191,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         LocalApiDataSource data,
         PeerInvitationStatusState invitationStatus,
         PhonePairingService phonePairing,
+        PeerStore peerStore,
+        IPeerClock clock,
         CancellationToken token)
     {
         var runtime = await data.ReadRuntimeAsync(token).ConfigureAwait(false);
@@ -1003,12 +1215,14 @@ public sealed class LocalApiHost : IAsyncDisposable
         var invitationResult = invitationStatus.LastResult is null
             ? "No invitation has been submitted in this process."
             : $"{encode(invitationStatus.LastResult.Status.ToString())}: {encode(invitationStatus.LastResult.Message)}";
+        var adminSections = await LocalApiAdminSections.RenderAsync(
+            context.RequestServices, peerStore, clock, HtmlEncoder.Default, token).ConfigureAwait(false);
         var html = $$"""
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Monitor App local administration</title><style nonce="{{nonce}}">
-            body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus,input:focus,select:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef;color:#111}.scroll{overflow-x:auto}.sr{position:absolute;left:-10000px}fieldset{border:1px solid #777}
+            body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus,input:focus,select:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef;color:#111}.scroll{overflow-x:auto}.sr{position:absolute;left:-10000px}fieldset{border:1px solid #777}.err{font-weight:bold}td input[type=number]{width:7rem}
             </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, current state, bounded history, and as-of reconstruction. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
-            <main><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
+            <main data-csrf="{{encode(csrf)}}"><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
             <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{{pairingRows}}</tbody></table></section>
             {{phonePairing.RenderSection(csrf, HtmlEncoder.Default)}}
             <section aria-labelledby="invite"><h2 id="invite">Invite a fresh peer</h2><p>Enter the identity shown by the other peer. Invitation transport must be configured by the running node.</p>
@@ -1020,8 +1234,9 @@ public sealed class LocalApiHost : IAsyncDisposable
             <p><label for="securityPolicy">Declared security policy</label><br><select id="securityPolicy" name="securityPolicy"><option value="LoopbackPrototype">Loopback prototype</option><option value="AuthenticatedPrivateTransport">Authenticated private transport</option></select></p>
             <button type="submit">Dispatch invitation</button></form><p role="status"><strong>Last result:</strong> {{invitationResult}}</p></section>
             <section aria-labelledby="peers"><h2 id="peers">Trusted and revoked peers</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>Trust</th><th>Action</th></tr></thead><tbody>{{peerRows}}</tbody></table></section>
+            {{adminSections}}
             {{LocalApiClientPage.Sections}}
-            <section aria-labelledby="observations"><h2 id="observations">Raw record query</h2><p>Use the JSON endpoints for scripted access: <code>/api/v1/history?from=...&amp;to=...</code>, <code>/api/v1/state?asOf=...</code>, <code>/api/v1/catalog</code>, or page raw records with <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main><script nonce="{{nonce}}">{{LocalApiClientPage.Script}}</script></body></html>
+            <section aria-labelledby="observations"><h2 id="observations">Raw record query</h2><p>Use the JSON endpoints for scripted access: <code>/api/v1/history?from=...&amp;to=...</code>, <code>/api/v1/state?asOf=...</code>, <code>/api/v1/catalog</code>, or page raw records with <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main><script nonce="{{nonce}}">{{LocalApiClientPage.Script}}</script><script nonce="{{nonce}}">{{LocalApiAdminSections.Script}}</script></body></html>
             """;
         return Results.Content(html, MediaTypeNames.Text.Html);
     }

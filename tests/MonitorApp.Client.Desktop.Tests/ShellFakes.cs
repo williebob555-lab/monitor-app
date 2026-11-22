@@ -206,6 +206,12 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
 
     public AlertPreferencesDto? StoredAlertPreferences { get; set; }
 
+    public Task<IReadOnlyList<AlertRuleDto>?> ReadAlertRulesAsync(string peerId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<AlertRuleDto>?>(null);
+
+    public Task<ControlOutcomeDto> SetAlertRulesAsync(string peerId, string? minSeverity, IReadOnlyCollection<AlertRuleOverrideDto> overrides, CancellationToken ct = default) =>
+        Task.FromResult(new ControlOutcomeDto("Refused", "not_permitted", "not in this fake", false));
+
     public Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default) =>
         Task.FromResult(StoredAlertPreferences);
 

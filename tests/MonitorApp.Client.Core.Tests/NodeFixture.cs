@@ -54,6 +54,8 @@ internal sealed class NodeFixture : IAsyncDisposable
 
     public ControlService? Control { get; private set; }
 
+    public AlertStore? Alerts { get; private set; }
+
     public static async Task<NodeFixture> CreateAsync(
         LocalPresenceService? presence = null,
         ILocalUpdateController? updates = null,
@@ -126,6 +128,7 @@ internal sealed class NodeFixture : IAsyncDisposable
             directory, localKey, store, coordinator, host, pending.PairingId!, Convert.ToHexString(identity.PublicIdentity.PublicKeyFingerprint));
         fixture.keys.Add(pendingKey);
         fixture.Control = control;
+        fixture.Alerts = alerts;
         return fixture;
     }
 
