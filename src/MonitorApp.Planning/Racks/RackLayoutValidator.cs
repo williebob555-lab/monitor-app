@@ -34,6 +34,9 @@ public static class RackLayoutValidator
                 (zone.EurorackHpPerRow is null or <= 0 || zone.EurorackRows is null or <= 0 ||
                  zone.EurorackRowPitchMm is null or <= 0))
                 Add("unknown-eurorack-grid", RackFindingSeverity.Unresolved, zone.Id, null, "Specify HP per row, rows and measured vertical row pitch.");
+            if (zone.Format is RackFormat.Pedalboard or RackFormat.DesktopAudio &&
+                zone.UnderboardClearanceMm is < 0)
+                Add("invalid-underboard-clearance", RackFindingSeverity.Error, zone.Id, null, "Under-board clearance cannot be negative.");
             if (!Enum.IsDefined(zone.Format))
                 Add("unknown-format", RackFindingSeverity.Error, zone.Id, null, "Unsupported rack format; define a custom zone rather than guessing.");
         }
@@ -83,6 +86,12 @@ public static class RackLayoutValidator
             }
             if (item.MountFormat != zone.Format)
                 Add("mount-interface", RackFindingSeverity.Error, zone.Id, placement.Id, $"Mount interface {item.MountFormat} cannot be placed directly in {zone.Format}; add a real bracket, shelf or subrack.");
+            var isSurface = zone.Format is RackFormat.Pedalboard or RackFormat.DesktopAudio;
+            if (isSurface && item.MountMethod is not (
+                    MountingMethod.HookAndLoop or MountingMethod.DualLock or
+                    MountingMethod.BoardClamp or MountingMethod.BoardScrews or MountingMethod.Freestanding))
+                Add("surface-fastening", RackFindingSeverity.Error, zone.Id, placement.Id,
+                    "An upright rack mounting interface does not attach a pedal or desktop device to a flat board.");
             if (item.MountMethod is MountingMethod.FourPost or MountingMethod.SlidingRails)
             {
                 if (!zone.HasRearRails)
@@ -107,20 +116,61 @@ public static class RackLayoutValidator
                 continue;
             }
 
-            var volume = new Volume(
-                placement.LeftMm,
-                placement.LeftMm + item.WidthMm.Value,
-                placement.BottomMm,
-                placement.BottomMm + item.HeightMm.Value,
-                placement.FrontOffsetMm - item.FrontProtrusionMm,
-                placement.FrontOffsetMm + item.BodyDepthMm.Value + item.RearCableClearanceMm);
+            Volume volume;
+            if (isSurface)
+            {
+                // Top-down footprint on the board and vertical body height, including connector
+                // and foot-operation keep-out zones. Undefined clearance is not assumed to be zero.
+                if (item.LeftCableClearanceMm is null || item.RightCableClearanceMm is null ||
+                    item.TopCableClearanceMm is null || item.BottomCableClearanceMm is null)
+                    Add("unknown-patch-clearance", RackFindingSeverity.Unresolved, zone.Id, placement.Id,
+                        "Signal/power patch cable exits are not fully measured on every side.");
+                if (item.UnderboardRequiredMm is { } underside)
+                {
+                    if (zone.UnderboardClearanceMm is null)
+                        Add("unknown-underboard", RackFindingSeverity.Unresolved, zone.Id, placement.Id,
+                            "Underside power supply or cable cavity has unknown clearance.");
+                    else if (underside > zone.UnderboardClearanceMm)
+                        Add("underboard-collision", RackFindingSeverity.Error, zone.Id, placement.Id,
+                            "Power supply or cabling requires more underside height than the board provides.");
+                }
+
+                var leftPad = item.LeftCableClearanceMm ?? 0;
+                var rightPad = item.RightCableClearanceMm ?? 0;
+                var topPad = item.TopCableClearanceMm ?? 0;
+                var bottomPad = item.BottomCableClearanceMm ?? 0;
+                var footPad = item.FootAccessClearanceMm ?? 0;
+                if (new[] { leftPad, rightPad, topPad, bottomPad, footPad }.Any(v => v < 0))
+                    Add("invalid-cable-clearance", RackFindingSeverity.Error, zone.Id, placement.Id,
+                        "Cable and foot access clearances must be nonnegative.");
+                volume = new Volume(
+                    placement.LeftMm - leftPad,
+                    placement.LeftMm + item.WidthMm.Value + rightPad,
+                    placement.BottomMm - bottomPad - footPad,
+                    placement.BottomMm + item.HeightMm.Value + topPad,
+                    placement.FrontOffsetMm,
+                    placement.FrontOffsetMm + item.BodyDepthMm.Value);
+                if (volume.Back > zone.UsableDepthMm + Epsilon)
+                    Add("above-board-clearance", RackFindingSeverity.Error, zone.Id, placement.Id,
+                        "Pedal height exceeds the available board-to-lid or board-to-case clearance.");
+            }
+            else
+            {
+                volume = new Volume(
+                    placement.LeftMm,
+                    placement.LeftMm + item.WidthMm.Value,
+                    placement.BottomMm,
+                    placement.BottomMm + item.HeightMm.Value,
+                    placement.FrontOffsetMm - item.FrontProtrusionMm,
+                    placement.FrontOffsetMm + item.BodyDepthMm.Value + item.RearCableClearanceMm);
+            }
 
             if (volume.Left < -Epsilon || volume.Bottom < -Epsilon ||
                 volume.Right > zone.WidthMm + Epsilon || volume.Top > zone.HeightMm + Epsilon)
                 Add("outside-zone", RackFindingSeverity.Error, zone.Id, placement.Id, "Equipment extends past the measured mounting region.");
-            if (volume.Front < -zone.FrontDoorClearanceMm - Epsilon)
+            if (!isSurface && volume.Front < -zone.FrontDoorClearanceMm - Epsilon)
                 Add("front-clearance", RackFindingSeverity.Error, zone.Id, placement.Id, "Handles, plugs or front panel exceed front-door clearance.");
-            if (volume.Back > zone.UsableDepthMm - zone.RearReserveMm + Epsilon)
+            if (!isSurface && volume.Back > zone.UsableDepthMm - zone.RearReserveMm + Epsilon)
                 Add("rear-clearance", RackFindingSeverity.Error, zone.Id, placement.Id, "Equipment and rear cable bend allowance exceed available depth.");
 
             // Do not conflate a 1U mounting increment with a physical 1U panel height.
