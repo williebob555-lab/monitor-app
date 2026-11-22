@@ -29,6 +29,9 @@
     <Protobuf Include="..\..\contracts\monitor\v1\agent.proto"
               ProtoRoot="..\..\contracts"
               GrpcServices="Both" />
+    <Protobuf Include="..\..\contracts\monitor\v1\host.proto"
+              ProtoRoot="..\..\contracts"
+              GrpcServices="None" />
     <Protobuf Include="..\..\contracts\monitor\v1\peer.proto"
               ProtoRoot="..\..\contracts"
               GrpcServices="Both" />
