@@ -60,7 +60,7 @@ public sealed record Sg250Snapshot(
     string SwitchEntityId,
     string CollectorPeerId,
     DateTimeOffset ObservedAt,
-    string? ChassisMac,
+    string? BridgeMac,
     IReadOnlyList<Sg250Port> Ports,
     LanTopologyFragment Topology,
     string? SafeReason);
@@ -147,7 +147,7 @@ public sealed class CiscoSg250Adapter
                 Status(GetNumber(byOid, Sg250Oids.IfAdminStatus, i)),
                 Status(GetNumber(byOid, Sg250Oids.IfOperStatus, i)),
                 speed is > 0 ? speed : null,
-                pvidByInterface.GetValueOrDefault(i) is var vlan and > 0 ? vlan : null));
+                pvidByInterface.TryGetValue(i, out var pvid) ? pvid : (int?)null));
         }
 
         if (ports.Count == 0) return Empty(Sg250CollectionStatus.Unavailable, at);
@@ -160,7 +160,7 @@ public sealed class CiscoSg250Adapter
         var claims = new List<IdentityClaim>();
         var relationships = new List<(LanRelationship, RelationshipObservation)>();
         if (mac is not null)
-            claims.Add(new IdentityClaim(switchEntityId, "lan.switch.chassis_mac", mac,
+            claims.Add(new IdentityClaim(switchEntityId, "lan.switch.bridge_mac", mac,
                 IdentityStrength.Strong, collectorPeerId, RelationshipEvidenceKind.Reported, 0.95, at));
 
         foreach (var port in ports)
@@ -212,6 +212,7 @@ public sealed class CiscoSg250Adapter
             return null;
         if (!text.StartsWith("STRING:", StringComparison.OrdinalIgnoreCase)) return null;
         var name = text["STRING:".Length..].Trim().Trim('"');
+        name = new string(name.Where(c => !char.IsControl(c)).ToArray());
         return string.IsNullOrWhiteSpace(name) ? null : name;
     }
 
@@ -237,7 +238,9 @@ public sealed class CiscoSg250Adapter
         if (value is null || !value.StartsWith("Hex-STRING:", StringComparison.OrdinalIgnoreCase)) return null;
         var bytes = value["Hex-STRING:".Length..].Trim();
         var hex = new string(bytes.Where(Uri.IsHexDigit).ToArray());
-        if (hex.Length != 12 || hex.All(c => c == '0')) return null;
+        if (hex.Length != 12 || hex.All(c => c == '0') ||
+            !byte.TryParse(hex[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var first) ||
+            (first & 0x03) != 0) return null; // not a stable globally administered unicast MAC
         return string.Join(":", Enumerable.Range(0, 6).Select(i => hex.Substring(i * 2, 2).ToLowerInvariant()));
     }
 }
