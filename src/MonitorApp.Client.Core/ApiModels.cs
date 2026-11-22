@@ -134,3 +134,6 @@ public sealed record HistoryResult(
     string Resolution,
     int PagesFetched,
     bool MoreAvailable);
+
+/// <summary>A lease on live (fast) sampling granted by the node; renew it before it lapses.</summary>
+public sealed record LiveInterestLeaseDto(string LeaseId, DateTimeOffset ExpiresAt, int RenewAfterSeconds);

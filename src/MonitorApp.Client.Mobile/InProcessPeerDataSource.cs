@@ -183,7 +183,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
 
     public void RequestStop() => stopHost?.Invoke();
 
-    public IDisposable BeginViewing(string? peerId) => runtime.BeginViewing(peerId);
+    public IDisposable BeginViewing(string? peerId, IReadOnlyCollection<string>? signalIds = null) => runtime.BeginViewing(peerId, signalIds);
 
     public async Task<string> PairWithCodeAsync(string address, string code, CancellationToken ct = default)
     {

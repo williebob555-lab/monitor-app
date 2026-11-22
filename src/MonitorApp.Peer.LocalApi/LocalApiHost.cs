@@ -14,7 +14,12 @@ using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.LocalApi;
 
-internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
+internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests)
+{
+    public LiveInterestLeases? Leases { get; } = Interests is null ? null : new LiveInterestLeases(Interests);
+}
+
+internal sealed record LiveInterestInput(string? PeerId, string[]? SignalIds);
 
 internal sealed record AlertPreferencesInput(string? MinSeverity, string[]? MutedRuleKinds);
 
@@ -143,6 +148,7 @@ public sealed class LocalApiHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        application.Services.GetService<LiveFeedOptions>()?.Leases?.Dispose();
         await application.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -278,6 +284,100 @@ public sealed class LocalApiHost : IAsyncDisposable
                 minSeverity = AlertPreferences.SeverityName(severity),
                 mutedRuleKinds = (body.MutedRuleKinds ?? []).Select(kind => kind.Trim()).Where(kind => kind.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal),
             });
+        });
+        application.MapPost("/api/v1/live/interest", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            LiveFeedOptions live,
+            PeerStore store,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (live.Interests is null || live.Leases is null)
+            {
+                return Results.Json(new { error = "Live interest is not available on this node." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            LiveInterestInput? body;
+            try
+            {
+                body = context.Request.ContentLength is 0
+                    ? new LiveInterestInput(null, null)
+                    : await context.Request.ReadFromJsonAsync<LiveInterestInput>(token).ConfigureAwait(false);
+            }
+            catch (JsonException)
+            {
+                body = null;
+            }
+
+            if (body is null || !LiveInterestLeases.AreValidSignals(body.SignalIds) ||
+                (body.PeerId is not null && (string.IsNullOrWhiteSpace(body.PeerId) || body.PeerId.Length > 128)))
+            {
+                return Results.BadRequest(new { error = "At most 64 signal ids of 1 to 128 characters and a valid peer id are required." });
+            }
+
+            var local = await store.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            var isLocal = body.PeerId is null || (local is not null && string.Equals(body.PeerId, local.PeerId, StringComparison.Ordinal));
+            if (isLocal && local is null)
+            {
+                return Results.Json(new { error = "This node has no identity yet." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            if (!isLocal)
+            {
+                var peer = await store.ReadTrustedPeerAsync(body.PeerId!, token).ConfigureAwait(false);
+                if (peer is null || peer.TrustState != PeerTrustState.Active)
+                {
+                    return Results.BadRequest(new { error = "The peer is not a trusted peer of this node." });
+                }
+            }
+
+            var signals = body.SignalIds?.Distinct(StringComparer.Ordinal).ToArray();
+            try
+            {
+                var started = live.Leases.TryBegin(() => isLocal
+                    ? live.Interests.WatchLocal(local!.PeerId, signals)
+                    : live.Interests.WatchRemote(body.PeerId!, signals));
+                return started is null
+                    ? Results.Json(new { error = "Too many live interest leases." }, statusCode: StatusCodes.Status429TooManyRequests)
+                    : Results.Json(new { leaseId = started.Value.LeaseId, expiresAt = started.Value.ExpiresAt, renewAfterSeconds = live.Leases.RenewAfterSeconds });
+            }
+            catch (InvalidOperationException)
+            {
+                return Results.BadRequest(new { error = "Live interest was refused (too many signals)." });
+            }
+        });
+        application.MapPost("/api/v1/live/interest/{leaseId}/renew", async (
+            string leaseId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            LiveFeedOptions live) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return live.Leases?.Renew(leaseId) is { } expires
+                ? Results.Json(new { leaseId, expiresAt = expires, renewAfterSeconds = live.Leases.RenewAfterSeconds })
+                : Results.NotFound(new { error = "No such live interest lease; it may have lapsed." });
+        });
+        application.MapDelete("/api/v1/live/interest/{leaseId}", async (
+            string leaseId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            LiveFeedOptions live) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return live.Leases?.End(leaseId) == true ? Results.NoContent() : Results.NotFound(new { error = "No such live interest lease." });
         });
         application.MapGet("/api/v1/catalog", async (PeerHistoryQueryService history, CancellationToken token) =>
             Results.Json(await history.ReadCatalogAsync(token).ConfigureAwait(false)));

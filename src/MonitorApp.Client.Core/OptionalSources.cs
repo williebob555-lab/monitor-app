@@ -15,7 +15,7 @@ public interface IAlertSource
 /// </summary>
 public interface IViewingSource
 {
-    IDisposable BeginViewing(string? peerId);
+    IDisposable BeginViewing(string? peerId, IReadOnlyCollection<string>? signalIds = null);
 }
 
 /// <summary>Sources that can start pairing with another peer (a phone pairing with a desktop).</summary>

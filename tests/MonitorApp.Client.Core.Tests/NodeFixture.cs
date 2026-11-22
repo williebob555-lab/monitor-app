@@ -57,7 +57,8 @@ internal sealed class NodeFixture : IAsyncDisposable
     public static async Task<NodeFixture> CreateAsync(
         LocalPresenceService? presence = null,
         ILocalUpdateController? updates = null,
-        bool withControl = false)
+        bool withControl = false,
+        LiveInterestRegistry? interests = null)
     {
         var directory = Path.Combine(Path.GetTempPath(), "monitor-client-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -119,7 +120,7 @@ internal sealed class NodeFixture : IAsyncDisposable
 
         var host = LocalApiHost.Create(
             LocalApiOptions.Loopback(databasePath), store, appStore, coordinator, FixedClock.Instance,
-            alertStore: alerts, updates: updates, control: control, localPresence: presence);
+            alertStore: alerts, interests: interests, updates: updates, control: control, localPresence: presence);
         await host.StartAsync();
         var fixture = new NodeFixture(
             directory, localKey, store, coordinator, host, pending.PairingId!, Convert.ToHexString(identity.PublicIdentity.PublicKeyFingerprint));
