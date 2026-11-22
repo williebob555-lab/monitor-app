@@ -1,0 +1,74 @@
+name: Android startup triage (released APK)
+
+# This is an integration check for the actual distributable APK, not merely the .NET build.
+# A built/packaged .NET Android app can still crash at process start.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/android-startup-triage.yml'
+      - 'src/MonitorApp.Android/**'
+      - 'src/MonitorApp.Client.Ui/**'
+      - 'src/MonitorApp.Peer.Mobile/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch-current-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PREVIEW_TAG: preview-0.1.7
+      PACKAGE_ID: app.monitor.selfhosted
+    steps:
+      - name: Download signed release APK and verify checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh release download "$PREVIEW_TAG" --repo "$GITHUB_REPOSITORY" --dir release \
+            --pattern 'monitorapp-mobile-android-universal-*.apk' --pattern SHA256SUMS
+          (cd release && sha256sum --check --ignore-missing SHA256SUMS)
+
+      - name: Install Android emulator image
+        run: |
+          set -euo pipefail
+          echo "y" | sdkmanager --install 'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
+          echo "no" | avdmanager create avd --name monitor-smoke --package 'system-images;android-35;google_apis;x86_64' --force
+          sudo chmod 666 /dev/kvm || true
+
+      - name: Boot emulator and launch actual release
+        run: |
+          set -euo pipefail
+          export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
+          emulator -avd monitor-smoke -no-window -no-audio -no-boot-anim -no-snapshot \
+            -gpu swiftshader_indirect -no-metrics -memory 2048 > /tmp/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          adb wait-for-device
+          for i in $(seq 1 90); do
+            if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; then break; fi
+            sleep 3
+          done
+          [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ] || {
+            tail -n 70 /tmp/emulator.log
+            echo "::error::Android emulator failed to boot."
+            exit 1
+          }
+          adb shell input keyevent 82
+          adb install -r release/monitorapp-mobile-android-universal-0.1.7.apk
+          adb logcat -c
+          adb shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1
+          sleep 15
+          adb logcat -d -v threadtime > /tmp/launch.log
+          echo "=== Process ==="
+          adb shell pidof "$PACKAGE_ID" || true
+          echo "=== Fatal/managed exception evidence ==="
+          grep -Ein -A 28 -B 4 'FATAL EXCEPTION|AndroidRuntime|libmonodroid.*(fail|error)|Unhandled Exception|System\.[A-Za-z]+Exception|Microsoft\.Maui|Avalonia.*Exception|SIGABRT|Fatal signal|Could not load' /tmp/launch.log | tail -n 200 || true
+          if ! adb shell pidof "$PACKAGE_ID" >/dev/null; then
+            echo "::error::The released Android application exits/crashes immediately after launch."
+            exit 1
+          fi
+          echo "Released APK remained alive after startup."
