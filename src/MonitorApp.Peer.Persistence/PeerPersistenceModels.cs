@@ -105,6 +105,23 @@ public sealed record StoredOriginRecord(
     RecordProvenance Provenance,
     string Quality);
 
+public sealed record OriginRecordCursor(
+    DateTimeOffset ObservedAt,
+    string OriginPeerId,
+    string OriginStreamId,
+    ulong Sequence);
+
+public sealed record OriginRecordWindowQuery(
+    DateTimeOffset From,
+    DateTimeOffset ToExclusive,
+    string? SubjectEntityId,
+    string? SignalId,
+    string? OriginPeerId,
+    OriginRecordCursor? After,
+    int Limit);
+
+public sealed record OriginRecordWindowPage(IReadOnlyList<StoredOriginRecord> Records, bool Truncated);
+
 public sealed record CurrentObservation(
     string SubjectEntityId,
     string SignalId,

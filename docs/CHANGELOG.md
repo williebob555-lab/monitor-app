@@ -6,6 +6,8 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Changed
 
+- Added bounded history query (UTC window max 31 days, max 5000 rows, explicit truncation flag plus keyset cursor), as-of state reconstruction with age and freshness within a lookback, and a subject/signal catalog as `PeerHistoryQueryService` with versioned `/api/v1/history`, `/api/v1/state`, `/api/v1/catalog` endpoints that report a `resolution` (`raw` today) for later rollup tiers. Unavailable, denied, error, and undecodable observations are returned as states without values. SQLite schema version 3 adds an `observed_at` index. The loopback page gained minimal current-state, history, and as-of views and nonce-bound CSP/nosniff headers.
+
 - Replaced the mandatory full-document preflight and default full-suite verification for every edit with a risk-based workflow: always inspect the index, todo, working tree, and governing decisions; read complete documents and run broad tests only when the change scope requires them.
 - Expanded the documented product scope to a universal monitoring, inventory, and design model with an explicit boundary between actual/owned/running state and named plans. Added connector-and-length-centered cable management, physical/audio/RF/electrical/thermal constraints, sourcing and price history, deterministic automation and notifications, optional distributed local AI, and a dependency-ordered roadmap. These are documented plans, not implemented features.
 - Replaced the controller/agent and automatic self-hosted Headscale direction with a confirmed decentralized equal-peer mesh. Tailscale now supplies user-managed reachability only; bilateral application pairing establishes trust.
