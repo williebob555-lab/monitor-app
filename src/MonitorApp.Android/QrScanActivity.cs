@@ -153,12 +153,12 @@ public sealed class QrScanActivity : Activity, TextureView.ISurfaceTextureListen
     }
 
     /// <summary>Runs on the camera thread for each preview frame; decodes the newest frame and drops the rest.</summary>
-    public void OnImageAvailable(ImageReader imageReader)
+    public void OnImageAvailable(ImageReader reader)
     {
         Image image = null;
         try
         {
-            image = imageReader.AcquireLatestImage();
+            image = reader.AcquireLatestImage();
             if (image is null || Volatile.Read(ref finished) != 0)
             {
                 return;
@@ -297,7 +297,7 @@ public sealed class QrScanActivity : Activity, TextureView.ISurfaceTextureListen
                     new OutputConfiguration(readerSurface),
                 };
                 device.CreateCaptureSession(new SessionConfiguration(
-                    SessionConfiguration.SessionRegular, outputs, MainExecutor, callback));
+                    Android.Hardware.Camera2.Params.SessionType.Regular, outputs, MainExecutor, callback));
             }
             else
             {
