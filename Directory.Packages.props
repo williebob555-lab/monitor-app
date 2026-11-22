@@ -9,6 +9,13 @@
     <PackageVersion Include="Avalonia.Android" Version="11.3.23" />
     <PackageVersion Include="Avalonia.Desktop" Version="11.3.23" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+    <!-- SkiaSharp 3.x (Avalonia 11.3 supports it): 2.88.x Android natives lack 16 KB page alignment (XA0141, required by Android 15+ devices). Keep all SkiaSharp packages on one version. -->
+    <PackageVersion Include="SkiaSharp" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Android" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="11.3.23" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
