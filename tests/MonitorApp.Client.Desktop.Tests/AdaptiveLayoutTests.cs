@@ -19,6 +19,7 @@ public sealed class AdaptiveLayoutTests
         [typeof(EnvironmentViewModel)] = typeof(EcosystemView),
         [typeof(DevicesViewModel)] = typeof(DevicesView),
         [typeof(AlertsViewModel)] = typeof(AlertsView),
+        [typeof(ActivityViewModel)] = typeof(ActivityView),
         [typeof(StateViewModel)] = typeof(StateView),
         [typeof(HistoryViewModel)] = typeof(HistoryView),
         [typeof(AsOfViewModel)] = typeof(AsOfView),
@@ -53,6 +54,23 @@ public sealed class AdaptiveLayoutTests
             {
                 Find<TabStrip>(view, "SubTabs").SelectedItem = section;
                 Pump();
+            }
+            else if (model.Shell.Mode == ShellMode.Activity)
+            {
+                // History: climb back with the chip, then open the tool from "Browse history".
+                if (model.Shell.Activity.CanGoBack)
+                {
+                    Find<Button>(view, "ActivityBack").Command!.Execute(null);
+                    Pump();
+                }
+
+                if (section is not ActivityViewModel)
+                {
+                    var tile = Find<ItemsControl>(view, "ActivityBrowse").GetVisualDescendants().OfType<Button>()
+                        .Single(b => b.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityBrowseTile t && t.Section == section);
+                    tile.Command!.Execute(tile.CommandParameter);
+                    Pump();
+                }
             }
 
             Assert.Same(section, model.SelectedSection);
@@ -90,7 +108,7 @@ public sealed class AdaptiveLayoutTests
     {
         EnvironmentViewModel => ShellMode.Ecosystem,
         AlertsViewModel => ShellMode.Alerts,
-        StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
+        ActivityViewModel or StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
         _ => ShellMode.Settings,
     };
 

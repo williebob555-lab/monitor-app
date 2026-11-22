@@ -38,14 +38,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Overview = new OverviewViewModel(connection);
         Devices = new DevicesViewModel(connection);
         Environment = new EnvironmentViewModel(connection);
+        var state = new StateViewModel(connection);
+        var history = new HistoryViewModel(connection);
+        var asOf = new AsOfViewModel(connection);
         var sections = new List<SectionViewModel>
         {
             Environment,
             Devices,
             new AlertsViewModel(connection),
-            new StateViewModel(connection),
-            new HistoryViewModel(connection),
-            new AsOfViewModel(connection),
+            state,
+            history,
+            asOf,
+            // History mode's home ("What happened"); the three tools above stay reachable from its "Browse history".
+            new ActivityViewModel(connection, [state, history, asOf]),
             new PairingsViewModel(connection),
         };
         // Only sources that manage this computer's fingerprint get the security section and the banner.

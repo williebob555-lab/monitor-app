@@ -328,6 +328,145 @@ public sealed class DiveViewTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task HistoryTellsWhatHappenedAnEventShowsThatMomentAndTheToolsStayReachable()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new FakeControlEnvironmentSource();
+        // The built-in alert a1 (critical CPU on the server, raised 5 h ago, resolved 4 h ago), one newer warning, one 9-day-old alert outside
+        // the story's week; the server was paired 2 days ago (FakeEnvironmentSource.GetPeersAsync).
+        source.ExtraAlerts.Add(new AlertDto("a2", 1, "disk-free", "peer:" + FakeEnvironmentSource.ServerId, FakeEnvironmentSource.ServerId, "Warning", "Raised",
+            "Storage almost full", "240 GB free of 4 TB", now.AddMinutes(-20), null));
+        source.ExtraAlerts.Add(new AlertDto("a9", 1, "disk-free", "peer:" + FakeEnvironmentSource.ServerId, FakeEnvironmentSource.ServerId, "Warning", "Resolved",
+            "Too old to tell", "-", now.AddDays(-9), now.AddDays(-9).AddHours(1)));
+        source.ExtraAlerts.Add(new AlertDto("a3", 1, "backup-slow", "peer:" + FakeEnvironmentSource.ServerId, FakeEnvironmentSource.ServerId, "Warning", "Raised",
+            "Backup running slow", "Backup took 3 h", now.AddHours(-5).AddMinutes(20), null));
+        // CPU history in the minutes before a1 was raised, for the event page's sparkline.
+        for (var i = 9; i >= 1; i--)
+        {
+            source.History.Add(FakeEnvironmentSource.Recorded("peer:" + FakeEnvironmentSource.ServerId, SignalIds.CpuUtilization, 0.6 + (0.04 * (9 - i)), "Ratio",
+                now.AddHours(-5).AddMinutes(-i), (ulong)i));
+        }
+
+        using var model = new MainViewModel(source);
+        var shell = new WorkspaceShell { RunEnvironmentLive = false, ReducedMotion = true, DataContext = model };
+        var window = new Window { Width = 1400, Height = 860, Content = shell };
+        window.Show();
+        await model.Environment.RefreshAsync();
+        model.Shell.GoTo(ShellMode.Activity);
+        var activity = model.Shell.Activity;
+        await activity.RefreshAsync();
+        Pump();
+
+        // Home: the story newest first, grouped by local day, from real events only (the 9-day-old alert is outside the week).
+        string Story() => string.Join(" | ", activity.Home.Days.SelectMany(d => d.Items).Select(e => $"{e.KindText}: {e.Title} ({e.DeviceText})"));
+        Assert.True(Story() == "Alert raised: Storage almost full (Home server) | Alert resolved: CPU saturated (Home server) | "
+            + "Alert raised: Backup running slow (Home server) | Alert raised: CPU saturated (Home server) | Device paired: Paired Home server (Home server)",
+            $"story: {Story()}");
+        Assert.Equal(["Warning", "Resolved", "Warning", "Critical", "Trusted"], activity.Home.Days.SelectMany(d => d.Items).Select(e => e.Severity.Text));
+        Assert.All(activity.Home.Days, d => Assert.True(d.Items.Select(e => e.Time.ToLocalTime().Date).Distinct().Count() == 1, $"day '{d.Title}' mixes dates"));
+        var pairedDay = activity.Home.Days.Single(d => d.Items.Any(e => e.KindText == "Device paired"));
+        Assert.False(pairedDay.Title.StartsWith("Today", StringComparison.Ordinal) || pairedDay.Title.StartsWith("Yesterday", StringComparison.Ordinal),
+            $"2 days ago is titled '{pairedDay.Title}'");
+        Assert.True(activity.Home.Headline == "5 things happened"
+            && activity.Home.Breakdown == "In the last 7 days: 1 critical alert · 2 other alerts · 1 resolved · 1 pairing or trust change.",
+            $"headline '{activity.Home.Headline}', breakdown '{activity.Home.Breakdown}'");
+        var rows = EntryRows(shell, "ActivityDays");
+        Assert.True(rows.Count == 5, $"{rows.Count} entry rows rendered");
+        Assert.All(rows, r => Assert.True(r.Bounds.Height >= 44 && r.Bounds.Width <= 961, $"row {r.DataContext} is {r.Bounds.Size}"));
+        var critical = rows.Single(r => r.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityEntry { IsAlarm: true });
+        var raisedAt = ((MonitorApp.Client.Core.ViewModels.Activity.ActivityEntry)critical.DataContext!).Time;
+
+        // Tap the critical entry: the app moves to that moment and the page shows the server's readings as recorded then.
+        Tap(window, critical);
+        var page = Assert.IsType<MonitorApp.Client.Core.ViewModels.Activity.ActivityEventPage>(activity.Page);
+        await activity.OpenTask;
+        Pump();
+        Assert.True(model.Environment.AsOf == raisedAt && model.Shell.IsHistorical && Find<Border>(shell, "ActivityRecordedBand").IsVisible,
+            $"as of {model.Environment.AsOf} (expected {raisedAt}), band {Find<Border>(shell, "ActivityRecordedBand").IsVisible}");
+        Assert.Equal(["Activity and history", "CPU saturated"], model.Shell.Breadcrumbs.Select(b => b.Text));
+        Assert.True(Find<TextBlock>(shell, "EventDetail").Text == "CPU at 99%" && page.DeviceTitle == FakeEnvironmentSource.ServerName && !page.IsLoading,
+            $"detail '{Find<TextBlock>(shell, "EventDetail").Text}', device '{page.DeviceTitle}', loading {page.IsLoading}, note '{page.ReadingsNote}'");
+        string Gauges() => string.Join(", ", page.Gauges.Select(g => $"{g.Label} {g.Value}{g.Unit} trend {g.Trend?.Text ?? "-"}"));
+        var cpu = page.Gauges.SingleOrDefault(g => g.Label == "CPU");
+        Assert.True(cpu is { Value: "18", HasTrend: true } && cpu.Trend!.Text.Contains("before " + page.MomentText, StringComparison.Ordinal)
+            && cpu.Trend.Text.Contains("at " + page.MomentText + " 92 %", StringComparison.Ordinal), $"gauges: {Gauges()}");
+        Assert.True(page.Gauges.Any(g => g.Label == "Memory" && g.HasFill) && Find<ItemsControl>(shell, "EventGauges").IsEffectivelyVisible, $"gauges: {Gauges()}");
+        Assert.True(page.HasNearby && page.Nearby.Any(n => n.Title == "Backup running slow")
+            && page.Nearby.All(n => n.Event != page.Entry.Event && (n.Time - page.Entry.Time).Duration() <= TimeSpan.FromHours(1)),
+            $"nearby: {string.Join(", ", page.Nearby.Select(n => $"{n.TimeText} {n.Title}"))}");
+
+        // Escape climbs back to the story and puts the app back at live (it was live before the entry was opened).
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        await activity.OpenTask;
+        Pump();
+        Assert.True(activity.IsHome && model.Environment.AsOf is null && !Find<Border>(shell, "ActivityRecordedBand").IsVisible,
+            $"after Escape: home {activity.IsHome}, as of {model.Environment.AsOf}");
+
+        // "See the whole home as of" switches to the Ecosystem's Dive, recorded at that moment.
+        activity.Open(activity.Home.Days.SelectMany(d => d.Items).Single(e => e.IsAlarm));
+        await activity.OpenTask;
+        Pump();
+        page = Assert.IsType<MonitorApp.Client.Core.ViewModels.Activity.ActivityEventPage>(activity.Page);
+        Tap(window, Find<Button>(shell, "SeeWholeHome"));
+        Assert.True(model.Shell.Mode == ShellMode.Ecosystem && model.Shell.IsDive && model.Shell.Dive.IsHome && model.Environment.AsOf == raisedAt
+            && model.Shell.LiveText == "RECORDED " + page.MomentText, $"mode {model.Shell.Mode}, Dive {model.Shell.IsDive}, as of {model.Environment.AsOf}, pill {model.Shell.LiveText}");
+
+        // Back in History the page is still open; "Return to live" leaves it open, live, and Back no longer moves time.
+        model.Shell.GoTo(ShellMode.Activity);
+        Pump();
+        Assert.Same(page, activity.Page);
+        Tap(window, Find<Button>(shell, "EventReturnLive"));
+        Assert.True(model.Environment.AsOf is null && activity.Page == page, $"return to live: as of {model.Environment.AsOf}");
+
+        // Phone: one column of 44 px rows, a back chip, full-width page buttons.
+        window.Width = 390;
+        window.Height = 844;
+        Pump();
+        Assert.True(Find<Button>(shell, "ActivityBack").IsEffectivelyVisible, "phone event page has a back chip");
+        var seeHome = Find<Button>(shell, "SeeWholeHome");
+        Assert.True(seeHome.Bounds.Height >= 44 && seeHome.Bounds.Width >= 300, $"phone 'see the whole home' is {seeHome.Bounds.Size}");
+        Tap(window, Find<Button>(shell, "ActivityBack"));
+        Assert.True(activity.IsHome && model.Environment.AsOf is null, $"chip: home {activity.IsHome}, as of {model.Environment.AsOf}");
+        Assert.All(EntryRows(shell, "ActivityDays"), r => Assert.True(r.Bounds.Height >= 44 && r.Bounds.Width >= 300, $"phone row {r.DataContext} is {r.Bounds.Size}"));
+
+        // Browse history keeps the older tools: a tile opens one inside History, and selecting one from elsewhere lands there too.
+        var asOfTile = Find<ItemsControl>(shell, "ActivityBrowse").GetVisualDescendants().OfType<Button>()
+            .Single(b => b.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityBrowseTile { Section: AsOfViewModel });
+        asOfTile.BringIntoView();
+        Pump();
+        Assert.True(asOfTile.Bounds.Height >= 44, $"browse tile is {asOfTile.Bounds.Size}");
+        Tap(window, asOfTile);
+        Assert.True(model.SelectedSection is AsOfViewModel && shell.GetVisualDescendants().OfType<AsOfView>().Any() && model.Shell.ToolbarTitle == "Readings as of a moment",
+            $"selected {model.SelectedSection.GetType().Name}, title '{model.Shell.ToolbarTitle}'");
+        window.Width = 1400;
+        window.Height = 860;
+        model.Shell.GoTo(ShellMode.Ecosystem);
+        Pump();
+        model.SelectedSection = model.Sections.OfType<HistoryViewModel>().Single();
+        Pump();
+        Assert.True(model.Shell.Mode == ShellMode.Activity && activity.BrowsingSection is HistoryViewModel && shell.GetVisualDescendants().OfType<HistoryView>().Any(),
+            $"mode {model.Shell.Mode}, browsing {activity.BrowsingSection?.Title}");
+
+        // With motion on, opening an entry zooms like the Dive and comes to rest.
+        activity.GoHome();
+        shell.ReducedMotion = false;
+        Pump();
+        var view = shell.GetVisualDescendants().OfType<ActivityView>().Single();
+        var zooms = view.ZoomsStarted;
+        Tap(window, EntryRows(shell, "ActivityDays")[0]);
+        await activity.OpenTask;
+        Assert.True(view.ZoomsStarted == zooms + 1, $"the tap should start one zoom; started {view.ZoomsStarted - zooms}");
+        view.CompleteAnimations();
+        Pump();
+        Assert.True(!view.IsZooming && activity.Page is MonitorApp.Client.Core.ViewModels.Activity.ActivityEventPage, $"zooming {view.IsZooming}, page {activity.Page}");
+        window.Close();
+    }
+
+    private static List<Button> EntryRows(WorkspaceShell shell, string listName) =>
+        Find<ItemsControl>(shell, listName).GetVisualDescendants().OfType<Button>()
+            .Where(b => b.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityEntry).ToList();
+
     private static readonly string[] AlertPageButtons = ["AlertAcknowledge", "AlertMuteHour", "AlertMuteDay", "DiveInto"];
 
     private static List<Button> AlertCards(WorkspaceShell shell) =>

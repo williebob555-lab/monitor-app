@@ -12,6 +12,7 @@
     <DataTemplate DataType="shell:SearchViewModel"><views:SearchPageView /></DataTemplate>
     <DataTemplate DataType="vm:DevicesViewModel"><views:DevicesView /></DataTemplate>
     <DataTemplate DataType="vm:AlertsViewModel"><views:AlertsView /></DataTemplate>
+    <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
     <DataTemplate DataType="vm:StateViewModel"><views:StateView /></DataTemplate>
     <DataTemplate DataType="vm:HistoryViewModel"><views:HistoryView /></DataTemplate>
     <DataTemplate DataType="vm:AsOfViewModel"><views:AsOfView /></DataTemplate>
@@ -107,6 +108,14 @@
                 <StackPanel Orientation="Horizontal" Spacing="2">
                   <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
                   <TextBlock Text="Alerts" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </Button>
+              <!-- Phone, on an event page or a history tool: the chip climbs back to "What happened". -->
+              <Button Name="ActivityBack" DockPanel.Dock="Left" Classes="compact flat" Command="{Binding Shell.Activity.BackCommand}"
+                      IsVisible="{Binding Shell.ShowActivityBack}" Margin="-8,0,4,0" AutomationProperties.Name="Back to History">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
+                  <TextBlock Text="History" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                 </StackPanel>
               </Button>
               <TextBlock Name="NarrowTitle" Text="{Binding Shell.ToolbarTitle}" Classes="subheading" VerticalAlignment="Center"

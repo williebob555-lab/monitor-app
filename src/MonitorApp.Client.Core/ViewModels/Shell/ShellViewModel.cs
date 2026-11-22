@@ -4,6 +4,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MonitorApp.Client.Core.Scene;
+using MonitorApp.Client.Core.ViewModels.Activity;
 using MonitorApp.Client.Core.ViewModels.Dive;
 
 namespace MonitorApp.Client.Core.ViewModels.Shell;
@@ -82,6 +83,23 @@ public sealed partial class ShellViewModel : ObservableObject
             }
         };
         Alerts.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
+
+        Activity = main.Sections.OfType<ActivityViewModel>().Single();
+        Activity.Attach(environment);
+        Activity.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ActivityViewModel.Page))
+            {
+                if (Mode == ShellMode.Activity && !syncing)
+                {
+                    PushSectionToMain();
+                }
+
+                RebuildBreadcrumbs();
+                OnPropertyChanged(nameof(ShowActivityBack));
+            }
+        };
+        Activity.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
 
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
@@ -180,6 +198,12 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>The phone's back chip ("‹ Alerts") while an alert page is open.</summary>
     public bool ShowAlertBack => Mode == ShellMode.Alerts && IsNarrow && Alerts.CanGoBack;
 
+    /// <summary>The History mode: the "What happened" story, a page per event, and the older history tools under "Browse history".</summary>
+    public ActivityViewModel Activity { get; }
+
+    /// <summary>The phone's back chip ("‹ History") while an event page or a history tool is open.</summary>
+    public bool ShowActivityBack => Mode == ShellMode.Activity && IsNarrow && Activity.CanGoBack;
+
     /// <summary>Switches to the Ecosystem and goes to a node (and part): in the Dive when it is shown, otherwise by selecting it.</summary>
     public void DiveTo(string? nodeId, string? layerId = null)
     {
@@ -261,6 +285,10 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             Alerts.GoHome();
         }
+        else if (Mode == ShellMode.Activity && Activity.CanGoBack)
+        {
+            Activity.GoHome();
+        }
         else if (Environment.SelectedNodeId is not null)
         {
             Environment.SelectedNodeId = null;
@@ -285,6 +313,13 @@ public sealed partial class ShellViewModel : ObservableObject
             if (item.NodeId is null)
             {
                 Alerts.GoHome();
+            }
+        }
+        else if (Mode == ShellMode.Activity && item is not null)
+        {
+            if (item.NodeId is null)
+            {
+                Activity.GoHome();
             }
         }
         else if (item?.NodeId is { } id)
@@ -313,6 +348,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowsConnection));
         OnPropertyChanged(nameof(IsEcosystem));
         OnPropertyChanged(nameof(ShowAlertBack));
+        OnPropertyChanged(nameof(ShowActivityBack));
         RaiseDive();
     }
 
@@ -343,6 +379,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsNotNarrow));
         OnPropertyChanged(nameof(ShowDiveBack));
         OnPropertyChanged(nameof(ShowAlertBack));
+        OnPropertyChanged(nameof(ShowActivityBack));
         // The phone starts with the timeline folded away; historical state always keeps it reachable.
         TimelineOpen = value != ShellLayoutClass.Narrow || Environment.IsHistorical;
         RaiseVisibility();
@@ -365,6 +402,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         ShellMode.Ecosystem => Environment,
         ShellMode.Alerts => main.Sections.OfType<AlertsViewModel>().Single(),
+        ShellMode.Activity => Activity,
         ShellMode.Search => Search,
         _ => SelectedSubSection,
     };
@@ -373,9 +411,6 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         switch (target)
         {
-            case ShellMode.Activity:
-                return main.Sections.Where(s => s is StateViewModel or HistoryViewModel or AsOfViewModel)
-                    .OrderBy(s => s is StateViewModel ? 0 : s is HistoryViewModel ? 1 : 2);
             case ShellMode.Settings:
                 return main.Sections.Where(s => s is DevicesViewModel or PairingsViewModel or SecurityViewModel or AlertPreferencesViewModel or PairDeviceViewModel or OverviewViewModel)
                     .OrderBy(s => s switch { DevicesViewModel => 0, PairingsViewModel => 1, SecurityViewModel => 2, AlertPreferencesViewModel => 3, PairDeviceViewModel => 4, _ => 5 });
@@ -415,6 +450,7 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             ShellMode.Ecosystem => Environment,
             ShellMode.Alerts => main.Sections.OfType<AlertsViewModel>().Single(),
+            ShellMode.Activity => Activity.BrowsingSection ?? Activity,
             ShellMode.Search => null,
             _ => SelectedSubSection,
         };
@@ -436,9 +472,19 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             EnvironmentViewModel => ShellMode.Ecosystem,
             AlertsViewModel => ShellMode.Alerts,
-            StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
+            ActivityViewModel or StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
             _ => ShellMode.Settings,
         };
+        if (target == ShellMode.Activity && section is not ActivityViewModel)
+        {
+            // A history tool selected from elsewhere opens inside History, under "Browse history".
+            Activity.Browse(section);
+        }
+        else if (section is ActivityViewModel && Activity.BrowsingSection is not null)
+        {
+            Activity.GoHome();
+        }
+
         if (target != Mode)
         {
             syncing = true;
@@ -524,6 +570,19 @@ public sealed partial class ShellViewModel : ObservableObject
         else if (Mode == ShellMode.Alerts && Alerts.Page is Alerts.AlertPage open)
         {
             Breadcrumbs.Add(new BreadcrumbItem(open.Title, "alert:" + open.AlertId, true));
+        }
+        else if (Mode == ShellMode.Activity)
+        {
+            var crumb = Activity.Page switch
+            {
+                ActivityEventPage moment => moment.Title,
+                ActivityBrowsePage tool => tool.Title,
+                _ => null,
+            };
+            if (crumb is not null)
+            {
+                Breadcrumbs.Add(new BreadcrumbItem(crumb, "activity:" + crumb, true));
+            }
         }
         else if (SelectedSubSection is { } sub)
         {

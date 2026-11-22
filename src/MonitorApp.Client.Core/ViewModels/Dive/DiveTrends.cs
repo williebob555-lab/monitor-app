@@ -45,6 +45,12 @@ public sealed class DiveTrendBuffer
     /// <summary>Total stored points (tests and diagnostics).</summary>
     public int Count => series.Values.Sum(s => s.Count);
 
+    /// <summary>
+    /// How the texts name the end of the window: null for a live buffer ("over the last 10 min ... now"), a clock time for a buffer filled
+    /// up to a recorded moment ("in the 10 min before 21:14 ... at 21:14").
+    /// </summary>
+    public string? EndsAt { get; init; }
+
     public void Clear() => series.Clear();
 
     /// <summary>Adds numeric readings of the tracked signals from history (unavailable or non-numeric points are skipped).</summary>
@@ -96,7 +102,7 @@ public sealed class DiveTrendBuffer
             "CPU",
             Draw(points).Select(v => Math.Clamp(v, 0, 1)).ToList(),
             now + " %",
-            $"CPU over the last {Minutes(points)}: {Pct(points.Min(p => p.Value))} to {Pct(points.Max(p => p.Value))} %, now {now} %");
+            $"CPU {Span(points)}: {Pct(points.Min(p => p.Value))} to {Pct(points.Max(p => p.Value))} %, {End} {now} %");
     }
 
     /// <summary>The network sparkline (sent plus received per second) for a node; null without two consecutive counter readings.</summary>
@@ -136,8 +142,13 @@ public sealed class DiveTrendBuffer
             "Network",
             Draw(combined).Select(v => peak > 0 ? Math.Clamp(v / peak, 0, 1) : 0).ToList(),
             now,
-            $"Network over the last {Minutes(combined)}: peak {SignalCatalog.Bytes(peak)}/s, now {now}");
+            $"Network {Span(combined)}: peak {SignalCatalog.Bytes(peak)}/s, {End} {now}");
     }
+
+    private string End => EndsAt is null ? "now" : "at " + EndsAt;
+
+    private string Span(List<(DateTimeOffset At, double Value)> points) =>
+        EndsAt is null ? "over the last " + Minutes(points) : $"in the {Minutes(points)} before {EndsAt}";
 
     private static double Normalize(string signal, string? unit, double value) =>
         signal == SignalIds.CpuUtilization && string.Equals(unit, "Percent", StringComparison.OrdinalIgnoreCase) ? value / 100 : value;

@@ -1,0 +1,151 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    The Dive's card language, shared by the Dive (DiveView), Alerts (AlertsView) and History (ActivityView): tiles, panels, status pills,
+    page titles and headlines, buttons with 44 px targets, the page column, and the phone (Panel.narrow) sizes. A view includes this first
+    in its own Styles and adds only what differs after it (later styles win). Colours come from Theme/Tokens.
+  -->
+  <Style Selector="Border.tile">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="20,18" />
+  </Style>
+  <Style Selector="Border.tile.planned">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Planned}" />
+  </Style>
+  <Style Selector="Border.tile.approval">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Planned}" />
+    <Setter Property="Background" Value="#1a1726" />
+  </Style>
+  <Style Selector="Border.tile.alarm">
+    <Setter Property="BorderBrush" Value="#7a2f2c" />
+    <Setter Property="Background" Value="#1a1314" />
+  </Style>
+  <!-- Past and settled (a resolved alert, a quiet entry): sunk into the page. -->
+  <Style Selector="Border.tile.resolved">
+    <Setter Property="Background" Value="{DynamicResource Brush.Ink}" />
+  </Style>
+  <Style Selector="Button.tile">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Button.tile:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.tile:pointerover Border.tile">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+  </Style>
+  <Style Selector="Button.tile:pressed">
+    <Setter Property="RenderTransform" Value="scale(0.99)" />
+  </Style>
+  <Style Selector="Border.panelbox">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="20" />
+  </Style>
+  <Style Selector="Border.panelbox.critical">
+    <Setter Property="BorderBrush" Value="#7a2f2c" />
+    <Setter Property="Background" Value="#191314" />
+  </Style>
+  <Style Selector="Border.badge">
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Pill}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="9,3" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.tiletitle">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.pagetitle">
+    <Setter Property="FontSize" Value="28" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.headline">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+    <Setter Property="FontSize" Value="30" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.gaugevalue">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.gaugeunit">
+    <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.trendnow">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+    <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.chip">
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Pill}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button.cta">
+    <Setter Property="Background" Value="{DynamicResource Brush.Warning}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="18,8" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.cta:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#f0b955" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+  </Style>
+  <Style Selector="Button.action">
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,8" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <!-- One page column; Alerts and History narrow it to 960 px. -->
+  <Style Selector="StackPanel.page">
+    <Setter Property="Margin" Value="32,24,32,32" />
+    <Setter Property="MaxWidth" Value="1200" />
+    <Setter Property="Spacing" Value="16" />
+  </Style>
+
+  <!-- Phone sizes (the shell sets Panel.narrow). -->
+  <Style Selector="Panel.narrow StackPanel.page">
+    <Setter Property="Margin" Value="16,12,16,16" />
+  </Style>
+  <Style Selector="Panel.narrow Border.tile">
+    <Setter Property="Padding" Value="14,12" />
+  </Style>
+  <Style Selector="Panel.narrow Border.panelbox">
+    <Setter Property="Padding" Value="12" />
+  </Style>
+  <Style Selector="Panel.narrow TextBlock.tiletitle">
+    <Setter Property="FontSize" Value="16" />
+  </Style>
+  <Style Selector="Panel.narrow TextBlock.pagetitle">
+    <Setter Property="FontSize" Value="24" />
+  </Style>
+  <Style Selector="Panel.narrow TextBlock.headline">
+    <Setter Property="FontSize" Value="24" />
+  </Style>
+</Styles>

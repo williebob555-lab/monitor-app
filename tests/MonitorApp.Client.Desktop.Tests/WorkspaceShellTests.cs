@@ -333,7 +333,11 @@ public sealed class WorkspaceShellTests
         Assert.IsType<PairingsViewModel>(model.SelectedSection);
         Assert.Contains(shell.GetVisualDescendants(), v => v is PairingsView);
         model.Shell.GoTo(ShellMode.Activity);
-        Assert.Equal(["Current state", "History", "As of"], model.Shell.SubSections.Select(s => s.Title));
+        Pump();
+        Assert.False(model.Shell.HasSubSections, "History has no tab strip: its tools sit under \"Browse history\"");
+        Assert.Same(model.Shell.Activity, model.Shell.Content);
+        Assert.Equal(["Current state", "History", "As of"], model.Shell.Activity.Tools.Select(s => s.Title));
+        Assert.Contains(shell.GetVisualDescendants(), v => v is ActivityView);
 
         // Phone: selection opens the bottom sheet, Escape closes it, Ctrl+K opens the search page.
         model.Shell.GoTo(ShellMode.Ecosystem);
