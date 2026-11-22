@@ -129,12 +129,11 @@ public sealed class CiscoSg250Adapter
         var pvidByInterface = new Dictionary<int, int>();
         foreach (var bridgePort in Indexes(byOid, Sg250Oids.BridgePortIfIndex))
         {
-            if (GetNumber(byOid, Sg250Oids.BridgePortIfIndex, bridgePort) is not { } ifIndex ||
-                ifIndex is < 1 or > int.MaxValue ||
-                GetNumber(byOid, Sg250Oids.BridgePortPvid, bridgePort) is not { } pvid ||
-                pvid is < 1 or > 4094)
+            var ifIndex = GetNumber(byOid, Sg250Oids.BridgePortIfIndex, bridgePort);
+            var pvid = GetNumber(byOid, Sg250Oids.BridgePortPvid, bridgePort);
+            if (ifIndex is null or < 1 or > int.MaxValue || pvid is null or < 1 or > 4094)
                 continue;
-            pvidByInterface[(int)ifIndex] = (int)pvid;
+            pvidByInterface[(int)ifIndex.Value] = (int)pvid.Value;
         }
 
         var ports = new List<Sg250Port>();
