@@ -123,7 +123,7 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            DeleteDirectory(root, recursive: true);
         }
     }
 
@@ -158,8 +158,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -187,8 +187,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -294,8 +294,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -332,8 +332,8 @@ public sealed class PeerNodeRuntimeTests
         }
         finally
         {
-            Directory.Delete(firstRoot, recursive: true);
-            Directory.Delete(secondRoot, recursive: true);
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
         }
     }
 
@@ -494,6 +494,35 @@ public sealed class PeerNodeRuntimeTests
         {
             Value.Dispose();
             return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Windows keeps pooled SQLite handles (and briefly, handles of just-stopped background work) open after a runtime is
+    /// disposed, so the temp directory delete clears the pools and retries briefly instead of failing a passing test.
+    /// </summary>
+    private static void DeleteDirectory(string path, bool recursive = true)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                Directory.Delete(path, recursive);
+                return;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return;
+            }
+            catch (IOException) when (attempt < 20)
+            {
+                Thread.Sleep(250);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 20)
+            {
+                Thread.Sleep(250);
+            }
         }
     }
 }
