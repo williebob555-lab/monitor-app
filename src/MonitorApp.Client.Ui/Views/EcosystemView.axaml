@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
+             x:Class="MonitorApp.Client.Ui.Views.EcosystemView" x:DataType="vm:EnvironmentViewModel">
+  <!--
+    The ecosystem workspace. WorkspaceHost is the extension slot for the schematic canvas (DataContext: EnvironmentViewModel).
+    Until a canvas is plugged in (WorkspaceShell.WorkspaceTemplate), the host shows the structured outline, which stays
+    available later as the screen-reader and keyboard alternative (the "Outline" panel beside the canvas).
+  -->
+  <!-- By default (no head template) the host shows the Dive (DiveView); the toolbar's outline switch brings the outline and inspector back. -->
+  <Grid RowDefinitions="Auto,*">
+    <StackPanel Name="Header" Grid.Row="0" Margin="12,8" Spacing="4">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding Summary}" Classes="mono" VerticalAlignment="Center" TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Environment summary" />
+        <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}" Classes="compact"
+                AutomationProperties.Name="Refresh the environment" />
+      </Grid>
+      <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive"
+                 IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+      <ContentControl Name="WorkspaceHost" Grid.Column="0" Content="{Binding}" AutomationProperties.Name="Workspace">
+        <ContentControl.ContentTemplate>
+          <DataTemplate x:DataType="vm:EnvironmentViewModel">
+            <ctl:OutlineTree />
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+      <!-- With a canvas in the host, the outline moves here so it is never lost. -->
+      <Border Name="OutlinePanel" Grid.Column="1" Classes="panel" BorderThickness="1,0,0,0" Width="280" IsVisible="False">
+        <ctl:OutlineTree DataContext="{Binding}" />
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

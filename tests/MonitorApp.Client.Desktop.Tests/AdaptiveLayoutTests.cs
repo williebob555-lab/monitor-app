@@ -1,31 +1,36 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MonitorApp.Client.Core;
 using MonitorApp.Client.Core.ViewModels;
+using MonitorApp.Client.Core.ViewModels.Shell;
 using MonitorApp.Client.Ui.Views;
 using Xunit;
 
 namespace MonitorApp.Client.Desktop.Tests;
 
-/// <summary>The shared shell at phone and desktop widths: right layout, every section reachable and rendered.</summary>
+/// <summary>The shared shell at phone and desktop widths: right layout, every section reachable by its mode and rendered.</summary>
 public sealed class AdaptiveLayoutTests
 {
     private static readonly Dictionary<Type, Type> ViewFor = new()
     {
+        [typeof(EnvironmentViewModel)] = typeof(EcosystemView),
         [typeof(DevicesViewModel)] = typeof(DevicesView),
         [typeof(AlertsViewModel)] = typeof(AlertsView),
+        [typeof(ActivityViewModel)] = typeof(ActivityView),
         [typeof(StateViewModel)] = typeof(StateView),
         [typeof(HistoryViewModel)] = typeof(HistoryView),
         [typeof(AsOfViewModel)] = typeof(AsOfView),
         [typeof(PairingsViewModel)] = typeof(PairingsView),
+        [typeof(SecurityViewModel)] = typeof(SecurityView),
         [typeof(PairDeviceViewModel)] = typeof(PairDeviceView),
         [typeof(OverviewViewModel)] = typeof(OverviewView),
     };
 
     [AvaloniaFact]
-    public async Task PhoneWidthUsesBottomBarAndMenuAndEverySectionIsReachable()
+    public async Task PhoneWidthUsesBottomBarAndEverySectionIsReachableThroughItsMode()
     {
         using var model = new MainViewModel(new FakePairingSource());
         var (window, view) = Show(model, 400, 800);
@@ -33,35 +38,50 @@ public sealed class AdaptiveLayoutTests
         Pump();
 
         Assert.True(view.IsCompact);
-        Assert.True(Find<Button>(view, "MenuButton").IsVisible);
-        Assert.True(Find<Grid>(view, "BottomBar").IsVisible);
-        var split = Find<SplitView>(view, "Split");
-        Assert.Equal(SplitViewDisplayMode.Overlay, split.DisplayMode);
-        Assert.False(split.IsPaneOpen);
+        Assert.True(Find<Border>(view, "BottomBar").IsVisible);
+        Assert.False(Find<Border>(view, "RailPanel").IsVisible);
         Assert.Contains(model.Sections, section => section is PairDeviceViewModel);
 
-        var primary = Find<ListBox>(view, "PrimaryList");
-        Assert.Equal(model.PrimarySections.Count, primary.ItemCount);
-        var nav = Find<ListBox>(view, "NavList");
+        var bottom = Find<ListBox>(view, "BottomNav");
+        Assert.Equal(model.Shell.Modes.Count, bottom.ItemCount);
         foreach (var section in model.Sections)
         {
-            // Navigate the way a finger does: choose the entry in the menu overlay.
-            Find<Button>(view, "MenuButton").Command?.Execute(null);
-            split.IsPaneOpen = true;
-            var changed = !ReferenceEquals(model.SelectedSection, section);
-            nav.SelectedItem = section;
+            // Navigate the way a finger does: choose the mode in the bottom bar, then the page within it.
+            var mode = model.Shell.Modes.Single(m => m.Mode == ModeOf(section));
+            bottom.SelectedItem = mode;
             Pump();
+            if (model.Shell.HasSubSections)
+            {
+                Find<TabStrip>(view, "SubTabs").SelectedItem = section;
+                Pump();
+            }
+            else if (model.Shell.Mode == ShellMode.Activity)
+            {
+                // History: climb back with the chip, then open the tool from "Browse history".
+                if (model.Shell.Activity.CanGoBack)
+                {
+                    Find<Button>(view, "ActivityBack").Command!.Execute(null);
+                    Pump();
+                }
+
+                if (section is not ActivityViewModel)
+                {
+                    var tile = Find<ItemsControl>(view, "ActivityBrowse").GetVisualDescendants().OfType<Button>()
+                        .Single(b => b.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityBrowseTile t && t.Section == section);
+                    tile.Command!.Execute(tile.CommandParameter);
+                    Pump();
+                }
+            }
+
             Assert.Same(section, model.SelectedSection);
-            Assert.True(!changed || !split.IsPaneOpen, "Choosing a new section closes the overlay.");
             AssertRendered(view, section);
         }
 
-        Assert.Equal(model.Sections.Count, nav.ItemCount);
         window.Close();
     }
 
     [AvaloniaFact]
-    public async Task DesktopWidthKeepsSideNavigationOpenAndEverySectionRenders()
+    public async Task DesktopWidthKeepsTheRailVisibleAndEverySectionRenders()
     {
         using var model = new MainViewModel(new FakeSource());
         var (window, view) = Show(model, 1100, 760);
@@ -69,11 +89,9 @@ public sealed class AdaptiveLayoutTests
         Pump();
 
         Assert.False(view.IsCompact);
-        Assert.False(Find<Button>(view, "MenuButton").IsVisible);
-        Assert.False(Find<Grid>(view, "BottomBar").IsVisible);
-        var split = Find<SplitView>(view, "Split");
-        Assert.Equal(SplitViewDisplayMode.Inline, split.DisplayMode);
-        Assert.True(split.IsPaneOpen);
+        Assert.True(Find<Border>(view, "RailPanel").IsVisible);
+        Assert.False(Find<Border>(view, "BottomBar").IsVisible);
+        Assert.Equal(model.Shell.Modes.Count, Find<ListBox>(view, "Rail").ItemCount);
         Assert.DoesNotContain(model.Sections, section => section is PairDeviceViewModel);
 
         foreach (var section in model.Sections)
@@ -85,6 +103,14 @@ public sealed class AdaptiveLayoutTests
 
         window.Close();
     }
+
+    private static ShellMode ModeOf(SectionViewModel section) => section switch
+    {
+        EnvironmentViewModel => ShellMode.Ecosystem,
+        AlertsViewModel => ShellMode.Alerts,
+        ActivityViewModel or StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
+        _ => ShellMode.Settings,
+    };
 
     [AvaloniaFact]
     public void ResizingBetweenWidthsSwitchesLayout()
@@ -98,12 +124,17 @@ public sealed class AdaptiveLayoutTests
         window.Width = 1000;
         Pump();
         Assert.False(view.IsCompact);
+        Assert.Equal(ShellLayoutClass.Wide, view.LayoutClass);
+        window.Width = 800;
+        Pump();
+        Assert.False(view.IsCompact);
+        Assert.Equal(ShellLayoutClass.Medium, view.LayoutClass);
         window.Close();
     }
 
     private static (Window Window, MainView View) Show(MainViewModel model, double width, double height)
     {
-        var view = new MainView();
+        var view = new MainView { RunEnvironmentLive = false };
         var window = new Window { Width = width, Height = height, Content = view, DataContext = model };
         window.Show();
         Pump();

@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.AlertPreferencesView" x:DataType="vm:AlertPreferencesViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="Alerts on this device" Classes="heading" />
+    <TextBlock Text="{x:Static vm:AlertPreferencesViewModel.Explanation}" TextWrapping="Wrap" />
+    <TextBlock Name="LoadedFrom" Text="{Binding LoadedFrom}" Classes="meta" IsVisible="{Binding LoadedFrom, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    <TextBlock Text="Minimum severity" Classes="subheading" />
+    <ComboBox Name="SeverityPicker" ItemsSource="{x:Static vm:AlertPreferencesViewModel.SeverityChoices}" SelectedItem="{Binding MinSeverity}"
+              AutomationProperties.Name="Minimum alert severity" />
+    <TextBlock Text="Mute these kinds of alert" Classes="subheading" />
+    <ItemsControl Name="RuleKindList" ItemsSource="{Binding RuleKinds}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:RuleKindMuteRow">
+          <CheckBox IsChecked="{Binding IsMuted}" AutomationProperties.Name="{Binding Title, StringFormat='Mute {0}'}">
+            <StackPanel>
+              <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding RuleId}" Opacity="0.7" />
+            </StackPanel>
+          </CheckBox>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Button Name="SaveAlertPreferencesButton" Content="Save" Command="{Binding SaveCommand}" HorizontalAlignment="Left"
+            AutomationProperties.Name="Save alert preferences" />
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Name="AlertPreferencesStatus" Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+  </StackPanel></ScrollViewer>
+</UserControl>

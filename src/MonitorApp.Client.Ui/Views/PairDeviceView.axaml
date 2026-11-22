@@ -3,9 +3,15 @@
              x:Class="MonitorApp.Client.Ui.Views.PairDeviceView" x:DataType="vm:PairDeviceViewModel">
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
     <TextBlock Text="Pair with a desktop" Classes="heading" />
-    <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device. Scanning a QR code with the camera is not available yet." TextWrapping="Wrap" />
+    <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device." TextWrapping="Wrap" />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <Border Classes="card" IsVisible="{Binding CanScanQr}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Scan the QR code" Classes="subheading" />
+        <Button Content="Scan QR" Command="{Binding ScanQrCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
     <Border Classes="card">
       <StackPanel Spacing="8">
         <TextBlock Text="Type the code" Classes="subheading" />

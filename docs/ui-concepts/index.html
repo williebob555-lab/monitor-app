@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor App Interfaces</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1114;--panel:#15181c;--line:#262b31;--fg:#e6e9ee;--dim:#8b93a0;--acc:#38b6e8}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1114}}
+:root[data-theme="dark"]{--bg:#0f1114}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:14px "IBM Plex Sans",system-ui,sans-serif;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header b{font-weight:600;margin-right:8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+button{font:inherit;color:var(--dim);background:transparent;border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer;min-height:36px}
+button[aria-pressed=true]{color:var(--fg);border-color:var(--acc);background:rgba(56,182,232,.1)}
+.sp{flex:1}
+#about{color:var(--dim);font-size:13px;padding:8px 16px;border-bottom:1px solid var(--line)}
+main{flex:1;display:flex;justify-content:center;align-items:center;min-height:0;padding:0}
+iframe{border:0;width:100%;height:100%;background:var(--bg)}
+main.phone{padding:16px}
+main.phone iframe{width:390px;height:min(844px,100%);border:1px solid var(--line);border-radius:28px}
+@media (max-width:600px){#size{display:none}}
+</style></head><body>
+<header><b>Interfaces</b><div class="tabs" id="tabs"></div><span class="sp"></span>
+<div class="tabs" id="size"><button data-s="desk" aria-pressed="true">Desktop</button><button data-s="phone" aria-pressed="false">Phone</button></div></header>
+<div id="about"></div>
+<main id="m"><iframe id="f" title="Interface concept"></iframe></main>
+<script>
+const C=[
+ {id:'dive',n:'Dive',d:'No panels. Tap a device and zoom into it until it becomes its own dashboard; keep diving to find the cause.'},
+ {id:'rewind',n:'Rewind',d:'Time is the main axis. Each device is a lane in a time river; scrub through history and open moments in place.'},
+ {id:'workbench',n:'Workbench',d:'Put a system on the bench as an exploded assembly; try planned changes (like the NAS) before buying.'}];
+const tabs=document.getElementById('tabs'),f=document.getElementById('f'),about=document.getElementById('about'),m=document.getElementById('m');
+function pick(c){f.src=c.id+'/index.html';about.textContent=c.d;[...tabs.children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.id===c.id));try{localStorage.setItem('c',c.id)}catch(e){}}
+C.forEach(c=>{const b=document.createElement('button');b.textContent=c.n;b.dataset.id=c.id;b.onclick=()=>pick(c);tabs.appendChild(b)});
+document.querySelectorAll('#size button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#size button').forEach(x=>x.setAttribute('aria-pressed',x===b));m.className=b.dataset.s==='phone'?'phone':''});
+let s=null;try{s=localStorage.getItem('c')}catch(e){}pick(C.find(c=>c.id===s)||C[0]);
+</script></body></html>

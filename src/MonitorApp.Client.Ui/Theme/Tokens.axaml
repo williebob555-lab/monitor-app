@@ -1,0 +1,118 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Design tokens (UI spec section 2). Views reference only these keys, never literal colours:
+      Color.* / Brush.*    foundation (ink, surfaces, lines, text) and semantic colours
+      Font.* / Size.*      typography: Sans for UI, Mono for technical values
+      Space.* / Radius.*   spacing and corner radii
+    Semantic colours carry meaning (spec 2): Healthy, Transfer, Warning, Fault, Planned, Muted. Views must never convey
+    severity by colour alone; always pair a brush with a shape or words.
+  -->
+
+  <!-- Foundation: dark graphite. -->
+  <Color x:Key="Color.Ink">#0c0e11</Color>
+  <Color x:Key="Color.Surface1">#121519</Color>
+  <Color x:Key="Color.Surface2">#171b20</Color>
+  <Color x:Key="Color.Surface3">#1e232a</Color>
+  <Color x:Key="Color.Line">#2a3038</Color>
+  <Color x:Key="Color.LineStrong">#353c46</Color>
+  <Color x:Key="Color.Text">#e4e7eb</Color>
+  <Color x:Key="Color.TextSecondary">#8b939e</Color>
+  <Color x:Key="Color.TextMuted">#5c646f</Color>
+
+  <!-- Semantic. -->
+  <Color x:Key="Color.Healthy">#43c17e</Color>
+  <Color x:Key="Color.Transfer">#38b6e8</Color>
+  <Color x:Key="Color.Warning">#e9a93a</Color>
+  <Color x:Key="Color.Fault">#e5534b</Color>
+  <Color x:Key="Color.Planned">#a07cf0</Color>
+  <Color x:Key="Color.Muted">#6b737d</Color>
+
+  <SolidColorBrush x:Key="Brush.Ink" Color="{StaticResource Color.Ink}" />
+  <SolidColorBrush x:Key="Brush.Surface1" Color="{StaticResource Color.Surface1}" />
+  <SolidColorBrush x:Key="Brush.Surface2" Color="{StaticResource Color.Surface2}" />
+  <SolidColorBrush x:Key="Brush.Surface3" Color="{StaticResource Color.Surface3}" />
+  <SolidColorBrush x:Key="Brush.Line" Color="{StaticResource Color.Line}" />
+  <SolidColorBrush x:Key="Brush.LineStrong" Color="{StaticResource Color.LineStrong}" />
+  <SolidColorBrush x:Key="Brush.Text" Color="{StaticResource Color.Text}" />
+  <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
+  <SolidColorBrush x:Key="Brush.TextMuted" Color="{StaticResource Color.TextMuted}" />
+  <SolidColorBrush x:Key="Brush.Healthy" Color="{StaticResource Color.Healthy}" />
+  <SolidColorBrush x:Key="Brush.Transfer" Color="{StaticResource Color.Transfer}" />
+  <SolidColorBrush x:Key="Brush.Warning" Color="{StaticResource Color.Warning}" />
+  <SolidColorBrush x:Key="Brush.Fault" Color="{StaticResource Color.Fault}" />
+  <SolidColorBrush x:Key="Brush.Planned" Color="{StaticResource Color.Planned}" />
+  <SolidColorBrush x:Key="Brush.Muted" Color="{StaticResource Color.Muted}" />
+  <!-- Selection tint: the Transfer colour at low opacity. -->
+  <SolidColorBrush x:Key="Brush.Selection" Color="#2638b6e8" />
+  <SolidColorBrush x:Key="Brush.Hover" Color="#14ffffff" />
+
+  <!-- Typography: system and fallback families only (no font packages). The last entries are the platform aliases. -->
+  <FontFamily x:Key="Font.Sans">Inter, Segoe UI, Roboto, Noto Sans, Cantarell, DejaVu Sans, Liberation Sans, sans-serif</FontFamily>
+  <FontFamily x:Key="Font.Mono">JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Roboto Mono, DejaVu Sans Mono, Liberation Mono, monospace</FontFamily>
+  <x:Double x:Key="Size.Caption">11</x:Double>
+  <x:Double x:Key="Size.Small">12</x:Double>
+  <x:Double x:Key="Size.Body">13</x:Double>
+  <x:Double x:Key="Size.Title">15</x:Double>
+  <x:Double x:Key="Size.Heading">18</x:Double>
+  <x:Double x:Key="Size.Display">22</x:Double>
+
+  <!-- Spacing (4 px grid) and radii (small 4 to large 8). -->
+  <x:Double x:Key="Space.1">4</x:Double>
+  <x:Double x:Key="Space.2">8</x:Double>
+  <x:Double x:Key="Space.3">12</x:Double>
+  <x:Double x:Key="Space.4">16</x:Double>
+  <x:Double x:Key="Space.6">24</x:Double>
+  <Thickness x:Key="Pad.Panel">12</Thickness>
+  <CornerRadius x:Key="Radius.Small">4</CornerRadius>
+  <CornerRadius x:Key="Radius.Medium">6</CornerRadius>
+  <CornerRadius x:Key="Radius.Large">8</CornerRadius>
+  <CornerRadius x:Key="Radius.Pill">999</CornerRadius>
+
+  <ResourceDictionary.ThemeDictionaries>
+    <!-- Fluent control chrome re-pointed at the graphite palette (the shell always runs in the Dark variant). -->
+    <ResourceDictionary x:Key="Dark">
+      <StaticResource x:Key="ButtonBackground" ResourceKey="Brush.Surface2" />
+      <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="Brush.Surface3" />
+      <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="ButtonBackgroundDisabled" ResourceKey="Brush.Surface1" />
+      <StaticResource x:Key="ButtonForeground" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="Brush.TextMuted" />
+      <StaticResource x:Key="ButtonBorderBrush" ResourceKey="Brush.Line" />
+      <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="ButtonBorderBrushDisabled" ResourceKey="Brush.Line" />
+      <StaticResource x:Key="TextControlBackground" ResourceKey="Brush.Ink" />
+      <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="Brush.Ink" />
+      <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="Brush.Ink" />
+      <StaticResource x:Key="TextControlBorderBrush" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="Brush.TextSecondary" />
+      <StaticResource x:Key="TextControlBorderBrushFocused" ResourceKey="Brush.Transfer" />
+      <StaticResource x:Key="TextControlForeground" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="Brush.TextSecondary" />
+      <StaticResource x:Key="ComboBoxBackground" ResourceKey="Brush.Ink" />
+      <StaticResource x:Key="ComboBoxBackgroundPointerOver" ResourceKey="Brush.Surface1" />
+      <StaticResource x:Key="ComboBoxBackgroundPressed" ResourceKey="Brush.Surface1" />
+      <StaticResource x:Key="ComboBoxBorderBrush" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="ComboBoxBorderBrushPointerOver" ResourceKey="Brush.TextSecondary" />
+      <StaticResource x:Key="ComboBoxDropDownBackground" ResourceKey="Brush.Surface2" />
+      <StaticResource x:Key="ComboBoxDropDownBorderBrush" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="ListBoxItemBackgroundPointerOver" ResourceKey="Brush.Hover" />
+      <StaticResource x:Key="ListBoxItemBackgroundSelected" ResourceKey="Brush.Selection" />
+      <StaticResource x:Key="ListBoxItemBackgroundSelectedPointerOver" ResourceKey="Brush.Selection" />
+      <StaticResource x:Key="ListBoxItemBackgroundSelectedPressed" ResourceKey="Brush.Selection" />
+      <StaticResource x:Key="ListBoxItemForegroundSelected" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="ListBoxItemForegroundSelectedPointerOver" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="ScrollBarThumbFill" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="SliderTrackValueFill" ResourceKey="Brush.Transfer" />
+      <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="Brush.Transfer" />
+      <StaticResource x:Key="SliderTrackFill" ResourceKey="Brush.LineStrong" />
+      <StaticResource x:Key="SliderThumbBackground" ResourceKey="Brush.Text" />
+      <StaticResource x:Key="SystemAccentColor" ResourceKey="Color.Transfer" />
+      <StaticResource x:Key="SystemAccentColorLight1" ResourceKey="Color.Transfer" />
+      <StaticResource x:Key="SystemAccentColorDark1" ResourceKey="Color.Transfer" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>
