@@ -36,6 +36,11 @@ This file contains active and near-term tasks only. Read it with the required do
 
 ## Platform and release gates
 
+- [x] Android peer slice: portable outbound-only runtime (`MonitorApp.Peer.Mobile`), pairing invitation payload, Android readings through the peer ingestion path, foreground-service host, real loopback two-store integration test (T031). APK build, emulator, and physical-device behavior are unverified.
+- [ ] Android: QR rendering of the invitation on the desktop admin page (after LocalApi work) and camera scan on the phone; typed/pasted invitation works now.
+- [ ] Android: device/emulator verification of the foreground service, Doze/battery-optimization behavior, Keystore identity, and cleartext-over-VPN gRPC; regenerate `src/MonitorApp.Android/packages.lock.json` with the workload; signed sideload APK on GitHub releases (release workflow untouched so far).
+- [ ] Not implemented: adaptive sampling (about 1 s while viewed, about 30 s otherwise) and tiered retention (7 days full, hourly rollups 1 year, events for years, pinned incidents forever); alert rules and alert list content.
+
 - [ ] Adapt Windows, Fedora, Ubuntu, and Android hosts to the peer service and prove platform-local identity storage, lifecycle, pairing, reconnect, collection, and query behavior.
   - Progress: Linux engineering preview, verified in an Ubuntu 24.04 container: the peer node targets `net10.0`, stores its identity in an owner-only `identity.p256` file, and runs the node tests on Linux. Fedora, packaging, `systemd`, SELinux, and a Linux service remain unproven.
 - [ ] Add clean install, upgrade, restart, recovery, and uninstall tests for Windows service, Fedora RPM, Ubuntu DEB, and Android package paths.

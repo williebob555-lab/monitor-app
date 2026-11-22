@@ -360,9 +360,9 @@ Only after this slice passes should controller code be removed or release artifa
 
 ### Android
 
-- Application lifecycle, Tailscale reachability, and background limits.
+- Outbound-only peer (T031): no listener; the phone dials the desktop and both origin streams replicate over that session. `MonitorApp.Peer.Mobile` (plain net10.0) composes PeerStore, signed-origin ingestion of Android readings (`monitor.android.device`), explicit pairing from a `PeerPairingInvitation`, and a reconnecting sync loop; the identity is injected (`ILocalPeerIdentityProvider`).
+- `src/MonitorApp.Android` (outside the solution) is a thin shell: a user-started foreground service hosts the runtime (`Start`/`StopAsync`); the activity shows health, pairing, and an empty alert list.
 - Android Keystore identity.
-- Peer listening/reconnection only through supported OS behavior.
 - Emulator tests plus one physical-device smoke test before support is claimed.
 
 ## Deferred architecture

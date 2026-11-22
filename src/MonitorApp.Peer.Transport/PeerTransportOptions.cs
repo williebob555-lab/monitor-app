@@ -12,7 +12,7 @@ public sealed record PeerTransportOptions(PeerTransportEndpoint Endpoint, TimeSp
     public static PeerTransportOptions Create(PeerTransportEndpoint endpoint) => new(endpoint, TimeSpan.FromSeconds(10),
         TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(1), 1024 * 1024);
 
-    internal void Validate()
+    public void Validate()
     {
         ArgumentNullException.ThrowIfNull(Endpoint); ArgumentNullException.ThrowIfNull(Endpoint.Address);
         ArgumentException.ThrowIfNullOrWhiteSpace(Endpoint.ExpectedPeerId);

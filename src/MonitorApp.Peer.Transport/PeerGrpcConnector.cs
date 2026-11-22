@@ -67,7 +67,15 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         SetState(PeerTransportState.Stopped);
     }
 
-    public async Task RunSessionAsync(CancellationToken cancellationToken)
+    public Task RunSessionAsync(CancellationToken cancellationToken) => RunSessionCoreAsync(keepAlive: true, cancellationToken);
+
+    /// <summary>
+    /// Authenticates, drains every pending replication operation in both directions, then closes the
+    /// session. Outbound-only peers (phones) call this repeatedly instead of holding a heartbeat session open.
+    /// </summary>
+    public Task SyncOnceAsync(CancellationToken cancellationToken) => RunSessionCoreAsync(keepAlive: false, cancellationToken);
+
+    private async Task RunSessionCoreAsync(bool keepAlive, CancellationToken cancellationToken)
     {
         SetState(PeerTransportState.Connecting);
         using var call = new PeerService.PeerServiceClient(channel).PeerSession(cancellationToken: cancellationToken);
@@ -91,6 +99,13 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         await application.OnAuthenticatedAsync(hello.Hello, capabilities.CapabilityExchange, cancellationToken).ConfigureAwait(false);
         await foreach (var request in application.GetPendingRequestsAsync(hello.Hello.PeerId, cancellationToken).WithCancellation(cancellationToken))
             await DispatchAsync(call, hello.Hello.PeerId, request, cancellationToken).ConfigureAwait(false);
+
+        if (!keepAlive)
+        {
+            await call.RequestStream.CompleteAsync().WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+            SetState(PeerTransportState.Stopped);
+            return;
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {

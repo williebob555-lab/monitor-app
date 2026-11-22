@@ -82,6 +82,12 @@ try {
             --no-build
     }
 
+    Invoke-VerificationStep "Run portable mobile peer runtime tests" {
+        dotnet test tests/MonitorApp.Peer.Mobile.Tests/MonitorApp.Peer.Mobile.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run local peer administration API tests" {
         dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
             -c Release `
