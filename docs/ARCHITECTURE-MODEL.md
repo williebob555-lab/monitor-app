@@ -38,7 +38,7 @@ An **object** is anything worth naming: a server, a drive, a cable, a rack, a pe
 Every object has:
 
 - a permanent **id** that never changes, even if the name, location, owner or monitoring source changes;
-- a **kind** from the kind library (for example `device.audio-interface`, `assembly.rack`, `part.drive`, `service.syncthing`, `space.enclosure`). Kinds are data, not code, so new kinds can be added without a rebuild. A kind may name a parent kind (`device.amplifier` is a `device`), so views and rules can work on broad families;
+- an optional **kind**, usually from the kind library (for example `device.audio-interface`, `assembly.rack`, `part.drive`, `service.syncthing`, `space.enclosure`). Kinds are data, not code, so new kinds can be added without a rebuild. A kind may name a parent kind (`device.amplifier` is a `device`), so views and rules can work on broad families;
 - a **name** and tags;
 - a **lifecycle state** (section 3.6);
 - **properties** (section 3.2);
@@ -162,6 +162,18 @@ Engines check designs and report **findings**. Each finding says what it is abou
 
 Findings point at concrete things (a port, a face, a region of a rack) so views can show why, for example by drawing the blocked airflow path, instead of only listing warnings.
 
+### 3.14 Built for a nonlinear way of working
+
+Wilson works in a way that is chaotic and unpredictable on the surface but effective on obscure, complicated projects. The model has to fit that, not fight it. So:
+
+- **Nothing is required up front except a name.** An object can be created with no kind (it is just a "thing"), no properties, no project, no location. Missing values are recorded as Unknown, not demanded.
+- **Quick capture.** A loose idea, a link, a half-remembered part number, a photo or a sentence can be saved as a **note** object in seconds and attached to structure later, or never. Notes are ordinary objects, so they can link to anything and show up in any view of what they are linked to.
+- **Many-to-many by default.** An object can belong to several projects, be a candidate in several designs, carry any number of tags and links. Only physical containment has a single parent, because a thing can only sit in one place at a time (and in a design it can sit somewhere else).
+- **No forced hierarchy.** Projects, assemblies and groupings are optional layers over objects, not folders objects must live in. Reorganising is relinking, not moving data.
+- **Reorganising is cheap and never loses anything.** Every change is an event in the log, so renaming, regrouping, merging two records that turned out to be the same thing, or splitting one apart can always be undone, and old arrangements can be looked at again.
+- **Unknown kinds and properties are accepted.** If something does not fit the libraries, it is stored anyway with the user's own names. The libraries only decide what the reasoning layer understands, not what can be recorded.
+- **The app finds the structure, instead of asking for it.** The reasoning layer (section 5) surfaces likely duplicates, notes that seem to belong to an object or project, gaps (a design with no power source, a planned part with no requirement it satisfies), and connections the user has not drawn. These appear as suggestions the user can accept, ignore or dismiss.
+
 ## 4. The libraries (extensible, not hard-coded)
 
 Four libraries hold the vocabulary. All are versioned data, can be extended locally by the user, and later by importable packs:
@@ -179,13 +191,14 @@ Wilson's goal is that the app works with you, not just stores what you type: it 
 
 The rule that makes this possible: **no one-off code.** No "pedalboard check", no "speaker wizard". Every capability is a general mechanism applied to the vocabulary in the libraries. A new kind of equipment, connector or signal becomes understood by adding library data, not by writing a new feature.
 
-The layer has five general mechanisms:
+The layer has six general mechanisms:
 
 1. **Constraint evaluation.** Constraints are declared against properties, ports and placement ("input voltage range must contain supply voltage", "child depth plus rear clearance must not exceed rack depth", "intake face must not face a closed panel within N mm"). The engines (below) are bundles of such constraints for one discipline. Every result is a finding with an evidence level (section 3.13).
 2. **Propagation along chains.** Values flow through connections and containment: a signal's level and format through each cable, adapter and device; power draw up through supplies and distribution; heat into the enclosing space; weight into the rack. A problem is found where it actually occurs in the chain, and the explanation shows the path.
 3. **Requirement derivation.** From a design the layer works out what is needed but not present: an unconnected input that needs a source, a missing cable between two ports (with connector ends and a length estimate from port positions), a supply that must provide more current, mounting hardware for a non-standard unit. Each becomes a requirement object, so it can be researched, bought and tracked.
 4. **Suggestion.** For a requirement or a failing finding, the layer searches what is available, in this order: things you already own, then products in the local catalog, then (optionally) external sources. Candidates are ranked by how many conditions they pass on what evidence, and each suggestion carries its reasoning ("passes level and connector; power draw unknown"). Suggestions are offered, never applied without the user.
-5. **Explanation.** Every finding, derived requirement, suggestion and rule run keeps the trail of facts and constraints it came from, so any view can answer "why?". This is also what lets the UI draw reasons (the blocked airflow, the wrong-level jack) instead of listing warnings.
+5. **Structure discovery.** The layer notices structure the user has not stated: likely duplicate records (same serial number, same product and similar name), notes that mention a known object or part number, objects that look like they belong to a project, and missing links. It offers them as suggestions (section 3.14).
+6. **Explanation.** Every finding, derived requirement, suggestion and rule run keeps the trail of facts and constraints it came from, so any view can answer "why?". This is also what lets the UI draw reasons (the blocked airflow, the wrong-level jack) instead of listing warnings.
 
 Where optional models (AI) fit: turning free text into a structured requirement ("compact, two outputs, low latency for bass"), extracting specifications from a datasheet or product page into properties (marked Imported with a source), suggesting kind and property names for unfamiliar equipment, and summarising long histories. Their output always enters the model as ordinary data with its source, and the deterministic layer checks it like anything else. Nothing depends on them; nothing they produce is trusted more than its evidence.
 
