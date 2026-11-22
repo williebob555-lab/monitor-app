@@ -68,7 +68,23 @@ public enum ControlActionKind
     ApprovePairing,
     RejectPairing,
     EnrollPresenceKey,
+    ApproveUpdate,
 }
+
+/// <summary>
+/// A paired computer's update state as the phone may see it (T044). <see cref="Permitted"/> is false until the owner grants this
+/// device update approval on that computer; every other field is then empty. <see cref="StagedDigestHex"/> binds an approval to
+/// exactly the verified package the computer staged.
+/// </summary>
+public sealed record RemoteUpdateStatusDto(
+    bool Permitted,
+    bool Available,
+    string InstalledVersion,
+    string? StagedVersion,
+    string? StagedDigestHex,
+    string State,
+    string? LastError,
+    bool ApprovalPending);
 
 /// <summary>How much assurance a command needs beyond the signed session (client-side mirror of the peer's risk tiers).</summary>
 public enum ControlTierDto
@@ -125,4 +141,10 @@ public interface IControlSource
     Task<ControlOutcomeDto> ResolvePairingAsync(string peerId, string pairingId, string fingerprint, bool approve, CancellationToken ct = default);
 
     Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default);
+
+    /// <summary>Reads a paired computer's update state; null when it cannot be reached.</summary>
+    Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default);
+
+    /// <summary>Approves installing the staged update read by <see cref="ReadUpdateStatusAsync"/>. High tier: needs the fingerprint.</summary>
+    Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default);
 }

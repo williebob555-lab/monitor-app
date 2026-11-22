@@ -316,6 +316,47 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
     public Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default) =>
         SendAsync(peerId, ControlActionKind.EnrollPresenceKey, null, () => ControlRequest.EnrollPresenceKey(), ct);
 
+    public async Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var status = await runtime.ReadUpdateStatusAsync(peerId, ct).ConfigureAwait(false);
+            return new RemoteUpdateStatusDto(
+                status.Permitted,
+                status.Available,
+                status.InstalledVersion,
+                status.StagedVersion.Length == 0 ? null : status.StagedVersion,
+                status.StagedArtifactSha256.Length == 0 ? null : Convert.ToHexString(status.StagedArtifactSha256.Span),
+                status.State,
+                status.LastError.Length == 0 ? null : status.LastError,
+                status.ApprovalPending);
+        }
+        catch (MobileControlFailedException)
+        {
+            return null;
+        }
+    }
+
+    public Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default)
+    {
+        byte[] digest;
+        try
+        {
+            digest = Convert.FromHexString(stagedDigestHex);
+        }
+        catch (FormatException)
+        {
+            digest = [];
+        }
+
+        if (string.IsNullOrWhiteSpace(stagedVersion) || digest.Length != 32)
+        {
+            return Task.FromResult(new ControlOutcomeDto("Refused", "invalid_payload", "That update identity is not valid.", true));
+        }
+
+        return SendAsync(peerId, ControlActionKind.ApproveUpdate, null, () => ControlRequest.ApproveUpdate(stagedVersion, digest), ct);
+    }
+
     /// <summary>Sends one control; refusals and delivery/biometric failures become an outcome, never an exception.</summary>
     private async Task<ControlOutcomeDto> SendAsync(
         string peerId, ControlActionKind kind, TimeSpan? duration, Func<ControlRequest> build, CancellationToken ct)

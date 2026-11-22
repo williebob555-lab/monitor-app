@@ -62,6 +62,7 @@ public sealed class ControlSourceTests
             Assert.Equal("not_permitted", denied.ReasonCode);
             Assert.False(denied.IsApplied);
             Assert.False(desktop.Monitoring.IsPaused("monitor.system"));
+            Assert.False((await control.ReadUpdateStatusAsync(desktopId))!.Permitted);
 
             await desktop.ControlStore.SetGrantAsync(
                 new ControlGrant(phone.Identity.PeerId, MonitoringControls: true, PairingApproval: true, null), DateTimeOffset.UtcNow);
@@ -146,6 +147,7 @@ public sealed class ControlSourceTests
     [InlineData(ControlActionKind.ApprovePairing, null, ControlTierDto.High)]
     [InlineData(ControlActionKind.RejectPairing, null, ControlTierDto.Normal)]
     [InlineData(ControlActionKind.EnrollPresenceKey, null, ControlTierDto.High)]
+    [InlineData(ControlActionKind.ApproveUpdate, null, ControlTierDto.High)]
     public async Task DescribeTierMatchesThePeerRiskPolicyBeforeAnythingIsSent(
         ControlActionKind action, int? seconds, ControlTierDto expected)
     {
