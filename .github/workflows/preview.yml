@@ -115,7 +115,7 @@ jobs:
           [ -n "${KEY_ID}" ] || missing="${missing} derived signing key ID"
           [ -n "${PUBLIC_KEY}" ] || missing="${missing} derived signing public key"
           if [ -n "$missing" ]; then
-            echo "::error::Missing repository/environment variable(s):${missing}. See docs/RELEASES.md (first preview checklist)."
+            echo "::error::Missing trusted signing-key outputs from prepare:${missing}. See docs/RELEASES.md."
             exit 1
           fi
           printf '{"keyId":"%s","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$KEY_ID" "$PUBLIC_KEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
@@ -190,7 +190,7 @@ jobs:
           if (-not $env:KEY_ID) { $missing += 'MONITOR_UPDATE_SIGNING_KEY_ID' }
           if (-not $env:PUBLIC_KEY) { $missing += 'MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64' }
           if ($missing) {
-              Write-Host "::error::Missing repository/environment variable(s): $($missing -join ', '). See docs/RELEASES.md (first preview checklist)."
+              Write-Host "::error::Missing trusted signing-key outputs from prepare: $($missing -join ', '). See docs/RELEASES.md."
               exit 1
           }
           $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
