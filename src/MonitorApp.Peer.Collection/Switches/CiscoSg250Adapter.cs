@@ -199,7 +199,7 @@ public sealed class CiscoSg250Adapter
                 _ => "Switch probe failed.",
             });
 
-    private static IEnumerable<int> Indexes(IReadOnlyDictionary<string, string> values, string prefix)
+    private static IEnumerable<int> Indexes(Dictionary<string, string> values, string prefix)
     {
         var start = prefix + ".";
         foreach (var oid in values.Keys)
@@ -209,7 +209,7 @@ public sealed class CiscoSg250Adapter
                 yield return i;
     }
 
-    private static string? GetText(IReadOnlyDictionary<string, string> values, string prefix, int index)
+    private static string? GetText(Dictionary<string, string> values, string prefix, int index)
     {
         if (!values.TryGetValue(prefix + "." + index.ToString(CultureInfo.InvariantCulture), out var text))
             return null;
@@ -219,7 +219,7 @@ public sealed class CiscoSg250Adapter
         return string.IsNullOrWhiteSpace(name) ? null : name;
     }
 
-    private static long? GetNumber(IReadOnlyDictionary<string, string> values, string prefix, int index)
+    private static long? GetNumber(Dictionary<string, string> values, string prefix, int index)
     {
         if (!values.TryGetValue(prefix + "." + index.ToString(CultureInfo.InvariantCulture), out var text))
             return null;
