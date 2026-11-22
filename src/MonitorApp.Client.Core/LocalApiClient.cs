@@ -631,7 +631,12 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
                     {
                         if (leaseId is null)
                         {
-                            var lease = await owner.StartLiveInterestAsync(peerId, signalIds, ct).ConfigureAwait(false);
+                            // Not cancelled by Dispose: if the node registers the lease while Dispose races the
+                            // response, the id must still arrive here so the finally block can end it, otherwise the
+                            // node would keep sampling fast until the lease lapses.
+                            using var startTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                            var lease = await owner.StartLiveInterestAsync(peerId, signalIds, startTimeout.Token)
+                                .ConfigureAwait(false);
                             leaseId = lease.LeaseId;
                             delay = RenewDelay(lease);
                         }
