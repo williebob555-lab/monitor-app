@@ -8,6 +8,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 - Preview pipeline: `.github/workflows/preview.yml` builds Ubuntu `.deb`, Fedora `.rpm`, Linux desktop tarballs, a Windows node+desktop zip with `Install-MonitorApp.ps1`, and a release-signed Android APK, signs one multi-artifact `preview` manifest, and publishes a GitHub pre-release with commit and TODO-gap notes. `eng/release/New-ReleaseSigningKeys.ps1` creates the signing key and Android keystore outside the repo and prints the `gh` commands.
 - `NodeUpdateAgent` in the peer node (periodic check, verify, stage, approve-or-auto apply), health marker, root update helper units, retained-package seeding, and `GET /api/v1/update` / `POST /api/v1/update/approve`. Default policy is approve-before-install.
+- Windows in-place update apply (T043): side-by-side install layout, detached SYSTEM `MonitorAppUpdate` scheduled-task helper (`node --apply-update <dir> --install-root <root>`) that re-verifies the signed manifest/digest, switches the `current` symlink, restarts the service, waits for the health marker and rolls back on failure; node approval enabled for `zip` only when the helper marker is installed. Installer scripts updated; security boundary documented in `docs/SECURITY.md`.
 
 ### Changed
 

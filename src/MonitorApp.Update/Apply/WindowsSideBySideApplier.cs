@@ -195,7 +195,7 @@ public sealed class WindowsSideBySideApplier : IUpdateApplier
             {
                 _layout.Prune(request.TargetVersion, previous);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Pruning is best-effort; leftover directories are harmless.
             }
