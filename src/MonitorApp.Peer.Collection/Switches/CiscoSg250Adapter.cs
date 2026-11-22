@@ -54,7 +54,7 @@ public sealed record Sg250Port(
 
 /// <summary>
 /// A local, read-only observation of one explicitly configured switch, never proof of a physical uplink.
-/// Identity from a chassis MAC is strong; the management address and interface indices are not.
+/// A globally administered bridge MAC is strong identity evidence; the management address and interface indices are not.
 /// </summary>
 public sealed record Sg250Snapshot(
     Sg250CollectionStatus Status,
