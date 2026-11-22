@@ -81,6 +81,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - Strengthened observed-device persistence so IP/network-address claims cannot be strong identity, strong claims can reconcile reports independently of collection host, collector assignments must match their adapter's device and peer, and reassignment retains restart-stable ownership plus attachment history without replicating credential references.
 - Added a provisional read-only Yamaha AG06MK2 Windows adapter probe using the connected device's Yamaha USB identity. It preserves configured app identity separately from port correlation data and reports driver/attachment evidence, freshness, unavailable, permission-denied, and safe error states without device controls.
 - Added the self-contained Windows equal-peer preview zip to alpha release packaging; the existing `dev-0.1.0` GitHub pre-release contains only the older controller/agent generation and no current peer release has been tagged.
+- Phone pairing UX: the local administration page has an "Add a phone" section that renders a 10-minute invitation as a server-side inline SVG QR code (QRCoder, no scripts or external requests) plus the copyable payload, offering only the node's configured private peer-listener address (a loopback or wildcard listener shows a Tailscale/private-bind message). A typed fallback code (10 Crockford base32 characters) is redeemed over the new additive `PeerPairingCodeService.Redeem` RPC; `MobilePeerRuntime.PairWithCodeAsync` is the phone side. Desktop approval of the phone's request is still required.
 
 ### Changed
 
@@ -113,3 +114,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - Owner enrollment operations require an administrator token, and controller startup fails closed when bootstrap secrets are missing or weak.
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
+- Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.

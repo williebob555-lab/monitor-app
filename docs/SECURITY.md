@@ -23,6 +23,14 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - A pairing invitation carries address, peer id, and fingerprint only (no secret). Decoding enforces the private/loopback endpoint policy, 32-byte fingerprint, version, and size; it grants no trust. The phone pins the invitation fingerprint and the desktop user must explicitly approve.
 - A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only by explicit user action and shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
 
+## Phone pairing (QR and typed code)
+
+- Threat model: the invitation (QR/payload) carries only reachability and the desktop identity to pin; it is not a secret and grants no trust. The desktop user must still approve the phone's request after seeing its display name and fingerprint, so a leaked QR or code cannot add a device by itself.
+- The advertised address is only the node's configured peer-listener address, never typed on the page or auto-bound; loopback/wildcard/public listeners are not advertised and the page explains the Tailscale/private-bind requirement.
+- Typed code: 10 Crockford base32 characters (50 bits), 10-minute life, single-use, at most 8 live codes. The phone sends only a PBKDF2-SHA256 (100k iterations) derived lookup id, never the code, and the desktop reply (peer id, fingerprint) carries an HMAC keyed from the code, so a listener at the typed address that does not hold the code cannot substitute its own identity, and a passive observer cannot replay the exchange. Residual risk: an observer of the lookup id could brute-force 50 bits offline at 100k PBKDF2 iterations per guess (infeasible within the 10-minute life; the link is Tailscale/WireGuard-protected).
+- Online guessing: every failed redemption counts against a global budget (8 per minute) after which all redemptions, including correct ones, are refused until the window passes. Unknown, expired, used, malformed, and rate-limited attempts return the identical status so the endpoint is not an oracle. This is a denial-of-service trade-off on a private, authenticated network.
+- The invitation payload and code are rendered only on the loopback admin page (CSRF-protected generation, `no-store`, nonce CSP, inline SVG without scripts or style attributes).
+
 ## Observed devices, adapters, and LAN infrastructure
 
 Observed devices cannot authenticate as peers. A provisioned peer acts as collection gateway through a reviewed adapter. Every observation identifies the observed entity, collecting peer, adapter/module, source time, evidence, and quality.

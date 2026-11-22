@@ -379,6 +379,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: A phone is reachable only while it dials; a desktop cannot push to an offline phone, it waits for the next phone session. Phone sync is polling (default 15 s) with capped backoff; a refused (revoked) status is reported but local trust is not changed by a remote refusal. Android pairing over non-loopback uses the same plaintext-over-user-managed-private-network policy as desktop peers (Tailscale encrypts); `usesCleartextTraffic` stays false because gRPC uses managed sockets, which is unverified on device. Planned, not implemented: adaptive sampling (about 1 s while viewed, about 30 s otherwise) and tiered retention (7 days full, hourly rollups 1 year, events for years, pinned incidents forever). Alert rules are not implemented; the app shows an honest empty alert list.
 - Revisit condition: Device testing of Doze/OEM battery behavior, or a requirement for desktop-initiated push to phones.
 
+### T032 Phone pairing by QR plus proof-authenticated typed code
+
+- Status: Accepted (working decision)
+- Decision: The desktop admin page shows a 10-minute invitation as an inline SVG QR code (server-rendered with QRCoder) and its text payload. The typed fallback is a one-time 10-character Crockford base32 code resolved through a new additive unary `PeerPairingCodeService.Redeem` RPC on the peer port: the phone sends a PBKDF2-derived lookup id (never the code) and verifies an HMAC proof keyed from the code over the returned peer id and fingerprint, then runs the normal bilateral pairing. Codes live in an in-memory registry (single-use, expiring, bounded, globally rate-limited, uniform failures).
+- Reason: Embedding a fingerprint fragment in a short code would be too long or too weak; a plain lookup without proof lets an impostor at the typed address supply its own fingerprint. A code-keyed proof is the simplest option that keeps the code short and not sufficient for impersonation, and needs no new trust anchor. A compact in-repo QR encoder was rejected in favor of a vetted package.
+- Evidence: Core, Transport, contract, LocalApi (ZXing round trip), and loopback gRPC mobile tests listed in `docs/TESTING.md`.
+- Consequences: Codes are lost on desktop restart; a failed pairing after redemption needs a new code; a burst of wrong guesses locks redemption for a minute; Peer.Node must share one registry between the admin page and the peer host.
+- Revisit condition: Needing multi-source rate limiting, offline code issuance, or desktop-to-desktop typed pairing.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

@@ -207,6 +207,35 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Typed-code fallback: the user enters the desktop's private address, port, and the one-time code shown on the
+    /// desktop. The code only locates and authenticates the desktop identity (see <see cref="PeerPairingCodeClient"/>);
+    /// the desktop user must still approve the resulting pairing request.
+    /// </summary>
+    public async Task<string> PairWithCodeAsync(
+        System.Net.IPAddress address,
+        int port,
+        string typedCode,
+        string? pairingId = null,
+        CancellationToken cancellationToken = default)
+    {
+        PeerPairingInvitation invitation;
+        try
+        {
+            invitation = await PeerPairingCodeClient.RedeemAsync(address, port, typedCode, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or TimeoutException or InvalidOperationException or FormatException)
+        {
+            throw new MobilePairingFailedException(
+                "The pairing code could not be verified. Check the address and code, and ask for a fresh code if it expired.",
+                exception);
+        }
+
+        return await PairAsync(invitation, pairingId, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Stops trusting a paired peer on this phone; the next sync will not dial it.</summary>
     public Task RevokeAsync(string peerId, CancellationToken cancellationToken = default) =>
         store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken);
