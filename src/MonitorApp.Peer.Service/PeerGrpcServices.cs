@@ -478,6 +478,50 @@ public sealed class PeerSessionGrpcService(
                             cancellationToken).ConfigureAwait(false);
                         break;
                     }
+                case PeerSessionRequest.MessageOneofCase.AlertPull:
+                    {
+                        var validation = PeerContractValidator.Validate(request.AlertPull);
+                        if (!validation.IsValid)
+                        {
+                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                                string.Join(" ", validation.Errors), false).ConfigureAwait(false);
+                            return;
+                        }
+
+                        var batch = await BoundedAsync(
+                            token => coordinator.PullAlertsAsync(remotePeerId, request.AlertPull, token),
+                            cancellationToken).ConfigureAwait(false);
+                        if (!PeerContractValidator.Validate(batch).IsValid)
+                        {
+                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                                "Peer coordinator returned an invalid alert batch.", true).ConfigureAwait(false);
+                            return;
+                        }
+
+                        await responseStream.WriteAsync(new PeerSessionResponse { AlertBatch = batch }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.AlertAck:
+                    {
+                        var validation = PeerContractValidator.Validate(request.AlertAck);
+                        if (!validation.IsValid)
+                        {
+                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                                string.Join(" ", validation.Errors), false).ConfigureAwait(false);
+                            return;
+                        }
+
+                        await BoundedAsync(
+                            async token =>
+                            {
+                                await coordinator.AcceptAlertAckAsync(remotePeerId, request.AlertAck, token)
+                                    .ConfigureAwait(false);
+                                return true;
+                            },
+                            cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
                 case PeerSessionRequest.MessageOneofCase.Heartbeat:
                     {
                         if (!PeerPairingGrpcService.IsTimestamp(request.Heartbeat.SentAt))

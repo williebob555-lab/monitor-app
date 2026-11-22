@@ -111,6 +111,14 @@ Start real controller and agent processes or their production network servers. R
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
 
+### Alert tests
+
+`tests/MonitorApp.Peer.Alerts.Tests` runs rule evaluation against real SQLite files and the production ingestion bridge (determinism, idempotency across evaluator restart, episode start/resolve, sustained windows, peer-silent, single-owner rule on a replicated copy), outbox durability across store reopen, expiry, recipient isolation, and trust gating. `tests/MonitorApp.Peer.Mobile.Tests/MobileAlertTests.cs` covers desktop raise to phone persistence to acknowledgement over real loopback gRPC, restart re-notification, and revoked/other-recipient isolation. `tests/MonitorApp.Contracts.Tests/AlertContractTests.cs` covers field numbers, unknown-field tolerance, and validator limits. Android notification posting needs device or emulator evidence that does not exist yet.
+
+```text
+dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj -c Release
+```
+
 ### Superseded Headscale integration tests
 
 This suite is no longer a target requirement. Do not add automatic Headscale provisioning. Tailscale is user-managed reachability; test the real peer protocol over loopback for deterministic integration and over a Tailscale path in platform verification.

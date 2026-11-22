@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
 using MonitorApp.Peer.Service;
@@ -29,10 +30,13 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSyncOptions options;
+    private readonly AlertStore? alerts;
     private PeerHello? authenticatedRemoteHello;
 
-    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null)
+    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
+        AlertStore? alerts = null)
     {
+        this.alerts = alerts;
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.replication = replication ?? throw new ArgumentNullException(nameof(replication));
         this.options = options ?? PeerSyncOptions.Default;
@@ -40,6 +44,29 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     }
 
     public CapabilityExchange LocalCapabilities { get; } = new();
+
+    public bool WantsAlerts => alerts is not null;
+
+    /// <summary>
+    /// Persists every alert in the batch, then returns the acknowledgement; an ack is never sent before the write.
+    /// Works identically for a pulled batch (one-shot sync) and an unsolicited push on a long-lived session.
+    /// </summary>
+    public async ValueTask<AlertAck?> AcceptAlertBatchAsync(string remotePeerId, AlertBatch batch, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (alerts is null || batch.Alerts.Count == 0) return null;
+        // Only alerts the authenticated desktop itself owns are accepted: a peer cannot inject alerts on another's behalf.
+        var ack = new AlertAck { RequestId = batch.RequestId };
+        var now = DateTimeOffset.UtcNow;
+        foreach (var record in batch.Alerts)
+        {
+            if (record.OriginPeerId != remotePeerId) throw new PeerSyncException("Alert origin does not match the authenticated peer.");
+            await alerts.StoreInboundAsync(Alert.FromContract(record), now, cancellationToken).ConfigureAwait(false);
+            ack.Entries.Add(new AlertAckEntry { AlertId = record.AlertId, Revision = record.Revision });
+        }
+
+        return ack;
+    }
 
     public async ValueTask PrepareHelloAsync(PeerHello localHello, CancellationToken cancellationToken)
     {

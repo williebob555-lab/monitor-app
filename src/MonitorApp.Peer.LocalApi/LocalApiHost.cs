@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Persistence;
 
@@ -28,7 +29,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         PairingApplicationStore pairingStore,
         PeerPairingCoordinator pairingCoordinator,
         IPeerClock clock,
-        IPeerInvitationService? invitationService = null)
+        IPeerInvitationService? invitationService = null,
+        AlertStore? alertStore = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -55,6 +57,11 @@ public sealed class LocalApiHost : IAsyncDisposable
         builder.Services.AddSingleton(clock);
         builder.Services.AddSingleton(invitationService ?? new UnavailablePeerInvitationService());
         builder.Services.AddSingleton<PeerInvitationStatusState>();
+        if (alertStore is not null)
+        {
+            builder.Services.AddSingleton(alertStore);
+        }
+
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
         builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
@@ -130,6 +137,44 @@ public sealed class LocalApiHost : IAsyncDisposable
                 originPeerId, originStreamId, first, take, token).ConfigureAwait(false));
         });
 
+        application.MapGet("/api/v1/alerts", async (
+            int? limit,
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var take = limit ?? 100;
+            if (take is < 1 or > 500)
+            {
+                return Results.BadRequest(new { error = "limit must be 1 through 500." });
+            }
+
+            var store = services.GetService<AlertStore>();
+            if (store is null)
+            {
+                return Results.Json(new { alerts = Array.Empty<object>() });
+            }
+
+            var found = await store.ReadActiveAndRecentAsync(clock.UtcNow - TimeSpan.FromDays(7), take, token)
+                .ConfigureAwait(false);
+            return Results.Json(new
+            {
+                alerts = found.Select(alert => new
+                {
+                    alert.AlertId,
+                    alert.Revision,
+                    alert.RuleId,
+                    alert.SubjectId,
+                    alert.OriginPeerId,
+                    severity = alert.Severity.ToString(),
+                    state = alert.State.ToString(),
+                    alert.Title,
+                    alert.Detail,
+                    alert.RaisedAt,
+                    alert.ResolvedAt,
+                }),
+            });
+        });
         application.MapGet("/api/v1/catalog", async (PeerHistoryQueryService history, CancellationToken token) =>
             Results.Json(await history.ReadCatalogAsync(token).ConfigureAwait(false)));
         application.MapGet("/api/v1/history", (

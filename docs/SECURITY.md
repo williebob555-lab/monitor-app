@@ -23,6 +23,8 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - A pairing invitation carries address, peer id, and fingerprint only (no secret). Decoding enforces the private/loopback endpoint policy, 32-byte fingerprint, version, and size; it grants no trust. The phone pins the invitation fingerprint and the desktop user must explicitly approve.
 - A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only by explicit user action and shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
 
+- Alerts reach a phone only over its authenticated outbound PeerSession and only while its trust is Active; the outbox is keyed by recipient peer id, acknowledgements are bounded to issued revisions, and the phone accepts only alerts originated by the desktop it authenticated. Alert content is rule/subject identifiers and short operational text; a notification may be visible on the lock screen, so detail text must stay free of credentials and communication identities. Revocation during an already open session is not yet enforced for alert rows beyond the next request.
+
 ## Observed devices, adapters, and LAN infrastructure
 
 Observed devices cannot authenticate as peers. A provisioned peer acts as collection gateway through a reviewed adapter. Every observation identifies the observed entity, collecting peer, adapter/module, source time, evidence, and quality.

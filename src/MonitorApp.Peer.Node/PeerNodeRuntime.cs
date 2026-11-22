@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MonitorApp.Agent.Core;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
 using MonitorApp.Peer.Core;
@@ -17,14 +18,17 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly INodeIdentityProvider identity;
     private readonly NodePeerConnectionManager connections;
     private readonly NodeCollectionScheduler collection;
+    private readonly AlertEngine alertEngine;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
         LocalApiHost localApi,
         INodeIdentityProvider identity,
         NodePeerConnectionManager connections,
-        NodeCollectionScheduler collection)
+        NodeCollectionScheduler collection,
+        AlertEngine alertEngine)
     {
+        this.alertEngine = alertEngine;
         this.peerApplication = peerApplication;
         this.localApi = localApi;
         this.identity = identity;
@@ -70,6 +74,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 TimeSpan.FromMinutes(2)));
         await pairing.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var replication = new OriginReplicationCoordinator(peerStore);
+        var alertStore = new AlertStore(AlertStoreOptions.Create(databasePath));
+        await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var alertRules = AlertRulesConfig.Default;
+        var alertEngine = new AlertEngine(new AlertEvaluator(peerStore, alertStore, alertRules), alertStore);
         var capabilityRegistry = new PeerCapabilityRegistry(peerStore);
         await capabilityRegistry.RegisterAsync(
             SystemCapabilityDeclaration.Create(),
@@ -101,6 +109,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton<IPeerClock>(clock);
                 services.AddSingleton(pairing);
                 services.AddSingleton(replication);
+                services.AddSingleton(new AlertDeliveryService(peerStore, alertStore, alertRules));
                 services.AddProductionPeerSessionCoordinator();
                 services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
                 services.AddProductionPeerPairingCoordinator();
@@ -114,17 +123,20 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             pairingStore,
             pairing,
             clock,
-            invitationService);
+            invitationService,
+            alertStore);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
             await localApi.StartAsync(cancellationToken).ConfigureAwait(false);
             await connections.StartAsync(cancellationToken).ConfigureAwait(false);
             collection.Start();
-            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection);
+            alertEngine.Start();
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, alertEngine);
         }
         catch
         {
+            await alertEngine.DisposeAsync().ConfigureAwait(false);
             await collection.DisposeAsync().ConfigureAwait(false);
             await connections.DisposeAsync().ConfigureAwait(false);
             await localApi.DisposeAsync().ConfigureAwait(false);
@@ -136,6 +148,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await alertEngine.DisposeAsync().ConfigureAwait(false);
         await collection.DisposeAsync().ConfigureAwait(false);
         await connections.DisposeAsync().ConfigureAwait(false);
         await localApi.DisposeAsync().ConfigureAwait(false);

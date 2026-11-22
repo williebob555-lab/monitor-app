@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MonitorApp.Agent.Core;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Android.Core;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
 using MonitorApp.Peer.Core;
@@ -77,6 +78,8 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerStore Store { get; }
 
+    public AlertStore Alerts { get; private set; } = null!;
+
     public PairingApplicationStore PairingStore { get; }
 
     public PeerPairingCoordinator Pairing { get; }
@@ -104,6 +107,8 @@ internal sealed class DesktopPeer : IAsyncDisposable
             store, identity, new SystemSnapshotCollector(Platform.Ubuntu),
             PeerCollectionOptions.Default($"peer:{identity.PublicIdentity.PeerId}", Guid.NewGuid().ToString("N")));
         var desktop = new DesktopPeer(root, FreePort(), store, pairingStore, pairing, collector, identity);
+        desktop.Alerts = new AlertStore(AlertStoreOptions.Create(databasePath));
+        await desktop.Alerts.InitializeAsync();
         await desktop.StartHostAsync();
         return desktop;
     }
@@ -124,6 +129,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
             services.AddSingleton<IPeerClock>(new SystemPeerClock());
             services.AddSingleton(Pairing);
             services.AddSingleton(replication);
+            services.AddSingleton(new AlertDeliveryService(Store, Alerts, AlertRulesConfig.Default));
             services.AddProductionPeerSessionCoordinator();
             services.AddSingleton(new PeerPairingServiceOptions("test-desktop"));
             services.AddProductionPeerPairingCoordinator();

@@ -2,6 +2,8 @@ using Android.App;
 using Android.Content;
 using Android.Content.PM;
 using Android.OS;
+using MonitorApp.Peer.Alerts;
+using MonitorApp.Peer.Mobile;
 
 namespace MonitorApp.Android;
 
@@ -17,6 +19,8 @@ public sealed class PeerForegroundService : Service
     public const string ActionStop = "app.monitor.selfhosted.STOP";
     private const string ChannelId = "monitor-peer";
     private const int NotificationId = 1;
+    private const string AlertChannelId = "monitor-alerts";
+    private Action<IReadOnlyList<InboxAlert>>? alertHandler;
 
     public static void Start(Context context) =>
         context.StartForegroundService(new Intent(context, typeof(PeerForegroundService)).SetAction(ActionStart));
@@ -52,12 +56,67 @@ public sealed class PeerForegroundService : Service
     private async Task StartRuntimeAsync()
     {
         var runtime = await MobileRuntimeHost.GetAsync(this).ConfigureAwait(false);
+        if (alertHandler is null)
+        {
+            // Alerts arrive over the sync session; the runtime re-raises unnotified alerts after every sync and
+            // restart, so a notification is only marked done after Android accepted it.
+            alertHandler = alerts => _ = NotifyAsync(runtime, alerts);
+            runtime.NewAlerts += alertHandler;
+        }
+
         runtime.Start();
+    }
+
+    private async Task NotifyAsync(MobilePeerRuntime runtime, IReadOnlyList<InboxAlert> alerts)
+    {
+        if (OperatingSystem.IsAndroidVersionAtLeast(33) &&
+            CheckSelfPermission(global::Android.Manifest.Permission.PostNotifications) != Permission.Granted)
+        {
+            return;
+        }
+
+        var manager = (NotificationManager)GetSystemService(NotificationService)!;
+        manager.CreateNotificationChannel(new NotificationChannel(AlertChannelId, "Alerts", NotificationImportance.High));
+        foreach (var item in alerts)
+        {
+            var alert = item.Alert;
+            var resolved = alert.State == MonitorApp.Contracts.V1.AlertState.Resolved;
+            var open = PendingIntent.GetActivity(
+                this, 0, new Intent(this, typeof(MainActivity)), PendingIntentFlags.Immutable)!;
+            var notification = new Notification.Builder(this, AlertChannelId)
+                .SetContentTitle(resolved ? "Resolved: " + alert.Title : alert.Title)
+                .SetContentText(alert.Detail)
+                .SetStyle(new Notification.BigTextStyle().BigText(alert.Detail))
+                .SetSmallIcon(global::Android.Resource.Drawable.IcDialogAlert)
+                .SetAutoCancel(true)
+                .SetContentIntent(open)
+                .Build()!;
+            // One notification per alert id: a resolve replaces the raise instead of stacking.
+            manager.Notify(StableNotificationId(alert.AlertId), notification);
+            await runtime.MarkAlertNotifiedAsync(item).ConfigureAwait(false);
+        }
+    }
+
+    private static int StableNotificationId(string alertId)
+    {
+        var hash = 17;
+        foreach (var character in alertId)
+        {
+            hash = unchecked((hash * 31) + character);
+        }
+
+        return 1000 + (hash & 0x3fffffff);
     }
 
     private async Task StopRuntimeAsync()
     {
         var runtime = await MobileRuntimeHost.GetAsync(this).ConfigureAwait(false);
+        if (alertHandler is not null)
+        {
+            runtime.NewAlerts -= alertHandler;
+            alertHandler = null;
+        }
+
         await runtime.StopAsync().ConfigureAwait(false);
     }
 
