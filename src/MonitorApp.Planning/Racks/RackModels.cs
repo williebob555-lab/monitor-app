@@ -90,6 +90,9 @@ public sealed record RackEquipment
     public decimal? WidthMm { get; init; }
     public decimal? HeightMm { get; init; }
     public decimal? BodyDepthMm { get; init; }
+    public int? RackUnitsTall { get; init; }
+    public int? EurorackHpWide { get; init; }
+    public int? EurorackRowsTall { get; init; }
     public decimal FrontProtrusionMm { get; init; }
     public decimal RearCableClearanceMm { get; init; }
     public decimal TopVentilationMm { get; init; }
