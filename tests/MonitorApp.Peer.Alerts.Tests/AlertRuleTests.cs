@@ -12,6 +12,12 @@ public sealed class AlertRuleTests
     private static AlertRulesConfig Config(TimeSpan? unavailable = null) => AlertRulesConfig.Default with
     {
         UnavailableAfter = unavailable ?? TimeSpan.FromMinutes(2),
+        RefireCooldown = TimeSpan.Zero,
+        Thresholds =
+        [
+            AlertRulesConfig.Default.Thresholds[0] with { Sustained = TimeSpan.Zero },
+            AlertRulesConfig.Default.Thresholds[1],
+        ],
     };
 
     [Fact]
@@ -194,6 +200,69 @@ public sealed class AlertRuleTests
         Assert.Equal(1, ownerResult.Raised);
         Assert.Equal(0, replicaResult.Raised);
         Assert.Empty(await replica.Alerts.ReadActiveAsync());
+    }
+
+    [Fact]
+    public async Task ResolvedThenRefiredAlertIsHeldBackUntilTheCooldownPasses()
+    {
+        await using var peer = await TestPeer.CreateAsync(T0);
+        var config = Config() with { RefireCooldown = TimeSpan.FromMinutes(10) };
+        var evaluator = peer.Evaluator(config);
+        await peer.CollectAsync(T0, freeBytes: 5);
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Raised);
+        await peer.CollectAsync(T0.AddMinutes(1), freeBytes: 50);
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Resolved);
+
+        // Flaps back inside the cooldown: no new alert, however often it is evaluated.
+        await peer.CollectAsync(T0.AddMinutes(2), freeBytes: 4);
+        Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
+        await peer.CollectAsync(T0.AddMinutes(5), freeBytes: 4);
+        Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
+        Assert.Empty(await peer.Alerts.ReadActiveAsync());
+
+        // Still breaching once the cooldown has elapsed: it fires, with the breach's own episode start.
+        await peer.CollectAsync(T0.AddMinutes(12), freeBytes: 4);
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Raised);
+        Assert.Equal(T0.AddMinutes(2), Assert.Single(await peer.Alerts.ReadActiveAsync()).RaisedAt);
+    }
+
+    [Fact]
+    public async Task ABreachThatDoesNotHoldForTheConfiguredDurationNeverFires()
+    {
+        await using var peer = await TestPeer.CreateAsync(T0);
+        var config = Config() with
+        {
+            Thresholds =
+            [
+                AlertRulesConfig.Default.Thresholds[0] with { Sustained = TimeSpan.FromMinutes(5) },
+                AlertRulesConfig.Default.Thresholds[1],
+            ],
+        };
+        var evaluator = peer.Evaluator(config);
+        for (var minute = 0; minute < 12; minute++)
+        {
+            // Four bad minutes then one good minute, repeatedly: never five continuous bad minutes.
+            await peer.CollectAsync(T0.AddMinutes(minute), freeBytes: minute % 5 == 4 ? 50UL : 5UL);
+            Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
+        }
+
+        Assert.Empty(await peer.Alerts.ReadActiveAsync());
+        for (var minute = 12; minute <= 17; minute++)
+        {
+            await peer.CollectAsync(T0.AddMinutes(minute), freeBytes: 5);
+            await evaluator.EvaluateOnceAsync();
+        }
+
+        Assert.Equal(T0.AddMinutes(10), Assert.Single(await peer.Alerts.ReadActiveAsync()).RaisedAt);
+    }
+
+    [Fact]
+    public void DefaultsHoldAndCooldownAreConservative()
+    {
+        var defaults = AlertRulesConfig.Default;
+        Assert.Equal(TimeSpan.FromMinutes(10), defaults.RefireCooldown);
+        Assert.All(defaults.Thresholds, rule => Assert.True(rule.Sustained >= TimeSpan.FromMinutes(5)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => (defaults with { RefireCooldown = TimeSpan.FromSeconds(-1) }).Validate());
     }
 
     [Fact]

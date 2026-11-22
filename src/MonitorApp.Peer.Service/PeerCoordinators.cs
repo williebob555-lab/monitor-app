@@ -58,6 +58,16 @@ public interface IPeerSessionCoordinator
         CancellationToken cancellationToken) =>
         throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
 
+    /// <summary>
+    /// Live-session alert push: the next pending batch for the recipient as soon as one exists, or null after the timeout.
+    /// Only called after a successful <see cref="PullAlertsAsync"/> on the same session.
+    /// </summary>
+    ValueTask<AlertBatch?> WaitForAlertPushAsync(
+        string remotePeerId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+
     ValueTask AcceptAlertAckAsync(
         string remotePeerId,
         AlertAck acknowledgement,
