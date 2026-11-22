@@ -543,3 +543,15 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `NodeBackgroundTasksTests`, `SelfLanScheduleTests`, `RangePrunedReplicationTests` (two file-backed stores), `PeerNodeRuntimeTests.ReplicaMarksPrunedRangeAbsentAndConvergesWhetherTheOriginOrTheReplicaDials` (real gRPC, both dial directions), `LocalApiIncidentTests`.
 - Consequences: The scheduled LAN collection adds roughly four observations per interface per minute to the origin stream (virtual and overlay interfaces: two); tests that compare exact record counts start the node with `NodeLiveOptions(CollectSelfLan: false)`. The Linux LAN collector needs no privilege; unreadable VLAN/route files are "unknown". Pins are local: they protect only this peer's raw copy and do not replicate. A live-session push that hits a pruned range sends the range and continues; a pull error mid-live-session ends that session after the acknowledgement and the next session resumes. Android and Windows LAN collection remain unverified on hardware.
 - Revisit condition: When pins must replicate, when per-interface observation volume matters on large hosts, or when a switch adapter supplies real uplink/port topology.
+
+- Consequences: Two desktops that dial each other pushed the same records twice at first (fixed by T048; stale acknowledgements remain tolerated). Interest is not relayed across hops. Alerts are still pulled (every 5 s on a live session). Android behavior under Doze and mobile network changes is unverified.
+- Revisit condition: Measured battery cost on a device, or relayed multi-hop viewing.
+
+### T048 Per-signal fast sampling and a single live push channel per peer pair
+
+- Status: Accepted (follow-up to T038).
+- Decision: `LiveInterest.signal_ids` now narrows fast collection: the registry exposes the union of named signals (an empty list from any viewer means all), the node scheduler stores only those signals while interest is active, and still runs a full collection once per normal interval so other history does not go quiet. Viewers declare signals with `BeginViewing(remotePeerId, signalIds)`. When two peers dial each other each holds two sessions to the other; `LivePushChannels` picks one pushing session per remote peer: the session initiated by the peer with the lower peer id (ordinal), else the only or most recent one. The other session stays open (heartbeats, interest) but does not push, and takes over from the persisted replication cursor if the active one ends.
+- Reason: Removes duplicate sends and lets a viewer of one metric cost one metric's collection and push, with no protocol change.
+- Evidence: `PeerNodeRuntimeTests.TwoNodesDialingEachOtherReceiveEveryLiveObservationOnce` and `ViewerAskingForOneSignalReceivesOnlyThatSignalAtTheFastRate` (real loopback gRPC and SQLite).
+- Consequences: Several viewers with different signals share the union, and every viewer receives the union's records. The phone's own collection is not yet narrowed by `signal_ids`. Duplicates remain possible briefly around a channel switch (idempotent).
+- Revisit condition: Per-viewer push filtering, or measured cost of the union approach.

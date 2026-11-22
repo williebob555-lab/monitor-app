@@ -35,8 +35,8 @@ public sealed class LiveInterestRegistry
     public const string LocalRequester = "local";
 
     private readonly object gate = new();
-    private readonly Dictionary<(string Requester, string Subject), DateTimeOffset> granted = [];
-    private readonly Dictionary<string, int> watches = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Requester, string Subject), (DateTimeOffset Expires, string[] Signals)> granted = [];
+    private readonly Dictionary<string, List<RemoteWatch>> watches = new(StringComparer.Ordinal);
     private readonly List<Action> listeners = [];
     private readonly TimeProvider time;
 
@@ -48,6 +48,9 @@ public sealed class LiveInterestRegistry
     }
 
     public LiveInterestPolicy Policy { get; }
+
+    /// <summary>Which held-open session pushes live data to each remote peer (de-duplicates mutual dialling).</summary>
+    public LivePushChannels PushChannels { get; } = new();
 
     /// <summary>Number of unexpired interests currently granted to requesters.</summary>
     public int ActiveInterestCount
@@ -102,8 +105,9 @@ public sealed class LiveInterestRegistry
             else
             {
                 var lease = TimeSpan.FromSeconds(Math.Min(request.LeaseSeconds, Policy.MaximumLease.TotalSeconds));
-                changed = !granted.ContainsKey(key);
-                granted[key] = now + lease;
+                var signals = request.SignalIds.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+                changed = !granted.TryGetValue(key, out var existing) || !existing.Signals.SequenceEqual(signals, StringComparer.Ordinal);
+                granted[key] = (now + lease, signals);
                 ack = new LiveInterestAck
                 {
                     SubjectPeerId = subject,
@@ -141,17 +145,17 @@ public sealed class LiveInterestRegistry
     }
 
     /// <summary>The local UI views its own data: held fast sampling until the returned handle is disposed.</summary>
-    public IDisposable WatchLocal(string localPeerId)
+    public IDisposable WatchLocal(string localPeerId, IReadOnlyCollection<string>? signalIds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localPeerId);
-        var ack = Grant(LocalRequester, localPeerId, Declaration(localPeerId, Policy.MaximumLease));
+        var ack = Grant(LocalRequester, localPeerId, Declaration(localPeerId, Policy.MaximumLease, signalIds));
         if (!ack.Accepted)
         {
             throw new InvalidOperationException(ack.SafeMessage);
         }
 
         var renew = new Timer(
-            _ => Grant(LocalRequester, localPeerId, Declaration(localPeerId, Policy.MaximumLease)),
+            _ => Grant(LocalRequester, localPeerId, Declaration(localPeerId, Policy.MaximumLease, signalIds)),
             null,
             Policy.MaximumLease / 3,
             Policy.MaximumLease / 3);
@@ -168,21 +172,75 @@ public sealed class LiveInterestRegistry
         }
     }
 
+    /// <summary>
+    /// The signals to sample fast for <paramref name="subjectPeerId"/>: null when no interest exists or any viewer wants
+    /// everything (an empty signal list means all), otherwise the union of the signals the viewers named.
+    /// </summary>
+    public IReadOnlySet<string>? FastSignalFilter(string subjectPeerId)
+    {
+        lock (gate)
+        {
+            Purge(time.GetUtcNow());
+            HashSet<string>? union = null;
+            foreach (var (key, value) in granted)
+            {
+                if (key.Subject != subjectPeerId)
+                {
+                    continue;
+                }
+
+                if (value.Signals.Length == 0)
+                {
+                    return null;
+                }
+
+                union ??= new HashSet<string>(StringComparer.Ordinal);
+                union.UnionWith(value.Signals);
+            }
+
+            return union;
+        }
+    }
+
     /// <summary>The sampling interval to use now: the fast interval while interest is active, otherwise normal.</summary>
     public TimeSpan EffectiveInterval(string subjectPeerId, TimeSpan normal) =>
         HasActiveInterest(subjectPeerId) && Policy.FastSamplingInterval < normal ? Policy.FastSamplingInterval : normal;
 
     /// <summary>The local UI is viewing a remote peer; sessions to it declare and renew interest until disposed.</summary>
-    public IDisposable WatchRemote(string remotePeerId)
+    public IDisposable WatchRemote(string remotePeerId, IReadOnlyCollection<string>? signalIds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(remotePeerId);
+        var watch = new RemoteWatch(this, remotePeerId, signalIds?.Distinct(StringComparer.Ordinal).ToArray() ?? []);
         lock (gate)
         {
-            watches[remotePeerId] = watches.GetValueOrDefault(remotePeerId) + 1;
+            if (!watches.TryGetValue(remotePeerId, out var list))
+            {
+                watches[remotePeerId] = list = [];
+            }
+
+            list.Add(watch);
         }
 
         Notify();
-        return new RemoteWatch(this, remotePeerId);
+        return watch;
+    }
+
+    /// <summary>
+    /// The signals to declare for the remote peer being viewed: the union over local viewers, or empty (all) when any
+    /// viewer wants everything or the union exceeds the per-interest bound.
+    /// </summary>
+    public IReadOnlyList<string> RemoteSignals(string remotePeerId)
+    {
+        lock (gate)
+        {
+            if (!watches.TryGetValue(remotePeerId, out var list) || list.Any(item => item.Signals.Length == 0))
+            {
+                return [];
+            }
+
+            var union = list.SelectMany(item => item.Signals).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            return union.Length > Policy.MaximumSignalsPerInterest ? [] : union;
+        }
     }
 
     public bool IsWatchingRemote(string remotePeerId)
@@ -205,15 +263,23 @@ public sealed class LiveInterestRegistry
         return new Listener(this, listener);
     }
 
-    private static LiveInterest Declaration(string subject, TimeSpan lease) =>
-        new() { SubjectPeerId = subject, LeaseSeconds = (uint)lease.TotalSeconds };
+    private static LiveInterest Declaration(string subject, TimeSpan lease, IReadOnlyCollection<string>? signalIds = null)
+    {
+        var interest = new LiveInterest { SubjectPeerId = subject, LeaseSeconds = (uint)lease.TotalSeconds };
+        if (signalIds is not null)
+        {
+            interest.SignalIds.AddRange(signalIds);
+        }
+
+        return interest;
+    }
 
     private static LiveInterestAck Reject(string subject, string message) =>
         new() { SubjectPeerId = subject, Accepted = false, SafeMessage = message };
 
     private void Purge(DateTimeOffset now)
     {
-        foreach (var key in granted.Where(item => item.Value <= now).Select(item => item.Key).ToArray())
+        foreach (var key in granted.Where(item => item.Value.Expires <= now).Select(item => item.Key).ToArray())
         {
             granted.Remove(key);
         }
@@ -247,9 +313,11 @@ public sealed class LiveInterestRegistry
         }
     }
 
-    private sealed class RemoteWatch(LiveInterestRegistry owner, string remotePeerId) : IDisposable
+    private sealed class RemoteWatch(LiveInterestRegistry owner, string remotePeerId, string[] signals) : IDisposable
     {
         private int disposed;
+
+        public string[] Signals { get; } = signals;
 
         public void Dispose()
         {
@@ -260,14 +328,13 @@ public sealed class LiveInterestRegistry
 
             lock (owner.gate)
             {
-                var count = owner.watches.GetValueOrDefault(remotePeerId) - 1;
-                if (count <= 0)
+                if (owner.watches.TryGetValue(remotePeerId, out var list))
                 {
-                    owner.watches.Remove(remotePeerId);
-                }
-                else
-                {
-                    owner.watches[remotePeerId] = count;
+                    list.Remove(this);
+                    if (list.Count == 0)
+                    {
+                        owner.watches.Remove(remotePeerId);
+                    }
                 }
             }
 

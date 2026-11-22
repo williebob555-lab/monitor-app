@@ -337,6 +337,141 @@ public sealed class PeerNodeRuntimeTests
         }
     }
 
+    [Fact]
+    public async Task TwoNodesDialingEachOtherReceiveEveryLiveObservationOnce()
+    {
+        var firstRoot = CreateTemporaryDirectory();
+        var secondRoot = CreateTemporaryDirectory();
+        try
+        {
+            var firstPort = FreePort();
+            var secondPort = FreePort();
+            await using var first = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(firstRoot, IPAddress.Loopback, firstPort, 0));
+            await using var second = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(secondRoot, IPAddress.Loopback, secondPort, 0));
+            await PairAsync(first, second, secondPort);
+
+            // Now the second node dials the first as well: each node holds two sessions to the other.
+            await second.TrackPeerAsync(first.Identity.PeerId, IPAddress.Loopback, firstPort);
+            string Diagnostics() =>
+                $"first->second {first.LivePushDiagnostics(second.Identity.PeerId)}, " +
+                $"second->first {second.LivePushDiagnostics(first.Identity.PeerId)}";
+            await WaitUntilAsync(
+                () => Task.FromResult(
+                    first.LivePushDiagnostics(second.Identity.PeerId).Sessions == 2 &&
+                    second.LivePushDiagnostics(first.Identity.PeerId).Sessions == 2),
+                TimeSpan.FromSeconds(30));
+
+            // Let any catch-up traffic settle, then measure only what is pushed live from here on.
+            await CollectAndMeasureAsync(first, second);
+            await CollectAndMeasureAsync(second, first);
+            await Task.Delay(500);
+            var firstBefore = first.LivePushDiagnostics(second.Identity.PeerId).RecordsPushed;
+            var secondBefore = second.LivePushDiagnostics(first.Identity.PeerId).RecordsPushed;
+
+            var appendedByFirst = 0;
+            var appendedBySecond = 0;
+            for (var round = 0; round < 3; round++)
+            {
+                appendedByFirst += (await first.CollectOnceAsync()).AppendedRecords;
+                appendedBySecond += (await second.CollectOnceAsync()).AppendedRecords;
+            }
+
+            var firstHead = (await first.Store.ReadLocalIdentityAsync())!.NextSequence - 1;
+            var secondHead = (await second.Store.ReadLocalIdentityAsync())!.NextSequence - 1;
+            await WaitUntilAsync(async () =>
+                (await second.Store.ReadOriginRangeAsync(
+                    first.Identity.PeerId, (await first.Store.ReadLocalIdentityAsync())!.OriginStreamId, firstHead, 1)).Count == 1 &&
+                (await first.Store.ReadOriginRangeAsync(
+                    second.Identity.PeerId, (await second.Store.ReadLocalIdentityAsync())!.OriginStreamId, secondHead, 1)).Count == 1,
+                TimeSpan.FromSeconds(30));
+            // A duplicate push on the second session would show up shortly after the first delivery.
+            await Task.Delay(1000);
+
+            Assert.True(
+                appendedByFirst + appendedBySecond > 0, "Collection appended nothing; " + Diagnostics());
+            Assert.True(
+                appendedByFirst == first.LivePushDiagnostics(second.Identity.PeerId).RecordsPushed - firstBefore,
+                $"first appended {appendedByFirst} records but pushed " +
+                $"{first.LivePushDiagnostics(second.Identity.PeerId).RecordsPushed - firstBefore}; " + Diagnostics());
+            Assert.True(
+                appendedBySecond == second.LivePushDiagnostics(first.Identity.PeerId).RecordsPushed - secondBefore,
+                $"second appended {appendedBySecond} records but pushed " +
+                $"{second.LivePushDiagnostics(first.Identity.PeerId).RecordsPushed - secondBefore}; " + Diagnostics());
+            await AssertOriginMatchesAsync(
+                first.Store, second.Store, first.Identity.PeerId,
+                (await first.Store.ReadLocalIdentityAsync())!.OriginStreamId, (int)firstHead);
+            await AssertOriginMatchesAsync(
+                first.Store, second.Store, second.Identity.PeerId,
+                (await second.Store.ReadLocalIdentityAsync())!.OriginStreamId, (int)secondHead);
+        }
+        finally
+        {
+            DeleteDirectory(firstRoot, recursive: true);
+            DeleteDirectory(secondRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ViewerAskingForOneSignalReceivesOnlyThatSignalAtTheFastRate()
+    {
+        var viewerRoot = CreateTemporaryDirectory();
+        var targetRoot = CreateTemporaryDirectory();
+        try
+        {
+            var targetPort = FreePort();
+            await using var viewer = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(viewerRoot, IPAddress.Loopback, FreePort(), 0));
+            // The normal interval is an hour: anything collected during the test is the fast loop's doing.
+            await using var target = await PeerNodeRuntime.StartAsync(
+                new NodeOptions(targetRoot, IPAddress.Loopback, targetPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1)));
+            await PairAsync(viewer, target, targetPort);
+            var targetStream = (await target.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+
+            Assert.True((await target.CollectOnceAsync()).AppendedRecords > 1);
+            var all = await target.Store.ReadOriginRangeAsync(target.Identity.PeerId, targetStream, 1, 10_000);
+            var signal = all.Select(record => record.SignalId).Distinct().OrderBy(id => id, StringComparer.Ordinal).First();
+            var distinctSignals = all.Select(record => record.SignalId).Distinct().Count();
+            Assert.True(distinctSignals > 1, "The system collector produced a single signal; the test needs several.");
+            var baseline = all[^1].Sequence;
+            await WaitUntilAsync(
+                async () => (await viewer.Store.ReadOriginRangeAsync(target.Identity.PeerId, targetStream, baseline, 1)).Count == 1,
+                TimeSpan.FromSeconds(30));
+
+            using var viewing = viewer.BeginViewing(target.Identity.PeerId, [signal]);
+            await WaitUntilAsync(
+                () => Task.FromResult(target.CurrentCollectionInterval == TimeSpan.FromSeconds(1)),
+                TimeSpan.FromSeconds(30));
+            var wanted = baseline + 3;
+            await WaitUntilAsync(
+                async () => (await viewer.Store.ReadOriginRangeAsync(target.Identity.PeerId, targetStream, wanted, 1)).Count == 1,
+                TimeSpan.FromSeconds(30));
+
+            var fresh = (await viewer.Store.ReadOriginRangeAsync(target.Identity.PeerId, targetStream, baseline + 1, 10_000))
+                .Where(record => record.Sequence > baseline).ToList();
+            var targetFresh = (await target.Store.ReadOriginRangeAsync(target.Identity.PeerId, targetStream, baseline + 1, 10_000))
+                .Where(record => record.Sequence > baseline).ToList();
+            var summary = string.Join(", ", targetFresh.GroupBy(record => record.SignalId).Select(g => $"{g.Key} x{g.Count()}"));
+            Assert.True(fresh.Count >= 3, $"Viewer received {fresh.Count} fast records; target stored: {summary}");
+            Assert.True(
+                fresh.All(record => record.SignalId == signal) && targetFresh.All(record => record.SignalId == signal),
+                $"Expected only '{signal}' while viewing; target stored: {summary}");
+
+            // Withdrawing the interest returns the target to its normal (here: effectively idle) interval.
+            viewing.Dispose();
+            await WaitUntilAsync(
+                () => Task.FromResult(target.CurrentCollectionInterval == TimeSpan.FromHours(1) && target.ActiveLiveInterestCount == 0),
+                TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            DeleteDirectory(viewerRoot, recursive: true);
+            DeleteDirectory(targetRoot, recursive: true);
+        }
+    }
+
     private static async Task<TimeSpan> CollectAndMeasureAsync(PeerNodeRuntime origin, PeerNodeRuntime receiver)
     {
         var originId = origin.Identity.PeerId;

@@ -14,6 +14,7 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private Task? loop;
     private long currentIntervalTicks;
+    private long lastFullCollection = Environment.TickCount64;
 
     /// <param name="interests">When set (with <paramref name="subjectPeerId"/>), live interest in this peer's own data
     /// switches sampling to the registry's fast interval until the interest lapses.</param>
@@ -53,7 +54,11 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
     }
 
     public Task<PeerCollectionRunResult> RunOnceAsync(
-        CancellationToken cancellationToken = default) => collection.RunOnceAsync(cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+        return collection.RunOnceAsync(cancellationToken);
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -105,7 +110,21 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
 
         try
         {
-            var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+            // Viewers that named signals narrow the fast loop to those signals; everything else is still collected in
+            // full once per normal interval so the rest of the history does not go quiet while someone watches.
+            var filter = subjectPeerId is null ? null : interests?.FastSignalFilter(subjectPeerId);
+            var fullDue = Environment.TickCount64 - Interlocked.Read(ref lastFullCollection) >= interval.TotalMilliseconds;
+            if (filter is not null && fullDue)
+            {
+                filter = null;
+            }
+
+            if (filter is null)
+            {
+                Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+            }
+
+            var result = await collection.RunOnceAsync(filter, cancellationToken).ConfigureAwait(false);
             if (result.Status == PeerCollectionRunStatus.Completed)
             {
                 LastFailureKind = null;

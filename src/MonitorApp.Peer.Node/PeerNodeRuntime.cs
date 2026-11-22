@@ -105,12 +105,21 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     /// <summary>
     /// A local UI is viewing live data: with no argument this node's own data (switching its collection to the fast
-    /// interval), otherwise a paired remote peer (declared over the held-open session). Dispose to stop viewing.
+    /// interval), otherwise a paired remote peer (declared over the held-open session). With <paramref name="signalIds"/>
+    /// only those signals are sampled fast (empty or null means all). Dispose to stop viewing.
     /// </summary>
-    public IDisposable BeginViewing(string? remotePeerId = null) =>
+    public IDisposable BeginViewing(string? remotePeerId = null, IReadOnlyCollection<string>? signalIds = null) =>
         remotePeerId is null
-            ? interests.WatchLocal(identity.PublicIdentity.PeerId)
-            : interests.WatchRemote(remotePeerId);
+            ? interests.WatchLocal(identity.PublicIdentity.PeerId, signalIds)
+            : interests.WatchRemote(remotePeerId, signalIds);
+
+    /// <summary>Held-open push sessions to a remote peer and live records pushed to it so far (diagnostics).</summary>
+    public (int Sessions, long RecordsPushed) LivePushDiagnostics(string remotePeerId) =>
+        (interests.PushChannels.SessionCount(remotePeerId), interests.PushChannels.RecordsPushed(remotePeerId));
+
+    /// <summary>Schedules (and dials) a held-open session to an already paired peer at the given address.</summary>
+    public Task TrackPeerAsync(string peerId, System.Net.IPAddress address, int port, CancellationToken cancellationToken = default) =>
+        connections.TrackAsync(peerId, address, port, cancellationToken);
 
     public Task<PeerCollectionRunResult> CollectOnceAsync(
         CancellationToken cancellationToken = default) => collection.RunOnceAsync(cancellationToken);
