@@ -160,7 +160,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await controlStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var monitoring = new MonitoringControlState();
         var controlService = new ControlService(
-            controlStore, peerStore, pairingStore, pairing, alertStore, monitoring, identity);
+            controlStore, peerStore, pairingStore, pairing, alertStore, monitoring, identity,
+            updates: updates is null ? null : new MonitorApp.Peer.Node.Update.RemoteUpdateGateway(updates));
         var alertEngine = new AlertEngine(new AlertEvaluator(peerStore, alertStore, alertRules), alertStore);
         var capabilityRegistry = new PeerCapabilityRegistry(peerStore);
         await capabilityRegistry.RegisterAsync(
@@ -258,7 +259,9 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             interests,
             updates,
             controlService,
-            monitoring);
+            monitoring,
+            LocalPresenceService.Create(
+                Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock));
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

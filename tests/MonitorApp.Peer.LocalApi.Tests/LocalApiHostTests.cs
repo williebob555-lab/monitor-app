@@ -375,7 +375,8 @@ public sealed class LocalApiHostTests : IDisposable
             string directory,
             IPeerInvitationService? invitationService = null,
             PhonePairingOptions? phonePairing = null,
-            ILocalUpdateController? updates = null)
+            ILocalUpdateController? updates = null,
+            LocalPresenceService? presence = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -446,7 +447,8 @@ public sealed class LocalApiHostTests : IDisposable
                 invitationService,
                 phonePairing,
                 alerts,
-                updates: updates);
+                updates: updates,
+                localPresence: presence);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {

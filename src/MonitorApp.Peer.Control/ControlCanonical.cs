@@ -113,6 +113,10 @@ public static class ControlCanonical
                 WriteBytes(buffer, command.ResolvePairing.RemotePublicKeySha256.Span);
                 WriteLong(buffer, command.ResolvePairing.Approve ? 1 : 0);
                 break;
+            case ControlCommand.PayloadOneofCase.ApproveUpdate:
+                WriteString(buffer, command.ApproveUpdate.Version);
+                WriteBytes(buffer, command.ApproveUpdate.ArtifactSha256.Span);
+                break;
             case ControlCommand.PayloadOneofCase.EnrollPresenceKey:
                 WriteBytes(buffer, command.EnrollPresenceKey.PresencePublicKeySpki.Span);
                 WriteBytes(buffer, command.EnrollPresenceKey.ProofOfPossession.Span);

@@ -329,6 +329,14 @@ message EnrollPresenceKey {
   bytes proof_of_possession = 2;
 }
 
+// Approves installation of the update the desktop has already downloaded, verified and staged. Bound to the exact
+// version and artifact digest the phone displayed; the desktop refuses when its staged update no longer matches.
+message ApproveUpdate {
+  string version = 1;
+  // SHA-256 of the staged artifact as listed in the signed update manifest (32 bytes).
+  bytes artifact_sha256 = 2;
+}
+
 message ControlCommand {
   string command_id = 1;
   google.protobuf.Timestamp issued_at = 2;
@@ -346,6 +354,7 @@ message ControlCommand {
     UnmuteAlerts unmute_alerts = 15;
     ResolvePairing resolve_pairing = 16;
     EnrollPresenceKey enroll_presence_key = 17;
+    ApproveUpdate approve_update = 18;
   }
   // ECDSA P-256 (IEEE P1363) by the issuer's peer identity key over the canonical command encoding.
   bytes issuer_signature = 20;
@@ -383,6 +392,28 @@ message PendingPairingsResponse {
   repeated PendingPairingSummary pairings = 2;
 }
 
+// Read-only: the desktop's update state, for display on a trusted phone that holds the update-approval grant.
+message UpdateStatusRequest {
+  string request_id = 1;
+}
+
+message UpdateStatusResponse {
+  string request_id = 1;
+  // False when this peer lacks the update-approval grant; every other field is then empty.
+  bool permitted = 2;
+  // False when the desktop has no update agent configured.
+  bool available = 3;
+  string installed_version = 4;
+  // Empty unless an update is downloaded, verified and staged.
+  string staged_version = 5;
+  bytes staged_artifact_sha256 = 6;
+  // Update lifecycle stage (for example Idle, Staged, Applying, Applied, Failed).
+  string state = 7;
+  string last_error = 8;
+  // True when a staged update is waiting for approval and this desktop can install it.
+  bool approval_pending = 9;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -400,6 +431,7 @@ message PeerSessionRequest {
     AlertAck alert_ack = 9;
     ControlCommand control_command = 30;
     PendingPairingsRequest pending_pairings_request = 31;
+    UpdateStatusRequest update_status_request = 32;
   }
 }
 
@@ -421,5 +453,6 @@ message PeerSessionResponse {
     AlertBatch alert_batch = 11;
     ControlResult control_result = 30;
     PendingPairingsResponse pending_pairings_response = 31;
+    UpdateStatusResponse update_status_response = 32;
   }
 }

@@ -13,6 +13,9 @@ public sealed partial class SchematicCanvas
     private DownState? down;
     private (double Distance, Point Mid)? pinch;
     private DateTime lastTap = DateTime.MinValue;
+
+    /// <summary>Clock used for double-tap detection; tests replace it so slow rendering cannot split a double tap.</summary>
+    public TimeProvider Clock { get; set; } = TimeProvider.System;
     private string? lastTapNode;
     private Point lastPointer;
 
@@ -54,7 +57,7 @@ public sealed partial class SchematicCanvas
         }
 
         var (node, link) = props.IsMiddleButtonPressed ? (null, null) : State.Hit(pos);
-        var now = DateTime.UtcNow;
+        var now = Clock.GetUtcNow().UtcDateTime;
         if (node is not null && node == lastTapNode && now - lastTap < DoubleTap)
         {
             lastTapNode = null;

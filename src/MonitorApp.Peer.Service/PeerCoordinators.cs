@@ -85,6 +85,12 @@ public interface IPeerSessionCoordinator
         CancellationToken cancellationToken) =>
         throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
 
+    ValueTask<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string remotePeerId,
+        UpdateStatusRequest request,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+
     ValueTask<PendingPairingsResponse> ReadPendingPairingsAsync(
         string remotePeerId,
         PendingPairingsRequest request,

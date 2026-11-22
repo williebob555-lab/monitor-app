@@ -1,3 +1,4 @@
+using Avalonia.Headless;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
@@ -32,6 +33,11 @@ public sealed class MainWindowSmokeTests
         Assert.Contains(model.Sections, section => section is EnvironmentViewModel);
         Assert.StartsWith("Connected", model.ConnectionStatus, StringComparison.Ordinal);
         Assert.Equal("peer-local", model.Overview.LocalPeerId);
+
+        // A frame really renders through Skia.
+        using var frame = window.CaptureRenderedFrame();
+        Assert.NotNull(frame);
+        Assert.True(frame!.PixelSize.Width > 0 && frame.PixelSize.Height > 0);
         window.Close();
     }
 }

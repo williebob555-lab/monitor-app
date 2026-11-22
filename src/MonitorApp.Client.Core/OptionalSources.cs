@@ -29,6 +29,23 @@ public interface IPairingInitiator
 }
 
 /// <summary>
+/// Sources that can pair by scanning the QR code on a computer's admin page with the device camera.
+/// The UI shows a "Scan QR" button only when <see cref="CanScanQr"/> is true and keeps the typed-code path otherwise.
+/// </summary>
+public interface IQrPairingSource
+{
+    /// <summary>True when a camera scanner is available on this device.</summary>
+    bool CanScanQr { get; }
+
+    /// <summary>
+    /// Scans a pairing QR and pairs with the desktop it names. Returns the peer id, or <see langword="null"/> when the
+    /// person cancelled the scanner. Throws <see cref="ApiValidationException"/> with a user-safe message when the camera is
+    /// unavailable or denied (the UI should then point at the typed code) or the scanned code is not a valid invitation.
+    /// </summary>
+    Task<string?> ScanAndPairAsync(CancellationToken ct = default);
+}
+
+/// <summary>
 /// Sources whose host process can be asked to start or stop background collection (the Android foreground service).
 /// Heads that cannot do this do not implement it and the UI offers no buttons.
 /// </summary>
@@ -51,7 +68,23 @@ public enum ControlActionKind
     ApprovePairing,
     RejectPairing,
     EnrollPresenceKey,
+    ApproveUpdate,
 }
+
+/// <summary>
+/// A paired computer's update state as the phone may see it (T044). <see cref="Permitted"/> is false until the owner grants this
+/// device update approval on that computer; every other field is then empty. <see cref="StagedDigestHex"/> binds an approval to
+/// exactly the verified package the computer staged.
+/// </summary>
+public sealed record RemoteUpdateStatusDto(
+    bool Permitted,
+    bool Available,
+    string InstalledVersion,
+    string? StagedVersion,
+    string? StagedDigestHex,
+    string State,
+    string? LastError,
+    bool ApprovalPending);
 
 /// <summary>How much assurance a command needs beyond the signed session (client-side mirror of the peer's risk tiers).</summary>
 public enum ControlTierDto
@@ -108,4 +141,10 @@ public interface IControlSource
     Task<ControlOutcomeDto> ResolvePairingAsync(string peerId, string pairingId, string fingerprint, bool approve, CancellationToken ct = default);
 
     Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default);
+
+    /// <summary>Reads a paired computer's update state; null when it cannot be reached.</summary>
+    Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default);
+
+    /// <summary>Approves installing the staged update read by <see cref="ReadUpdateStatusAsync"/>. High tier: needs the fingerprint.</summary>
+    Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default);
 }

@@ -103,6 +103,12 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
 
     public Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default) => Record("enroll", peerId);
 
+    public Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default) =>
+        Task.FromResult<RemoteUpdateStatusDto?>(null);
+
+    public Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default) =>
+        Record("update", peerId);
+
     private Task<ControlOutcomeDto> Record(string what, string peerId)
     {
         Sent.Add(what + ":" + peerId);

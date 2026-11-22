@@ -23,7 +23,8 @@ public sealed class ControlService(
     AlertStore alerts,
     MonitoringControlState monitoring,
     ILocalPeerIdentityProvider local,
-    TimeProvider? timeProvider = null) : IDisposable
+    TimeProvider? timeProvider = null,
+    IRemoteUpdateGateway? updates = null) : IDisposable
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim serialize = new(1, 1);
@@ -84,6 +85,77 @@ public sealed class ControlService(
         return response;
     }
 
+    /// <summary>
+    /// Read-only update state for a trusted phone holding the update-approval grant. Without the grant (or trust) nothing
+    /// is revealed. Every read, granted or refused, is audited.
+    /// </summary>
+    public async Task<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string remotePeerId,
+        UpdateStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = clock.GetUtcNow();
+        var response = new UpdateStatusResponse { RequestId = request.RequestId };
+        var trusted = await peers.ReadTrustedPeerAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        var grant = await store.ReadGrantAsync(remotePeerId, cancellationToken).ConfigureAwait(false) ??
+            ControlGrant.Default(remotePeerId);
+        var permitted = trusted is { TrustState: PeerTrustState.Active } && grant.UpdateApproval;
+        string reason;
+        if (!permitted)
+        {
+            reason = trusted is not { TrustState: PeerTrustState.Active } ? "untrusted" : "not_permitted";
+        }
+        else
+        {
+            response.Permitted = true;
+            var status = updates?.GetStatus();
+            reason = "applied";
+            if (status is null || !status.Available)
+            {
+                reason = "updates_unavailable";
+            }
+            else
+            {
+                response.Available = true;
+                response.InstalledVersion = status.InstalledVersion;
+                response.State = status.State;
+                response.LastError = status.LastError ?? string.Empty;
+                response.ApprovalPending = status.ApprovalPending;
+                if (status.StagedVersion is { Length: > 0 } && TryDecodeDigest(status.StagedDigestHex, out var digest))
+                {
+                    response.StagedVersion = status.StagedVersion;
+                    response.StagedArtifactSha256 = ByteString.CopyFrom(digest);
+                }
+            }
+        }
+
+        await store.AppendAuditAsync(new ControlAuditEntry(
+            0, now, remotePeerId, Truncate(request.RequestId ?? string.Empty), "read_update_status", ControlRiskTier.Normal.ToString(),
+            permitted ? "applied" : "refused", reason, string.Empty, false,
+            response.StagedVersion.Length > 0 ? "staged=" + Truncate(response.StagedVersion) : string.Empty), cancellationToken)
+            .ConfigureAwait(false);
+        return response;
+    }
+
+    private static bool TryDecodeDigest(string? hex, out byte[] digest)
+    {
+        digest = [];
+        if (hex is not { Length: 64 })
+        {
+            return false;
+        }
+
+        try
+        {
+            digest = Convert.FromHexString(hex);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Local administrator decision on a presence-key enrollment; audited like any other control action.</summary>
     public async Task<PresenceEnrollment?> DecideEnrollmentAsync(
         string enrollmentId, bool approve, CancellationToken cancellationToken)
@@ -108,7 +180,7 @@ public sealed class ControlService(
         await store.AppendAuditAsync(new ControlAuditEntry(
             0, now, grant.PeerId, "local:grant", "local_set_grant", ControlRiskTier.High.ToString(), "applied", "local_admin",
             string.Empty, false,
-            string.Create(CultureInfo.InvariantCulture, $"monitoring={grant.MonitoringControls} pairing={grant.PairingApproval}")),
+            string.Create(CultureInfo.InvariantCulture, $"monitoring={grant.MonitoringControls} pairing={grant.PairingApproval} update={grant.UpdateApproval}")),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -233,6 +305,7 @@ public sealed class ControlService(
         {
             ControlCommand.PayloadOneofCase.ResolvePairing => grant.PairingApproval,
             ControlCommand.PayloadOneofCase.EnrollPresenceKey => grant.AllowsAnything,
+            ControlCommand.PayloadOneofCase.ApproveUpdate => grant.UpdateApproval,
             _ => grant.MonitoringControls,
         };
         if (!permitted)
@@ -334,9 +407,40 @@ public sealed class ControlService(
                 return await ResolvePairingAsync(command, remotePeerId, now, cancellationToken).ConfigureAwait(false);
             case ControlCommand.PayloadOneofCase.EnrollPresenceKey:
                 return await EnrollAsync(command, remotePeerId, now, cancellationToken).ConfigureAwait(false);
+            case ControlCommand.PayloadOneofCase.ApproveUpdate:
+                return await ApproveUpdateAsync(command, now, cancellationToken).ConfigureAwait(false);
             default:
                 return Refused("invalid_command", "Command is malformed.");
         }
+    }
+
+    private async Task<ControlResult> ApproveUpdateAsync(ControlCommand command, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ControlResult Refused(string code, string message) => Result(command.CommandId, ControlStatus.Refused, code, message, now, false);
+
+        var status = updates?.GetStatus();
+        if (status is null || !status.Available)
+        {
+            return Refused("updates_unavailable", "This desktop has no update agent configured.");
+        }
+
+        var request = command.ApproveUpdate;
+        if (!status.ApprovalPending || status.StagedVersion is not { Length: > 0 } ||
+            !TryDecodeDigest(status.StagedDigestHex, out var stagedDigest))
+        {
+            return Refused("no_staged_update", "No update is staged and awaiting approval on this desktop.");
+        }
+
+        if (!string.Equals(status.StagedVersion, request.Version, StringComparison.Ordinal) ||
+            !CryptographicOperations.FixedTimeEquals(stagedDigest, request.ArtifactSha256.Span))
+        {
+            return Refused("staged_update_changed", "The staged update differs from the one that was approved; review it again.");
+        }
+
+        // The gateway re-checks version and digest atomically with starting the install, closing the race with a new staging.
+        return await updates!.ApproveAsync(request.Version, Convert.ToHexStringLower(stagedDigest), cancellationToken).ConfigureAwait(false)
+            ? Result(command.CommandId, ControlStatus.Applied, "applied", "Update approved; installation started.", now, false)
+            : Refused("staged_update_changed", "The staged update changed before it could be approved.");
     }
 
     private async Task<ControlResult> ResolvePairingAsync(
@@ -431,6 +535,8 @@ public sealed class ControlService(
             $"scope={Scope(command.MuteAlerts.RuleId)} seconds={command.MuteAlerts.DurationSeconds}"),
         ControlCommand.PayloadOneofCase.UnmuteAlerts => "scope=" + Scope(command.UnmuteAlerts.RuleId),
         ControlCommand.PayloadOneofCase.ResolvePairing => "pairing=" + Truncate(command.ResolvePairing.PairingId),
+        ControlCommand.PayloadOneofCase.ApproveUpdate =>
+            "version=" + Truncate(command.ApproveUpdate.Version) + " sha256=" + Convert.ToHexStringLower(command.ApproveUpdate.ArtifactSha256.Span),
         ControlCommand.PayloadOneofCase.EnrollPresenceKey =>
             "key=" + Convert.ToHexString(SHA256.HashData(command.EnrollPresenceKey.PresencePublicKeySpki.Span)),
         _ => string.Empty,

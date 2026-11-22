@@ -132,7 +132,7 @@ public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner
         if (OperatingSystem.IsAndroidVersionAtLeast(30))
         {
             // Timeout 0: every signature needs its own strong-biometric verification through BiometricPrompt.
-            _ = parameterBuilder.SetUserAuthenticationParameters(0, KeyPropertiesAuthType.BiometricStrong);
+            _ = parameterBuilder.SetUserAuthenticationParameters(0, (int)KeyPropertiesAuthType.BiometricStrong);
         }
 
         _ = parameterBuilder.SetInvalidatedByBiometricEnrollment(true);
@@ -163,6 +163,8 @@ public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner
         return store;
     }
 
+    // Only constructed after the API 28 check in the signing path (BiometricPrompt itself is API 28+).
+    [System.Runtime.Versioning.SupportedOSPlatform("android28.0")]
     private sealed class Callback(byte[] payload, TaskCompletionSource<byte[]> completion)
         : BiometricPrompt.AuthenticationCallback
     {

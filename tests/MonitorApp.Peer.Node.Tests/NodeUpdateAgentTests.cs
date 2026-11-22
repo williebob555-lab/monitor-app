@@ -42,6 +42,26 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task BoundApprovalRequiresTheExactStagedVersionAndDigest()
+    {
+        var applier = new RecordingApplier();
+        using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, applier);
+        await agent.RunCycleAsync(default);
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Package));
+        Assert.Equal(digest, agent.GetStatus().TargetDigest);
+
+        Assert.False(await agent.ApproveAsync("0.1.3", digest, default));
+        Assert.False(await agent.ApproveAsync("0.1.2", new string('0', 64), default));
+        await agent.WhenIdleAsync();
+        Assert.Equal(0, applier.Calls);
+
+        Assert.True(await agent.ApproveAsync("0.1.2", digest.ToUpperInvariant(), default));
+        await agent.WhenIdleAsync();
+        Assert.Equal(1, applier.Calls);
+        Assert.False(await agent.ApproveAsync("0.1.2", digest, default));
+    }
+
+    [Fact]
     public async Task AutoPolicyAppliesWithoutApproval()
     {
         var applier = new RecordingApplier();

@@ -22,6 +22,7 @@ internal static class ControlMapping
             ControlActionKind.ApprovePairing => ControlRequest.ResolvePairing("pairing", new byte[32], approve: true),
             ControlActionKind.RejectPairing => ControlRequest.ResolvePairing("pairing", new byte[32], approve: false),
             ControlActionKind.EnrollPresenceKey => ControlRequest.EnrollPresenceKey(),
+            ControlActionKind.ApproveUpdate => ControlRequest.ApproveUpdate("0.0.0", new byte[32]),
             _ => throw new ArgumentOutOfRangeException(nameof(action)),
         };
         var tier = (ControlTierDto)(int)ControlCommandSigner.TierOf(request);

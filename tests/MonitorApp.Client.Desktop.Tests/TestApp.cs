@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Headless;
-using Avalonia.Skia;
 using MonitorApp.Client.Desktop;
 using MonitorApp.Client.Desktop.Tests;
 
@@ -10,11 +9,7 @@ namespace MonitorApp.Client.Desktop.Tests;
 
 public static class TestAppBuilder
 {
-#if MANUAL_SHOTS
-    /// <summary>Manual screenshot builds render with Skia (real pixels); CI uses the fast headless drawing.</summary>
     public static AppBuilder BuildAvaloniaApp() =>
+        // Real Skia rendering (not headless drawing) so the pinned SkiaSharp native build is exercised by every UI test.
         AppBuilder.Configure<App>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
-#else
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
-#endif
 }

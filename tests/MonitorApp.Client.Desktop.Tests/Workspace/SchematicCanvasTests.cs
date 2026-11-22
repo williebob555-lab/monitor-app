@@ -31,7 +31,8 @@ public sealed class SchematicCanvasTests
     public void SampleSceneSelectsDragsExplodesAndSurvivesTelemetry()
     {
         var recorder = new Recorder();
-        var canvas = new SchematicCanvas { Scene = SampleEnvironment.Create(Now), NodeMovedCommand = recorder };
+        var clock = new SteppingClock(Now);
+        var canvas = new SchematicCanvas { Scene = SampleEnvironment.Create(Now), NodeMovedCommand = recorder, Clock = clock };
         var window = new Window { Width = 1200, Height = 760, Content = canvas };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -78,10 +79,12 @@ public sealed class SchematicCanvasTests
 
         // Double-click explodes the server; the planner only yields real layers; Escape reassembles.
         var c = state.ScreenRect(SampleEnvironment.Server).Center;
+        clock.Step = TimeSpan.FromMilliseconds(50);
         window.MouseDown(c, MouseButton.Left);
         window.MouseUp(c, MouseButton.Left);
         window.MouseDown(c, MouseButton.Left);
         window.MouseUp(c, MouseButton.Left);
+        clock.Step = TimeSpan.FromSeconds(1);
         canvas.CompleteAnimations();
         Assert.Equal(SampleEnvironment.Server, canvas.ExplodedNodeId);
         Assert.Equal(1.0, state.ExplodeProgress);
@@ -115,4 +118,14 @@ public sealed class SchematicCanvasTests
 
     private static bool IsSnapped(double v, IEnumerable<double> others) =>
         Math.Abs((v / SchematicSnapper.GridStep) - Math.Round(v / SchematicSnapper.GridStep)) < 1e-9 || others.Any(o => Math.Abs(o - v) < 1e-9);
+
+    /// <summary>Wall-clock stand-in: each read advances by <see cref="Step"/>, so taps are far apart unless a test narrows it.</summary>
+    private sealed class SteppingClock(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset now = start;
+
+        public TimeSpan Step { get; set; } = TimeSpan.FromSeconds(1);
+
+        public override DateTimeOffset GetUtcNow() => now += Step;
+    }
 }

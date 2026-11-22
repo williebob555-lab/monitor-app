@@ -156,6 +156,12 @@
           "CommunityToolkit.Mvvm": "[8.4.2, )"
         }
       },
+      "monitorapp.client.presence": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Client.Core": "[1.0.0, )"
+        }
+      },
       "monitorapp.contracts": {
         "type": "Project",
         "dependencies": {

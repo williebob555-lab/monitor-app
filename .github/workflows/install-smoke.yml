@@ -1,0 +1,165 @@
+name: Install smoke
+
+# Installs the REAL packaged builds (same packaging scripts as preview.yml, test versions, throwaway update key, no
+# signing secrets and no `release` environment) on real runners and proves the service lifecycle end to end.
+# Failures dump journal/event-log/node-log diagnostics. See docs/TESTING.md ("Install smoke").
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  OLD_VERSION: '0.9.1'
+  NEW_VERSION: '0.9.2'
+
+jobs:
+  ubuntu:
+    name: Ubuntu deb on real systemd
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Build the old and new .deb
+        run: |
+          set -euo pipefail
+          # Throwaway trust anchor (a real P-256 SPKI so the update agent starts normally; nothing is signed with it).
+          spki="$(openssl ecparam -name prime256v1 -genkey -noout | openssl pkey -pubout -outform DER | base64 -w0)"
+          printf '{"keyId":"smoke","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$spki" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
+          mkdir -p /tmp/smoke-pkg
+          MONITOR_APP_UPDATE_KEY_JSON="$RUNNER_TEMP/update-key.json" \
+          MONITOR_APP_SAVE_STAGE="/tmp/smoke-pkg/stage.tgz" \
+          MONITOR_APP_PACKAGES=deb \
+            bash eng/packaging/linux/build-packages.sh "$OLD_VERSION" /tmp/smoke-pkg
+          # The newer package reuses the published tree (only the package version differs) to save a second publish.
+          MONITOR_APP_FROM_STAGE="/tmp/smoke-pkg/stage.tgz" \
+          MONITOR_APP_PACKAGES=deb \
+            bash eng/packaging/linux/build-packages.sh "$NEW_VERSION" /tmp/smoke-pkg
+          chmod -R a+rX /tmp/smoke-pkg
+          ls -l /tmp/smoke-pkg
+
+      - name: Lifecycle smoke (install, start, readings, restart, upgrade, remove, purge)
+        run: bash eng/smoke/ubuntu-smoke.sh "/tmp/smoke-pkg/monitor-app_${OLD_VERSION}_amd64.deb" "/tmp/smoke-pkg/monitor-app_${NEW_VERSION}_amd64.deb"
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          systemctl status monitor-app --no-pager -l || true
+          journalctl -u monitor-app --no-pager -n 300 || true
+          journalctl -u monitor-app-update --no-pager -n 50 || true
+          sudo ls -laR /var/lib/monitor-app /etc/monitor-app /opt/monitor-app 2>&1 | head -120 || true
+          dpkg -l monitor-app || true
+          ss -ltnp | grep -E '5543[12]' || true
+
+  fedora:
+    name: Fedora rpm (container, no systemd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Stage the tree and build both .rpm in a Fedora container (as preview.yml does)
+        run: |
+          set -euo pipefail
+          spki="$(openssl ecparam -name prime256v1 -genkey -noout | openssl pkey -pubout -outform DER | base64 -w0)"
+          printf '{"keyId":"smoke","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$spki" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
+          mkdir -p out
+          MONITOR_APP_UPDATE_KEY_JSON="$RUNNER_TEMP/update-key.json" \
+          MONITOR_APP_SAVE_STAGE="$PWD/out/stage.tgz" \
+          MONITOR_APP_PACKAGES=deb \
+            bash eng/packaging/linux/build-packages.sh "$OLD_VERSION" "$PWD/out/unused"
+          docker run --rm -v "$PWD:/work" -w /work -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            -e OLD_VERSION -e NEW_VERSION fedora:42 bash -ec '
+            dnf install -y rpm-build systemd-rpm-macros tar gzip >/dev/null
+            for v in "$OLD_VERSION" "$NEW_VERSION"; do
+              MONITOR_APP_FROM_STAGE=/work/out/stage.tgz MONITOR_APP_PACKAGES=rpm \
+                bash eng/packaging/linux/build-packages.sh "$v" "/work/out/rpm-$v"
+            done
+            chown -R "$HOST_UID:$HOST_GID" /work/out
+          '
+          ls -l out/rpm-*
+
+      - name: Lifecycle smoke in a Fedora container (rpm -i, run node as service user, rpm -U, rpm -e)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work -e OLD_VERSION -e NEW_VERSION fedora:42 bash -ec '
+            old="$(ls /work/out/rpm-$OLD_VERSION/*.rpm)"
+            new="$(ls /work/out/rpm-$NEW_VERSION/*.rpm)"
+            bash /work/eng/smoke/fedora-smoke.sh "$old" "$new"
+          '
+
+  windows:
+    name: Windows service (zip + installer)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Publish node and desktop app, build the zip (as preview.yml does)
+        shell: pwsh
+        env:
+          VERSION: ${{ env.OLD_VERSION }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'node'), (Join-Path $stage 'desktop'), 'out' | Out-Null
+          dotnet publish src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj -c Release -r win-x64 --self-contained `
+              -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'node')
+          if ($LASTEXITCODE -ne 0) { throw 'Node publish failed.' }
+          dotnet publish src/MonitorApp.Client.Desktop/MonitorApp.Client.Desktop.csproj -c Release -r win-x64 --self-contained `
+              -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'desktop')
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
+          # Throwaway trust anchor: a real P-256 SPKI, nothing is signed with it.
+          $ecdsa = [System.Security.Cryptography.ECDsa]::Create([System.Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256'))
+          $spki = [Convert]::ToBase64String($ecdsa.ExportSubjectPublicKeyInfo())
+          $key = @{ keyId = 'smoke'; publicKeySpkiBase64 = $spki; repository = $env:GITHUB_REPOSITORY } | ConvertTo-Json -Compress
+          Set-Content -LiteralPath (Join-Path $stage 'node/update-key.json') -Value $key -Encoding utf8NoBOM
+          Copy-Item eng/packaging/windows/*.ps1 $stage
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "out/monitorapp-node-windows-x64-$($env:VERSION).zip"
+
+      - name: Lifecycle smoke (install, service account, DPAPI identity, readings, restart, T043 layout, uninstall)
+        shell: pwsh
+        run: ./eng/smoke/windows-smoke.ps1 -ZipPath "$PWD/out/monitorapp-node-windows-x64-$($env:OLD_VERSION).zip"
+
+      - name: Diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Service MonitorApp -ErrorAction SilentlyContinue | Format-List *
+          sc.exe qc MonitorApp
+          sc.exe query MonitorApp
+          Get-ScheduledTask -TaskName MonitorAppUpdate -ErrorAction SilentlyContinue | Format-List *
+          Get-ChildItem "$env:ProgramData\MonitorApp" -Force -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime
+          Get-ChildItem "$env:ProgramFiles\MonitorApp" -Force -ErrorAction SilentlyContinue | Format-Table Name, LinkType, Target
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-30) } -MaxEvents 200 -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -match 'MonitorApp|\.NET Runtime|Application Error' } | Format-List TimeCreated, ProviderName, Message
+          Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = (Get-Date).AddMinutes(-30) } -MaxEvents 50 -ErrorAction SilentlyContinue |
+              Format-List TimeCreated, Message
+          Get-NetTCPConnection -LocalPort 55431, 55432 -ErrorAction SilentlyContinue | Format-Table
