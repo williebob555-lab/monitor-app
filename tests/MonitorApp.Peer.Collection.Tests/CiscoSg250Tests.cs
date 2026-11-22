@@ -18,6 +18,10 @@ public sealed class CiscoSg250Tests
         var snapshot = await CollectAsync(
             new(Sg250Oids.IfName + ".3", "STRING: \"gi1/0/3\""),
             new(Sg250Oids.IfName + ".9", "STRING: \"gi1/0/9\""),
+            new(Sg250Oids.IfType + ".3", "INTEGER: ethernetCsmacd(6)"),
+            new(Sg250Oids.IfType + ".9", "INTEGER: ethernetCsmacd(6)"),
+            new(Sg250Oids.IfName + ".100", "STRING: \\"vlan100\\""),
+            new(Sg250Oids.IfType + ".100", "INTEGER: l2vlan(135)"),
             new(Sg250Oids.IfAdminStatus + ".3", "INTEGER: up(1)"),
             new(Sg250Oids.IfOperStatus + ".3", "INTEGER: down(2)"),
             new(Sg250Oids.IfHighSpeed + ".3", "Gauge32: 1000"),
@@ -49,6 +53,7 @@ public sealed class CiscoSg250Tests
         Assert.Equal(Owner, strong.ObserverPeerId);
 
         Assert.Equal(3, snapshot.Topology.Entities.Count);
+        Assert.DoesNotContain(snapshot.Ports, p => p.IfIndex == 100); // logical VLAN interface is not a port
         Assert.All(snapshot.Topology.Relationships, rel =>
         {
             Assert.Equal(LanEvidenceKind.Reported, rel.Contract.Evidence);
@@ -66,6 +71,7 @@ public sealed class CiscoSg250Tests
     {
         var snapshot = await CollectAsync(
             new(Sg250Oids.IfDescr + ".1", "STRING: Ethernet 1"),
+            new(Sg250Oids.IfType + ".1", "INTEGER: ethernetCsmacd(6)"),
             new(Sg250Oids.IfOperStatus + ".1", "INTEGER: dormant(5)"),
             new(Sg250Oids.BridgePortPvid + ".1", "INTEGER: 40"),
             new(Sg250Oids.BridgeAddress, "Hex-STRING: 00 00 00 00 00 00"));
