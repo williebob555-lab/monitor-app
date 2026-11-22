@@ -275,3 +275,20 @@ kbd{display:inline-flex;align-items:center;justify-content:center;border:1px sol
 @media(max-width:800px){body{overflow:auto}.shell{grid-template-columns:53px minmax(0,1fr);height:auto;min-height:100dvh}.icon-rail{position:sticky;top:0;height:100dvh;z-index:40}.library-pane{grid-column:2;grid-row:2;border:0;max-height:215px}.workspace-banner,.library-heading,.searchbox,.library-mini-head,.aside-bottom{display:none}.catalog{display:flex;overflow-x:auto;overflow-y:hidden;padding:10px;gap:7px}.asset-card{min-width:185px;max-width:190px;border:1px solid #273d46}.main{grid-column:2;grid-row:1;overflow:visible}.topbar{height:56px}.breadcrumb span:not(:last-of-type),.breadcrumb b{display:none}.top-actions{gap:5px}.import-button,.top-actions .button-subtle:not(#undoButton){display:none}.page-head{padding:25px 18px 20px}.page-head h2{font-size:33px}.toolbar{padding:10px 14px}.toolbar-right{width:100%;justify-content:space-between}.inline-select-label{font-size:8px}.segment{font-size:10px;padding:7px}.canvas-region{margin:0 8px;min-height:490px}.scene{min-height:405px}.scene-hint{display:none}.canvas-footnote{display:none}.bottom-dock{grid-template-columns:1fr 1fr;margin:9px 8px 18px}.dock-metric,.dock-findings{min-height:94px}.dock-metric:nth-child(2){border-right:0}.dock-metric:nth-child(-n+2){border-bottom:1px solid var(--line)}.project-summary{grid-template-columns:repeat(2,1fr);padding:0 14px}.task-board,.decision-grid,.source-columns{grid-template-columns:1fr;padding-left:14px;padding-right:14px}.section-heading{padding-left:14px;padding-right:14px}.source-notice{margin-left:14px;margin-right:14px}.inspector-pane{top:55px;width:min(325px,calc(100vw - 53px))}}
 @media(max-width:480px){.topbar{padding:0 12px}.top-actions .button-primary{font-size:0;padding:8px}.top-actions .button-primary svg{width:18px;height:18px}.scene{min-height:370px}.rack-stage{margin:20px auto}.rack-shell{max-width:270px}.source-card{padding:15px}.pipeline-step{flex-wrap:wrap}.pipeline-step small{width:100%;margin:0 0 0 40px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+
+/* A board is a measured XY mounting plane, not a pretend 1U rack. */
+.board-shell{position:relative;flex:none;max-width:calc(100vw - 110px);border:9px solid #425c62;border-radius:17px;
+  background:repeating-linear-gradient(to bottom,#142631 0 22px,#20333d 22px 29px);
+  box-shadow:0 22px 42px #0009,0 0 45px #94dccc18}
+.board-shell:before{content:"";position:absolute;inset:7px;border-radius:10px;border:1px dashed #64898c78;pointer-events:none}
+.board-item{position:absolute;z-index:1;border:2px solid #63818b;border-radius:9px;background:linear-gradient(150deg,#3a5360,#172631);
+  display:flex;align-items:center;flex-direction:column;justify-content:space-between;padding:8px 4px;color:#eaf4f1;
+  min-width:20px;min-height:20px;cursor:grab;box-shadow:0 7px 12px #020a1070;overflow:hidden}
+.board-item:hover{border-color:#b0e9da}
+.board-item.selected{border-color:var(--aqua);z-index:4;box-shadow:0 0 0 1px var(--aqua),0 0 22px #8cf0c94a}
+.board-item.colliding{border-color:var(--red)}
+.board-item strong{font-size:10px;line-height:1.15;text-align:center;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.board-item small{font:9px var(--mono);color:#f7cc9b}
+.board-knobs{color:#91aeb9;font-size:15px;letter-spacing:3px}
+.board-foot{display:block;border-radius:50%;font:20px var(--mono);color:#c8e4e2}
+.board-watermark{position:absolute;right:8px;bottom:-31px;font:9px var(--mono);letter-spacing:.7px;color:#7ca39d}
