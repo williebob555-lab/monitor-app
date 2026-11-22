@@ -12,6 +12,13 @@ service PeerPairingService {
   rpc Pair(stream PairingFrame) returns (stream PairingFrame);
 }
 
+// Additive in v1: resolves a one-time, short-lived typed pairing code to the desktop identity.
+// The phone never sends the code itself (only a PBKDF2-derived lookup id) and verifies the
+// returned proof, so neither a passive observer nor an impostor listener can use the exchange.
+service PeerPairingCodeService {
+  rpc Redeem(RedeemPairingCodeRequest) returns (RedeemPairingCodeResponse);
+}
+
 service PeerService {
   rpc PeerSession(stream PeerSessionRequest) returns (stream PeerSessionResponse);
 }
@@ -21,6 +28,19 @@ message DiscoveryHint {
   uint32 port = 2;
   string expected_peer_id = 3;
   google.protobuf.Timestamp created_at = 4;
+}
+
+message RedeemPairingCodeRequest {
+  ProtocolVersion protocol_version = 1;
+  // 16 bytes derived from the typed code; never the code.
+  bytes lookup_id = 2;
+}
+
+message RedeemPairingCodeResponse {
+  string peer_id = 1;
+  bytes public_key_sha256 = 2;
+  // HMAC-SHA256 under a key derived from the typed code over lookup id, peer id and fingerprint.
+  bytes proof = 3;
 }
 
 message CompatibilityFailure {
@@ -159,6 +179,94 @@ message PeerHeartbeat {
   google.protobuf.Timestamp sent_at = 1;
 }
 
+// Live session extensions (additive). A peer opts a held-open session into live origin push and live interest
+// with LiveSubscribe; origin data still travels as OriginRecordBatch/OriginAck over the same signed, idempotent
+// per-origin replication, so cursors and gaps stay authoritative.
+message LiveSubscribe {
+  bool push_origin = 1;
+  bool push_interests = 2;
+  uint32 maximum_in_flight_batches = 3;
+}
+
+message LiveSubscribeAck {
+  bool accepted = 1;
+  uint32 maximum_in_flight_batches = 2;
+  string safe_message = 3;
+}
+
+// Declares that the sender is viewing subject_peer_id's signals. The receiver honours it only for its own origin,
+// only from an actively trusted authenticated peer, and only until the lease expires. lease_seconds == 0 withdraws.
+message LiveInterest {
+  string subject_peer_id = 1;
+  repeated string signal_ids = 2;
+  uint32 lease_seconds = 3;
+}
+
+message LiveInterestAck {
+  string subject_peer_id = 1;
+  bool accepted = 2;
+  uint32 granted_lease_seconds = 3;
+  uint32 sampling_interval_milliseconds = 4;
+  string safe_message = 5;
+}
+
+enum AlertSeverity {
+  ALERT_SEVERITY_UNSPECIFIED = 0;
+  ALERT_SEVERITY_INFO = 1;
+  ALERT_SEVERITY_WARNING = 2;
+  ALERT_SEVERITY_CRITICAL = 3;
+}
+
+enum AlertState {
+  ALERT_STATE_UNSPECIFIED = 0;
+  ALERT_STATE_RAISED = 1;
+  ALERT_STATE_RESOLVED = 2;
+}
+
+// One alert episode at one revision (1 = raised, 2 = resolved). Owned by origin_peer_id; recipients only
+// display and acknowledge it, they never re-evaluate it.
+message AlertRecord {
+  uint32 schema_version = 1;
+  string alert_id = 2;
+  uint32 revision = 3;
+  string rule_id = 4;
+  string subject_id = 5;
+  string origin_peer_id = 6;
+  AlertSeverity severity = 7;
+  AlertState state = 8;
+  string title = 9;
+  string detail = 10;
+  google.protobuf.Timestamp raised_at = 11;
+  google.protobuf.Timestamp resolved_at = 12;
+  reserved 13 to 20;
+}
+
+// Sent by an authenticated trusted peer to receive alerts addressed to it.
+message AlertPull {
+  string request_id = 1;
+  uint32 maximum_count = 2;
+  reserved 3 to 8;
+}
+
+message AlertBatch {
+  string request_id = 1;
+  repeated AlertRecord alerts = 2;
+  bool has_more = 3;
+  reserved 4 to 8;
+}
+
+message AlertAckEntry {
+  string alert_id = 1;
+  uint32 revision = 2;
+}
+
+// Sent only after the recipient has durably stored the listed alert revisions.
+message AlertAck {
+  string request_id = 1;
+  repeated AlertAckEntry entries = 2;
+  reserved 3 to 8;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -168,6 +276,12 @@ message PeerSessionRequest {
     OriginRecordBatch origin_batch = 5;
     OriginAck origin_ack = 6;
     PeerHeartbeat heartbeat = 7;
+    LiveSubscribe live_subscribe = 20;
+    LiveInterest live_interest = 21;
+    LiveInterestAck live_interest_ack = 22;
+    // Additive alert delivery (phone pulls, acks after a durable write). Fields 10-15 are reserved for it.
+    AlertPull alert_pull = 8;
+    AlertAck alert_ack = 9;
   }
 }
 
@@ -183,5 +297,9 @@ message PeerSessionResponse {
     CompatibilityFailure incompatibility = 8;
     ProtocolError error = 9;
     PeerProof proof = 10;
+    LiveSubscribeAck live_subscribe_ack = 20;
+    LiveInterest live_interest = 21;
+    LiveInterestAck live_interest_ack = 22;
+    AlertBatch alert_batch = 11;
   }
 }

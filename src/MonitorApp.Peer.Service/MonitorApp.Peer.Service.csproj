@@ -5,6 +5,7 @@
   <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore" />
     <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Alerts\MonitorApp.Peer.Alerts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />

@@ -42,3 +42,23 @@ public sealed class OriginReplicationTrustException : OriginReplicationException
 {
     public OriginReplicationTrustException(string message) : base(message) { }
 }
+
+/// <summary>
+/// The requested origin sequence was removed by retention (compacted into rollups). This is an explicit outcome,
+/// not a hole: the replica must resume at <see cref="ResumeSequence"/> and treat the range as intentionally absent.
+/// </summary>
+public sealed class OriginRangePrunedException : OriginReplicationException
+{
+    public OriginRangePrunedException(ulong requestedSequence, ulong prunedThroughSequence)
+        : base($"Origin sequences through {prunedThroughSequence} were pruned by retention; resume at {prunedThroughSequence + 1}.")
+    {
+        RequestedSequence = requestedSequence;
+        PrunedThroughSequence = prunedThroughSequence;
+    }
+
+    public ulong RequestedSequence { get; }
+
+    public ulong PrunedThroughSequence { get; }
+
+    public ulong ResumeSequence => PrunedThroughSequence + 1;
+}

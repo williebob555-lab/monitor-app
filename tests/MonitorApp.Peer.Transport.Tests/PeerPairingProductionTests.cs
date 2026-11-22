@@ -64,7 +64,8 @@ public sealed class PeerPairingProductionTests : IDisposable
 
     private static PeerTransportOptions Options(Uri address) => new(
         new PeerTransportEndpoint(address, "server-peer", PeerTransportSecurity.LoopbackDevelopment),
-        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10),
+        // Generous deadlines: a cold CI runner can take >3 s for the first HTTP/2 call + JIT.
+        TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(10),
         TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20), 1024 * 1024);
 
     private sealed class IdentityProvider(string peerId, IPeerIdentityKey key) : ILocalPeerIdentityProvider

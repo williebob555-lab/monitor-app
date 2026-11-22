@@ -1,0 +1,344 @@
+name: Preview build
+
+# Builds installable test builds for Windows, Ubuntu, Fedora and Android and publishes them as a GitHub PRE-RELEASE
+# (tag preview-<version>) with a signed update manifest that installed nodes poll. See docs/RELEASES.md.
+#
+# Version: 0.1.<run_number>. run_number only grows, so the version is monotonic for the updater's anti-rollback
+# check and doubles as the Android versionCode. Bump PREVIEW_SERIES to move to 0.2.x (run numbers keep growing).
+#
+# Artifacts move between jobs as assets of a DRAFT release (no third-party actions); the draft is published only
+# after the manifest is signed, and deleted if anything fails.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-app-preview
+  cancel-in-progress: false
+
+env:
+  PREVIEW_SERIES: '0.1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      previous: ${{ steps.v.outputs.previous }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Compute version and create the draft pre-release
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${PREVIEW_SERIES}.${GITHUB_RUN_NUMBER}"
+          tag="preview-${version}"
+          previous="$(git tag --list 'preview-*' --sort=-v:refname | head -n 1 || true)"
+          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists; refusing to overwrite a published preview."
+            exit 1
+          fi
+          bash eng/release/preview-notes.sh "$version" "$tag" "$previous" > "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "Monitor App preview ${version}" --notes-file "$RUNNER_TEMP/notes.md"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "previous=${previous}"
+          } >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Write the trusted update key
+        env:
+          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
+          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${KEY_ID}" ] || missing="${missing} MONITOR_UPDATE_SIGNING_KEY_ID"
+          [ -n "${PUBLIC_KEY}" ] || missing="${missing} MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository/environment variable(s):${missing}. See docs/RELEASES.md (first preview checklist)."
+            exit 1
+          fi
+          printf '{"keyId":"%s","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$KEY_ID" "$PUBLIC_KEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
+
+      - name: Build .deb and stage tree
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          MONITOR_APP_UPDATE_KEY_JSON="$RUNNER_TEMP/update-key.json" \
+          MONITOR_APP_SAVE_STAGE="$PWD/out/stage.tgz" \
+          MONITOR_APP_PACKAGES=deb \
+            bash eng/packaging/linux/build-packages.sh "$VERSION" "$PWD/out"
+          mv "out/monitor-app_${VERSION}_amd64.deb" "out/monitorapp-node-ubuntu-x64-${VERSION}.deb"
+
+      - name: Build .rpm in a Fedora container
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work fedora:42 bash -ec '
+            dnf install -y rpm-build systemd-rpm-macros tar gzip >/dev/null
+            MONITOR_APP_FROM_STAGE=/work/out/stage.tgz MONITOR_APP_PACKAGES=rpm \
+              bash eng/packaging/linux/build-packages.sh "'"$VERSION"'" /work/out/rpm
+          '
+          cp out/rpm/*.rpm "out/monitorapp-node-fedora-x64-${VERSION}.rpm"
+          rm -rf out/rpm out/stage.tgz
+
+      - name: Publish the Linux desktop app
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/MonitorApp.Client.Desktop/MonitorApp.Client.Desktop.csproj \
+            -c Release -r linux-x64 --self-contained -p:RestoreLockedMode=false \
+            -p:DebugType=None -p:Version="$VERSION" -o "$RUNNER_TEMP/desktop"
+          tar -C "$RUNNER_TEMP/desktop" -czf "out/monitorapp-desktop-ubuntu-x64-${VERSION}.tar.gz" .
+          # Same self-contained payload for Fedora; separate name so the manifest can target each platform.
+          cp "out/monitorapp-desktop-ubuntu-x64-${VERSION}.tar.gz" "out/monitorapp-desktop-fedora-x64-${VERSION}.tar.gz"
+
+      - name: Upload to the draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" out/* --clobber
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Publish node and desktop app, build the zip
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
+          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $missing = @()
+          if (-not $env:KEY_ID) { $missing += 'MONITOR_UPDATE_SIGNING_KEY_ID' }
+          if (-not $env:PUBLIC_KEY) { $missing += 'MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64' }
+          if ($missing) {
+              Write-Host "::error::Missing repository/environment variable(s): $($missing -join ', '). See docs/RELEASES.md (first preview checklist)."
+              exit 1
+          }
+          $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'node'), (Join-Path $stage 'desktop'), 'out' | Out-Null
+          dotnet publish src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj -c Release -r win-x64 --self-contained `
+              -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'node')
+          if ($LASTEXITCODE -ne 0) { throw 'Node publish failed.' }
+          dotnet publish src/MonitorApp.Client.Desktop/MonitorApp.Client.Desktop.csproj -c Release -r win-x64 --self-contained `
+              -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'desktop')
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
+          $key = @{ keyId = $env:KEY_ID; publicKeySpkiBase64 = $env:PUBLIC_KEY; repository = $env:GITHUB_REPOSITORY } | ConvertTo-Json -Compress
+          Set-Content -LiteralPath (Join-Path $stage 'node/update-key.json') -Value $key -Encoding utf8NoBOM
+          Copy-Item eng/packaging/windows/*.ps1 $stage
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "out/monitorapp-node-windows-x64-$($env:VERSION).zip"
+
+      - name: Upload to the draft pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          gh release upload $env:TAG (Get-ChildItem out -File).FullName --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Upload failed.' }
+
+  android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: release
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Require Android signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            [ -n "${!name}" ] || missing="${missing} ${name}"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secret(s) in the 'release' environment:${missing}. Run eng/release/New-ReleaseSigningKeys.ps1 and docs/RELEASES.md step 3."
+            exit 1
+          fi
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Install .NET Android workload
+        run: dotnet workload install android
+
+      - name: Restore Android project (locked)
+        run: >-
+          dotnet restore src/MonitorApp.Android/MonitorApp.Android.csproj --locked-mode
+          -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" -p:JavaSdkDirectory="$JAVA_HOME_21_X64"
+
+      - name: Build the release-signed APK
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          # versionCode = run number (monotonic); the password values are read from the environment by MSBuild.
+          dotnet publish src/MonitorApp.Android/MonitorApp.Android.csproj \
+            -c Release -f net10.0-android36.0 --no-restore \
+            -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" -p:JavaSdkDirectory="$JAVA_HOME_21_X64" \
+            -p:AcceptAndroidSDKLicenses=true -p:AndroidPackageFormat=apk \
+            -p:ApplicationVersion="$GITHUB_RUN_NUMBER" -p:ApplicationDisplayVersion="$VERSION" \
+            -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$keystore" \
+            -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS" \
+            -p:AndroidSigningKeyPass=env:ANDROID_KEY_PASSWORD \
+            -p:AndroidSigningStorePass=env:ANDROID_KEYSTORE_PASSWORD
+          rm -f "$keystore"
+          apk="$(find src/MonitorApp.Android/bin/Release -name '*-Signed.apk' | head -n 1)"
+          [ -n "$apk" ] || { echo "::error::No signed APK was produced."; exit 1; }
+          mkdir -p out
+          cp "$apk" "out/monitorapp-mobile-android-universal-${VERSION}.apk"
+
+      - name: Upload to the draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" out/* --clobber
+
+  publish:
+    needs: [prepare, linux, windows, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Require manifest signing secret and variables
+        env:
+          KEY: ${{ secrets.MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64 }}
+          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
+          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+        run: |
+          missing=""
+          [ -n "$KEY" ] || missing="${missing} secret:MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64"
+          [ -n "$KEY_ID" ] || missing="${missing} variable:MONITOR_UPDATE_SIGNING_KEY_ID"
+          [ -n "$PUBLIC_KEY" ] || missing="${missing} variable:MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing:${missing}. See docs/RELEASES.md (first preview checklist)."
+            exit 1
+          fi
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Download every artifact from the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh release download "$TAG" --dir artifacts
+          ls -l artifacts
+
+      - name: Sign the update manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64: ${{ secrets.MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64 }}
+          MONITOR_UPDATE_SIGNING_KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
+          MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+        run: |
+          set -euo pipefail
+          # Expect all five platform families; a missing artifact must not produce a partial manifest.
+          for pattern in "node-ubuntu-x64-${VERSION}.deb" "node-fedora-x64-${VERSION}.rpm" "node-windows-x64-${VERSION}.zip" \
+                         "desktop-ubuntu-x64-${VERSION}.tar.gz" "desktop-fedora-x64-${VERSION}.tar.gz" "mobile-android-universal-${VERSION}.apk"; do
+            [ -f "artifacts/monitorapp-${pattern}" ] || { echo "::error::Missing artifact monitorapp-${pattern}"; exit 1; }
+          done
+          dotnet run --project eng/release/MonitorApp.ReleaseTool/MonitorApp.ReleaseTool.csproj -c Release -- create \
+            --version "$VERSION" \
+            --minimum-compatible-version "0.1.0" \
+            --channel preview \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --artifacts-dir artifacts \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
+            --output artifacts/update-manifest.json
+          (cd artifacts && sha256sum monitorapp-* update-manifest.json > SHA256SUMS)
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The signature is embedded in update-manifest.json (signed envelope), so one file carries both.
+          gh release upload "$TAG" artifacts/update-manifest.json artifacts/SHA256SUMS --clobber
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          echo "Published pre-release $TAG: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    needs: [prepare, linux, windows, android, publish]
+    if: ${{ always() && needs.prepare.result == 'success' && needs.publish.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete the unpublished draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true

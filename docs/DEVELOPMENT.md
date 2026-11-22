@@ -21,6 +21,7 @@ For documentation-only changes with no executable instruction or configuration i
 
 - .NET 10 LTS, C#, standard gRPC/Protocol Buffers, and SQLite WAL remain the accepted functional foundation.
 - Avalonia remains a later working choice for shared UI, subject to platform proof.
+- The shared client lives in `MonitorApp.Client.Core` (no UI or transport dependencies in view models; talk to peers only through `IPeerDataSource`) and `MonitorApp.Client.Desktop` (views only). Add a view by adding a `SectionViewModel`, listing it in `MainViewModel.Sections`, and adding a DataTemplate in `App.axaml`. Run the desktop head with `dotnet run --project src/MonitorApp.Client.Desktop` (set `MONITOR_NODE_ADDRESS` to override `http://127.0.0.1:55432`).
 - Replace the controller/agent split with a peer service composed of identity and pairing, local observation storage/query, direct replication, collectors/adapters, and a local API/UI boundary.
 - Keep versioned contracts in `MonitorApp.Contracts` and platform-independent rules in `MonitorApp.Domain`.
 - Reuse controller-era cryptographic, persistence, telemetry, spool, collector, Android, and signed-update work only where tests show that it fits peer semantics.
@@ -33,6 +34,7 @@ Create new projects only when executable work needs them. `MonitorApp.Peer.Core`
 - Tailscale is user-managed reachability. A Tailscale IP is a discovery hint, never application identity or authorization.
 - Pairing must be bilateral and prove possession of device-held application keys. Store explicit peer trust and support revocation/rotation.
 - Listen only on deliberately configured private/Tailscale interfaces; never expose monitoring publicly by default.
+- The node is hosted by the Generic Host (`NodeHost`/`PeerNodeHostedService`); add startup work to the runtime or hosted service, not `Program.cs`. New options need an argument, a `MONITOR_APP_*` variable, and a service-mode default. Build the DEB with `eng/packaging/linux/build-packages.sh`; do not run a RID-specific publish in the worktree (it rewrites lock files; the script uses a temporary copy).
 - Origin peers own immutable observation identities and sequence order. Replicas track per-origin cursors and accept byte-equivalent retry without duplication.
 - Preserve entity, source, source time, ingest time, unit, quality, freshness, and collection cost. Unsupported, denied, stale, and unavailable are explicit states, never numeric zero.
 - Observed-device identity must survive attachment-host changes. Model collection/attachment relationships separately from entity identity.

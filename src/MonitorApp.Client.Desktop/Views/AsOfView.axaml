@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Desktop.Views.AsOfView" x:DataType="vm:AsOfViewModel">
+  <DockPanel Margin="8">
+    <StackPanel DockPanel.Dock="Top" Spacing="6">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Name="SubjectLabel" Text="Subject" VerticalAlignment="Center" />
+        <ComboBox ItemsSource="{Binding Picker.Subjects}" SelectedItem="{Binding Picker.SelectedSubject}" MinWidth="160" AutomationProperties.LabeledBy="{Binding #SubjectLabel}" />
+        <TextBlock Name="SignalLabel" Text="Signal" VerticalAlignment="Center" />
+        <ComboBox ItemsSource="{Binding Picker.Signals}" SelectedItem="{Binding Picker.SelectedSignal}" MinWidth="160" AutomationProperties.LabeledBy="{Binding #SignalLabel}" />
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Name="AsOfLabel" Text="As of" VerticalAlignment="Center" />
+        <TextBox Text="{Binding AsOfText}" Width="260" AutomationProperties.LabeledBy="{Binding #AsOfLabel}" />
+        <TextBlock Name="LookbackLabel" Text="Look back (hours)" VerticalAlignment="Center" />
+        <TextBox Text="{Binding LookbackHoursText}" Width="80" AutomationProperties.LabeledBy="{Binding #LookbackLabel}" />
+        <Button Content="Reconstruct" Command="{Binding LoadCommand}" IsDefault="True" />
+        <Button Content="Reload catalog" Command="{Binding RefreshCommand}" />
+      </StackPanel>
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+      <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+    </StackPanel>
+    <DataGrid ItemsSource="{Binding Rows}" IsReadOnly="True" AutoGenerateColumns="False" AutomationProperties.Name="State as of the chosen time">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Subject" Binding="{Binding Subject}" />
+        <DataGridTextColumn Header="Signal" Binding="{Binding Signal}" />
+        <DataGridTextColumn Header="Value" Binding="{Binding Value}" />
+        <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" />
+        <DataGridTextColumn Header="Freshness" Binding="{Binding Freshness}" />
+        <DataGridTextColumn Header="Quality" Binding="{Binding Quality}" />
+        <DataGridTextColumn Header="Observed" Binding="{Binding ObservedAt}" />
+        <DataGridTextColumn Header="Age" Binding="{Binding Age}" />
+        <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

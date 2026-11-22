@@ -58,6 +58,12 @@ try {
             --filter "Category=SQLite"
     }
 
+    Invoke-VerificationStep "Run peer LAN self-observation collector tests" {
+        dotnet test tests/MonitorApp.Peer.Collection.Tests/MonitorApp.Peer.Collection.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run peer pairing application tests" {
         dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj `
             -c Release `
@@ -82,8 +88,41 @@ try {
             --no-build
     }
 
+    Invoke-VerificationStep "Run portable mobile peer runtime tests" {
+        dotnet test tests/MonitorApp.Peer.Mobile.Tests/MonitorApp.Peer.Mobile.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    if ($IsLinux) {
+        Invoke-VerificationStep "Run real dpkg update apply/rollback integration tests" {
+            dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category=Integration"
+        }
+    }
+
+    Invoke-VerificationStep "Run alert rule, outbox, and delivery tests" {
+        dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run local peer administration API tests" {
         dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run desktop client core tests against the real local API" {
+        dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run headless desktop client smoke test" {
+        dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
             -c Release `
             --no-build
     }
@@ -111,14 +150,23 @@ try {
     }
     else {
         Write-Warning "NOT RUN: Windows collector integration tests require Windows."
-        Write-Warning "NOT RUN: Windows peer node and DPAPI identity tests require Windows."
+        Write-Warning "NOT RUN: Windows DPAPI identity and Yamaha adapter tests (Category=Windows) require Windows."
+    }
+
+    if (-not $IsWindows) {
+        Invoke-VerificationStep "Run Linux peer node integration tests" {
+            dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category!=Windows"
+        }
     }
 
     Invoke-VerificationStep "Verify formatting" {
         dotnet format MonitorApp.sln --verify-no-changes --no-restore
     }
 
-    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet. The Windows peer node suite covers in-process two-peer offline/restart convergence."
+    Write-Warning "NOT RUN: separate-process agent/controller and Headscale suites; those projects do not exist yet. The peer node suite (Windows, and Linux engineering preview) covers in-process two-peer offline/restart convergence."
     Write-Warning "NOT RUN: Android device/instrumentation, Windows service lifecycle, Fedora, and Ubuntu platform suites. Android core tests run in the solution; the workload-specific APK build is a separate documented command."
 
     Write-Host "`nAvailable functional-foundation verification passed."

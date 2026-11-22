@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MonitorApp.Peer.Core;
 
 namespace MonitorApp.Peer.Service;
 
@@ -30,6 +31,7 @@ public static class PeerHostApplication
         configureServices?.Invoke(builder.Services);
         builder.Services.TryAddSingleton<IPeerSessionCoordinator, UnconfiguredPeerSessionCoordinator>();
         builder.Services.TryAddSingleton<IPeerPairingCoordinator, UnconfiguredPeerPairingCoordinator>();
+        builder.Services.TryAddSingleton<PairingShortCodeRegistry>();
 
         var app = builder.Build();
         var runtime = app.Services.GetRequiredService<PeerRuntimeState>();
@@ -64,6 +66,7 @@ public static class PeerHostApplication
             });
         });
         app.MapGrpcService<PeerPairingGrpcService>();
+        app.MapGrpcService<PeerPairingCodeGrpcService>();
         app.MapGrpcService<PeerSessionGrpcService>();
         return Task.FromResult(app);
     }

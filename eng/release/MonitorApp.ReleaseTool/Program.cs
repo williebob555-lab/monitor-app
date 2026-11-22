@@ -257,7 +257,7 @@ internal static partial class Program
             : throw new ArgumentException($"Required release environment variable {name} is missing.");
 
     [GeneratedRegex(
-        "^monitorapp-(?<component>[a-z0-9.]+)-(?<platform>[a-z0-9.]+)-(?<architecture>[a-z0-9.]+)-(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\\.(?:zip|apk|tar\\.gz)$",
+        "^monitorapp-(?<component>[a-z0-9.]+)-(?<platform>[a-z0-9.]+)-(?<architecture>[a-z0-9.]+)-(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\\.(?:zip|apk|deb|rpm|tar\\.gz)$",
         RegexOptions.CultureInvariant)]
     private static partial Regex ArtifactFileName();
 }

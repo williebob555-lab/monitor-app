@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Data.Sqlite;
 using MonitorApp.Peer.Persistence;
 using Xunit;
 
@@ -44,6 +45,40 @@ public sealed class PeerStoreTests : IDisposable
 
     [Fact]
     [Trait("Category", "SQLite")]
+    public async Task LiveFeedPublishesOnlyNewlyCommittedRecordsAndStopsAfterUnsubscribe()
+    {
+        var store = await CreateStoreAsync();
+        await store.SetLocalIdentityAsync(Identity());
+        var seen = new List<ulong>();
+        var gate = new object();
+        var subscription = store.Live.Subscribe(record =>
+        {
+            lock (gate) seen.Add(record.Sequence);
+        });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var streamed = store.Live.StreamAsync(cancellationToken: cancellation.Token).GetAsyncEnumerator(cancellation.Token);
+        var firstStreamed = streamed.MoveNextAsync().AsTask();
+
+        var first = LocalRecord(1, now, [1, 2, 3]);
+        await store.AppendOriginRecordAsync(first);
+        await store.AppendOriginRecordAsync(first); // identical retry: not new, must not notify
+        await Assert.ThrowsAsync<PeerPersistenceConflictException>(() => store.AppendOriginRecordAsync(LocalRecord(3, now, [7])));
+        await store.AppendOriginRecordAsync(LocalRecord(2, now.AddSeconds(1), [4, 5, 6]));
+
+        Assert.True(await firstStreamed);
+        Assert.Equal(1UL, streamed.Current.Sequence);
+        Assert.Equal(first.RecordBytes, streamed.Current.RecordBytes);
+        lock (gate) Assert.Equal([1UL, 2UL], seen);
+
+        subscription.Dispose();
+        await store.AppendOriginRecordAsync(LocalRecord(3, now.AddSeconds(2), [7]));
+        lock (gate) Assert.Equal([1UL, 2UL], seen);
+        await cancellation.CancelAsync();
+        await streamed.DisposeAsync();
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
     public async Task LocalOriginSequenceIsContiguousAndRetriesAreByteIdentical()
     {
         var store = await CreateStoreAsync();
@@ -84,6 +119,88 @@ public sealed class PeerStoreTests : IDisposable
         var current = Assert.Single(await store.ReadCurrentObservationsAsync());
         Assert.Equal(5UL, current.Sequence);
         Assert.Equal(RecordProvenance.Replicated, current.Provenance);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task UpgradingFromSchemaTwoAddsObservedTimeIndexAndKeepsRecords()
+    {
+        var store = await CreateStoreAsync();
+        await store.AppendOriginRecordAsync(ReplicatedRecord(1, now, [1]));
+        var path = Path.Combine(directory, "peer.db");
+        await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = "DROP INDEX ix_origin_records_observed_at; DELETE FROM schema_migrations WHERE version = 3;";
+            await downgrade.ExecuteNonQueryAsync();
+        }
+
+        var upgraded = await CreateStoreAsync();
+
+        await using var check = new SqliteConnection($"Data Source={path};Pooling=False");
+        await check.OpenAsync();
+        await using var versions = check.CreateCommand();
+        versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
+        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
+        await using var plan = check.CreateCommand();
+        plan.CommandText = "EXPLAIN QUERY PLAN SELECT sequence FROM origin_records WHERE observed_at >= 'a' AND observed_at < 'b' ORDER BY observed_at, origin_peer_id, origin_stream_id, sequence;";
+        var detail = string.Empty;
+        await using (var reader = await plan.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync()) detail += reader.GetString(3);
+        }
+
+        Assert.Contains("ix_origin_records_observed_at", detail, StringComparison.Ordinal);
+        var page = await upgraded.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now.AddMinutes(-1), now.AddMinutes(1), null, null, null, null, 10));
+        Assert.Equal(1UL, Assert.Single(page.Records).Sequence);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task WindowQueryIsHalfOpenOrderedAndRejectsInvalidBounds()
+    {
+        var store = await CreateStoreAsync();
+        await store.AppendOriginRecordAsync(ReplicatedRecord(2, now.AddSeconds(10), [2]));
+        await store.AppendOriginRecordAsync(ReplicatedRecord(1, now, [1]));
+        await store.AppendOriginRecordAsync(ReplicatedRecord(3, now.AddSeconds(20), [3]));
+
+        var page = await store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now, now.AddSeconds(20), null, null, null, null, 10));
+        var first = await store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now, now.AddSeconds(30), null, null, null, null, 2));
+        var rest = await store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now, now.AddSeconds(30), null, null, null,
+            new OriginRecordCursor(first.Records[^1].ObservedAt, "peer-b", "origin-b", first.Records[^1].Sequence), 2));
+
+        Assert.Equal([1UL, 2UL], page.Records.Select(value => value.Sequence));
+        Assert.True(first.Truncated);
+        Assert.Equal([3UL], rest.Records.Select(value => value.Sequence));
+        Assert.False(rest.Truncated);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now, now, null, null, null, null, 1)));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now, now.AddSeconds(1), null, null, null, null, 0)));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.ReadOriginWindowAsync(new OriginRecordWindowQuery(
+            now.ToOffset(TimeSpan.FromHours(2)), now.AddSeconds(1), null, null, null, null, 1)));
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task StateAsOfPicksLatestRecordPerSeriesWithinLookback()
+    {
+        var store = await CreateStoreAsync();
+        await store.AppendOriginRecordAsync(ReplicatedRecord(1, now.AddMinutes(-30), [1]));
+        await store.AppendOriginRecordAsync(ReplicatedRecord(2, now.AddMinutes(-5), [2]));
+        await store.AppendOriginRecordAsync(ReplicatedRecord(3, now.AddMinutes(5), [3]));
+
+        var inside = await store.ReadOriginStateAsOfAsync(now, now.AddHours(-1), null, null, 10);
+        var narrow = await store.ReadOriginStateAsOfAsync(now, now.AddMinutes(-1), null, null, 10);
+
+        Assert.Equal(2UL, Assert.Single(inside.Records).Sequence);
+        Assert.Empty(narrow.Records);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.ReadOriginStateAsOfAsync(now, now.AddSeconds(1), null, null, 10));
     }
 
     [Fact]
@@ -321,6 +438,45 @@ public sealed class PeerStoreTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task SchemaV3DatabaseMigratesToV4WithRetentionTablesAndKeepsData()
+    {
+        var store = await CreateStoreAsync();
+        await store.SetLocalIdentityAsync(Identity());
+        var bytes = new byte[] { 1, 2, 3 };
+        await store.AppendOriginRecordAsync(LocalRecord(1, now, bytes));
+
+        // Reduce the real file to what a v3 database holds: no retention tables, latest recorded version 3.
+        var databasePath = Path.Combine(directory, "peer.db");
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString()))
+        {
+            await connection.OpenAsync();
+            await using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = """
+                DROP TABLE observation_rollups_hourly;
+                DROP TABLE pinned_incidents;
+                DROP TABLE pruned_origin_ranges;
+                DELETE FROM schema_migrations WHERE version >= 4;
+                INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, '2026-11-01T00:00:00.0000000+00:00');
+                """;
+            await downgrade.ExecuteNonQueryAsync();
+        }
+
+        var migrated = await CreateStoreAsync();
+
+        Assert.Single(await migrated.ReadOriginRangeAsync("peer-a", "origin-a", 1, 10));
+        await migrated.PinIncidentAsync(new PinnedIncident("inc-1", "outage", now, now.AddHours(1), now));
+        Assert.Equal("inc-1", Assert.Single(await migrated.ReadPinnedIncidentsAsync()).IncidentId);
+        Assert.Empty((await migrated.ReadHourlyRollupsAsync(new HourlyRollupQuery(now, now.AddHours(1), null, null, null, null, 10))).Rollups);
+        Assert.Null(await migrated.ReadPrunedRangeContainingAsync("peer-a", "origin-a", 1));
+        await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString());
+        await verify.OpenAsync();
+        await using var versions = verify.CreateCommand();
+        versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
+        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
     }
 
     private async Task<PeerStore> CreateStoreAsync()

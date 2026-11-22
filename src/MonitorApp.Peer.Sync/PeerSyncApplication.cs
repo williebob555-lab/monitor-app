@@ -2,7 +2,10 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
 using MonitorApp.Peer.Service;
@@ -22,6 +25,16 @@ public sealed record PeerSyncOptions(int MaximumBatchRecords, int MaximumBatchBy
     }
 }
 
+/// <summary>
+/// Opts a held-open client session into live origin push. <paramref name="RequestRemotePush"/> is for outbound-only
+/// peers (phones) whose remote cannot dial back; peers that dial each other push their own origin on their own session.
+/// </summary>
+public sealed record PeerSyncLiveOptions(
+    LiveInterestRegistry? Interests,
+    bool RequestRemotePush,
+    int MaximumInFlightBatches = 4,
+    Func<Task>? AlertsStored = null);
+
 public sealed class PeerSyncException(string message) : Exception(message);
 
 public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertisementProvider
@@ -29,10 +42,15 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSyncOptions options;
+    private readonly PeerSyncLiveOptions? live;
+    private readonly AlertStore? alerts;
     private PeerHello? authenticatedRemoteHello;
 
-    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null)
+    public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
+        AlertStore? alerts = null, PeerSyncLiveOptions? live = null)
     {
+        this.live = live;
+        this.alerts = alerts;
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.replication = replication ?? throw new ArgumentNullException(nameof(replication));
         this.options = options ?? PeerSyncOptions.Default;
@@ -40,6 +58,31 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     }
 
     public CapabilityExchange LocalCapabilities { get; } = new();
+
+    public bool WantsAlerts => alerts is not null;
+
+    /// <summary>
+    /// Persists every alert in the batch, then returns the acknowledgement; an ack is never sent before the write.
+    /// Works identically for a pulled batch (one-shot sync) and an unsolicited push on a long-lived session.
+    /// </summary>
+    public async ValueTask<AlertAck?> AcceptAlertBatchAsync(string remotePeerId, AlertBatch batch, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (alerts is null || batch.Alerts.Count == 0) return null;
+        // Only alerts the authenticated desktop itself owns are accepted: a peer cannot inject alerts on another's behalf.
+        var ack = new AlertAck { RequestId = batch.RequestId };
+        var now = DateTimeOffset.UtcNow;
+        foreach (var record in batch.Alerts)
+        {
+            if (record.OriginPeerId != remotePeerId) throw new PeerSyncException("Alert origin does not match the authenticated peer.");
+            await alerts.StoreInboundAsync(Alert.FromContract(record), now, cancellationToken).ConfigureAwait(false);
+            ack.Entries.Add(new AlertAckEntry { AlertId = record.AlertId, Revision = record.Revision });
+        }
+
+        if (live?.AlertsStored is { } stored)
+            await stored().ConfigureAwait(false);
+        return ack;
+    }
 
     public async ValueTask PrepareHelloAsync(PeerHello localHello, CancellationToken cancellationToken)
     {
@@ -136,6 +179,30 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             throw new PeerSyncException("Origin acknowledgement does not match the local origin stream.");
         await store.UpdateReplicationCursorAsync(new ReplicationCursor(remotePeerId, local.PeerId, local.OriginStreamId,
             cursor.AcceptedThroughSequence, "raw", cursor.UpdatedAt.ToDateTimeOffset()), [], cancellationToken).ConfigureAwait(false);
+    }
+
+    public IPeerLiveSession? OpenLiveSession(string remotePeerId)
+    {
+        if (live is null)
+        {
+            return null;
+        }
+
+        return new PeerLiveSession(new PeerLiveSessionOptions(
+            store,
+            remotePeerId,
+            (request, token) => new ValueTask<OriginRecordBatch>(replication.ReadAsync(request, token)),
+            async token =>
+            {
+                var trusted = await store.ReadTrustedPeerAsync(remotePeerId, token).ConfigureAwait(false);
+                if (trusted is null || trusted.TrustState != PeerTrustState.Active)
+                    throw new PeerSyncException("Peer trust is not active.");
+            },
+            live.Interests,
+            live.RequestRemotePush,
+            live.MaximumInFlightBatches,
+            options.MaximumBatchRecords,
+            options.MaximumBatchBytes));
     }
 
     public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)

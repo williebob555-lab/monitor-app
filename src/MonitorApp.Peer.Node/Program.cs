@@ -1,24 +1,41 @@
 using MonitorApp.Peer.Node;
+using MonitorApp.Peer.Node.Update;
 
-var options = NodeOptions.Parse(args);
-using var shutdown = new CancellationTokenSource();
-Console.CancelKeyPress += (_, eventArgs) =>
+if (args.Length >= 2 && args[0] == ApplyHelper.HelperArgument)
 {
-    eventArgs.Cancel = true;
-    shutdown.Cancel();
-};
-await using var runtime = await PeerNodeRuntime.StartAsync(options, shutdown.Token).ConfigureAwait(false);
-Console.WriteLine($"Monitor App peer: {runtime.Identity.PeerId}");
-Console.WriteLine($"Fingerprint: {Convert.ToHexString(runtime.Identity.PublicKeyFingerprint).ToLowerInvariant()}");
-Console.WriteLine($"Local administration: {runtime.AdminAddress}");
-Console.WriteLine("Implemented preview: bilateral pairing, local collection/query, automatic reconnect, and origin-history synchronization.");
+    // Root-only helper started by monitor-app-update.service; not part of the normal node.
+    return await ApplyHelper.RunHelperAsync(
+        args[1],
+        NodeUpdateOptions.DefaultKeyFile(),
+        "/var/lib/monitor-app-helper",
+        Environment.GetEnvironmentVariable("MONITOR_APP_UPDATE_PACKAGE") is { Length: > 0 } kind && kind != "auto"
+            ? kind
+            : File.Exists("/etc/redhat-release") ? "rpm" : "deb",
+        Environment.GetEnvironmentVariable("MONITOR_APP_UPDATE_CHANNEL") is { Length: > 0 } channel ? channel : "preview").ConfigureAwait(false);
+}
+
+NodeOptions options;
 try
 {
-    await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token).ConfigureAwait(false);
+    options = NodeOptions.Parse(args, NodeHost.IsServiceMode());
 }
-catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+catch (ArgumentException exception)
 {
-    // Normal Ctrl+C shutdown.
+    await Console.Error.WriteLineAsync($"monitor-app: invalid configuration: {exception.Message}").ConfigureAwait(false);
+    return 2;
+}
+
+try
+{
+    using var host = NodeHost.Build(options);
+    await host.RunAsync().ConfigureAwait(false);
+    return 0;
+}
+catch (Exception exception) when (exception is not OperationCanceledException)
+{
+    // Already logged critically by the hosted service; ensure a non-zero exit for SCM/systemd.
+    await Console.Error.WriteLineAsync($"monitor-app: fatal: {exception.Message}").ConfigureAwait(false);
+    return 1;
 }
 
 public partial class Program;

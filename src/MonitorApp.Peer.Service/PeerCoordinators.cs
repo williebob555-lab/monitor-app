@@ -1,3 +1,4 @@
+using MonitorApp.Contracts;
 using Google.Protobuf.WellKnownTypes;
 using MonitorApp.Contracts.V1;
 
@@ -44,6 +45,24 @@ public interface IPeerSessionCoordinator
         string remotePeerId,
         PeerHeartbeat heartbeat,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Live push/interest state for an authenticated, held-open session. Null means live sessions are unsupported.
+    /// </summary>
+    IPeerLiveSession? OpenLiveSession(string remotePeerId) => null;
+
+    /// <summary>Alert delivery is additive; coordinators that do not implement it refuse with InvalidMessage.</summary>
+    ValueTask<AlertBatch> PullAlertsAsync(
+        string remotePeerId,
+        AlertPull pull,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+
+    ValueTask AcceptAlertAckAsync(
+        string remotePeerId,
+        AlertAck acknowledgement,
+        CancellationToken cancellationToken) =>
+        throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
 }
 
 public sealed class PeerPairingSessionContext

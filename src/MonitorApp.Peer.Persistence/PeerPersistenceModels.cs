@@ -34,6 +34,9 @@ public enum RelationshipKind
     MemberOfVlan = 4,
     UplinkTo = 5,
     ReachableOverOverlay = 6,
+    MemberOfSegment = 7,
+    RoutesVia = 8,
+    ProbableSameSegment = 9,
 }
 
 public enum RecordInsertOutcome
@@ -104,6 +107,23 @@ public sealed record StoredOriginRecord(
     string? ReceivedFromPeerId,
     RecordProvenance Provenance,
     string Quality);
+
+public sealed record OriginRecordCursor(
+    DateTimeOffset ObservedAt,
+    string OriginPeerId,
+    string OriginStreamId,
+    ulong Sequence);
+
+public sealed record OriginRecordWindowQuery(
+    DateTimeOffset From,
+    DateTimeOffset ToExclusive,
+    string? SubjectEntityId,
+    string? SignalId,
+    string? OriginPeerId,
+    OriginRecordCursor? After,
+    int Limit);
+
+public sealed record OriginRecordWindowPage(IReadOnlyList<StoredOriginRecord> Records, bool Truncated);
 
 public sealed record CurrentObservation(
     string SubjectEntityId,

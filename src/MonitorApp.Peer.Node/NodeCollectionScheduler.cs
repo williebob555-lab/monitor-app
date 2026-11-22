@@ -1,3 +1,4 @@
+using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
 
 namespace MonitorApp.Peer.Node;
@@ -6,13 +7,22 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
 {
     private readonly PeerSystemMetricsIngestionBridge collection;
     private readonly TimeSpan interval;
+    private readonly LiveInterestRegistry? interests;
+    private readonly string? subjectPeerId;
     private readonly CancellationTokenSource lifetime = new();
     private Task? loop;
+    private long currentIntervalTicks;
 
+    /// <param name="interests">When set (with <paramref name="subjectPeerId"/>), live interest in this peer's own data
+    /// switches sampling to the registry's fast interval until the interest lapses.</param>
     public NodeCollectionScheduler(
         PeerSystemMetricsIngestionBridge collection,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        LiveInterestRegistry? interests = null,
+        string? subjectPeerId = null)
     {
+        this.interests = interests;
+        this.subjectPeerId = subjectPeerId;
         this.collection = collection ?? throw new ArgumentNullException(nameof(collection));
         this.interval = interval ?? TimeSpan.FromMinutes(1);
         if (this.interval < TimeSpan.FromSeconds(10) || this.interval > TimeSpan.FromHours(24))
@@ -22,6 +32,9 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
     }
 
     public string? LastFailureKind { get; private set; }
+
+    /// <summary>The sampling interval currently in force (fast while live interest exists).</summary>
+    public TimeSpan CurrentInterval => TimeSpan.FromTicks(Interlocked.Read(ref currentIntervalTicks));
 
     public void Start()
     {
@@ -56,28 +69,39 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
 
     private async Task RunAsync()
     {
-        using var timer = new PeriodicTimer(interval);
-        while (await timer.WaitForNextTickAsync(lifetime.Token).ConfigureAwait(false))
+        Interlocked.Exchange(ref currentIntervalTicks, interval.Ticks);
+        try
         {
-            try
+            await AdaptiveSampler.RunAsync(
+                CollectAsync,
+                subjectPeerId ?? "local",
+                interval,
+                subjectPeerId is null ? null : interests,
+                collectImmediately: false,
+                onInterval: value => Interlocked.Exchange(ref currentIntervalTicks, value.Ticks),
+                lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CollectAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+            if (result.Status == PeerCollectionRunStatus.Completed)
             {
-                var result = await collection.RunOnceAsync(lifetime.Token).ConfigureAwait(false);
-                if (result.Status == PeerCollectionRunStatus.Completed)
-                {
-                    LastFailureKind = null;
-                }
+                LastFailureKind = null;
             }
-            catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception) when (exception is
-                IOException or
-                InvalidOperationException or
-                TimeoutException)
-            {
-                LastFailureKind = exception.GetType().Name;
-            }
+        }
+        catch (Exception exception) when (exception is
+            IOException or
+            InvalidOperationException or
+            TimeoutException)
+        {
+            LastFailureKind = exception.GetType().Name;
         }
     }
 }

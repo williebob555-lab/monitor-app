@@ -7,18 +7,14 @@
     <ApplicationId>app.monitor.selfhosted</ApplicationId>
     <ApplicationTitle>Monitor App</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>
-    <ApplicationDisplayVersion>0.1.0-alpha</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion>0.2.0-alpha</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <AndroidUseAapt2>true</AndroidUseAapt2>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Grpc.Net.Client" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\MonitorApp.Android.Core\MonitorApp.Android.Core.csproj" />
-    <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Mobile\MonitorApp.Peer.Mobile.csproj" />
   </ItemGroup>
 
 </Project>

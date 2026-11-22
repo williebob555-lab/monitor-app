@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
@@ -10,15 +12,6 @@ using MonitorApp.Peer.Replication;
 using CorePeerProof = MonitorApp.Peer.Core.PeerProof;
 
 namespace MonitorApp.Peer.Service;
-
-public interface IPeerAdvertisementProvider
-{
-    ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken);
-
-    ValueTask<IReadOnlyList<OriginCursor>> GetCursorsAsync(
-        PeerHello remoteHello,
-        CancellationToken cancellationToken);
-}
 
 public sealed class EmptyPeerAdvertisementProvider : IPeerAdvertisementProvider
 {
@@ -164,8 +157,18 @@ public sealed class ProductionPeerSessionCoordinator(
     PeerStore store,
     OriginReplicationCoordinator replication,
     ILocalPeerIdentityProvider localIdentity,
-    IPeerAdvertisementProvider advertisement) : IPeerSessionCoordinator
+    IPeerAdvertisementProvider advertisement,
+    LiveInterestRegistry? interests = null,
+    AlertDeliveryService? alerts = null) : IPeerSessionCoordinator
 {
+    public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
+        store,
+        remotePeerId,
+        (request, token) => ReadOriginRangeAsync(remotePeerId, request, token),
+        async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
+        interests,
+        RequestRemotePush: false));
+
     public async ValueTask<PeerSessionOpenResult> OpenAsync(
         PeerHello remoteHello,
         CancellationToken cancellationToken)
@@ -281,6 +284,10 @@ public sealed class ProductionPeerSessionCoordinator(
         {
             return await replication.ReadAsync(request, cancellationToken).ConfigureAwait(false);
         }
+        catch (OriginRangePrunedException pruned)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.RangePruned, pruned.Message);
+        }
         catch (OriginReplicationLimitException)
         {
             throw new PeerSessionOperationException(ProtocolErrorCode.MessageTooLarge, "Origin range exceeds configured limits.");
@@ -339,7 +346,9 @@ public sealed class ProductionPeerSessionCoordinator(
             cancellationToken).ConfigureAwait(false);
         if (existing.Cursor is not null && cursor.AcceptedThroughSequence < existing.Cursor.AcceptedThrough)
         {
-            throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Acknowledgement would regress a durable cursor.");
+            // A stale acknowledgement (for example from a second concurrent session delivering the same batch)
+            // never lowers a durable cursor; it is simply superseded.
+            return;
         }
 
         await store.UpdateReplicationCursorAsync(
@@ -363,11 +372,47 @@ public sealed class ProductionPeerSessionCoordinator(
         return new PeerHeartbeat { SentAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow) };
     }
 
+    public async ValueTask<AlertBatch> PullAlertsAsync(
+        string remotePeerId,
+        AlertPull pull,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            return await service.PullAsync(remotePeerId, pull, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
+    }
+
+    public async ValueTask AcceptAlertAckAsync(
+        string remotePeerId,
+        AlertAck acknowledgement,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            await service.AcknowledgeAsync(remotePeerId, acknowledgement, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
+    }
+
     private async Task RequireActiveAsync(string remotePeerId, CancellationToken cancellationToken)
     {
         var trusted = await store.ReadTrustedPeerAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
         if (trusted is null || trusted.TrustState != PeerTrustState.Active)
         {
+            // A peer that is no longer trusted must stop holding this origin in fast sampling.
+            interests?.WithdrawRequester(remotePeerId);
             throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
         }
     }
