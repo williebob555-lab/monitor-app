@@ -223,6 +223,12 @@ public sealed class WorkspaceShellTests
         Assert.Equal([$"alert-prefs:{FakeEnvironmentSource.ServerId}:Warning:peer.silent"], source.Sent);
         Assert.Equal("Done: Preferences saved", prefs.StatusMessage);
         Assert.False(prefs.StatusIsFailure, "an applied save is not shown as a failure");
+        source.StoredAlertPreferences = new AlertPreferencesDto(FakeEnvironmentSource.ServerId, "Critical", ["threshold.cpu_high", "custom.rule"], DateTimeOffset.UnixEpoch);
+        await prefs.RefreshAsync();
+        Assert.True(prefs.MinSeverity == "Critical" && prefs.RuleKinds.Single(r => r.RuleId == "threshold.cpu_high").IsMuted
+            && !prefs.RuleKinds.Single(r => r.RuleId == "peer.silent").IsMuted && prefs.RuleKinds.Any(r => r.RuleId == "custom.rule" && r.IsMuted),
+            $"stored preferences load (unknown rule ids kept): {prefs.MinSeverity} / {string.Join(",", prefs.RuleKinds.Where(r => r.IsMuted).Select(r => r.RuleId))}");
+        Assert.Equal("Loaded from Home server", prefs.LoadedFrom);
         source.Outcome = new ControlOutcomeDto("Refused", "not_permitted", "denied", false);
         await prefs.SaveCommand.ExecuteAsync(null);
         Assert.Equal("Not allowed yet: grant this device on Home server", prefs.StatusMessage);

@@ -4,6 +4,7 @@
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
     <TextBlock Text="Alerts on this device" Classes="heading" />
     <TextBlock Text="{x:Static vm:AlertPreferencesViewModel.Explanation}" TextWrapping="Wrap" />
+    <TextBlock Name="LoadedFrom" Text="{Binding LoadedFrom}" Classes="meta" IsVisible="{Binding LoadedFrom, Converter={x:Static ObjectConverters.IsNotNull}}" />
     <TextBlock Text="Minimum severity" Classes="subheading" />
     <ComboBox Name="SeverityPicker" ItemsSource="{x:Static vm:AlertPreferencesViewModel.SeverityChoices}" SelectedItem="{Binding MinSeverity}"
               AutomationProperties.Name="Minimum alert severity" />

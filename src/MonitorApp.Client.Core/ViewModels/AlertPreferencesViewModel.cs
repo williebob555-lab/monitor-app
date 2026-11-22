@@ -18,8 +18,8 @@ public sealed partial class RuleKindMuteRow(string ruleId, string title) : Obser
 
 /// <summary>
 /// "Alerts on this device": which alerts the paired computers send to this phone (T049). Offered only when the source is an
-/// <see cref="IControlSource"/>. There is no read method for the stored preferences on that interface, so the form starts at
-/// the defaults (all severities, nothing muted) and Save replaces what each trusted computer holds for this device.
+/// <see cref="IControlSource"/>. The form loads the stored choice from the first trusted computer that answers (defaults when
+/// none answers) and Save replaces what each trusted computer holds for this device.
 /// </summary>
 public sealed partial class AlertPreferencesViewModel : SectionViewModel
 {
@@ -57,13 +57,54 @@ public sealed partial class AlertPreferencesViewModel : SectionViewModel
     public bool IsSupported => Client is IControlSource;
 
     public static string Explanation =>
-        "Choose which alerts your trusted computers send to this device. The current stored choice cannot be read back here, " +
-        "so this starts from the defaults; Save replaces it on each trusted computer. Only this device's choice changes.";
+        "Choose which alerts your trusted computers send to this device. Save replaces the choice on each trusted computer. " +
+        "Only this device's choice changes.";
 
-    public override Task RefreshAsync(CancellationToken cancellationToken = default)
+    [ObservableProperty]
+    private string? loadedFrom;
+
+    public override async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         OnPropertyChanged(nameof(IsSupported));
-        return Task.CompletedTask;
+        if (Client is not IControlSource source)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var computers = (await Client.GetPeersAsync()).Where(p => string.Equals(p.TrustState, "Active", StringComparison.Ordinal));
+            foreach (var computer in computers)
+            {
+                var stored = await source.ReadAlertPreferencesAsync(computer.PeerId, cancellationToken);
+                if (stored is null)
+                {
+                    continue;
+                }
+
+                Apply(stored);
+                LoadedFrom = $"Loaded from {computer.DisplayName ?? computer.PeerId}";
+                return;
+            }
+
+            LoadedFrom = "No trusted computer answered; showing the defaults.";
+        });
+    }
+
+    /// <summary>Shows a stored choice: unknown severities fall back to all, unknown rule ids are kept so Save preserves them.</summary>
+    public void Apply(AlertPreferencesDto stored)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        MinSeverity = SeverityChoices.FirstOrDefault(c => string.Equals(c, stored.MinSeverity, StringComparison.OrdinalIgnoreCase)) ?? AllSeverities;
+        foreach (var ruleId in stored.MutedRuleKinds.Where(id => RuleKinds.All(r => r.RuleId != id)))
+        {
+            RuleKinds.Add(new RuleKindMuteRow(ruleId, ruleId));
+        }
+
+        foreach (var row in RuleKinds)
+        {
+            row.IsMuted = stored.MutedRuleKinds.Contains(row.RuleId, StringComparer.Ordinal);
+        }
     }
 
     [RelayCommand]

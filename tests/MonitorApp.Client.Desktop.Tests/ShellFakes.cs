@@ -133,6 +133,11 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
     public Task<ControlOutcomeDto> SetAlertPreferencesAsync(string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default) =>
         Record("alert-prefs", peerId, $"{minSeverity ?? "All"}:{string.Join(',', mutedRuleKinds)}");
 
+    public AlertPreferencesDto? StoredAlertPreferences { get; set; }
+
+    public Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default) =>
+        Task.FromResult(StoredAlertPreferences);
+
     public Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default) =>
         Task.FromResult(UpdateStatus);
 
