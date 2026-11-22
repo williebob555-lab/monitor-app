@@ -181,7 +181,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
-          $msi = "$PWD/out/monitorapp-windows-x64-$($env:OLD_VERSION)-setup.msi"
+          $msi = Join-Path $PWD "out\monitorapp-windows-x64-$($env:OLD_VERSION)-setup.msi"   # msiexec needs backslashes
           ./eng/packaging/windows/build-msi.ps1 -StageDirectory $stage -Version $env:OLD_VERSION -OutputPath $msi
           $p = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"") -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 80; throw "msiexec install exit $($p.ExitCode)" }
