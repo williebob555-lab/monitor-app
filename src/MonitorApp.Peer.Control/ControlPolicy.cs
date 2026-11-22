@@ -35,6 +35,7 @@ public static class ControlPolicy
     public static readonly TimeSpan MaximumSamplingInterval = TimeSpan.FromHours(1);
 
     public const int MaximumIdLength = 128;
+    public const int MaximumMutedRuleKinds = 32;
     public const int MaximumVersionLength = 64;
     public const int MinimumNonceBytes = 16;
     public const int MaximumNonceBytes = 64;
@@ -47,6 +48,7 @@ public static class ControlPolicy
         ControlCommand.PayloadOneofCase.AcknowledgeAlert => "acknowledge_alert",
         ControlCommand.PayloadOneofCase.MuteAlerts => "mute_alerts",
         ControlCommand.PayloadOneofCase.UnmuteAlerts => "unmute_alerts",
+        ControlCommand.PayloadOneofCase.SetAlertPreferences => "set_alert_preferences",
         ControlCommand.PayloadOneofCase.ResolvePairing =>
             command.ResolvePairing.Approve ? "approve_pairing" : "reject_pairing",
         ControlCommand.PayloadOneofCase.EnrollPresenceKey => "enroll_presence_key",
@@ -118,6 +120,13 @@ public static class ControlPolicy
                     : null;
             case ControlCommand.PayloadOneofCase.UnmuteAlerts:
                 return command.UnmuteAlerts.RuleId.Length > MaximumIdLength ? "invalid_payload" : null;
+            case ControlCommand.PayloadOneofCase.SetAlertPreferences:
+                var prefs = command.SetAlertPreferences;
+                return prefs.MinSeverity is < AlertSeverity.Unspecified or > AlertSeverity.Critical ||
+                    prefs.MutedRuleKinds.Count > MaximumMutedRuleKinds ||
+                    prefs.MutedRuleKinds.Any(kind => string.IsNullOrWhiteSpace(kind) || kind.Length > MaximumIdLength)
+                    ? "invalid_payload"
+                    : null;
             case ControlCommand.PayloadOneofCase.ResolvePairing:
                 return string.IsNullOrWhiteSpace(command.ResolvePairing.PairingId) ||
                     command.ResolvePairing.PairingId.Length > MaximumIdLength ||

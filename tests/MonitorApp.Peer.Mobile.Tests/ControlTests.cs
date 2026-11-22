@@ -536,6 +536,78 @@ public sealed class ControlTests
         }
     }
 
+    [Fact]
+    public async Task PhonesSetTheirOwnAlertPreferencesAndOnlyMatchingAlertsAreQueuedForThem()
+    {
+        var desktopRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            await using var phoneA = await PairPhoneAsync(desktop, "ctl-pref-a");
+            await using var phoneB = await PairPhoneAsync(desktop, "ctl-pref-b");
+            await using var ungranted = await PairPhoneAsync(desktop, "ctl-pref-c", grant: false);
+            var desktopId = desktop.Identity.PeerId;
+            await phoneA.Runtime.SyncOnceAsync();
+            await phoneB.Runtime.SyncOnceAsync();
+
+            Assert.Equal(ControlRiskTier.Normal, ControlCommandSigner.TierOf(ControlRequest.SetAlertPreferences(AlertSeverity.Critical)));
+            // Respects grants like mute does.
+            var refused = await ungranted.Runtime.SendControlAsync(desktopId, ControlRequest.SetAlertPreferences(AlertSeverity.Critical));
+            Assert.Equal("not_permitted", refused.ReasonCode);
+            Assert.Empty(await desktop.Alerts.ReadPreferencesAsync());
+            Assert.Equal("invalid_payload", (await phoneA.Runtime.SendControlAsync(desktopId,
+                ControlRequest.SetAlertPreferences(AlertSeverity.Info, [new string('x', 200)]))).ReasonCode);
+
+            // A: warnings and above, but never CPU alerts. B keeps the default (everything).
+            var set = await phoneA.Runtime.SendControlAsync(desktopId,
+                ControlRequest.SetAlertPreferences(AlertSeverity.Warning, ["threshold.cpu_high"]));
+            Assert.Equal(ControlStatus.Applied, set.Status);
+            var stored = Assert.Single(await desktop.Alerts.ReadPreferencesAsync());
+            Assert.Equal(phoneA.PeerId, stored.RecipientPeerId);
+            Assert.Equal(AlertSeverity.Warning, stored.MinimumSeverity);
+            Assert.Equal(["threshold.cpu_high"], stored.MutedRuleKinds);
+
+            Alert Make(string rule, string subject, AlertSeverity severity) => new(
+                Alert.CreateId(desktopId, rule, subject, DateTimeOffset.UtcNow), 1, rule, subject, desktopId, severity,
+                AlertState.Raised, rule, "detail", DateTimeOffset.UtcNow, null);
+            var cpu = Make("threshold.cpu_high", "peer:cpu", AlertSeverity.Warning);
+            var info = Make("peer.silent", "peer:quiet", AlertSeverity.Info);
+            var disk = Make("threshold.disk_free", "peer:disk", AlertSeverity.Critical);
+            var recipients = new[] { phoneA.PeerId, phoneB.PeerId };
+            foreach (var alert in new[] { cpu, info, disk })
+            {
+                Assert.True(await desktop.Alerts.RaiseAsync(alert, recipients, TimeSpan.FromDays(1), DateTimeOffset.UtcNow));
+            }
+
+            await phoneA.Runtime.SyncOnceAsync();
+            await phoneB.Runtime.SyncOnceAsync();
+            Assert.Equal([disk.AlertId], (await phoneA.Runtime.ReadAlertsAsync()).Select(item => item.Alert.AlertId).ToArray());
+            Assert.Equal(
+                new[] { cpu.AlertId, info.AlertId, disk.AlertId }.Order().ToArray(),
+                (await phoneB.Runtime.ReadAlertsAsync()).Select(item => item.Alert.AlertId).Order().ToArray());
+            // Filtered alerts remain recorded as events, just never queued for A.
+            Assert.Equal(3, (await desktop.Alerts.ReadActiveAsync()).Count);
+            Assert.Equal([disk.AlertId], (await desktop.Alerts.ReadOutboxAsync(phoneA.PeerId)).Select(item => item.AlertId).ToArray());
+
+            // Resolutions follow the same filter; clearing the preferences restores the default for later alerts.
+            _ = await desktop.Alerts.ResolveAsync(desktopId, cpu.RuleId, cpu.SubjectId, DateTimeOffset.UtcNow, recipients, TimeSpan.FromDays(1), DateTimeOffset.UtcNow);
+            Assert.DoesNotContain(await desktop.Alerts.ReadOutboxAsync(phoneA.PeerId), item => item.AlertId == cpu.AlertId);
+            Assert.Equal(ControlStatus.Applied, (await phoneA.Runtime.SendControlAsync(desktopId, ControlRequest.SetAlertPreferences(AlertSeverity.Unspecified))).Status);
+            var again = Make("threshold.cpu_high", "peer:cpu2", AlertSeverity.Warning);
+            Assert.True(await desktop.Alerts.RaiseAsync(again, recipients, TimeSpan.FromDays(1), DateTimeOffset.UtcNow));
+            await phoneA.Runtime.SyncOnceAsync();
+            Assert.Contains(await phoneA.Runtime.ReadAlertsAsync(), item => item.Alert.AlertId == again.AlertId);
+
+            var audit = await AuditAsync(desktop);
+            Assert.Contains(audit, entry => entry.Action == "set_alert_preferences" && entry.PeerId == phoneA.PeerId && entry.Outcome == "applied");
+            Assert.Contains(audit, entry => entry.Action == "set_alert_preferences" && entry.PeerId == ungranted.PeerId && entry.Outcome == "refused");
+        }
+        finally
+        {
+            Cleanup(desktopRoot);
+        }
+    }
+
     private sealed class ShiftedTime(TimeSpan shift) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + shift;

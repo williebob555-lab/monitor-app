@@ -418,6 +418,11 @@ public sealed class ControlService(
                     string.IsNullOrWhiteSpace(command.UnmuteAlerts.RuleId) ? "*" : command.UnmuteAlerts.RuleId, cancellationToken)
                     .ConfigureAwait(false);
                 return Ok("Alerts unmuted.");
+            case ControlCommand.PayloadOneofCase.SetAlertPreferences:
+                await alerts.SetPreferencesAsync(
+                    remotePeerId, command.SetAlertPreferences.MinSeverity, command.SetAlertPreferences.MutedRuleKinds, now, cancellationToken)
+                    .ConfigureAwait(false);
+                return Ok("Alert preferences saved for this phone.");
             case ControlCommand.PayloadOneofCase.ResolvePairing:
                 return await ResolvePairingAsync(command, remotePeerId, now, cancellationToken).ConfigureAwait(false);
             case ControlCommand.PayloadOneofCase.EnrollPresenceKey:
@@ -549,6 +554,8 @@ public sealed class ControlService(
         ControlCommand.PayloadOneofCase.MuteAlerts => string.Create(CultureInfo.InvariantCulture,
             $"scope={Scope(command.MuteAlerts.RuleId)} seconds={command.MuteAlerts.DurationSeconds}"),
         ControlCommand.PayloadOneofCase.UnmuteAlerts => "scope=" + Scope(command.UnmuteAlerts.RuleId),
+        ControlCommand.PayloadOneofCase.SetAlertPreferences => string.Create(CultureInfo.InvariantCulture,
+            $"min={command.SetAlertPreferences.MinSeverity} muted={command.SetAlertPreferences.MutedRuleKinds.Count}"),
         ControlCommand.PayloadOneofCase.ResolvePairing => "pairing=" + Truncate(command.ResolvePairing.PairingId),
         ControlCommand.PayloadOneofCase.ApproveUpdate =>
             "version=" + Truncate(command.ApproveUpdate.Version) + " sha256=" + Convert.ToHexStringLower(command.ApproveUpdate.ArtifactSha256.Span),

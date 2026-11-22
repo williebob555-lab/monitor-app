@@ -274,6 +274,19 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
     public Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default) =>
         SendAsync(peerId, ControlActionKind.UnmuteAlerts, null, () => ControlRequest.UnmuteAlerts(ruleId), ct);
 
+    public Task<ControlOutcomeDto> SetAlertPreferencesAsync(
+        string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutedRuleKinds);
+        if (!MonitorApp.Peer.Alerts.AlertPreferences.TryParseSeverity(minSeverity, out var severity))
+        {
+            return Task.FromResult(new ControlOutcomeDto("Refused", "invalid_payload", "The minimum severity is not valid.", false));
+        }
+
+        return SendAsync(peerId, ControlActionKind.SetAlertPreferences, null,
+            () => ControlRequest.SetAlertPreferences(severity, mutedRuleKinds), ct);
+    }
+
     public async Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default)
     {
         try

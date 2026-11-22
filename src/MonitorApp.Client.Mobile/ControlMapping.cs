@@ -19,6 +19,7 @@ internal static class ControlMapping
             ControlActionKind.MuteAlerts => ControlRequest.MuteAlerts(
                 duration is { } span && span > TimeSpan.Zero ? span : ControlPolicy.MaximumMute),
             ControlActionKind.UnmuteAlerts => ControlRequest.UnmuteAlerts(),
+            ControlActionKind.SetAlertPreferences => ControlRequest.SetAlertPreferences(AlertSeverity.Unspecified),
             ControlActionKind.ApprovePairing => ControlRequest.ResolvePairing("pairing", new byte[32], approve: true),
             ControlActionKind.RejectPairing => ControlRequest.ResolvePairing("pairing", new byte[32], approve: false),
             ControlActionKind.EnrollPresenceKey => ControlRequest.EnrollPresenceKey(),

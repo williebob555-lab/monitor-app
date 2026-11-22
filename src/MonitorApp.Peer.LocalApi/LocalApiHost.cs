@@ -16,6 +16,8 @@ namespace MonitorApp.Peer.LocalApi;
 
 internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
 
+internal sealed record AlertPreferencesInput(string? MinSeverity, string[]? MutedRuleKinds);
+
 internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval, bool UpdateApproval = false);
 
 internal sealed record LocalPresenceChallengeRequest(string? Action, string? Subject);
@@ -227,6 +229,54 @@ public sealed class LocalApiHost : IAsyncDisposable
                         DeliveredAt = entry.AckedAt,
                     }),
                 }),
+            });
+        });
+        application.MapGet("/api/v1/alerts/preferences", async (
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var store = services.GetService<AlertStore>();
+            if (store is null)
+            {
+                return Results.Json(Array.Empty<object>());
+            }
+
+            var stored = (await store.ReadPreferencesAsync(token).ConfigureAwait(false))
+                .ToDictionary(item => item.RecipientPeerId, StringComparer.Ordinal);
+            var recipients = (await store.ReadRecipientsAsync(token).ConfigureAwait(false)).Union(stored.Keys, StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal);
+            return Results.Json(recipients.Select(peer => stored.TryGetValue(peer, out var item)
+                ? new { peerId = peer, minSeverity = AlertPreferences.SeverityName(item.MinimumSeverity), mutedRuleKinds = item.MutedRuleKinds, updatedAt = (DateTimeOffset?)item.UpdatedAt }
+                : new { peerId = peer, minSeverity = "All", mutedRuleKinds = (IReadOnlyList<string>)[], updatedAt = (DateTimeOffset?)null }));
+        });
+        application.MapPost("/api/v1/alerts/preferences/{peerId}", async (
+            string peerId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var store = services.GetService<AlertStore>();
+            var body = await context.Request.ReadFromJsonAsync<AlertPreferencesInput>(token).ConfigureAwait(false);
+            if (store is null || body is null || string.IsNullOrWhiteSpace(peerId) ||
+                !AlertPreferences.TryParseSeverity(body.MinSeverity, out var severity) ||
+                (body.MutedRuleKinds?.Length ?? 0) > 64 || (body.MutedRuleKinds ?? []).Any(kind => kind is null || kind.Length > 128))
+            {
+                return Results.BadRequest(new { error = "A peer id, a minimum severity of All, Info, Warning or Critical, and at most 64 rule kinds are required." });
+            }
+
+            await store.SetPreferencesAsync(peerId, severity, body.MutedRuleKinds ?? [], clock.UtcNow, token).ConfigureAwait(false);
+            return Results.Json(new
+            {
+                peerId,
+                minSeverity = AlertPreferences.SeverityName(severity),
+                mutedRuleKinds = (body.MutedRuleKinds ?? []).Select(kind => kind.Trim()).Where(kind => kind.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal),
             });
         });
         application.MapGet("/api/v1/catalog", async (PeerHistoryQueryService history, CancellationToken token) =>
