@@ -3,6 +3,7 @@ using Xunit;
 
 namespace MonitorApp.Planning.Tests;
 
+[Trait("Category", "Unit")]
 public sealed class RackPlanningTests
 {
     private static RackZone Eia() => new()
