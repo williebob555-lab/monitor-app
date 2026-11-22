@@ -37,7 +37,7 @@ public sealed record AlertRulesConfig(
     /// original episode start). The hold side is <see cref="ThresholdRule.Sustained"/>,
     /// <see cref="UnavailableAfter"/> and <see cref="PeerSilentAfter"/>. Working default, to be revisited.
     /// </summary>
-    public TimeSpan RefireCooldown { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan RefireCooldown { get; init; } = TimeSpan.FromMinutes(2); // Owner decision 2026-11-22.
 
     public const string PeerSilentRuleId = "peer.silent";
     public const string ObservationUnavailableRuleId = "observation.unavailable";

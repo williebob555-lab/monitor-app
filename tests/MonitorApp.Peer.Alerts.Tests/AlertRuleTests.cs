@@ -260,7 +260,7 @@ public sealed class AlertRuleTests
     public void DefaultsHoldAndCooldownAreConservative()
     {
         var defaults = AlertRulesConfig.Default;
-        Assert.Equal(TimeSpan.FromMinutes(10), defaults.RefireCooldown);
+        Assert.Equal(TimeSpan.FromMinutes(2), defaults.RefireCooldown);
         Assert.All(defaults.Thresholds, rule => Assert.True(rule.Sustained >= TimeSpan.FromMinutes(5)));
         Assert.Throws<ArgumentOutOfRangeException>(() => (defaults with { RefireCooldown = TimeSpan.FromSeconds(-1) }).Validate());
     }
