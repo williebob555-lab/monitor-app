@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -129,6 +129,24 @@ public sealed class AlertStore
                     acknowledged_by TEXT NOT NULL,
                     acknowledged_at TEXT NOT NULL);
                 UPDATE alert_schema_version SET version = 2 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
+        if (current < 3)
+        {
+            // T047: mutes are per recipient. Existing (global) mutes become the issuing phone's own mute.
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_mutes_v3(
+                    recipient_peer_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    muted_until TEXT NOT NULL,
+                    muted_at TEXT NOT NULL,
+                    PRIMARY KEY(recipient_peer_id, scope));
+                INSERT INTO alert_mutes_v3(recipient_peer_id, scope, muted_until, muted_at)
+                    SELECT muted_by, scope, muted_until, muted_at FROM alert_mutes;
+                DROP TABLE alert_mutes;
+                ALTER TABLE alert_mutes_v3 RENAME TO alert_mutes;
+                UPDATE alert_schema_version SET version = 3 WHERE singleton_id = 1;
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
@@ -325,7 +343,7 @@ public sealed class AlertStore
         var alerts = await QueryAlertsAsync(connection, AlertSelect + """
              WHERE EXISTS (SELECT 1 FROM alert_outbox o WHERE o.recipient_peer_id = $recipient AND o.alert_id = alerts.alert_id
                 AND o.acked_at IS NULL AND o.expires_at > $now)
-                AND NOT EXISTS (SELECT 1 FROM alert_mutes m WHERE m.muted_until > $now AND (m.scope = '*' OR m.scope = alerts.rule_id))
+                AND NOT EXISTS (SELECT 1 FROM alert_mutes m WHERE m.recipient_peer_id = $recipient AND m.muted_until > $now AND (m.scope = '*' OR m.scope = alerts.rule_id))
              ORDER BY raised_at, alert_id LIMIT $limit;
             """,
             [("$recipient", recipientPeerId), ("$now", Format(now)), ("$limit", maximum + 1)], cancellationToken)
@@ -334,53 +352,55 @@ public sealed class AlertStore
     }
 
     /// <summary>
-    /// Mutes delivery of alerts for a rule (or every rule with scope "*") until <paramref name="until"/>. Muted alerts
-    /// stay queued in the outbox (until their own expiry) and are delivered after the mute is lifted or lapses.
+    /// Mutes delivery of alerts to one recipient for a rule (or every rule with scope "*") until <paramref name="until"/>.
+    /// Other recipients are unaffected. Muted alerts stay queued in the outbox (until their own expiry) and are delivered
+    /// after the mute is lifted or lapses.
     /// </summary>
     public async Task MuteAsync(
-        string scope, DateTimeOffset until, string mutedBy, DateTimeOffset now, CancellationToken cancellationToken = default)
+        string recipientPeerId, string scope, DateTimeOffset until, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
-        ArgumentException.ThrowIfNullOrWhiteSpace(mutedBy);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(connection, null,
             """
-            INSERT INTO alert_mutes(scope, muted_until, muted_by, muted_at) VALUES ($scope, $until, $by, $at)
-            ON CONFLICT(scope) DO UPDATE SET muted_until = excluded.muted_until, muted_by = excluded.muted_by, muted_at = excluded.muted_at;
+            INSERT INTO alert_mutes(recipient_peer_id, scope, muted_until, muted_at) VALUES ($recipient, $scope, $until, $at)
+            ON CONFLICT(recipient_peer_id, scope) DO UPDATE SET muted_until = excluded.muted_until, muted_at = excluded.muted_at;
             """,
-            [("$scope", scope), ("$until", Format(until)), ("$by", mutedBy), ("$at", Format(now))],
+            [("$recipient", recipientPeerId), ("$scope", scope), ("$until", Format(until)), ("$at", Format(now))],
             cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Lifts a mute and wakes live sessions so queued alerts are delivered promptly. True when one existed.</summary>
-    public async Task<bool> UnmuteAsync(string scope, CancellationToken cancellationToken = default)
+    /// <summary>Lifts one recipient's mute and wakes that recipient's live session so queued alerts are delivered promptly. True when one existed.</summary>
+    public async Task<bool> UnmuteAsync(string recipientPeerId, string scope, CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var removed = await ExecuteAsync(connection, null, "DELETE FROM alert_mutes WHERE scope = $scope;",
-            [("$scope", scope)], cancellationToken).ConfigureAwait(false);
+        var removed = await ExecuteAsync(connection, null,
+            "DELETE FROM alert_mutes WHERE recipient_peer_id = $recipient AND scope = $scope;",
+            [("$recipient", recipientPeerId), ("$scope", scope)], cancellationToken).ConfigureAwait(false);
         if (removed > 0)
         {
-            var recipients = await ReadRecipientsAsync(cancellationToken).ConfigureAwait(false);
-            OutboxEnqueued?.Invoke(recipients);
+            OutboxEnqueued?.Invoke([recipientPeerId]);
         }
 
         return removed > 0;
     }
 
-    /// <summary>Mutes still in force at <paramref name="now"/> as (scope, until).</summary>
-    public async Task<IReadOnlyList<(string Scope, DateTimeOffset Until)>> ReadActiveMutesAsync(
+    /// <summary>Mutes still in force at <paramref name="now"/> as (recipient, scope, until).</summary>
+    public async Task<IReadOnlyList<(string Recipient, string Scope, DateTimeOffset Until)>> ReadActiveMutesAsync(
         DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT scope, muted_until FROM alert_mutes WHERE muted_until > $now ORDER BY scope;";
+        command.CommandText = "SELECT recipient_peer_id, scope, muted_until FROM alert_mutes WHERE muted_until > $now ORDER BY recipient_peer_id, scope;";
         command.Parameters.AddWithValue("$now", Format(now));
-        var result = new List<(string, DateTimeOffset)>();
+        var result = new List<(string, string, DateTimeOffset)>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            result.Add((reader.GetString(0), Parse(reader.GetString(1))));
+            result.Add((reader.GetString(0), reader.GetString(1), Parse(reader.GetString(2))));
         }
 
         return result;

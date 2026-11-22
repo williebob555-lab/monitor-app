@@ -147,6 +147,30 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
             presenceAction: monitoringControls || pairingApproval || updateApproval ? "control.grant" : null,
             presenceSubject: FormattableString.Invariant($"{peerId}|monitoring={monitoringControls}|pairing={pairingApproval}|update={updateApproval}"));
 
+    /// <summary>Every stored control grant. Peers with no stored grant are default-deny and are not listed.</summary>
+    public Task<IReadOnlyList<ControlGrantDto>> GetControlGrantsAsync(CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<ControlGrantDto>>("api/v1/control/grants", ct);
+
+    /// <summary>The grant for a peer: the stored one, the all-false default for a known peer without one, or null for a peer this node does not know.</summary>
+    public async Task<ControlGrantDto?> GetControlGrantAsync(string peerId, CancellationToken ct = default)
+    {
+        var stored = (await GetControlGrantsAsync(ct).ConfigureAwait(false))
+            .FirstOrDefault(item => string.Equals(item.PeerId, peerId, StringComparison.Ordinal));
+        if (stored is not null)
+        {
+            return stored;
+        }
+
+        var peers = await GetPeersAsync(ct).ConfigureAwait(false);
+        return peers.Any(item => string.Equals(item.PeerId, peerId, StringComparison.Ordinal))
+            ? ControlGrantDto.Default(peerId)
+            : null;
+    }
+
+    /// <summary>Phone presence-key enrollments waiting for approval (newest first), with the key fingerprint to compare on the phone.</summary>
+    public Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<PresenceEnrollmentDto>>("api/v1/control/presence-enrollments", ct);
+
     /// <summary>Approves a phone's fingerprint-key enrollment; needs presence verification when enforced.</summary>
     public Task ApprovePhonePresenceEnrollmentAsync(string enrollmentId, CancellationToken ct = default) =>
         PostAsync(

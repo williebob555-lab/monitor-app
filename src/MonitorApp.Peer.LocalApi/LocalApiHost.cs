@@ -452,8 +452,55 @@ public sealed class LocalApiHost : IAsyncDisposable
                         intervalOverrideSeconds = snapshot.IntervalOverride?.TotalSeconds,
                         intervalOverrideUntil = snapshot.IntervalOverrideUntil,
                     },
-                alertMutes = mutes.Select(item => new { item.Scope, item.Until }),
+                alertMutes = mutes.Select(item => new { item.Recipient, item.Scope, item.Until }),
             });
+        });
+        application.MapGet("/api/v1/control/grants", async (
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var control = services.GetService<ControlService>();
+            var grants = control is null ? [] : await control.Store.ReadGrantsAsync(token).ConfigureAwait(false);
+            return Results.Json(grants.Select(item => new
+            {
+                item.PeerId,
+                item.MonitoringControls,
+                item.PairingApproval,
+                item.UpdateApproval,
+                item.UpdatedAt,
+            }));
+        });
+        application.MapGet("/api/v1/control/presence-enrollments", async (
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var control = services.GetService<ControlService>();
+            if (control is null)
+            {
+                return Results.Json(Array.Empty<object>());
+            }
+
+            var names = new Dictionary<string, string?>(StringComparer.Ordinal);
+            var data = services.GetService<LocalApiDataSource>();
+            if (data is not null)
+            {
+                foreach (var peer in await data.ReadPeersAsync(token).ConfigureAwait(false))
+                {
+                    names[peer.PeerId] = peer.DisplayName;
+                }
+            }
+
+            var all = await control.Store.ReadEnrollmentsAsync(token).ConfigureAwait(false);
+            return Results.Json(all
+                .Where(item => item.State == PresenceEnrollmentState.Pending)
+                .Select(item => new
+                {
+                    item.EnrollmentId,
+                    item.PeerId,
+                    displayName = names.GetValueOrDefault(item.PeerId),
+                    item.RequestedAt,
+                    fingerprintSha256 = Convert.ToHexString(item.Fingerprint),
+                }));
         });
         application.MapPost("/api/v1/control/grants/{peerId}", async (
             string peerId,

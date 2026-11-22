@@ -99,6 +99,8 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
 
+    public ILocalPeerIdentityProvider LocalIdentity => identity;
+
     public LiveInterestRegistry Interests { get; } = new();
 
     public IPeerSessionCoordinator SessionCoordinator =>

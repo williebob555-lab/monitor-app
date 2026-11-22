@@ -152,8 +152,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     /// The UI is viewing live data: for a paired desktop peer id the held-open session declares and renews interest so
     /// that desktop samples fast; with no id the phone itself samples fast. Dispose to stop viewing.
     /// </summary>
-    public IDisposable BeginViewing(string? remotePeerId = null) =>
-        remotePeerId is null ? interests.WatchLocal(identity.PublicIdentity.PeerId) : interests.WatchRemote(remotePeerId);
+    public IDisposable BeginViewing(string? remotePeerId = null, IReadOnlyCollection<string>? signalIds = null) =>
+        remotePeerId is null
+            ? interests.WatchLocal(identity.PublicIdentity.PeerId, signalIds)
+            : interests.WatchRemote(remotePeerId, signalIds);
 
     /// <summary>The phone's current collection interval (fast while a desktop is viewing it).</summary>
     public TimeSpan CurrentCollectionInterval =>

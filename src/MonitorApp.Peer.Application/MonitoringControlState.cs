@@ -2,9 +2,10 @@ namespace MonitorApp.Peer.Application;
 
 /// <summary>
 /// Manual monitoring overrides applied by an authorised operator (a trusted phone's signed control command or the
-/// local administrator): collector pauses and a sampling-interval override. State is deliberately in memory only, so a
-/// restart of the peer always returns to normal monitoring (fail towards collecting, never towards silent blindness).
-/// A pause or interval override either carries an explicit expiry or lasts until it is cleared or the process restarts.
+/// local administrator): collector pauses and a sampling-interval override. The control service persists the state (T047) and
+/// restores it at node start with <see cref="Restore"/>, so a restarted desktop resumes in the same paused/interval state;
+/// overrides whose expiry has passed are never restored. A pause or interval override either carries an explicit expiry
+/// or lasts until it is cleared.
 /// Live viewing interest keeps working underneath an interval override (the faster of the two wins) but never overrides
 /// a pause: an operator who paused collection has said so explicitly.
 /// </summary>
@@ -57,6 +58,31 @@ public sealed class MonitoringControlState(TimeProvider? timeProvider = null)
             var live = interval is not null && (intervalUntil is null || now < intervalUntil);
             return new Snapshot(active, live ? interval : null, live ? intervalUntil : null);
         }
+    }
+
+    /// <summary>Replaces the state with a persisted snapshot, dropping any pause or interval override that has already expired.</summary>
+    public void Restore(Snapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var now = clock.GetUtcNow();
+        lock (gate)
+        {
+            pauses.Clear();
+            foreach (var (scope, until) in snapshot.Pauses)
+            {
+                if (until is null || until > now)
+                {
+                    pauses[scope] = until;
+                }
+            }
+
+            var live = snapshot.IntervalOverride is { } value && value > TimeSpan.Zero &&
+                (snapshot.IntervalOverrideUntil is null || snapshot.IntervalOverrideUntil > now);
+            interval = live ? snapshot.IntervalOverride : null;
+            intervalUntil = live ? snapshot.IntervalOverrideUntil : null;
+        }
+
+        Notify();
     }
 
     /// <summary>Pauses one collector (or all when empty). A null duration pauses until resumed.</summary>

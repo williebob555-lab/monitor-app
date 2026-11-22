@@ -29,6 +29,27 @@ public sealed record PendingPairingDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt);
 
+/// <summary>What a trusted peer may ask this desktop to do. A peer with no stored grant is denied everything.</summary>
+public sealed record ControlGrantDto(
+    string PeerId,
+    bool MonitoringControls,
+    bool PairingApproval,
+    bool UpdateApproval,
+    DateTimeOffset? UpdatedAt)
+{
+    public bool AllowsAnything => MonitoringControls || PairingApproval || UpdateApproval;
+
+    public static ControlGrantDto Default(string peerId) => new(peerId, false, false, false, null);
+}
+
+/// <summary>A phone's presence-key enrollment awaiting approval on this desktop. Compare <see cref="FingerprintSha256"/> with the phone.</summary>
+public sealed record PresenceEnrollmentDto(
+    string EnrollmentId,
+    string PeerId,
+    string? DisplayName,
+    DateTimeOffset RequestedAt,
+    string FingerprintSha256);
+
 public sealed record ObservationValueDto(string Kind, double? Number, string? Text, bool? Boolean);
 
 public sealed record HistoryPointDto(

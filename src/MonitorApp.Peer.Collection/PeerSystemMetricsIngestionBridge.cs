@@ -33,7 +33,16 @@ public sealed class PeerSystemMetricsIngestionBridge
         this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public async Task<PeerCollectionRunResult> RunOnceAsync(CancellationToken cancellationToken = default)
+    public Task<PeerCollectionRunResult> RunOnceAsync(CancellationToken cancellationToken = default) =>
+        RunOnceAsync(null, cancellationToken);
+
+    /// <summary>
+    /// One collection run. With a <paramref name="signalFilter"/> only the named signals are stored (the cheap fast path
+    /// while a viewer watches specific signals); null stores everything.
+    /// </summary>
+    public async Task<PeerCollectionRunResult> RunOnceAsync(
+        IReadOnlySet<string>? signalFilter,
+        CancellationToken cancellationToken = default)
     {
         if (Interlocked.CompareExchange(ref running, 1, 0) != 0)
         {
@@ -71,6 +80,11 @@ public sealed class PeerSystemMetricsIngestionBridge
                 options.BootId,
                 options.CollectorId,
                 snapshot);
+            if (signalFilter is not null)
+            {
+                envelopes = [.. envelopes.Where(envelope => signalFilter.Contains(SignalId(envelope)))];
+            }
+
             if (envelopes.Count > options.MaximumRecordsPerRun)
             {
                 throw new InvalidOperationException("Collected snapshot exceeds the configured record limit.");

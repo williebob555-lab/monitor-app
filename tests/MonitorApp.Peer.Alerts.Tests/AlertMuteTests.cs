@@ -30,7 +30,7 @@ public sealed class AlertMuteTests
         await store.RaiseAsync(disk, ["phone"], Ttl, T0);
         await store.RaiseAsync(memory, ["phone"], Ttl, T0);
 
-        await store.MuteAsync("rule.disk", T0.AddHours(1), "phone", T0);
+        await store.MuteAsync("phone", "rule.disk", T0.AddHours(1), T0);
         Assert.Equal(memory.AlertId, Assert.Single((await store.ReadPendingAsync("phone", T0.AddMinutes(1), 10)).Alerts).AlertId);
         Assert.Single(await store.ReadActiveMutesAsync(T0.AddMinutes(1)));
 
@@ -39,15 +39,15 @@ public sealed class AlertMuteTests
         Assert.Empty(await store.ReadActiveMutesAsync(T0.AddHours(1)));
 
         // A mute of every rule holds back everything, and lifting it wakes live sessions.
-        await store.MuteAsync("*", T0.AddHours(5), "phone", T0.AddHours(2));
+        await store.MuteAsync("phone", "*", T0.AddHours(5), T0.AddHours(2));
         Assert.Empty((await store.ReadPendingAsync("phone", T0.AddHours(3), 10)).Alerts);
         var woken = new List<string>();
         store.OutboxEnqueued += recipients => woken.AddRange(recipients);
         await store.RegisterRecipientAsync("phone", T0, Ttl);
         woken.Clear();
-        Assert.True(await store.UnmuteAsync("*"));
+        Assert.True(await store.UnmuteAsync("phone", "*"));
         Assert.Contains("phone", woken);
-        Assert.False(await store.UnmuteAsync("*"));
+        Assert.False(await store.UnmuteAsync("phone", "*"));
         Assert.Equal(2, (await store.ReadPendingAsync("phone", T0.AddHours(3), 10)).Alerts.Count);
     }
 

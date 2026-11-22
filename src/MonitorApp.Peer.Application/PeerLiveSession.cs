@@ -14,7 +14,8 @@ public sealed record PeerLiveSessionOptions(
     bool RequestRemotePush,
     int MaximumInFlightBatches = 4,
     int MaximumBatchRecords = 256,
-    int MaximumBatchBytes = 1024 * 1024)
+    int MaximumBatchBytes = 1024 * 1024,
+    bool LocallyInitiated = false)
 {
     internal void Validate()
     {
@@ -48,6 +49,8 @@ public sealed class PeerLiveSession : IPeerLiveSession
     private ulong sentThrough;
     private bool initialized;
     private DateTimeOffset? lastInterestSent;
+    private string lastInterestSignals = string.Empty;
+    private LivePushChannels.Channel? channel;
 
     public PeerLiveSession(PeerLiveSessionOptions options)
     {
@@ -74,6 +77,23 @@ public sealed class PeerLiveSession : IPeerLiveSession
 
         var identity = await options.Store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) ??
             throw new InvalidOperationException("Local peer identity is not initialized.");
+        if (options.Interests is { } registry)
+        {
+            // Both peers may hold a session to each other; only the active channel pushes this origin.
+            channel ??= registry.PushChannels.Join(options.RemotePeerId, identity.PeerId, options.LocallyInitiated, Wake);
+            if (!channel.IsActive)
+            {
+                lock (gate)
+                {
+                    // Resume from the persisted cursor if this session becomes the channel later.
+                    initialized = false;
+                    inFlight.Clear();
+                }
+
+                return null;
+            }
+        }
+
         if (!initialized)
         {
             var retained = await options.Store.ReadReplicationCursorAsync(
@@ -115,6 +135,7 @@ public sealed class PeerLiveSession : IPeerLiveSession
 
         lock (gate)
         {
+            channel?.RecordsSent(batch.Records.Count);
             // A batch that is only a pruned-range statement advances the stream to the end of that range.
             sentThrough = batch.Records.Count == 0 ? batch.PrunedRange!.LastSequence : batch.Records[^1].Sequence;
             inFlight.Enqueue(sentThrough);
@@ -158,22 +179,25 @@ public sealed class PeerLiveSession : IPeerLiveSession
         {
             if (interests.IsWatchingRemote(options.RemotePeerId))
             {
-                if (lastInterestSent is null || now - lastInterestSent >= renewEvery)
+                var signals = interests.RemoteSignals(options.RemotePeerId);
+                var signalKey = string.Join('\n', signals);
+                if (lastInterestSent is null || now - lastInterestSent >= renewEvery || signalKey != lastInterestSignals)
                 {
                     lastInterestSent = now;
-                    return
-                    [
-                        new LiveInterest
-                        {
-                            SubjectPeerId = options.RemotePeerId,
-                            LeaseSeconds = (uint)interests.Policy.OutgoingLease.TotalSeconds,
-                        },
-                    ];
+                    lastInterestSignals = signalKey;
+                    var interest = new LiveInterest
+                    {
+                        SubjectPeerId = options.RemotePeerId,
+                        LeaseSeconds = (uint)interests.Policy.OutgoingLease.TotalSeconds,
+                    };
+                    interest.SignalIds.AddRange(signals);
+                    return [interest];
                 }
             }
             else if (lastInterestSent is not null)
             {
                 lastInterestSent = null;
+                lastInterestSignals = string.Empty;
                 return [new LiveInterest { SubjectPeerId = options.RemotePeerId, LeaseSeconds = 0 }];
             }
         }
@@ -239,6 +263,7 @@ public sealed class PeerLiveSession : IPeerLiveSession
     {
         storeSubscription.Dispose();
         interestSubscription?.Dispose();
+        channel?.Dispose();
     }
 
     public void Nudge() => Wake();

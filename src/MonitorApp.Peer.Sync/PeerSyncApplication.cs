@@ -208,7 +208,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             live.RequestRemotePush,
             live.MaximumInFlightBatches,
             options.MaximumBatchRecords,
-            options.MaximumBatchBytes));
+            options.MaximumBatchBytes,
+            LocallyInitiated: true));
     }
 
     public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)
