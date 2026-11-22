@@ -3,6 +3,7 @@ using MonitorApp.Agent.Core;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
+using MonitorApp.Peer.Collection.Lan;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -12,10 +13,23 @@ using MonitorApp.Peer.Service;
 namespace MonitorApp.Peer.Node;
 
 /// <summary>Tunables for live behaviour; defaults suit production, tests shorten them.</summary>
+/// <param name="CollectSelfLan">Collect this host's own interfaces on a schedule (default on): link observations through
+/// the ingestion path plus the self-observed LAN entities and relationships.</param>
+/// <param name="LanInterval">How often the LAN collection runs after its startup run; default one minute.</param>
+/// <param name="LanSource">The host interface reader; default is the platform collector.</param>
+/// <param name="RetentionInterval">How often the retention pass runs after its startup run; default one hour.</param>
+/// <param name="Retention">Retention thresholds; default 7 days raw, hourly rollups 1 year, events 5 years.</param>
+/// <param name="Time">Clock for the background schedules; default is the system clock.</param>
 public sealed record NodeLiveOptions(
     TimeSpan? CollectionInterval = null,
     LiveInterestPolicy? InterestPolicy = null,
-    TimeSpan? HeartbeatInterval = null);
+    TimeSpan? HeartbeatInterval = null,
+    bool CollectSelfLan = true,
+    TimeSpan? LanInterval = null,
+    ISelfInterfaceCollector? LanSource = null,
+    TimeSpan? RetentionInterval = null,
+    PeerRetentionPolicy? Retention = null,
+    TimeProvider? Time = null);
 
 public sealed class PeerNodeRuntime : IAsyncDisposable
 {
@@ -27,6 +41,9 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly PeerStore store;
     private readonly LiveInterestRegistry interests;
     private readonly AlertEngine alertEngine;
+    private readonly NodePeriodicTask? lanTask;
+    private readonly NodePeriodicTask retentionTask;
+    private readonly PeerRetentionService retention;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
@@ -37,8 +54,14 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         PeerStore store,
         LiveInterestRegistry interests,
         int peerPort,
-        AlertEngine alertEngine)
+        AlertEngine alertEngine,
+        NodePeriodicTask? lanTask,
+        NodePeriodicTask retentionTask,
+        PeerRetentionService retention)
     {
+        this.lanTask = lanTask;
+        this.retentionTask = retentionTask;
+        this.retention = retention;
         PeerPort = peerPort;
         this.store = store;
         this.interests = interests;
@@ -61,6 +84,15 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     /// <summary>The sampling interval currently in force for this node's own collection.</summary>
     public TimeSpan CurrentCollectionInterval => collection.CurrentInterval;
+
+    /// <summary>The scheduled self-LAN collection, or null when disabled.</summary>
+    public NodePeriodicTask? LanCollection => lanTask;
+
+    /// <summary>The scheduled retention pass (rollups, pruning).</summary>
+    public NodePeriodicTask RetentionSchedule => retentionTask;
+
+    /// <summary>The retention service the schedule runs (policy in force).</summary>
+    public PeerRetentionService Retention => retention;
 
     public int ActiveLiveInterestCount => interests.ActiveInterestCount;
 
@@ -141,6 +173,43 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             live?.CollectionInterval,
             interests,
             identity.PublicIdentity.PeerId);
+        var time = live?.Time ?? TimeProvider.System;
+        var retentionService = new PeerRetentionService(
+            peerStore,
+            new TimeProviderPeerClock(time),
+            live?.Retention);
+        var retentionTask = new NodePeriodicTask(
+            "retention",
+            live?.RetentionInterval ?? TimeSpan.FromHours(1),
+            async token => await retentionService.RunAsync(token).ConfigureAwait(false),
+            time);
+        NodePeriodicTask? lanTask = null;
+        if (live?.CollectSelfLan ?? true)
+        {
+            var lanSource = live?.LanSource ?? SelfInterfaceCollectorFactory.Create();
+            var selfPeerId = identity.PublicIdentity.PeerId;
+            var lanTopology = new SelfLanCollector(selfPeerId, lanSource, peerStore, time);
+            var lanLinks = new PeerSystemMetricsIngestionBridge(
+                peerStore,
+                identity,
+                new LanLinkSnapshotCollector(lanSource, time),
+                PeerCollectionOptions.Default($"peer:{selfPeerId}", Guid.NewGuid().ToString("N")) with
+                {
+                    CollectorId = LanLinkObservations.CollectorId,
+                },
+                () => time.GetUtcNow());
+            lanTask = new NodePeriodicTask(
+                "lan",
+                live?.LanInterval ?? TimeSpan.FromMinutes(1),
+                async token =>
+                {
+                    // Topology first so a link observation never refers to an interface the store has not seen.
+                    await lanTopology.CollectAndPersistAsync(token).ConfigureAwait(false);
+                    await lanLinks.RunOnceAsync(token).ConfigureAwait(false);
+                },
+                time);
+        }
+
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -187,10 +256,18 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             await connections.StartAsync(cancellationToken).ConfigureAwait(false);
             collection.Start();
             alertEngine.Start();
-            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine);
+            lanTask?.Start();
+            retentionTask.Start();
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine, lanTask, retentionTask, retentionService);
         }
         catch
         {
+            await retentionTask.DisposeAsync().ConfigureAwait(false);
+            if (lanTask is not null)
+            {
+                await lanTask.DisposeAsync().ConfigureAwait(false);
+            }
+
             await alertEngine.DisposeAsync().ConfigureAwait(false);
             await collection.DisposeAsync().ConfigureAwait(false);
             await connections.DisposeAsync().ConfigureAwait(false);
@@ -203,6 +280,12 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await retentionTask.DisposeAsync().ConfigureAwait(false);
+        if (lanTask is not null)
+        {
+            await lanTask.DisposeAsync().ConfigureAwait(false);
+        }
+
         await alertEngine.DisposeAsync().ConfigureAwait(false);
         await collection.DisposeAsync().ConfigureAwait(false);
         await connections.DisposeAsync().ConfigureAwait(false);
@@ -219,4 +302,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await peerApplication.DisposeAsync().ConfigureAwait(false);
         identity.Dispose();
     }
+}
+
+/// <summary>Adapts a <see cref="TimeProvider"/> to the peer clock so retention follows the node's schedule clock.</summary>
+internal sealed class TimeProviderPeerClock(TimeProvider time) : IPeerClock
+{
+    public DateTimeOffset UtcNow => time.GetUtcNow();
 }

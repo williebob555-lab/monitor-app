@@ -92,7 +92,7 @@ Run against the actual selected persistence engine. Required cases include:
 - Duplicate rejection or idempotent acceptance.
 - Ordered time-window query.
 - Snapshot reconstruction.
-- Retention deletion boundaries (tiered retention: rollup aggregation with states kept as counts, idempotent re-run, pinned windows, transition/event retention, replication hold and hard cap, pruned-range replica outcome, hourly history auto-switch, schema v3 to v4 migration on a real file; `PeerRetentionTests`, `PeerStoreTests`).
+- Retention deletion boundaries (tiered retention: rollup aggregation with states kept as counts, idempotent re-run, pinned windows, transition/event retention, replication hold and hard cap, pruned-range replica outcome, hourly history auto-switch, schema v3 to v4 migration on a real file; `PeerRetentionTests`, `PeerStoreTests`). Receiver-side `RANGE_PRUNED`: `RangePrunedReplicationTests` (origin and replica in separate SQLite files; pull and push; durable across reopen; untrusted/relayed/gap-hiding ranges rejected) and the two-node gRPC theory `PeerNodeRuntimeTests.ReplicaMarksPrunedRangeAbsentAndConvergesWhetherTheOriginOrTheReplicaDials`. Node scheduling: `NodeBackgroundTasksTests` (manual `TimeProvider`: startup run, interval runs, failure survival, hourly retention pruning with rollups, default intervals/policy). Pin API: `LocalApiIncidentTests`.
 - Backup and restore before release support is claimed.
 
 The first production engine is file-backed SQLite in WAL mode. Persistence integration tests must use that provider and configuration. The EF Core in-memory provider does not satisfy this level, and SQLite's transient in-memory mode does not prove restart durability, file locking, WAL recovery, backup, or restore.
@@ -164,7 +164,7 @@ The peer node tests (restart-stable identity, 0600/0700 key storage and unsafe-p
 
 ### LAN self-observation tests
 
-`tests/MonitorApp.Peer.Collection.Tests` cover route/VLAN/MAC parsers, interface classification (overlay/virtual/bridge/loopback non-physical), a fixture sysfs tree, a run against this host's real `/sys/class/net` (Linux), a real-SQLite persistence round trip, and reconciliation that IP-only matches never hard-merge. Windows classification is unit-tested from enum/name inputs only; the real Windows collector is unverified on hardware. Contract rules are in `MonitorApp.Contracts.Tests`.
+`tests/MonitorApp.Peer.Collection.Tests` cover route/VLAN/MAC parsers, interface classification (overlay/virtual/bridge/loopback non-physical), a fixture sysfs tree, a run against this host's real `/sys/class/net` (Linux), a real-SQLite persistence round trip, and reconciliation that IP-only matches never hard-merge. `SelfLanScheduleTests` cover link-observation conversion (unknown values are `Unavailable`) and `ValidTo` handling (vanished, unreadable host, reappearing, other observers untouched); `NodeBackgroundTasksTests` run the scheduled collection through a real node store. Windows classification is unit-tested from enum/name inputs only; the real Windows collector is unverified on hardware. Contract rules are in `MonitorApp.Contracts.Tests`.
 
 ### Preview and update-agent tests
 

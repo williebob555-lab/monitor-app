@@ -169,6 +169,9 @@ message OriginRecordBatch {
   string request_id = 1;
   repeated OriginRecord records = 2;
   bool has_more = 3;
+  // Pushed batches only: the range immediately before the first record (or the whole batch, when it has no
+  // records) was removed by the sender's retention. Receivers record it as intentionally absent and resume after it.
+  PrunedRange pruned_range = 4;
 }
 
 message OriginAck {

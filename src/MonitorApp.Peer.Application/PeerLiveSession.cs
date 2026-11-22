@@ -108,14 +108,15 @@ public sealed class PeerLiveSession : IPeerLiveSession
             MaximumRecordCount = (uint)options.MaximumBatchRecords,
             MaximumBatchBytes = (uint)options.MaximumBatchBytes,
         }, cancellationToken).ConfigureAwait(false);
-        if (batch.Records.Count == 0)
+        if (batch.Records.Count == 0 && batch.PrunedRange is null)
         {
             return null;
         }
 
         lock (gate)
         {
-            sentThrough = batch.Records[^1].Sequence;
+            // A batch that is only a pruned-range statement advances the stream to the end of that range.
+            sentThrough = batch.Records.Count == 0 ? batch.PrunedRange!.LastSequence : batch.Records[^1].Sequence;
             inFlight.Enqueue(sentThrough);
         }
 

@@ -48,7 +48,7 @@ Adapter and managed-switch credentials stay in the provisioned collector peer's 
 
 Topology evidence distinguishes reported facts from inference and carries source, time, quality, and confidence. Deduplicate switches with strong identity such as serial or chassis MAC, never IP alone.
 
-LAN self-observation reads only the local peer's own interfaces (sysfs/procfs or OS interface APIs). It never reads ARP/neighbor tables, never collects gateway or other hosts' MACs, and never records flows or DNS. IP-derived claims (subnet, gateway IP) are weak and cannot establish identity or merge entities.
+LAN self-observation reads only the local peer's own interfaces (sysfs/procfs or OS interface APIs). It never reads ARP/neighbor tables, never collects gateway or other hosts' MACs, and never records flows or DNS. IP-derived claims (subnet, gateway IP) are weak and cannot establish identity or merge entities. The scheduled link observations (interface name, up/down, speed, duplex, MTU; never MAC addresses) are ordinary signed origin records and replicate to paired peers. Retention pin/unpin on the loopback API requires the same antiforgery token as other admin mutations. A replica accepts an origin-reported pruned range only from the stream's actively trusted owner and only when it starts no later than the next sequence the replica needs (T041).
 
 ## Collection breadth and privacy
 

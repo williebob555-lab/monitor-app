@@ -248,6 +248,19 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
                     continue;
                 }
 
+                if (IsRangePruned(response))
+                {
+                    // The origin's push hit a range it pruned: record it as absent, tell it where this replica resumes,
+                    // then end the session so the next one starts after the range.
+                    var prunedAck = await application.AcceptRangePrunedAsync(remotePeerId, response.Error.PrunedRange, token).ConfigureAwait(false);
+                    if (prunedAck is not null)
+                    {
+                        try { await SendAsync(new PeerSessionRequest { OriginAck = prunedAck }).ConfigureAwait(false); }
+                        catch (Exception exception) when (exception is RpcException or IOException or InvalidOperationException) { }
+                        throw new PeerTransportException("Peer pruned part of its origin stream; resuming after the pruned range.");
+                    }
+                }
+
                 ThrowIfFailure(response);
                 switch (response.MessageCase)
                 {
@@ -394,8 +407,19 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
             case PeerSessionRequest.MessageOneofCase.OriginRangeRequest:
                 RequireValid(PeerContractValidator.Validate(request.OriginRangeRequest), "Local origin range request is invalid.");
                 await WriteAsync(call, request, cancellationToken).ConfigureAwait(false);
-                var batch = await ReadExpectedAsync(call, PeerSessionResponse.MessageOneofCase.OriginBatch, cancellationToken).ConfigureAwait(false);
-                var acknowledgement = await application.AcceptOriginBatchAsync(remotePeerId, batch.OriginBatch, cancellationToken).ConfigureAwait(false);
+                var batch = await ReadOriginBatchOrPrunedAsync(call, cancellationToken).ConfigureAwait(false);
+                OriginAck acknowledgement;
+                if (batch.MessageCase == PeerSessionResponse.MessageOneofCase.Error)
+                {
+                    // RANGE_PRUNED: the origin removed the range by retention. Mark it intentionally absent and resume after it.
+                    acknowledgement = await application.AcceptRangePrunedAsync(remotePeerId, batch.Error.PrunedRange, cancellationToken).ConfigureAwait(false)
+                        ?? throw new PeerAuthenticationException(batch.Error.SafeMessage);
+                }
+                else
+                {
+                    acknowledgement = await application.AcceptOriginBatchAsync(remotePeerId, batch.OriginBatch, cancellationToken).ConfigureAwait(false);
+                }
+
                 RequireValid(PeerContractValidator.Validate(acknowledgement), "Local origin acknowledgement is invalid.");
                 await WriteAsync(call, new PeerSessionRequest { OriginAck = acknowledgement }, cancellationToken).ConfigureAwait(false);
                 break;
@@ -417,6 +441,25 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
     private async Task WriteAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call,
         PeerSessionRequest request, CancellationToken cancellationToken) =>
         await call.RequestStream.WriteAsync(request, cancellationToken).WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Reads the reply to an origin range request: a batch, or a RANGE_PRUNED error that names the pruned range.</summary>
+    private async Task<PeerSessionResponse> ReadOriginBatchOrPrunedAsync(
+        AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call, CancellationToken cancellationToken)
+    {
+        if (!await call.ResponseStream.MoveNext(cancellationToken).WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false))
+            throw new PeerTransportException("Peer closed the session unexpectedly.");
+        var response = call.ResponseStream.Current;
+        if (IsRangePruned(response)) return response;
+        ThrowIfFailure(response);
+        if (response.MessageCase != PeerSessionResponse.MessageOneofCase.OriginBatch)
+            throw new PeerTransportException("Peer returned an unexpected session response.");
+        return response;
+    }
+
+    private static bool IsRangePruned(PeerSessionResponse response) =>
+        response.MessageCase == PeerSessionResponse.MessageOneofCase.Error &&
+        response.Error.Code == ProtocolErrorCode.RangePruned &&
+        response.Error.PrunedRange is { FirstSequence: > 0 };
 
     private async Task<PeerSessionResponse> ReadExpectedAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call,
         PeerSessionResponse.MessageOneofCase expected, CancellationToken cancellationToken)
