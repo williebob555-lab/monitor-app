@@ -66,8 +66,31 @@ internal class FakeEnvironmentSource : IPeerDataSource
 }
 
 /// <summary>A paired-device source that can also send controls. Its answers are scripted per test; it records what was sent.</summary>
-internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource
+internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource, IViewingSource
 {
+    /// <summary>Viewing interest as it happened: "begin:peer:signals" and "end:peer" (peer "local" for this device).</summary>
+    public List<string> Viewing { get; } = [];
+
+    public IDisposable BeginViewing(string? peerId, IReadOnlyCollection<string>? signalIds = null)
+    {
+        var peer = peerId ?? "local";
+        Viewing.Add($"begin:{peer}:{string.Join(',', signalIds ?? [])}");
+        return new Scope(() => Viewing.Add("end:" + peer));
+    }
+
+    private sealed class Scope(Action onDispose) : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                onDispose();
+            }
+        }
+    }
+
     public ControlOutcomeDto Outcome { get; set; } = new("Applied", "applied", "Collection paused", false);
 
     public List<string> Sent { get; } = [];

@@ -69,12 +69,14 @@ public partial class WorkspaceShell : UserControl, IDisposable
         keyHost = TopLevel.GetTopLevel(this);
         keyHost?.AddHandler(KeyDownEvent, OnKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyLayout(Bounds.Width);
+        Model?.Shell.Inspector.SetLiveViewingAllowed(true);
         StartLive();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         StopLive();
+        Model?.Shell.Inspector.SetLiveViewingAllowed(false);
         keyHost?.RemoveHandler(KeyDownEvent, OnKeyDown);
         keyHost = null;
         base.OnDetachedFromVisualTree(e);
@@ -107,6 +109,7 @@ public partial class WorkspaceShell : UserControl, IDisposable
     public void Dispose()
     {
         StopLive();
+        Model?.Shell.Inspector.SetLiveViewingAllowed(false);
         GC.SuppressFinalize(this);
     }
 

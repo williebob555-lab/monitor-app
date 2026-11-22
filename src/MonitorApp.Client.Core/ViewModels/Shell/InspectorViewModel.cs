@@ -59,6 +59,17 @@ public sealed partial class InspectorViewModel : ObservableObject
     private readonly EnvironmentViewModel environment;
     private string? focusLayerId;
     private string? focusSignalId;
+    private readonly NodeConnection connection;
+    private IDisposable? viewing;
+    private (IPeerDataSource Source, string? PeerId)? viewingKey;
+    private bool liveViewingAllowed = true;
+
+    /// <summary>The signals shown for a device's layers (compute, memory, storage, network); only these sample fast while inspecting.</summary>
+    public static readonly IReadOnlyList<string> LiveSignalIds =
+    [
+        SignalIds.CpuUtilization, SignalIds.MemoryUsed, SignalIds.MemoryTotal,
+        SignalIds.StorageFree, SignalIds.StorageTotal, SignalIds.NetworkBytesSent, SignalIds.NetworkBytesReceived,
+    ];
 
     [ObservableProperty]
     private SceneNode? node;
@@ -84,12 +95,19 @@ public sealed partial class InspectorViewModel : ObservableObject
     public InspectorViewModel(EnvironmentViewModel environment, NodeConnection connection)
     {
         this.environment = environment;
+        this.connection = connection;
         Controls = new ControlsViewModel(connection, environment);
         environment.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(EnvironmentViewModel.SelectedNode) or nameof(EnvironmentViewModel.Scene))
             {
                 Rebuild();
+            }
+
+            if (args.PropertyName is nameof(EnvironmentViewModel.SelectedNode) or nameof(EnvironmentViewModel.SelectedNodeId)
+                or nameof(EnvironmentViewModel.AsOf) or nameof(EnvironmentViewModel.IsHistorical))
+            {
+                SyncLiveViewing();
             }
         };
         Rebuild();
@@ -100,6 +118,60 @@ public sealed partial class InspectorViewModel : ObservableObject
     public ObservableCollection<InspectorLayerRow> Layers { get; } = [];
 
     public ObservableCollection<RelationshipRow> Relationships { get; } = [];
+
+    /// <summary>Shown as the "Live 1 s" indicator while the inspected device is being sampled at the fast rate.</summary>
+    public string LiveSamplingText { get; } = "Live 1 s";
+
+    /// <summary>True only while viewing interest is declared; false for history, unsupported sources and non-device nodes.</summary>
+    public bool IsLiveSampling => viewing is not null;
+
+    /// <summary>
+    /// Whether the shell is attached. Detaching ends any viewing interest (so the device returns to its normal rate);
+    /// attaching again resumes it for the current selection.
+    /// </summary>
+    public void SetLiveViewingAllowed(bool allowed)
+    {
+        liveViewingAllowed = allowed;
+        SyncLiveViewing();
+    }
+
+    /// <summary>
+    /// Declares interest in the selected device's display signals while the view is live and ends it otherwise.
+    /// The source owns lease renewal for as long as the scope lives, so nothing here needs a timer.
+    /// </summary>
+    private void SyncLiveViewing()
+    {
+        (IPeerDataSource, string?)? wanted = null;
+        var selected = environment.SelectedNode;
+        if (liveViewingAllowed && !environment.IsHistorical && selected is { Kind: SceneNodeKind.LocalPeer or SceneNodeKind.Peer }
+            && connection.Source is IViewingSource)
+        {
+            wanted = (connection.Source, selected.Kind == SceneNodeKind.LocalPeer ? null : selected.Id);
+        }
+
+        if (wanted == viewingKey)
+        {
+            return;
+        }
+
+        viewing?.Dispose();
+        viewing = null;
+        viewingKey = null;
+        if (wanted is { } key)
+        {
+            try
+            {
+                viewing = ((IViewingSource)key.Item1).BeginViewing(key.Item2, LiveSignalIds);
+                viewingKey = key;
+            }
+            catch (ObjectDisposedException)
+            {
+                // The source is shutting down; the view keeps working at the normal rate.
+            }
+        }
+
+        OnPropertyChanged(nameof(IsLiveSampling));
+    }
 
     public bool HasSelection => Node is not null;
 

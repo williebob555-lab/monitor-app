@@ -84,7 +84,12 @@ public sealed class WorkspaceShellTests
         tree.SelectedItem = server;
         Pump();
         Assert.Equal(FakeEnvironmentSource.ServerId, model.Environment.SelectedNodeId);
+        var liveSignals = string.Join(',', InspectorViewModel.LiveSignalIds);
+        Assert.Equal([$"begin:{FakeEnvironmentSource.ServerId}:{liveSignals}"], source.Viewing);
+        Assert.True(model.Shell.Inspector.IsLiveSampling, "inspecting a live device shows the Live 1 s indicator");
         var inspector = Find<Border>(shell, "InspectorHost");
+        Assert.True(Find<TextBlock>(shell, "LiveSampling").IsVisible);
+        Assert.Equal("Live 1 s", Find<TextBlock>(shell, "LiveSampling").Text);
         Assert.True(inspector.IsVisible, "inspector docks when something is selected");
         var texts = inspector.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
         Assert.Equal(FakeEnvironmentSource.ServerName, inspector.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "InspectorTitle").Text);
@@ -128,6 +133,11 @@ public sealed class WorkspaceShellTests
         Assert.False(model.Shell.Inspector.Controls.RunCommand.CanExecute(actions[0]));
         Assert.Contains("disabled while viewing history", model.Shell.Inspector.Controls.HistoryNotice, StringComparison.Ordinal);
         Assert.Empty(source.Sent);
+        Assert.Equal(
+            [$"begin:{FakeEnvironmentSource.ServerId}:{liveSignals}", "end:" + FakeEnvironmentSource.ServerId],
+            source.Viewing);
+        Assert.False(model.Shell.Inspector.IsLiveSampling, "history is recorded data: no live sampling interest");
+        Assert.False(Find<TextBlock>(shell, "LiveSampling").IsVisible, "indicator hidden in history");
 
         // Return to live clears all of it.
         var back = Find<Button>(shell, "ReturnToLive");
@@ -138,6 +148,8 @@ public sealed class WorkspaceShellTests
         Assert.DoesNotContain("historical", Find<Button>(shell, "LivePill").Classes);
         Assert.False(Find<Panel>(shell, "HistoricalOutline").IsVisible);
         Assert.All(ControlButtons(shell), b => Assert.True(b.IsEnabled, "controls back after return to live"));
+        Assert.Equal(3, source.Viewing.Count);
+        Assert.Equal($"begin:{FakeEnvironmentSource.ServerId}:{liveSignals}", source.Viewing[2]);
 
         // Scrubbing the timeline travels too, and the far right means live.
         var scrubber = Find<Slider>(shell, "Scrubber");
@@ -199,7 +211,14 @@ public sealed class WorkspaceShellTests
         Assert.Equal(FakeEnvironmentSource.LocalId, model.Environment.SelectedNodeId);
         Assert.Equal(["Ecosystem", SceneProjector.LocalLabel], model.Shell.Breadcrumbs.Select(b => b.Text));
         Assert.False(model.Shell.Inspector.Controls.IsAvailable, "no controls for this device itself");
+        Assert.Equal(
+            ["end:" + FakeEnvironmentSource.ServerId, $"begin:local:{liveSignals}"],
+            source.Viewing.TakeLast(2));
+
+        // Detaching the shell ends interest so the device returns to its normal rate.
         window.Close();
+        Assert.Equal("end:local", source.Viewing[^1]);
+        Assert.False(model.Shell.Inspector.IsLiveSampling);
     }
 
     /// <summary>Search, keyboard shortcuts, mode navigation, the plain-source case and the schematic extension slot.</summary>

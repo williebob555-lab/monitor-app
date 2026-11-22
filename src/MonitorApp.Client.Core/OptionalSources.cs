@@ -11,11 +11,13 @@ public interface IAlertSource
 
 /// <summary>
 /// Declares that the UI is looking at live data for a peer (null = this device), so the peer can sample faster.
-/// Dispose to stop. Sources without an adaptive-sampling channel do not implement it.
+/// Dispose to stop. Sources without an adaptive-sampling channel do not implement it. The source keeps the interest
+/// alive (renewing its lease) until the returned scope is disposed. <paramref name="signalIds"/> limits fast sampling to
+/// those signals; null or empty means all. The desktop HTTP client has no such channel yet and does not implement this.
 /// </summary>
 public interface IViewingSource
 {
-    IDisposable BeginViewing(string? peerId);
+    IDisposable BeginViewing(string? peerId, IReadOnlyCollection<string>? signalIds = null);
 }
 
 /// <summary>Sources that can start pairing with another peer (a phone pairing with a desktop).</summary>
