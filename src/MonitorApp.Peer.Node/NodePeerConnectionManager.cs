@@ -103,6 +103,11 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
         }
+        catch (Exception exception)
+        {
+            // A session that faulted must never abort the rest of the node's shutdown (stores would stay open).
+            permanentFailures[$"shutdown:{exception.GetType().Name}"] = exception.Message;
+        }
         finally
         {
             lifetime.Dispose();

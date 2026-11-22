@@ -113,6 +113,12 @@ public sealed class PeerStoreTests : IDisposable
         await store.AppendOriginRecordAsync(third);
         Assert.Equal(RecordInsertOutcome.IdenticalRetry, await store.AppendOriginRecordAsync(fifth));
         await Assert.ThrowsAsync<PeerPersistenceConflictException>(() => store.AppendOriginRecordAsync(fifth with { Quality = "error" }));
+        // Two sessions delivering the same record race with different local receive times: not a conflict.
+        Assert.Equal(
+            RecordInsertOutcome.IdenticalRetry,
+            await store.AppendOriginRecordAsync(fifth with { ReceivedAt = fifth.ReceivedAt.AddSeconds(1) }));
+        await Assert.ThrowsAsync<PeerPersistenceConflictException>(() => store.AppendOriginRecordAsync(
+            fifth with { ReceivedAt = fifth.ReceivedAt.AddSeconds(1), RecordBytes = [9] }));
 
         var range = await store.ReadOriginRangeAsync("peer-b", "origin-b", 1, 10);
         Assert.Equal([3UL, 5UL], range.Select(value => value.Sequence));
