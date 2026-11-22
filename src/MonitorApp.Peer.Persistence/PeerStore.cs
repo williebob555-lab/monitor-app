@@ -16,6 +16,12 @@ public sealed partial class PeerStore
     /// <summary>Notifies in-process subscribers of origin records newly committed through this store instance.</summary>
     public PeerLiveFeed Live { get; } = new();
 
+    /// <summary>
+    /// Serializes local-origin writers sharing this store (the system-metrics bridge and the LAN link bridge each
+    /// allocate the next local sequence and sign it): hold it from reading <c>NextSequence</c> until the last append.
+    /// </summary>
+    public SemaphoreSlim LocalAppendGate { get; } = new(1, 1);
+
     public PeerStore(PeerStoreOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
