@@ -12,6 +12,7 @@ namespace MonitorApp.Peer.LocalApi;
 
 public sealed class LocalApiHost : IAsyncDisposable
 {
+    private const string CspNonceKey = "csp-nonce";
     private readonly WebApplication application;
 
     private LocalApiHost(WebApplication application)
@@ -55,8 +56,22 @@ public sealed class LocalApiHost : IAsyncDisposable
         builder.Services.AddSingleton(invitationService ?? new UnavailablePeerInvitationService());
         builder.Services.AddSingleton<PeerInvitationStatusState>();
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
+        builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
         var application = builder.Build();
+        application.Use(async (context, next) =>
+        {
+            var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+            context.Items[CspNonceKey] = nonce;
+            var headers = context.Response.Headers;
+            headers.ContentSecurityPolicy =
+                $"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; " +
+                "form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+            headers.XContentTypeOptions = "nosniff";
+            headers["Referrer-Policy"] = "no-referrer";
+            headers.CacheControl = "no-store";
+            await next(context).ConfigureAwait(false);
+        });
         MapEndpoints(application);
         return new LocalApiHost(application);
     }
@@ -115,6 +130,29 @@ public sealed class LocalApiHost : IAsyncDisposable
                 originPeerId, originStreamId, first, take, token).ConfigureAwait(false));
         });
 
+        application.MapGet("/api/v1/catalog", async (PeerHistoryQueryService history, CancellationToken token) =>
+            Results.Json(await history.ReadCatalogAsync(token).ConfigureAwait(false)));
+        application.MapGet("/api/v1/history", (
+            string? from,
+            string? to,
+            string? subjectEntityId,
+            string? signalId,
+            string? originPeerId,
+            int? limit,
+            string? cursor,
+            PeerHistoryQueryService history,
+            CancellationToken token) => QueryAsync(() => history.QueryHistoryAsync(
+                from, to, subjectEntityId, signalId, originPeerId, limit, cursor, token)));
+        application.MapGet("/api/v1/state", (
+            string? asOf,
+            int? lookbackSeconds,
+            string? subjectEntityId,
+            string? signalId,
+            int? limit,
+            PeerHistoryQueryService history,
+            CancellationToken token) => QueryAsync(() => history.ReconstructAsync(
+                asOf, lookbackSeconds, subjectEntityId, signalId, limit, token)));
+
         application.MapPost("/api/pairings/{pairingId}/approve", async (
             string pairingId,
             HttpContext context,
@@ -163,6 +201,18 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapGet("/", RenderPageAsync);
+    }
+
+    private static async Task<IResult> QueryAsync<T>(Func<Task<T>> query)
+    {
+        try
+        {
+            return Results.Json(await query().ConfigureAwait(false));
+        }
+        catch (PeerQueryException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
     }
 
     private static async Task<IResult> HandleInvitationAsync(
@@ -223,6 +273,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         var pairings = await data.ReadPendingPairingsAsync(token).ConfigureAwait(false);
         var csrf = antiforgery.GetAndStoreTokens(context).RequestToken ?? string.Empty;
         Func<string, string> encode = HtmlEncoder.Default.Encode;
+        var nonce = (string)context.Items[CspNonceKey]!;
         var peerRows = string.Join(string.Empty, peers.Select(peer => $"""
             <tr><td>{encode(peer.DisplayName ?? peer.PeerId)}</td><td><code>{encode(peer.FingerprintSha256)}</code></td>
             <td>{encode(peer.TrustState)}</td><td>{(peer.TrustState == PeerTrustState.Active.ToString() ? MutationForm($"/api/peers/{Uri.EscapeDataString(peer.PeerId)}/revoke", "Revoke trust", csrf) : "Revoked")}</td></tr>
@@ -239,9 +290,9 @@ public sealed class LocalApiHost : IAsyncDisposable
             : $"{encode(invitationStatus.LastResult.Status.ToString())}: {encode(invitationStatus.LastResult.Message)}";
         var html = $$"""
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Monitor App local administration</title><style>
-            body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef}
-            </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, and stored observation query. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
+            <title>Monitor App local administration</title><style nonce="{{nonce}}">
+            body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus,input:focus,select:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef;color:#111}.scroll{overflow-x:auto}.sr{position:absolute;left:-10000px}fieldset{border:1px solid #777}
+            </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, current state, bounded history, and as-of reconstruction. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
             <main><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
             <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{{pairingRows}}</tbody></table></section>
             <section aria-labelledby="invite"><h2 id="invite">Invite a fresh peer</h2><p>Enter the identity shown by the other peer. Invitation transport must be configured by the running node.</p>
@@ -253,7 +304,8 @@ public sealed class LocalApiHost : IAsyncDisposable
             <p><label for="securityPolicy">Declared security policy</label><br><select id="securityPolicy" name="securityPolicy"><option value="LoopbackPrototype">Loopback prototype</option><option value="AuthenticatedPrivateTransport">Authenticated private transport</option></select></p>
             <button type="submit">Dispatch invitation</button></form><p role="status"><strong>Last result:</strong> {{invitationResult}}</p></section>
             <section aria-labelledby="peers"><h2 id="peers">Trusted and revoked peers</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>Trust</th><th>Action</th></tr></thead><tbody>{{peerRows}}</tbody></table></section>
-            <section aria-labelledby="observations"><h2 id="observations">Stored observations</h2><p>Use the JSON query endpoint with an origin peer and stream: <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main></body></html>
+            {{LocalApiClientPage.Sections}}
+            <section aria-labelledby="observations"><h2 id="observations">Raw record query</h2><p>Use the JSON endpoints for scripted access: <code>/api/v1/history?from=...&amp;to=...</code>, <code>/api/v1/state?asOf=...</code>, <code>/api/v1/catalog</code>, or page raw records with <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main><script nonce="{{nonce}}">{{LocalApiClientPage.Script}}</script></body></html>
             """;
         return Results.Content(html, MediaTypeNames.Text.Html);
     }

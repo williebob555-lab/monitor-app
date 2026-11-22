@@ -40,7 +40,7 @@ This file contains active and near-term tasks only. Read it with the required do
   - Progress: Linux engineering preview, verified in an Ubuntu 24.04 container: the peer node targets `net10.0`, stores its identity in an owner-only `identity.p256` file, and runs the node tests on Linux. Fedora, packaging, `systemd`, SELinux, and a Linux service remain unproven.
 - [ ] Add clean install, upgrade, restart, recovery, and uninstall tests for Windows service, Fedora RPM, Ubuntu DEB, and Android package paths.
 - [ ] Preserve signed update-manifest verification and implement tested platform-specific apply/rollback.
-- [ ] Add bounded historical query/reconstruction and a plain usable local client before advanced visuals.
+- [x] Add bounded historical query/reconstruction (versioned `/api/v1/history`, `/state`, `/catalog`; resolution field `raw`) and a plain test-only local page. Follow-up: tiered retention/rollups (7d raw, hourly to 1y) and the separate Avalonia client consuming these endpoints.
 
 ## Deferred until the functional peer foundation works
 

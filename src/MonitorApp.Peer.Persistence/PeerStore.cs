@@ -7,7 +7,7 @@ namespace MonitorApp.Peer.Persistence;
 
 public sealed class PeerStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const int PublicKeyFingerprintSize = 32;
     private const int P256SignatureSize = 64;
     private readonly string connectionString;
@@ -144,6 +144,8 @@ public sealed class PeerStore
             );
             CREATE INDEX IF NOT EXISTS ix_origin_records_subject_signal
                 ON origin_records(subject_entity_id, signal_id, observed_at DESC, received_at DESC);
+            CREATE INDEX IF NOT EXISTS ix_origin_records_observed_at
+                ON origin_records(observed_at, origin_peer_id, origin_stream_id, sequence);
             CREATE TABLE IF NOT EXISTS replication_cursors (
                 remote_peer_id TEXT NOT NULL,
                 origin_peer_id TEXT NOT NULL,
@@ -479,6 +481,84 @@ public sealed class PeerStore
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) result.Add(ReadStoredOriginRecord(reader));
         return result;
+    }
+
+    public async Task<OriginRecordWindowPage> ReadOriginWindowAsync(OriginRecordWindowQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        EnsureUtc(query.From, nameof(query.From));
+        EnsureUtc(query.ToExclusive, nameof(query.ToExclusive));
+        if (query.ToExclusive <= query.From) throw new ArgumentException("Window end must follow its start.", nameof(query));
+        if (query.Limit is < 1 or > 10_000) throw new ArgumentOutOfRangeException(nameof(query));
+        if (query.After is { } after) EnsureUtc(after.ObservedAt, nameof(query.After));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT origin_peer_id, origin_stream_id, sequence, subject_entity_id, adapter_instance_id, signal_id,
+                record_bytes, content_hash, signature, observed_at, received_at, received_from_peer_id, provenance, quality
+            FROM origin_records
+            WHERE observed_at >= $from AND observed_at < $to
+                AND ($subject IS NULL OR subject_entity_id = $subject)
+                AND ($signal IS NULL OR signal_id = $signal)
+                AND ($origin IS NULL OR origin_peer_id = $origin)
+                AND ($afterObserved IS NULL OR (observed_at, origin_peer_id, origin_stream_id, sequence) >
+                    ($afterObserved, $afterOrigin, $afterStream, $afterSequence))
+            ORDER BY observed_at, origin_peer_id, origin_stream_id, sequence
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$from", Format(query.From));
+        command.Parameters.AddWithValue("$to", Format(query.ToExclusive));
+        command.Parameters.AddWithValue("$subject", Db(query.SubjectEntityId));
+        command.Parameters.AddWithValue("$signal", Db(query.SignalId));
+        command.Parameters.AddWithValue("$origin", Db(query.OriginPeerId));
+        command.Parameters.AddWithValue("$afterObserved", query.After is { } a ? Format(a.ObservedAt) : DBNull.Value);
+        command.Parameters.AddWithValue("$afterOrigin", query.After?.OriginPeerId ?? string.Empty);
+        command.Parameters.AddWithValue("$afterStream", query.After?.OriginStreamId ?? string.Empty);
+        command.Parameters.AddWithValue("$afterSequence", query.After is { } b ? ToInt64(b.Sequence) : 0L);
+        command.Parameters.AddWithValue("$limit", query.Limit + 1);
+        var records = new List<StoredOriginRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) records.Add(ReadStoredOriginRecord(reader));
+        var truncated = records.Count > query.Limit;
+        if (truncated) records.RemoveAt(records.Count - 1);
+        return new OriginRecordWindowPage(records, truncated);
+    }
+
+    public async Task<OriginRecordWindowPage> ReadOriginStateAsOfAsync(DateTimeOffset asOf, DateTimeOffset notBefore,
+        string? subjectEntityId, string? signalId, int limit, CancellationToken cancellationToken = default)
+    {
+        EnsureUtc(asOf, nameof(asOf));
+        EnsureUtc(notBefore, nameof(notBefore));
+        if (notBefore > asOf) throw new ArgumentException("Lookback start cannot follow the as-of time.", nameof(notBefore));
+        if (limit is < 1 or > 10_000) throw new ArgumentOutOfRangeException(nameof(limit));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH ranked AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY subject_entity_id, signal_id
+                    ORDER BY observed_at DESC, received_at DESC, origin_peer_id, origin_stream_id, sequence DESC) AS rank
+                FROM origin_records
+                WHERE observed_at <= $asOf AND observed_at >= $notBefore
+                    AND ($subject IS NULL OR subject_entity_id = $subject)
+                    AND ($signal IS NULL OR signal_id = $signal)
+            )
+            SELECT origin_peer_id, origin_stream_id, sequence, subject_entity_id, adapter_instance_id, signal_id,
+                record_bytes, content_hash, signature, observed_at, received_at, received_from_peer_id, provenance, quality
+            FROM ranked WHERE rank = 1 ORDER BY subject_entity_id, signal_id LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$asOf", Format(asOf));
+        command.Parameters.AddWithValue("$notBefore", Format(notBefore));
+        command.Parameters.AddWithValue("$subject", Db(subjectEntityId));
+        command.Parameters.AddWithValue("$signal", Db(signalId));
+        command.Parameters.AddWithValue("$limit", limit + 1);
+        var records = new List<StoredOriginRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) records.Add(ReadStoredOriginRecord(reader));
+        var truncated = records.Count > limit;
+        if (truncated) records.RemoveAt(records.Count - 1);
+        return new OriginRecordWindowPage(records, truncated);
     }
 
     public async Task<IReadOnlyList<CurrentObservation>> ReadCurrentObservationsAsync(CancellationToken cancellationToken = default)

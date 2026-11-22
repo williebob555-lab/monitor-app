@@ -12,7 +12,7 @@ namespace MonitorApp.Peer.LocalApi.Tests;
 
 public sealed class LocalApiHostTests : IDisposable
 {
-    private static readonly DateTimeOffset Now =
+    internal static readonly DateTimeOffset Now =
         new(2026, 11, 21, 16, 0, 0, TimeSpan.Zero);
 
     private readonly string directory = Path.Combine(
@@ -239,7 +239,7 @@ public sealed class LocalApiHostTests : IDisposable
         }
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private static PeerInvitationInput ValidInvitation() => new(
         " peer-new ",
@@ -287,7 +287,7 @@ public sealed class LocalApiHostTests : IDisposable
                 TimeSpan.FromMinutes(5),
                 TimeSpan.FromMinutes(2)));
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public const string KeyProviderSecret = "key-provider-super-secret";
         public const string AdapterCredentialSecret = "adapter-credential-super-secret";
