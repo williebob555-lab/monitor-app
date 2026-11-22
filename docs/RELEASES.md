@@ -78,6 +78,10 @@ Installed Linux nodes carry the public key and repository in `/etc/monitor-app/u
 
 The unprivileged service cannot run `dpkg`/`rpm`, so it writes a request and the root `monitor-app-update.service` (started by `monitor-app-update.path`, same binary with `--apply-update`) re-verifies the signed manifest with the root-owned key, re-checks the digest on a private copy, installs, restarts, waits for the health marker the node writes at startup, and rolls back to the retained package on failure. The package scriptlets best-effort seed the retained last-known-good package on first install.
 
+### Install smoke before release
+
+`.github/workflows/install-smoke.yml` builds the same packages with `eng/packaging/*` (versions 0.9.1 and 0.9.2, throwaway update key, no secrets, no `release` environment) and installs them on Ubuntu (systemd), a Fedora container and Windows. It runs on pull requests and can be dispatched manually; run it green before relying on a preview for a platform claim.
+
 ### First preview checklist (one time, about 10 minutes)
 
 1. In the repository, Settings, Environments: create an environment named `release` (a required reviewer is optional; each run then needs approval for the Android and signing jobs).
