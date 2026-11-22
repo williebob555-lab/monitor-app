@@ -143,6 +143,12 @@ public interface IControlSource
     Task<ControlOutcomeDto> SetAlertPreferencesAsync(
         string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Reads this device's own alert preferences on the peer (the default when never set, <see cref="AlertPreferencesDto.UpdatedAt"/> null);
+    /// null when the peer cannot be reached or has not granted this device monitoring controls.
+    /// </summary>
+    Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default);
+
     /// <summary>Pairing requests the peer holds for approval; empty when it does not let this device approve pairings or is unreachable.</summary>
     Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default);
 

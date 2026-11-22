@@ -63,9 +63,22 @@ public sealed class ControlSourceTests
             Assert.False(denied.IsApplied);
             Assert.False(desktop.Monitoring.IsPaused("monitor.system"));
             Assert.False((await control.ReadUpdateStatusAsync(desktopId))!.Permitted);
+            Assert.Null(await control.ReadAlertPreferencesAsync(desktopId));
 
             await desktop.ControlStore.SetGrantAsync(
                 new ControlGrant(phone.Identity.PeerId, MonitoringControls: true, PairingApproval: true, null), DateTimeOffset.UtcNow);
+
+            var defaults = await control.ReadAlertPreferencesAsync(desktopId);
+            Assert.NotNull(defaults);
+            Assert.Equal("All", defaults.MinSeverity);
+            Assert.Empty(defaults.MutedRuleKinds);
+            Assert.Null(defaults.UpdatedAt);
+            Assert.True((await control.SetAlertPreferencesAsync(desktopId, "Warning", ["threshold.cpu_high"])).IsApplied);
+            var saved = await control.ReadAlertPreferencesAsync(desktopId);
+            Assert.NotNull(saved);
+            Assert.Equal("Warning", saved.MinSeverity);
+            Assert.Equal(["threshold.cpu_high"], saved.MutedRuleKinds);
+            Assert.NotNull(saved.UpdatedAt);
 
             var paused = await control.PauseCollectionAsync(desktopId, TimeSpan.FromMinutes(10));
             Assert.True(paused.IsApplied, paused.ReasonCode);

@@ -143,6 +143,19 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         return response.UpdateStatusResponse;
     }
 
+    /// <summary>Asks a trusted desktop for this phone's own alert preferences; read-only.</summary>
+    public async Task<AlertPreferencesResponse> ReadAlertPreferencesAsync(CancellationToken cancellationToken)
+    {
+        using var call = await OpenAuthenticatedAsync(Guid.NewGuid().ToString("N"), cancellationToken).ConfigureAwait(false);
+        var request = new AlertPreferencesRequest { RequestId = Guid.NewGuid().ToString("N") };
+        await WriteAsync(call.Call, new PeerSessionRequest { AlertPreferencesRequest = request }, cancellationToken).ConfigureAwait(false);
+        var response = await ReadExpectedAsync(call.Call, PeerSessionResponse.MessageOneofCase.AlertPreferencesResponse, cancellationToken)
+            .ConfigureAwait(false);
+        await call.Call.RequestStream.CompleteAsync().WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+        SetState(PeerTransportState.Stopped);
+        return response.AlertPreferencesResponse;
+    }
+
     private sealed class SessionCall(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call, PeerHello remote, CapabilityExchange capabilities)
         : IDisposable
     {

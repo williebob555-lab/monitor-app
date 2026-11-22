@@ -371,6 +371,26 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     }
 
     /// <summary>
+    /// This phone's own alert preferences on the desktop. Read-only; the response has <c>Permitted = false</c> and nothing
+    /// else when the desktop has not granted this phone monitoring controls.
+    /// </summary>
+    public async Task<AlertPreferencesResponse> ReadAlertPreferencesAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.ReadAlertPreferencesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
     /// The desktop's update state (installed version, staged version and digest, state, last error). Read-only; the response
     /// has <c>Permitted = false</c> and nothing else when the desktop has not granted this phone update approval.
     /// </summary>
