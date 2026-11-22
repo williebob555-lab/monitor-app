@@ -70,6 +70,9 @@ public sealed class PeerSystemMetricsIngestionBridge
 
             cancellationToken.ThrowIfCancellationRequested();
             var observedAt = RequireUtc(snapshot.ObservedAt);
+            // Another bridge on the same store (LAN links) may be allocating local sequences right now.
+            await store.LocalAppendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            using var appendGate = new GateRelease(store.LocalAppendGate);
             var receivedAt = RequireUtc(utcNow());
             var identity = await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) ??
                 throw new InvalidOperationException("Local peer persistence identity is not initialized.");
@@ -201,4 +204,10 @@ public sealed class PeerSystemMetricsIngestionBridge
         value.Offset == TimeSpan.Zero
             ? value
             : throw new InvalidOperationException("Collection timestamps must use UTC.");
+
+    private readonly struct GateRelease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
 }
+
