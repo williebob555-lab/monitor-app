@@ -199,10 +199,15 @@ message LiveSubscribeAck {
 
 // Declares that the sender is viewing subject_peer_id's signals. The receiver honours it only for its own origin,
 // only from an actively trusted authenticated peer, and only until the lease expires. lease_seconds == 0 withdraws.
+// relay_hops_remaining (additive; absent/0 on older peers) lets the sender ask a trusted relay to pass the interest to
+// subject_peer_id over the relay's own session with it: the relay accepts only 1, forwards only to the subject itself
+// (never to a third peer), only while this lease is alive, and always forwards with 0 so it is never relayed again.
+// With 0, interest in a subject other than the receiver is refused.
 message LiveInterest {
   string subject_peer_id = 1;
   repeated string signal_ids = 2;
   uint32 lease_seconds = 3;
+  uint32 relay_hops_remaining = 4;
 }
 
 message LiveInterestAck {

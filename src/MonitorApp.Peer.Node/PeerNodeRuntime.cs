@@ -110,6 +110,9 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public int ActiveLiveInterestCount => interests.ActiveInterestCount;
 
+    /// <summary>Interests held only to pass on to another peer's session (diagnostics and tests).</summary>
+    public int RelayedLiveInterestCount => interests.RelayedInterestCount;
+
     /// <summary>
     /// Newly stored observations (locally collected or replicated) as they commit; the in-process feed a UI subscribes to.
     /// </summary>

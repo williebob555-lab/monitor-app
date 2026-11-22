@@ -48,8 +48,7 @@ public sealed class PeerLiveSession : IPeerLiveSession
     private LocalPeerIdentity? local;
     private ulong sentThrough;
     private bool initialized;
-    private DateTimeOffset? lastInterestSent;
-    private string lastInterestSignals = string.Empty;
+    private readonly Dictionary<string, (DateTimeOffset Sent, string Key, uint Hops)> sentInterests = new(StringComparer.Ordinal);
     private LivePushChannels.Channel? channel;
 
     public PeerLiveSession(PeerLiveSessionOptions options)
@@ -73,6 +72,12 @@ public sealed class PeerLiveSession : IPeerLiveSession
             {
                 return null;
             }
+        }
+
+        if (options.Interests is { } relaying && relaying.HasRelayFor(options.RemotePeerId))
+        {
+            // Relayed interest is only passed to a peer that is still actively trusted here.
+            await options.RequireActive(cancellationToken).ConfigureAwait(false);
         }
 
         var identity = await options.Store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) ??
@@ -175,34 +180,37 @@ public sealed class PeerLiveSession : IPeerLiveSession
 
         var now = DateTimeOffset.UtcNow;
         var renewEvery = interests.Policy.OutgoingLease / 3;
+        var desired = interests.OutgoingInterestsFor(options.RemotePeerId);
+        var drained = new List<LiveInterest>();
         lock (gate)
         {
-            if (interests.IsWatchingRemote(options.RemotePeerId))
+            foreach (var item in desired)
             {
-                var signals = interests.RemoteSignals(options.RemotePeerId);
-                var signalKey = string.Join('\n', signals);
-                if (lastInterestSent is null || now - lastInterestSent >= renewEvery || signalKey != lastInterestSignals)
+                var key = $"{item.RelayHops}|{string.Join('\n', item.Signals)}";
+                if (sentInterests.TryGetValue(item.Subject, out var previous) && now - previous.Sent < renewEvery && previous.Key == key)
                 {
-                    lastInterestSent = now;
-                    lastInterestSignals = signalKey;
-                    var interest = new LiveInterest
-                    {
-                        SubjectPeerId = options.RemotePeerId,
-                        LeaseSeconds = (uint)interests.Policy.OutgoingLease.TotalSeconds,
-                    };
-                    interest.SignalIds.AddRange(signals);
-                    return [interest];
+                    continue;
                 }
+
+                sentInterests[item.Subject] = (now, key, item.RelayHops);
+                var interest = new LiveInterest
+                {
+                    SubjectPeerId = item.Subject,
+                    LeaseSeconds = (uint)item.Lease.TotalSeconds,
+                    RelayHopsRemaining = item.RelayHops,
+                };
+                interest.SignalIds.AddRange(item.Signals);
+                drained.Add(interest);
             }
-            else if (lastInterestSent is not null)
+
+            foreach (var (subject, state) in sentInterests.Where(entry => desired.All(item => item.Subject != entry.Key)).ToArray())
             {
-                lastInterestSent = null;
-                lastInterestSignals = string.Empty;
-                return [new LiveInterest { SubjectPeerId = options.RemotePeerId, LeaseSeconds = 0 }];
+                sentInterests.Remove(subject);
+                drained.Add(new LiveInterest { SubjectPeerId = subject, LeaseSeconds = 0, RelayHopsRemaining = state.Hops });
             }
         }
 
-        return [];
+        return drained;
     }
 
     public async ValueTask<LiveInterestAck> AcceptRemoteInterestAsync(
@@ -230,13 +238,13 @@ public sealed class PeerLiveSession : IPeerLiveSession
     {
         var effective = timeout;
         var interests = options.Interests;
-        if (interests is not null && interests.IsWatchingRemote(options.RemotePeerId))
+        if (interests is not null)
         {
             lock (gate)
             {
-                if (lastInterestSent is { } sent)
+                foreach (var (_, state) in sentInterests)
                 {
-                    var due = interests.Policy.OutgoingLease / 3 - (DateTimeOffset.UtcNow - sent);
+                    var due = interests.Policy.OutgoingLease / 3 - (DateTimeOffset.UtcNow - state.Sent);
                     effective = due < effective ? due : effective;
                 }
             }
