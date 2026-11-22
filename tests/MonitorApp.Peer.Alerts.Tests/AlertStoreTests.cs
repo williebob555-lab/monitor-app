@@ -130,7 +130,7 @@ public sealed class AlertStoreTests
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT version FROM alert_schema_version;";
-            Assert.Equal(2L, await command.ExecuteScalarAsync());
+            Assert.Equal(3L, await command.ExecuteScalarAsync());
             command.CommandText = "UPDATE alert_schema_version SET version = 99;";
             await command.ExecuteNonQueryAsync();
         }

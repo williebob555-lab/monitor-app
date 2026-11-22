@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Application;
 
 namespace MonitorApp.Peer.Control;
 
@@ -70,7 +71,7 @@ public sealed record ControlAuditEntry(
 /// </summary>
 public sealed class ControlStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -180,7 +181,82 @@ public sealed class ControlStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 3)
+        {
+            // Additive (T047): manual monitoring pause/interval overrides survive a desktop restart.
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE control_monitoring_pauses(
+                    scope TEXT PRIMARY KEY,
+                    until TEXT NULL);
+                CREATE TABLE control_monitoring_interval(
+                    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+                    interval_seconds REAL NOT NULL,
+                    until TEXT NULL);
+                UPDATE control_schema_version SET version = 3 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Replaces the saved manual overrides with the current ones.</summary>
+    public async Task SaveMonitoringOverridesAsync(
+        MonitoringControlState.Snapshot snapshot, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await ExecuteAsync(connection, transaction, "DELETE FROM control_monitoring_pauses;", [], cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, transaction, "DELETE FROM control_monitoring_interval;", [], cancellationToken).ConfigureAwait(false);
+        foreach (var (scope, until) in snapshot.Pauses)
+        {
+            await ExecuteAsync(connection, transaction,
+                "INSERT INTO control_monitoring_pauses(scope, until) VALUES ($scope, $until);",
+                [("$scope", scope), ("$until", until is null ? null : Format(until.Value))], cancellationToken).ConfigureAwait(false);
+        }
+
+        if (snapshot.IntervalOverride is { } interval)
+        {
+            await ExecuteAsync(connection, transaction,
+                "INSERT INTO control_monitoring_interval(singleton_id, interval_seconds, until) VALUES (1, $seconds, $until);",
+                [
+                    ("$seconds", interval.TotalSeconds),
+                    ("$until", snapshot.IntervalOverrideUntil is null ? null : Format(snapshot.IntervalOverrideUntil.Value)),
+                ], cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<MonitoringControlState.Snapshot> ReadMonitoringOverridesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var pauses = new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT scope, until FROM control_monitoring_pauses;";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                pauses[reader.GetString(0)] = reader.IsDBNull(1) ? null : Parse(reader.GetString(1));
+            }
+        }
+
+        TimeSpan? interval = null;
+        DateTimeOffset? intervalUntil = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT interval_seconds, until FROM control_monitoring_interval WHERE singleton_id = 1;";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                interval = TimeSpan.FromSeconds(reader.GetDouble(0));
+                intervalUntil = reader.IsDBNull(1) ? null : Parse(reader.GetString(1));
+            }
+        }
+
+        return new MonitoringControlState.Snapshot(pauses, interval, intervalUntil);
     }
 
     public async Task<ControlGrant?> ReadGrantAsync(string peerId, CancellationToken cancellationToken = default)

@@ -53,6 +53,16 @@ public sealed class ControlService(
         }
     }
 
+    /// <summary>
+    /// Reloads the manual pause and interval overrides saved before the last restart (T047). Overrides whose expiry has
+    /// passed are not restored. Call once at node start, before collection begins.
+    /// </summary>
+    public async Task RestoreMonitoringAsync(CancellationToken cancellationToken = default) =>
+        monitoring.Restore(await store.ReadMonitoringOverridesAsync(cancellationToken).ConfigureAwait(false));
+
+    private Task PersistMonitoringAsync(CancellationToken cancellationToken) =>
+        store.SaveMonitoringOverridesAsync(monitoring.Read(), cancellationToken);
+
     /// <summary>Read-only pending pairing requests for a trusted phone that may approve pairings.</summary>
     public async Task<PendingPairingsResponse> ReadPendingPairingsAsync(
         string remotePeerId,
@@ -372,10 +382,12 @@ public sealed class ControlService(
                 {
                     var pause = command.PauseCollection;
                     monitoring.Pause(pause.CapabilityId, pause.DurationSeconds == 0 ? null : TimeSpan.FromSeconds(pause.DurationSeconds));
+                    await PersistMonitoringAsync(cancellationToken).ConfigureAwait(false);
                     return Ok(pause.DurationSeconds == 0 ? "Collection paused until resumed." : "Collection paused.");
                 }
             case ControlCommand.PayloadOneofCase.ResumeCollection:
                 monitoring.Resume(command.ResumeCollection.CapabilityId);
+                await PersistMonitoringAsync(cancellationToken).ConfigureAwait(false);
                 return Ok("Collection resumed.");
             case ControlCommand.PayloadOneofCase.SetSamplingInterval:
                 {
@@ -383,6 +395,7 @@ public sealed class ControlService(
                     monitoring.SetInterval(
                         interval.IntervalSeconds == 0 ? null : TimeSpan.FromSeconds(interval.IntervalSeconds),
                         interval.DurationSeconds == 0 ? null : TimeSpan.FromSeconds(interval.DurationSeconds));
+                    await PersistMonitoringAsync(cancellationToken).ConfigureAwait(false);
                     return Ok(interval.IntervalSeconds == 0 ? "Sampling interval restored." : "Sampling interval set.");
                 }
             case ControlCommand.PayloadOneofCase.AcknowledgeAlert:
@@ -394,12 +407,14 @@ public sealed class ControlService(
                 {
                     var mute = command.MuteAlerts;
                     await alerts.MuteAsync(
+                        remotePeerId,
                         string.IsNullOrWhiteSpace(mute.RuleId) ? "*" : mute.RuleId,
-                        now + TimeSpan.FromSeconds(mute.DurationSeconds), remotePeerId, now, cancellationToken).ConfigureAwait(false);
-                    return Ok("Alerts muted.");
+                        now + TimeSpan.FromSeconds(mute.DurationSeconds), now, cancellationToken).ConfigureAwait(false);
+                    return Ok("Alerts muted for this phone.");
                 }
             case ControlCommand.PayloadOneofCase.UnmuteAlerts:
                 _ = await alerts.UnmuteAsync(
+                    remotePeerId,
                     string.IsNullOrWhiteSpace(command.UnmuteAlerts.RuleId) ? "*" : command.UnmuteAlerts.RuleId, cancellationToken)
                     .ConfigureAwait(false);
                 return Ok("Alerts unmuted.");

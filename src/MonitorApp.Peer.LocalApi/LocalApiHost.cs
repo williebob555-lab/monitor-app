@@ -452,7 +452,7 @@ public sealed class LocalApiHost : IAsyncDisposable
                         intervalOverrideSeconds = snapshot.IntervalOverride?.TotalSeconds,
                         intervalOverrideUntil = snapshot.IntervalOverrideUntil,
                     },
-                alertMutes = mutes.Select(item => new { item.Scope, item.Until }),
+                alertMutes = mutes.Select(item => new { item.Recipient, item.Scope, item.Until }),
             });
         });
         application.MapPost("/api/v1/control/grants/{peerId}", async (

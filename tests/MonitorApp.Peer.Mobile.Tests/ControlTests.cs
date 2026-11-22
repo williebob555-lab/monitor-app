@@ -396,7 +396,7 @@ public sealed class ControlTests
             Assert.True(desktop.Monitoring.IsPaused("monitor.system"));
             Assert.False(desktop.Monitoring.IsPaused("other.collector"));
             Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.MuteAlerts(TimeSpan.FromDays(2)))).Status);
-            Assert.Contains(await desktop.Alerts.ReadActiveMutesAsync(DateTimeOffset.UtcNow), mute => mute.Scope == "*");
+            Assert.Contains(await desktop.Alerts.ReadActiveMutesAsync(DateTimeOffset.UtcNow), mute => mute.Scope == "*" && mute.Recipient == phone.PeerId);
 
             // Out-of-bounds parameters never reach the effect.
             var tooFast = await phone.Runtime.SendControlAsync(desktopId, ControlRequest.SetSamplingInterval(TimeSpan.FromSeconds(1)));
@@ -529,6 +529,99 @@ public sealed class ControlTests
             Assert.Equal(ControlStatus.Applied, unmuted.Status);
             await phone.Runtime.SyncOnceAsync();
             Assert.Contains(await phone.Runtime.ReadAlertsAsync(), item => item.Alert.AlertId == alert.AlertId);
+        }
+        finally
+        {
+            Cleanup(desktopRoot);
+        }
+    }
+
+    private sealed class ShiftedTime(TimeSpan shift) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + shift;
+    }
+
+    [Fact]
+    public async Task ManualOverridesSurviveANodeRestartUnlessTheyHaveExpired()
+    {
+        var desktopRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            await using var phone = await PairPhoneAsync(desktop, "ctl-persist");
+            var desktopId = desktop.Identity.PeerId;
+            Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.PauseCollection(TimeSpan.FromMinutes(30), "monitor.system"))).Status);
+            Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.PauseCollection(TimeSpan.FromMinutes(40), "monitor.lan"))).Status);
+            Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.SetSamplingInterval(TimeSpan.FromSeconds(45)))).Status);
+            Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.ResumeCollection("monitor.lan"))).Status);
+
+            // "Restart": a brand-new state and service over the same database file, as the node builds them at start.
+            async Task<MonitoringControlState> RestartAsync(TimeProvider time)
+            {
+                var store = new ControlStore(ControlStoreOptions.Create(desktop.DatabasePath));
+                await store.InitializeAsync();
+                var restarted = new MonitoringControlState(time);
+                using var service = new ControlService(
+                    store, desktop.Store, desktop.PairingStore, desktop.Pairing, desktop.Alerts, restarted, desktop.LocalIdentity);
+                await service.RestoreMonitoringAsync();
+                return restarted;
+            }
+
+            var soon = await RestartAsync(TimeProvider.System);
+            var diag = $"pauses=[{string.Join(",", soon.Read().Pauses.Keys)}] interval={soon.IntervalOverride}";
+            Assert.True(soon.IsPaused("monitor.system"), diag);
+            Assert.False(soon.IsPaused("monitor.lan"), "explicitly resumed collector must stay resumed; " + diag);
+            Assert.Equal(TimeSpan.FromSeconds(45), soon.IntervalOverride);
+
+            // The same restart two hours later: the 30 minute pause has lapsed and is not restored.
+            var later = await RestartAsync(new ShiftedTime(TimeSpan.FromHours(2)));
+            Assert.False(later.IsPaused("monitor.system"), "expired pause was restored");
+            Assert.Equal(TimeSpan.FromSeconds(45), later.IntervalOverride); // no expiry: still in force
+
+            // Clearing the interval is persisted too.
+            Assert.Equal(ControlStatus.Applied, (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.SetSamplingInterval(null))).Status);
+            Assert.Null((await RestartAsync(TimeProvider.System)).IntervalOverride);
+        }
+        finally
+        {
+            Cleanup(desktopRoot);
+        }
+    }
+
+    [Fact]
+    public async Task AMuteFromOnePhoneSilencesOnlyThatPhone()
+    {
+        var desktopRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            await using var phoneA = await PairPhoneAsync(desktop, "ctl-mute-a");
+            await using var phoneB = await PairPhoneAsync(desktop, "ctl-mute-b");
+            var desktopId = desktop.Identity.PeerId;
+            await phoneA.Runtime.SyncOnceAsync();
+            await phoneB.Runtime.SyncOnceAsync();
+
+            Assert.Equal(ControlStatus.Applied, (await phoneA.Runtime.SendControlAsync(desktopId, ControlRequest.MuteAlerts(TimeSpan.FromHours(1)))).Status);
+            var alert = Raised(desktopId);
+            Assert.True(await desktop.Alerts.RaiseAsync(alert, [phoneA.PeerId, phoneB.PeerId], TimeSpan.FromDays(1), DateTimeOffset.UtcNow));
+            await phoneA.Runtime.SyncOnceAsync();
+            await phoneB.Runtime.SyncOnceAsync();
+
+            var mutes = await desktop.Alerts.ReadActiveMutesAsync(DateTimeOffset.UtcNow);
+            var diag = "mutes=" + string.Join(",", mutes.Select(m => $"{m.Recipient[..8]}:{m.Scope}"));
+            Assert.Equal(phoneA.PeerId, Assert.Single(mutes).Recipient);
+            Assert.Empty(await phoneA.Runtime.ReadAlertsAsync());
+            Assert.True((await phoneB.Runtime.ReadAlertsAsync()).Any(item => item.Alert.AlertId == alert.AlertId), "phone B was silenced by A's mute; " + diag);
+
+            // B cannot lift A's mute (unmute is scoped to the issuer), and A's own unmute releases the queued alert.
+            Assert.Equal(ControlStatus.Applied, (await phoneB.Runtime.SendControlAsync(desktopId, ControlRequest.UnmuteAlerts())).Status);
+            Assert.Single(await desktop.Alerts.ReadActiveMutesAsync(DateTimeOffset.UtcNow));
+            Assert.Equal(ControlStatus.Applied, (await phoneA.Runtime.SendControlAsync(desktopId, ControlRequest.UnmuteAlerts())).Status);
+            await phoneA.Runtime.SyncOnceAsync();
+            Assert.Contains(await phoneA.Runtime.ReadAlertsAsync(), item => item.Alert.AlertId == alert.AlertId);
+
+            var audit = await AuditAsync(desktop);
+            Assert.Contains(audit, entry => entry.PeerId == phoneA.PeerId && entry.Action == "mute_alerts" && entry.Outcome == "applied");
         }
         finally
         {
