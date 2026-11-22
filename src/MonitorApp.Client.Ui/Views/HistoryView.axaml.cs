@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace MonitorApp.Client.Desktop.Views;
+namespace MonitorApp.Client.Ui.Views;
 
 public sealed partial class HistoryView : UserControl
 {

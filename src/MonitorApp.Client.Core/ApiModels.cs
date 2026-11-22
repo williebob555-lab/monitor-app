@@ -77,6 +77,19 @@ public sealed record CatalogSubjectDto(string SubjectEntityId, IReadOnlyList<Cat
 
 public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IReadOnlyList<string> OriginPeers);
 
+public sealed record AlertDto(
+    string AlertId,
+    uint Revision,
+    string RuleId,
+    string SubjectId,
+    string OriginPeerId,
+    string Severity,
+    string State,
+    string Title,
+    string Detail,
+    DateTimeOffset RaisedAt,
+    DateTimeOffset? ResolvedAt);
+
 /// <summary>Query for a bounded history window. Paging is handled by the client.</summary>
 public sealed record HistoryQuery(
     DateTimeOffset From,

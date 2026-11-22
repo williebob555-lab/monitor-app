@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.PairDeviceView" x:DataType="vm:PairDeviceViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="Pair with a desktop" Classes="heading" />
+    <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device. Scanning a QR code with the camera is not available yet." TextWrapping="Wrap" />
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <Border Classes="card">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Type the code" Classes="subheading" />
+        <StackPanel Classes="field" Margin="0">
+          <TextBlock Name="AddressLabel" Text="Desktop address (host:port)" Classes="label" />
+          <TextBox Text="{Binding AddressText}" Watermark="100.64.0.5:55433" AutomationProperties.LabeledBy="{Binding #AddressLabel}" />
+        </StackPanel>
+        <StackPanel Classes="field" Margin="0">
+          <TextBlock Name="CodeLabel" Text="Pairing code" Classes="label" />
+          <TextBox Text="{Binding CodeText}" AutomationProperties.LabeledBy="{Binding #CodeLabel}" />
+        </StackPanel>
+        <Button Content="Pair with code" Command="{Binding PairWithCodeCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
+    <Border Classes="card">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Or paste an invitation" Classes="subheading" />
+        <StackPanel Classes="field" Margin="0">
+          <TextBlock Name="InvitationLabel" Text="Pairing invitation (monitor-pair1...)" Classes="label" />
+          <TextBox Text="{Binding InvitationText}" AcceptsReturn="False" TextWrapping="Wrap" AutomationProperties.LabeledBy="{Binding #InvitationLabel}" />
+        </StackPanel>
+        <Button Content="Pair with invitation" Command="{Binding PairWithInvitationCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
+  </StackPanel></ScrollViewer>
+</UserControl>
