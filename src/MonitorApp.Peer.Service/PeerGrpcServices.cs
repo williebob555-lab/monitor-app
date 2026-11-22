@@ -406,6 +406,7 @@ public sealed class PeerSessionGrpcService(
 
             await HandleAuthenticatedAsync(
                 remoteHello.PeerId,
+                remoteHello.SessionId,
                 request,
                 responseStream,
                 live,
@@ -415,6 +416,7 @@ public sealed class PeerSessionGrpcService(
 
     private async Task HandleAuthenticatedAsync(
         string remotePeerId,
+        string sessionId,
         PeerSessionRequest request,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         LiveSessionState live,
@@ -623,6 +625,24 @@ public sealed class PeerSessionGrpcService(
                                 return true;
                             },
                             cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.ControlCommand:
+                    {
+                        var result = await BoundedAsync(
+                            token => coordinator.ExecuteControlAsync(remotePeerId, sessionId, request.ControlCommand, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { ControlResult = result }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.PendingPairingsRequest:
+                    {
+                        var response = await BoundedAsync(
+                            token => coordinator.ReadPendingPairingsAsync(remotePeerId, request.PendingPairingsRequest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { PendingPairingsResponse = response }, cancellationToken)
+                            .ConfigureAwait(false);
                         break;
                     }
                 case PeerSessionRequest.MessageOneofCase.Heartbeat:

@@ -6,6 +6,7 @@ using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
@@ -159,7 +160,8 @@ public sealed class ProductionPeerSessionCoordinator(
     ILocalPeerIdentityProvider localIdentity,
     IPeerAdvertisementProvider advertisement,
     LiveInterestRegistry? interests = null,
-    AlertDeliveryService? alerts = null) : IPeerSessionCoordinator
+    AlertDeliveryService? alerts = null,
+    ControlService? control = null) : IPeerSessionCoordinator
 {
     public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
         store,
@@ -404,6 +406,29 @@ public sealed class ProductionPeerSessionCoordinator(
         {
             throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
         }
+    }
+
+    public async ValueTask<ControlResult> ExecuteControlAsync(
+        string remotePeerId,
+        string sessionId,
+        ControlCommand command,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        // Refusals (including untrusted or revoked issuers) are ControlResults and are audited by the service.
+        return await service.ExecuteAsync(remotePeerId, sessionId, command, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<PendingPairingsResponse> ReadPendingPairingsAsync(
+        string remotePeerId,
+        PendingPairingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        return await service.ReadPendingPairingsAsync(remotePeerId, request, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task RequireActiveAsync(string remotePeerId, CancellationToken cancellationToken)

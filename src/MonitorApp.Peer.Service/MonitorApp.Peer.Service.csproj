@@ -7,6 +7,7 @@
     <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Alerts\MonitorApp.Peer.Alerts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Control\MonitorApp.Peer.Control.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />

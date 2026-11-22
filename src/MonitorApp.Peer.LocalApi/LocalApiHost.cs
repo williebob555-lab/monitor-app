@@ -9,11 +9,14 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Persistence;
 
 namespace MonitorApp.Peer.LocalApi;
 
 internal sealed record LiveFeedOptions(LiveInterestRegistry? Interests);
+
+internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval);
 
 public sealed class LocalApiHost : IAsyncDisposable
 {
@@ -37,7 +40,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         PhonePairingOptions? phonePairing = null,
         AlertStore? alertStore = null,
         LiveInterestRegistry? interests = null,
-        ILocalUpdateController? updates = null)
+        ILocalUpdateController? updates = null,
+        ControlService? control = null,
+        MonitoringControlState? monitoring = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -74,6 +79,16 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (updates is not null)
         {
             builder.Services.AddSingleton(updates);
+        }
+
+        if (control is not null)
+        {
+            builder.Services.AddSingleton(control);
+        }
+
+        if (monitoring is not null)
+        {
+            builder.Services.AddSingleton(monitoring);
         }
 
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
@@ -283,9 +298,124 @@ public sealed class LocalApiHost : IAsyncDisposable
             await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        MapControlEndpoints(application);
         application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapPost("/api/phone-invitations", HandlePhoneInvitationAsync);
         application.MapGet("/", RenderPageAsync);
+    }
+
+    /// <summary>
+    /// Remote-control administration on the local (loopback) API: the audit trail, per-peer grants, and approval of
+    /// biometric presence-key enrollments. Mutations need the CSRF token like every other local mutation; a remote
+    /// peer can never reach these endpoints (they are the local administrator's decisions).
+    /// </summary>
+    private static void MapControlEndpoints(WebApplication application)
+    {
+        application.MapGet("/api/v1/audit", async (
+            int? limit,
+            long? beforeId,
+            string? peerId,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var take = limit ?? 100;
+            if (take is < 1 or > 500)
+            {
+                return Results.BadRequest(new { error = "limit must be 1 through 500." });
+            }
+
+            var control = services.GetService<ControlService>();
+            if (control is null)
+            {
+                return Results.Json(new { entries = Array.Empty<object>() });
+            }
+
+            var entries = await control.Store.ReadAuditAsync(take, beforeId, peerId, token).ConfigureAwait(false);
+            return Results.Json(new { entries });
+        });
+        application.MapGet("/api/v1/control", async (
+            IPeerClock clock,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var control = services.GetService<ControlService>();
+            var monitoring = services.GetService<MonitoringControlState>();
+            var alerts = services.GetService<AlertStore>();
+            var snapshot = monitoring?.Read();
+            var mutes = alerts is null
+                ? []
+                : await alerts.ReadActiveMutesAsync(clock.UtcNow, token).ConfigureAwait(false);
+            return Results.Json(new
+            {
+                grants = control is null ? [] : await control.Store.ReadGrantsAsync(token).ConfigureAwait(false),
+                presenceEnrollments = control is null
+                    ? []
+                    : (await control.Store.ReadEnrollmentsAsync(token).ConfigureAwait(false)).Select(item => new
+                    {
+                        item.EnrollmentId,
+                        item.PeerId,
+                        fingerprintSha256 = Convert.ToHexString(item.Fingerprint),
+                        state = item.State.ToString(),
+                        item.RequestedAt,
+                        item.DecidedAt,
+                    }),
+                monitoring = snapshot is null
+                    ? null
+                    : new
+                    {
+                        pauses = snapshot.Pauses.Select(pair => new { scope = pair.Key, until = pair.Value }),
+                        intervalOverrideSeconds = snapshot.IntervalOverride?.TotalSeconds,
+                        intervalOverrideUntil = snapshot.IntervalOverrideUntil,
+                    },
+                alertMutes = mutes.Select(item => new { item.Scope, item.Until }),
+            });
+        });
+        application.MapPost("/api/v1/control/grants/{peerId}", async (
+            string peerId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var control = services.GetService<ControlService>();
+            var body = await context.Request.ReadFromJsonAsync<ControlGrantInput>(token).ConfigureAwait(false);
+            if (control is null || body is null)
+            {
+                return Results.BadRequest(new { error = "A grant body is required." });
+            }
+
+            await control.SetGrantAsync(new ControlGrant(peerId, body.MonitoringControls, body.PairingApproval, null), token)
+                .ConfigureAwait(false);
+            return Results.Json(new { peerId, body.MonitoringControls, body.PairingApproval });
+        });
+        foreach (var (verb, approve) in new[] { ("approve", true), ("reject", false) })
+        {
+            application.MapPost("/api/v1/control/presence-enrollments/{enrollmentId}/" + verb, async (
+                string enrollmentId,
+                HttpContext context,
+                IAntiforgery antiforgery,
+                IServiceProvider services,
+                CancellationToken token) =>
+            {
+                if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                var control = services.GetService<ControlService>();
+                var decided = control is null
+                    ? null
+                    : await control.DecideEnrollmentAsync(enrollmentId, approve, token).ConfigureAwait(false);
+                return decided is null
+                    ? Results.NotFound(new { error = "No pending enrollment with that id." })
+                    : Results.Json(new { enrollmentId, state = decided.State.ToString() });
+            });
+        }
     }
 
     /// <summary>

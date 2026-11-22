@@ -81,6 +81,17 @@
           "MonitorApp.Peer.Persistence": "[1.0.0, )"
         }
       },
+      "monitorapp.peer.control": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Data.Sqlite": "[10.0.0, )",
+          "MonitorApp.Contracts": "[1.0.0, )",
+          "MonitorApp.Peer.Alerts": "[1.0.0, )",
+          "MonitorApp.Peer.Application": "[1.0.0, )",
+          "MonitorApp.Peer.Core": "[1.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )"
+        }
+      },
       "monitorapp.peer.core": {
         "type": "Project"
       },
