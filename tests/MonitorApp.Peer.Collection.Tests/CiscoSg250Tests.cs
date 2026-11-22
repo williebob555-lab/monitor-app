@@ -112,7 +112,7 @@ public sealed class CiscoSg250Tests
         Assert.DoesNotContain("do-not-disclose", unexpected.SafeReason);
         Assert.Empty(unexpected.Topology.Claims);
 
-        var missing = await CollectAsync(new(Sg250Oids.IfHighSpeed + ".1", "Gauge32: 1000"));
+        var missing = await CollectAsync(new Sg250SnmpValue(Sg250Oids.IfHighSpeed + ".1", "Gauge32: 1000"));
         Assert.Equal(Sg250CollectionStatus.Unavailable, missing.Status);
         Assert.Empty(missing.Ports);
     }
