@@ -12,6 +12,13 @@ service PeerPairingService {
   rpc Pair(stream PairingFrame) returns (stream PairingFrame);
 }
 
+// Additive in v1: resolves a one-time, short-lived typed pairing code to the desktop identity.
+// The phone never sends the code itself (only a PBKDF2-derived lookup id) and verifies the
+// returned proof, so neither a passive observer nor an impostor listener can use the exchange.
+service PeerPairingCodeService {
+  rpc Redeem(RedeemPairingCodeRequest) returns (RedeemPairingCodeResponse);
+}
+
 service PeerService {
   rpc PeerSession(stream PeerSessionRequest) returns (stream PeerSessionResponse);
 }
@@ -21,6 +28,19 @@ message DiscoveryHint {
   uint32 port = 2;
   string expected_peer_id = 3;
   google.protobuf.Timestamp created_at = 4;
+}
+
+message RedeemPairingCodeRequest {
+  ProtocolVersion protocol_version = 1;
+  // 16 bytes derived from the typed code; never the code.
+  bytes lookup_id = 2;
+}
+
+message RedeemPairingCodeResponse {
+  string peer_id = 1;
+  bytes public_key_sha256 = 2;
+  // HMAC-SHA256 under a key derived from the typed code over lookup id, peer id and fingerprint.
+  bytes proof = 3;
 }
 
 message CompatibilityFailure {

@@ -28,7 +28,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         PairingApplicationStore pairingStore,
         PeerPairingCoordinator pairingCoordinator,
         IPeerClock clock,
-        IPeerInvitationService? invitationService = null)
+        IPeerInvitationService? invitationService = null,
+        PhonePairingOptions? phonePairing = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -55,6 +56,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         builder.Services.AddSingleton(clock);
         builder.Services.AddSingleton(invitationService ?? new UnavailablePeerInvitationService());
         builder.Services.AddSingleton<PeerInvitationStatusState>();
+        builder.Services.AddSingleton(new PhonePairingService(phonePairing, peerStore));
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
         builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
@@ -200,6 +202,7 @@ public sealed class LocalApiHost : IAsyncDisposable
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
         application.MapPost("/api/invitations", HandleInvitationAsync);
+        application.MapPost("/api/phone-invitations", HandlePhoneInvitationAsync);
         application.MapGet("/", RenderPageAsync);
     }
 
@@ -213,6 +216,25 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             return Results.BadRequest(new { error = exception.Message });
         }
+    }
+
+    private static async Task<IResult> HandlePhoneInvitationAsync(
+        HttpContext context,
+        IAntiforgery antiforgery,
+        PhonePairingService phonePairing,
+        CancellationToken token)
+    {
+        if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(token).ConfigureAwait(false)
+            : null;
+        return await phonePairing.IssueAsync(form?["address"].ToString(), token).ConfigureAwait(false)
+            ? Results.Redirect("/", permanent: false, preserveMethod: false)
+            : Results.BadRequest(new { error = "Choose one of this node's advertisable private addresses." });
     }
 
     private static async Task<IResult> HandleInvitationAsync(
@@ -266,6 +288,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         IAntiforgery antiforgery,
         LocalApiDataSource data,
         PeerInvitationStatusState invitationStatus,
+        PhonePairingService phonePairing,
         CancellationToken token)
     {
         var runtime = await data.ReadRuntimeAsync(token).ConfigureAwait(false);
@@ -295,6 +318,7 @@ public sealed class LocalApiHost : IAsyncDisposable
             </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, current state, bounded history, and as-of reconstruction. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
             <main><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
             <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{{pairingRows}}</tbody></table></section>
+            {{phonePairing.RenderSection(csrf, HtmlEncoder.Default)}}
             <section aria-labelledby="invite"><h2 id="invite">Invite a fresh peer</h2><p>Enter the identity shown by the other peer. Invitation transport must be configured by the running node.</p>
             <form method="post" action="/api/invitations"><input type="hidden" name="__RequestVerificationToken" value="{{encode(csrf)}}">
             <p><label for="expectedPeerId">Expected peer id</label><br><input id="expectedPeerId" name="expectedPeerId" required maxlength="256"></p>

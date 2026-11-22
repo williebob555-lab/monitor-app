@@ -75,6 +75,8 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public int Port { get; }
 
+    public PairingShortCodeRegistry Codes { get; private set; } = new();
+
     public PeerStore Store { get; }
 
     public PairingApplicationStore PairingStore { get; }
@@ -85,7 +87,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerPairingInvitation Invitation() => new(IPAddress.Loopback, Port, Identity.PeerId, Identity.PublicKeyFingerprint, null);
 
-    public static async Task<DesktopPeer> StartAsync(string root)
+    public static async Task<DesktopPeer> StartAsync(string root, TimeProvider? time = null)
     {
         Directory.CreateDirectory(root);
         var identity = new SoftwareIdentity();
@@ -104,6 +106,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
             store, identity, new SystemSnapshotCollector(Platform.Ubuntu),
             PeerCollectionOptions.Default($"peer:{identity.PublicIdentity.PeerId}", Guid.NewGuid().ToString("N")));
         var desktop = new DesktopPeer(root, FreePort(), store, pairingStore, pairing, collector, identity);
+        desktop.Codes = new PairingShortCodeRegistry(time);
         await desktop.StartHostAsync();
         return desktop;
     }
@@ -123,6 +126,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
             services.AddSingleton<ILocalPeerIdentityProvider>(identity);
             services.AddSingleton<IPeerClock>(new SystemPeerClock());
             services.AddSingleton(Pairing);
+            services.AddSingleton(Codes);
             services.AddSingleton(replication);
             services.AddProductionPeerSessionCoordinator();
             services.AddSingleton(new PeerPairingServiceOptions("test-desktop"));

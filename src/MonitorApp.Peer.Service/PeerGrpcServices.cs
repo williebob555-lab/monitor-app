@@ -2,6 +2,7 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Core;
 
 namespace MonitorApp.Peer.Service;
 
@@ -561,4 +562,31 @@ public sealed class PeerSessionGrpcService(
             ProtocolErrorCode.Internal,
             "Peer coordinator timed out.",
             retryable: true);
+}
+
+/// <summary>
+/// Narrow, unauthenticated-by-design lookup that turns a one-time typed pairing code into the desktop's public
+/// identity plus a code-keyed proof. Every failure (unknown, expired, used, malformed, rate limited) yields the
+/// same status so it is not a guessing oracle; trust is still only granted by the bilateral pairing that follows.
+/// </summary>
+public sealed class PeerPairingCodeGrpcService(PairingShortCodeRegistry registry)
+    : PeerPairingCodeService.PeerPairingCodeServiceBase
+{
+    public override Task<RedeemPairingCodeResponse> Redeem(RedeemPairingCodeRequest request, ServerCallContext context)
+    {
+        var redemption = PeerPairingGrpcService.IsUnsupported(request.ProtocolVersion)
+            ? null
+            : registry.Redeem(request.LookupId.ToByteArray());
+        if (redemption is null)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "Pairing code was not accepted."));
+        }
+
+        return Task.FromResult(new RedeemPairingCodeResponse
+        {
+            PeerId = redemption.PeerId,
+            PublicKeySha256 = Google.Protobuf.ByteString.CopyFrom(redemption.FingerprintSha256),
+            Proof = Google.Protobuf.ByteString.CopyFrom(redemption.Proof),
+        });
+    }
 }

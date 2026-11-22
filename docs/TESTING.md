@@ -111,6 +111,10 @@ Start real controller and agent processes or their production network servers. R
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
 
+### Phone pairing tests
+
+- `PairingShortCodeTests` (Core): normalization, single use, expiry, bounded live codes, global rate-limit lockout. `PeerPairingCodeClientTests` (Transport): a rogue listener without the code and replayed proofs are refused; public/wildcard addresses and malformed codes are rejected. `PeerContractTests`: unary additive lookup shape. `LocalApiPhonePairingTests`: the QR SVG is decoded with ZXing.Net (test project only) back to the exact payload, quiet zone, CSP/nonce with no inline script or style, expiry, loopback/wildcard message, configured-address enforcement, CSRF, pending phone name and fingerprint. `MobilePairingCodeTests`: real loopback gRPC address+code pairing, then desktop approval and persisted bilateral trust; single use; wrong/expired code refusal without leaking identity; rate limiting.
+
 ### Superseded Headscale integration tests
 
 This suite is no longer a target requirement. Do not add automatic Headscale provisioning. Tailscale is user-managed reachability; test the real peer protocol over loopback for deterministic integration and over a Tailscale path in platform verification.

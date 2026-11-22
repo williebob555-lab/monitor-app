@@ -37,7 +37,8 @@ This file contains active and near-term tasks only. Read it with the required do
 ## Platform and release gates
 
 - [x] Android peer slice: portable outbound-only runtime (`MonitorApp.Peer.Mobile`), pairing invitation payload, Android readings through the peer ingestion path, foreground-service host, real loopback two-store integration test (T031). APK build, emulator, and physical-device behavior are unverified.
-- [ ] Android: QR rendering of the invitation on the desktop admin page (after LocalApi work) and camera scan on the phone; typed/pasted invitation works now.
+- [x] Desktop "Add a phone" admin section: server-rendered inline-SVG QR (10-minute invitation) plus a one-time typed short code; phone pairs with address + code via a rate-limited, proof-authenticated lookup (T032). Desktop approval stays mandatory.
+- [ ] Android: camera scan of the QR and a typed-code entry screen in the app shell (the runtime already exposes `PairWithCodeAsync`); `Peer.Node` must pass the shared `PairingShortCodeRegistry` to `PeerHostApplication` and `PhonePairingOptions` to `LocalApiHost`.
 - [ ] Android: device/emulator verification of the foreground service, Doze/battery-optimization behavior, Keystore identity, and cleartext-over-VPN gRPC; regenerate `src/MonitorApp.Android/packages.lock.json` with the workload; signed sideload APK on GitHub releases (release workflow untouched so far).
 - [ ] Not implemented: adaptive sampling (about 1 s while viewed, about 30 s otherwise) and tiered retention (7 days full, hourly rollups 1 year, events for years, pinned incidents forever); alert rules and alert list content.
 

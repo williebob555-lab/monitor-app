@@ -128,7 +128,9 @@
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.0, )",
           "MonitorApp.Peer.Application": "[1.0.0, )",
-          "MonitorApp.Peer.Persistence": "[1.0.0, )"
+          "MonitorApp.Peer.Persistence": "[1.0.0, )",
+          "MonitorApp.Peer.Transport": "[1.0.0, )",
+          "QRCoder": "[1.6.0, )"
         }
       },
       "monitorapp.peer.persistence": {
@@ -221,6 +223,12 @@
           "SQLitePCLRaw.bundle_e_sqlite3": "2.1.11",
           "SQLitePCLRaw.core": "2.1.11"
         }
+      },
+      "QRCoder": {
+        "type": "CentralTransitive",
+        "requested": "[1.6.0, )",
+        "resolved": "1.6.0",
+        "contentHash": "XmPA81eo+oRxBuyVdswsSkTGTE1d3thfF11Z1PdD7oB56A6HU4G4AAOdySmGRMb/cljwlFTMWUtosGEnwpS6GA=="
       },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "CentralTransitive",
