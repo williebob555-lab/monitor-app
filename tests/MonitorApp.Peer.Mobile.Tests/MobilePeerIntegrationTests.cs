@@ -56,7 +56,8 @@ public sealed class MobilePeerIntegrationTests
             await Task.Delay(300); // exceed the capped backoff
             Assert.Equal(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()).State);
             var counts = await AssertConvergedAsync(phone, desktop);
-            Assert.Equal(3 * 6, counts.PhoneOrigin);
+            // Per collection: 6 device records plus 8 phone-transport LAN records (Wi-Fi up, mtu, speed, duplex, metered, two bandwidth estimates; lan health).
+            Assert.Equal(3 * (6 + 8), counts.PhoneOrigin);
             Assert.Equal(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()).State);
             Assert.Equal(counts, await AssertConvergedAsync(phone, desktop));
 

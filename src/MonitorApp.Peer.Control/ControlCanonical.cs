@@ -108,6 +108,15 @@ public static class ControlCanonical
             case ControlCommand.PayloadOneofCase.UnmuteAlerts:
                 WriteString(buffer, command.UnmuteAlerts.RuleId);
                 break;
+            case ControlCommand.PayloadOneofCase.SetAlertPreferences:
+                WriteLong(buffer, (long)command.SetAlertPreferences.MinSeverity);
+                WriteLong(buffer, command.SetAlertPreferences.MutedRuleKinds.Count);
+                foreach (var kind in command.SetAlertPreferences.MutedRuleKinds)
+                {
+                    WriteString(buffer, kind);
+                }
+
+                break;
             case ControlCommand.PayloadOneofCase.ResolvePairing:
                 WriteString(buffer, command.ResolvePairing.PairingId);
                 WriteBytes(buffer, command.ResolvePairing.RemotePublicKeySha256.Span);

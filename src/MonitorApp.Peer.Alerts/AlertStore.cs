@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -150,6 +150,19 @@ public sealed class AlertStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 4)
+        {
+            // T049: durable per-recipient delivery preferences (minimum severity, opted-out rule kinds).
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_preferences(
+                    recipient_peer_id TEXT PRIMARY KEY,
+                    min_severity INTEGER NOT NULL,
+                    muted_rule_kinds TEXT NOT NULL,
+                    updated_at TEXT NOT NULL);
+                UPDATE alert_schema_version SET version = 4 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -191,8 +204,11 @@ public sealed class AlertStore
 
         foreach (var recipient in recipients)
         {
-            await EnqueueAsync(connection, transaction, recipient, alert.AlertId, 1, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, recipient, alert, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, recipient, alert.AlertId, 1, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -240,8 +256,11 @@ public sealed class AlertStore
 
         foreach (var recipient in recipients)
         {
-            await EnqueueAsync(connection, transaction, recipient, resolved.AlertId, 2, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, recipient, resolved, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, recipient, resolved.AlertId, 2, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -303,8 +322,11 @@ public sealed class AlertStore
             transaction).ConfigureAwait(false);
         foreach (var alert in active)
         {
-            await EnqueueAsync(connection, transaction, peerId, alert.AlertId, alert.Revision, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, peerId, alert, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, peerId, alert.AlertId, alert.Revision, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -404,6 +426,71 @@ public sealed class AlertStore
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Replaces one recipient's delivery preferences. Only alerts raised or resolved afterwards are filtered; rows already
+    /// queued are unaffected. Filtered alerts are still recorded as events, they are just not queued for this recipient.
+    /// </summary>
+    public async Task SetPreferencesAsync(
+        string recipientPeerId,
+        AlertSeverity minimumSeverity,
+        IReadOnlyCollection<string> mutedRuleKinds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
+        ArgumentNullException.ThrowIfNull(mutedRuleKinds);
+        if (minimumSeverity is < AlertSeverity.Unspecified or > AlertSeverity.Critical)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minimumSeverity));
+        }
+
+        var kinds = mutedRuleKinds.Select(kind => kind?.Trim() ?? string.Empty).Where(kind => kind.Length > 0)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, null,
+            """
+            INSERT INTO alert_preferences(recipient_peer_id, min_severity, muted_rule_kinds, updated_at) VALUES ($recipient, $min, $kinds, $at)
+            ON CONFLICT(recipient_peer_id) DO UPDATE SET min_severity = excluded.min_severity, muted_rule_kinds = excluded.muted_rule_kinds, updated_at = excluded.updated_at;
+            """,
+            [("$recipient", recipientPeerId), ("$min", (int)minimumSeverity), ("$kinds", string.Join('\n', kinds)), ("$at", Format(now))],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stored preferences (recipients without a row use the default: everything).</summary>
+    public async Task<IReadOnlyList<AlertPreferences>> ReadPreferencesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT recipient_peer_id, min_severity, muted_rule_kinds, updated_at FROM alert_preferences ORDER BY recipient_peer_id;";
+        var result = new List<AlertPreferences>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new AlertPreferences(
+                reader.GetString(0), (AlertSeverity)reader.GetInt32(1), SplitKinds(reader.GetString(2)), Parse(reader.GetString(3))));
+        }
+
+        return result;
+    }
+
+    private static string[] SplitKinds(string text) => text.Length == 0 ? [] : text.Split('\n');
+
+    private static async Task<bool> WantsAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string recipient, Alert alert, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT min_severity, muted_rule_kinds FROM alert_preferences WHERE recipient_peer_id = $r;";
+        command.Parameters.AddWithValue("$r", recipient);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        return (int)alert.Severity >= reader.GetInt32(0) && !SplitKinds(reader.GetString(1)).Contains(alert.RuleId, StringComparer.Ordinal);
     }
 
     /// <summary>Records an operator acknowledgement of a known alert. False when the alert does not exist; idempotent.</summary>

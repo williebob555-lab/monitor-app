@@ -76,6 +76,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSystemMetricsIngestionBridge collection;
+    private readonly PhoneLanCollection lan;
     private readonly AlertStore alerts;
     private readonly LiveInterestRegistry interests;
     private readonly IUserPresenceSigner? presence;
@@ -94,8 +95,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         PeerStore store,
         AlertStore alerts,
         PeerSystemMetricsIngestionBridge collection,
+        PhoneLanCollection lan,
         IUserPresenceSigner? presence)
     {
+        this.lan = lan;
         this.presence = presence;
         this.alerts = alerts;
         this.options = options;
@@ -127,20 +130,25 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         await MobilePeerIdentity.EnsureRegisteredAsync(store, identity, cancellationToken).ConfigureAwait(false);
         await new PeerCapabilityRegistry(store).RegisterAsync(AndroidCapabilityDeclaration.Create(), cancellationToken)
             .ConfigureAwait(false);
+        var recordingReader = new RecordingDeviceReader(reader);
         var bridge = new PeerSystemMetricsIngestionBridge(
             store,
             identity,
-            new AndroidDeviceSnapshotCollector(reader),
+            new AndroidDeviceSnapshotCollector(recordingReader),
             new PeerCollectionOptions(
                 $"peer:{identity.PublicIdentity.PeerId}",
                 AndroidDeviceSnapshotCollector.ModuleId,
                 Guid.NewGuid().ToString("N"),
                 TimeSpan.FromSeconds(30),
                 256));
-        return new MobilePeerRuntime(options, identity, store, alertStore, bridge, presence);
+        var lan = PhoneLanCollection.Create(store, identity, recordingReader);
+        return new MobilePeerRuntime(options, identity, store, alertStore, bridge, lan, presence);
     }
 
     public PeerStore Store => store;
+
+    /// <summary>Exception type of the last failed phone-transport LAN run (null after a success); it never fails ordinary collection.</summary>
+    public string? LastLanError => lan.LastError;
 
     /// <summary>
     /// Newly stored observations (own readings and replicated desktop data) as they commit, for the app UI.
@@ -436,6 +444,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         try
         {
             var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+            await lan.RunAsync(cancellationToken).ConfigureAwait(false);
             lock (gate)
             {
                 collectionStatus = new MobileCollectionStatus(result.ObservedAt ?? collectionStatus.LastObservedAt,

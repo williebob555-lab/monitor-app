@@ -86,6 +86,13 @@ public sealed class ControlSourceTests
             Assert.Equal("Refused", tooFast.Status);
             Assert.Equal("invalid_payload", tooFast.ReasonCode);
 
+            var prefs = await control.SetAlertPreferencesAsync(desktopId, "Warning", ["threshold.cpu_high"]);
+            Assert.True(prefs.IsApplied, prefs.ReasonCode);
+            var stored = Assert.Single(await desktop.Alerts.ReadPreferencesAsync());
+            Assert.Equal(phone.Identity.PeerId, stored.RecipientPeerId);
+            Assert.Equal(["threshold.cpu_high"], stored.MutedRuleKinds);
+            Assert.Equal("invalid_payload", (await control.SetAlertPreferencesAsync(desktopId, "loud", [])).ReasonCode);
+
             // No pairing is pending, so the read is empty; the grant allows the read itself.
             Assert.Empty(await control.ReadPendingPairingsAsync(desktopId));
         }

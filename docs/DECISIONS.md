@@ -500,6 +500,14 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: Existing grants do not gain update approval. Enrollment of a presence key is allowed for a peer holding only the update grant. A mismatch tells the user to re-read status. Not verified on a real phone or with a real package install.
 - Revisit condition: Adding rollback/skip commands, per-version policies, or a stronger binding to the signed manifest envelope hash.
 
+### T049 Per-recipient alert preferences
+
+- Status: Accepted (TODO follow-up).
+- Decision: The alert-owning desktop stores per-recipient delivery preferences in `alert_preferences` (alert schema v4, migrated from v3): a minimum severity (default Unspecified, meaning every severity) and a set of opted-out rule ids ("rule kinds", for example `threshold.cpu_high`). `AlertStore.RaiseAsync`, `ResolveAsync` and `RegisterRecipientAsync` skip the outbox row for a recipient whose preferences exclude the alert, in the same transaction; the alert is still recorded as an event. Preferences apply to alerts raised or resolved after they are set; rows already queued are unchanged, and a resolve follows the same filter as its raise. A phone sets its own preferences with the new signed control command `SetAlertPreferences` (additive `ControlCommand` field 19, `min_severity`, repeated `muted_rule_kinds`): normal tier, replaces the previous preferences, the recipient is always the authenticated issuer, and it needs the same grant as mute (monitoring controls). The local administrator can read and set any recipient's preferences through `GET /api/v1/alerts/preferences` and `POST /api/v1/alerts/preferences/{peerId}` (antiforgery-protected, loopback), `LocalApiClient.GetAlertPreferencesAsync`/`SetAlertPreferencesAsync`. `IControlSource.SetAlertPreferencesAsync` exposes the command to the shared client.
+- Reason: A phone should not need to receive every alert, and the filter must be applied where the outbox is written so a filtered alert costs nothing and cannot reappear after reconnect. Preferences are narrowing only, so the default and a lost row keep today's behaviour.
+- Evidence: `ControlTests.PhonesSetTheirOwnAlertPreferencesAndOnlyMatchingAlertsAreQueuedForThem` (two phones, grants, bounds, filtered events still recorded), `AlertStoreTests.SchemaV3MigratesToPreferencesWithoutLosingData`, `ControlReadTests.AlertPreferencesRoundTripThroughTheLocalApi`, `ControlSourceTests`.
+- Consequences: Rule kinds are exact rule ids; there is no pattern or category matching, and unknown ids are accepted. A phone that raises its minimum severity does not lose alerts already queued, and alerts filtered earlier are not back-filled when preferences are loosened (only the next raise or resolve is delivered). The `/api/v1/alerts` delivery view shows no rows for filtered recipients. No UI exists yet in the shared client.
+
 ### T047 Alert mutes are per recipient; manual overrides persist across restart
 
 - Status: Accepted (TODO follow-up; supersedes the "in memory" and "not per recipient" parts of T039).
@@ -555,3 +563,12 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `PeerNodeRuntimeTests.TwoNodesDialingEachOtherReceiveEveryLiveObservationOnce` and `ViewerAskingForOneSignalReceivesOnlyThatSignalAtTheFastRate` (real loopback gRPC and SQLite).
 - Consequences: Several viewers with different signals share the union, and every viewer receives the union's records. The phone's own collection is not yet narrowed by `signal_ids`. Duplicates remain possible briefly around a channel switch (idempotent).
 - Revisit condition: Per-viewer push filtering, or measured cost of the union approach.
+
+### T050 Phone transport in the LAN model
+
+- Status: Accepted.
+- Decision: The phone maps Android's coarse `NetworkTransportSummary` into the desktop's self-interface model (`PhoneTransportMapper`) and runs the unchanged `SelfLanCollector` (entities, claims, relationships, ValidTo) and `LanLinkObservations` on its own collection tick, right after the ordinary reading and from that same platform read. Each transport is one synthetic interface (`wifi`, `cellular`, `ethernet`, `vpn` as overlay, `other`); it is up only when the network is validated, and a transport that disappears is absent so its `AttachedTo` relationship gets a ValidTo. `NetworkTransportSummary` gained optional `IsMetered` and down/up bandwidth estimates (additive, defaults null); they become `lan.link.{if}.metered` and `.bandwidth_down_mbps`/`.bandwidth_up_mbps`, attributed only when exactly one non-VPN transport exists, otherwise Unavailable. `InterfaceMedium.Cellular` was added.
+- Reason: One LAN model and one persistence/ValidTo path for desktop and phone, with no forked logic and no invented identity.
+- Evidence: `PhoneTransportLanTests` (wifi, wifi+vpn, cellular, none sequence through `MobilePeerRuntime`).
+- Consequences: Android hides interface names, MACs, subnets and gateways, so no segment, gateway or VLAN edges and no MAC claims exist for the phone; speed, duplex and MTU are Unavailable. Bandwidth values are platform estimates, not measured link speed. LAN failures are recorded in `LastLanError` and never fail ordinary collection. Each tick adds LAN records to the phone's origin stream.
+- Revisit condition: Reading metered/bandwidth in `AndroidDeviceReader` on a device, or a need for per-network identity (SSID is deliberately not collected).

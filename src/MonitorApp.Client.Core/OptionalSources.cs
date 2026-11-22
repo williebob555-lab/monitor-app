@@ -67,6 +67,7 @@ public enum ControlActionKind
     AcknowledgeAlert,
     MuteAlerts,
     UnmuteAlerts,
+    SetAlertPreferences,
     ApprovePairing,
     RejectPairing,
     EnrollPresenceKey,
@@ -135,6 +136,14 @@ public interface IControlSource
     Task<ControlOutcomeDto> MuteAlertsAsync(string peerId, TimeSpan duration, string? ruleId, CancellationToken ct = default);
 
     Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets this device's own alert preferences on the peer that owns the alerts (T049): <paramref name="minSeverity"/> is "All"
+    /// (or null), "Info", "Warning" or "Critical"; <paramref name="mutedRuleKinds"/> are rule ids to opt out of. Replaces the previous
+    /// preferences. Only this device's preferences can be changed.
+    /// </summary>
+    Task<ControlOutcomeDto> SetAlertPreferencesAsync(
+        string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default);
 
     /// <summary>Pairing requests the peer holds for approval; empty when it does not let this device approve pairings or is unreachable.</summary>
     Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default);

@@ -167,6 +167,18 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
             : null;
     }
 
+    /// <summary>Alert preferences of every alert recipient (default: all severities, no opted-out rules).</summary>
+    public Task<IReadOnlyList<AlertPreferencesDto>> GetAlertPreferencesAsync(CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<AlertPreferencesDto>>("api/v1/alerts/preferences", ct);
+
+    /// <summary>Replaces a recipient's alert preferences. <paramref name="minSeverity"/>: null or "All", "Info", "Warning", "Critical".</summary>
+    public Task SetAlertPreferencesAsync(
+        string peerId, string? minSeverity, IReadOnlyCollection<string> mutedRuleKinds, CancellationToken ct = default) =>
+        PostAsync(
+            $"api/v1/alerts/preferences/{Uri.EscapeDataString(peerId)}",
+            ct,
+            body: new { minSeverity, mutedRuleKinds });
+
     /// <summary>Phone presence-key enrollments waiting for approval (newest first), with the key fingerprint to compare on the phone.</summary>
     public Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<PresenceEnrollmentDto>>("api/v1/control/presence-enrollments", ct);

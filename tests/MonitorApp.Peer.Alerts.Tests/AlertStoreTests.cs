@@ -130,13 +130,39 @@ public sealed class AlertStoreTests
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT version FROM alert_schema_version;";
-            Assert.Equal(3L, await command.ExecuteScalarAsync());
+            Assert.Equal(4L, await command.ExecuteScalarAsync());
             command.CommandText = "UPDATE alert_schema_version SET version = 99;";
             await command.ExecuteNonQueryAsync();
         }
 
         SqliteConnection.ClearAllPools();
         await Assert.ThrowsAsync<InvalidOperationException>(() => new AlertStore(AlertStoreOptions.Create(path)).InitializeAsync());
+    }
+
+    [Fact]
+    public async Task SchemaV3MigratesToPreferencesWithoutLosingData()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "monitor-alert-" + Guid.NewGuid().ToString("N") + ".db");
+        var store = await StoreAsync(path);
+        await store.InitializeAsync();
+        await store.RegisterRecipientAsync("phone", T0, TimeSpan.FromDays(1));
+        await using (var connection = new SqliteConnection($"Data Source={path}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE alert_preferences; UPDATE alert_schema_version SET version = 3;";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        SqliteConnection.ClearAllPools();
+        var reopened = new AlertStore(AlertStoreOptions.Create(path));
+        await reopened.InitializeAsync();
+        Assert.Equal("phone", Assert.Single(await reopened.ReadRecipientsAsync()));
+        Assert.Empty(await reopened.ReadPreferencesAsync());
+        await reopened.SetPreferencesAsync("phone", AlertSeverity.Warning, ["b", "a", "a", " "], T0);
+        var prefs = Assert.Single(await reopened.ReadPreferencesAsync());
+        Assert.Equal(AlertSeverity.Warning, prefs.MinimumSeverity);
+        Assert.Equal(["a", "b"], prefs.MutedRuleKinds);
     }
 
     [Fact]

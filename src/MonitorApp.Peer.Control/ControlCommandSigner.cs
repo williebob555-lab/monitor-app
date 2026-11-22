@@ -48,6 +48,14 @@ public sealed class ControlRequest
     public static ControlRequest UnmuteAlerts(string? ruleId = null) => new(command =>
         command.UnmuteAlerts = new UnmuteAlerts { RuleId = ruleId ?? string.Empty });
 
+    /// <summary>Sets this phone's own alert preferences: lowest severity wanted (Unspecified = all) and rule ids to opt out of.</summary>
+    public static ControlRequest SetAlertPreferences(AlertSeverity minimumSeverity, IEnumerable<string>? mutedRuleKinds = null) => new(command =>
+    {
+        var prefs = new SetAlertPreferences { MinSeverity = minimumSeverity };
+        prefs.MutedRuleKinds.AddRange(mutedRuleKinds ?? []);
+        command.SetAlertPreferences = prefs;
+    });
+
     /// <summary>Approves or rejects a pending pairing the desktop reported. <paramref name="remoteFingerprintSha256"/> is what the user saw.</summary>
     public static ControlRequest ResolvePairing(string pairingId, byte[] remoteFingerprintSha256, bool approve) => new(command =>
         command.ResolvePairing = new ResolvePairing

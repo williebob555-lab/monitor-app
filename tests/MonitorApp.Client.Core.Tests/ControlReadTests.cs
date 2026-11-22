@@ -42,4 +42,25 @@ public sealed class ControlReadTests
         await client.ApprovePhonePresenceEnrollmentAsync(enrollment.EnrollmentId);
         Assert.Empty(await client.ListPendingPresenceEnrollmentsAsync());
     }
+
+    [Fact]
+    public async Task AlertPreferencesRoundTripThroughTheLocalApi()
+    {
+        var service = LocalPresenceService.Create(null, LocalPresencePolicy.Off, new SystemPeerClock());
+        await using var node = await NodeFixture.CreateAsync(presence: service, withControl: true);
+        using var client = node.NewClient();
+
+        Assert.Empty(await client.GetAlertPreferencesAsync());
+        await client.SetAlertPreferencesAsync("phone-b", "warning", ["threshold.cpu_high", "peer.silent", "peer.silent"]);
+        await client.SetAlertPreferencesAsync("phone-a", null, []);
+        var all = await client.GetAlertPreferencesAsync();
+        Assert.Equal(["phone-a", "phone-b"], all.Select(item => item.PeerId).ToArray());
+        Assert.Equal("All", all[0].MinSeverity);
+        Assert.Empty(all[0].MutedRuleKinds);
+        Assert.Equal("Warning", all[1].MinSeverity);
+        Assert.Equal(["peer.silent", "threshold.cpu_high"], all[1].MutedRuleKinds);
+        Assert.NotNull(all[1].UpdatedAt);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => client.SetAlertPreferencesAsync("phone-a", "loud", []));
+    }
 }

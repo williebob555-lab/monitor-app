@@ -111,6 +111,16 @@ public sealed record AlertDto(
     DateTimeOffset RaisedAt,
     DateTimeOffset? ResolvedAt);
 
+/// <summary>
+/// A recipient's alert preferences on this desktop (T049). <see cref="MinSeverity"/> is "All", "Info", "Warning" or "Critical";
+/// <see cref="MutedRuleKinds"/> are rule ids the recipient never receives. <see cref="UpdatedAt"/> is null for the default.
+/// </summary>
+public sealed record AlertPreferencesDto(
+    string PeerId,
+    string MinSeverity,
+    IReadOnlyList<string> MutedRuleKinds,
+    DateTimeOffset? UpdatedAt);
+
 /// <summary>Query for a bounded history window. Paging is handled by the client.</summary>
 public sealed record HistoryQuery(
     DateTimeOffset From,

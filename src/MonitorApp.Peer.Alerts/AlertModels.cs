@@ -94,3 +94,45 @@ public sealed record OutboxEntry(
     DateTimeOffset? AckedAt);
 
 public sealed class AlertDeliveryUnauthorizedException(string message) : Exception(message);
+
+/// <summary>
+/// One recipient's delivery preferences. <see cref="MinimumSeverity"/> Unspecified means every severity;
+/// <see cref="MutedRuleKinds"/> are rule ids the recipient never wants.
+/// </summary>
+public sealed record AlertPreferences(
+    string RecipientPeerId,
+    AlertSeverity MinimumSeverity,
+    IReadOnlyList<string> MutedRuleKinds,
+    DateTimeOffset UpdatedAt)
+{
+    /// <summary>Wire/API name of a minimum severity: "All" (Unspecified), "Info", "Warning" or "Critical".</summary>
+    public static string SeverityName(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Info => "Info",
+        AlertSeverity.Warning => "Warning",
+        AlertSeverity.Critical => "Critical",
+        _ => "All",
+    };
+
+    /// <summary>Parses <see cref="SeverityName"/> output case-insensitively; null, empty and "All" mean every severity.</summary>
+    public static bool TryParseSeverity(string? text, out AlertSeverity severity)
+    {
+        severity = AlertSeverity.Unspecified;
+        var value = text?.Trim() ?? string.Empty;
+        if (value.Length == 0 || value.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        foreach (var candidate in new[] { AlertSeverity.Info, AlertSeverity.Warning, AlertSeverity.Critical })
+        {
+            if (value.Equals(SeverityName(candidate), StringComparison.OrdinalIgnoreCase))
+            {
+                severity = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

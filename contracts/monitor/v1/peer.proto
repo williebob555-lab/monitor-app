@@ -337,6 +337,15 @@ message ApproveUpdate {
   bytes artifact_sha256 = 2;
 }
 
+// Sets the issuing phone's own alert preferences on the alert-owning desktop (replaces its previous preferences). The
+// recipient is always the authenticated issuer. Alerts filtered out are still recorded as events but not queued.
+message SetAlertPreferences {
+  // Lowest severity the phone wants; UNSPECIFIED (0) means everything.
+  AlertSeverity min_severity = 1;
+  // Rule ids (for example threshold.cpu_high) the phone opts out of entirely.
+  repeated string muted_rule_kinds = 2;
+}
+
 message ControlCommand {
   string command_id = 1;
   google.protobuf.Timestamp issued_at = 2;
@@ -355,6 +364,7 @@ message ControlCommand {
     ResolvePairing resolve_pairing = 16;
     EnrollPresenceKey enroll_presence_key = 17;
     ApproveUpdate approve_update = 18;
+    SetAlertPreferences set_alert_preferences = 19;
   }
   // ECDSA P-256 (IEEE P1363) by the issuer's peer identity key over the canonical command encoding.
   bytes issuer_signature = 20;
