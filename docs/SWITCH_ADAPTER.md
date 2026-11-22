@@ -4,7 +4,7 @@ This is an isolated collection adapter, not an automatically enabled node collec
 
 ## What is implemented
 
-`CiscoSg250Adapter` converts read-only SNMP values to a timestamped `Sg250Snapshot` and an existing `LanTopologyFragment`. It reports named switch ports, administrative/operational state, `ifHighSpeed` in Mbps when present, and a port's PVID **only** when `dot1dBasePortIfIndex` explicitly maps a bridge port to IF-MIB's ifIndex. A zero `ifHighSpeed` is unknown, not 0 Mbps. Unknown or unavailable results are never converted to numeric zero.
+`CiscoSg250Adapter` converts read-only SNMP values to a timestamped `Sg250Snapshot` and an existing `LanTopologyFragment`. It reports named Ethernet switch ports only when IF-MIB explicitly identifies `ifType=ethernetCsmacd(6)` (excluding VLAN, LAG and other logical interfaces), administrative/operational state, `ifHighSpeed` in Mbps when present, and a port's PVID **only** when `dot1dBasePortIfIndex` explicitly maps a bridge port to IF-MIB's ifIndex. A zero `ifHighSpeed` is unknown, not 0 Mbps. Unknown or unavailable results are never converted to numeric zero.
 
 The provisioned `switchEntityId` is independent of the management IP and the collecting peer. The reported `dot1dBaseBridgeAddress` is optional evidence for a stable bridge MAC identity. Port identifiers are scoped beneath that switch identity. Only `Port -> Switch: AttachedTo` relationships are emitted as device-reported evidence. The spike **does not infer** physical uplinks, LLDP neighbors, trunk configuration, VLAN membership beyond PVID, or a cable path from IP connectivity. A PVID is retained as port information, not projected into an invalid Port-to-VLAN relationship.
 
