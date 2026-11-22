@@ -4,6 +4,11 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Added
+
+- Preview pipeline: `.github/workflows/preview.yml` builds Ubuntu `.deb`, Fedora `.rpm`, Linux desktop tarballs, a Windows node+desktop zip with `Install-MonitorApp.ps1`, and a release-signed Android APK, signs one multi-artifact `preview` manifest, and publishes a GitHub pre-release with commit and TODO-gap notes. `eng/release/New-ReleaseSigningKeys.ps1` creates the signing key and Android keystore outside the repo and prints the `gh` commands.
+- `NodeUpdateAgent` in the peer node (periodic check, verify, stage, approve-or-auto apply), health marker, root update helper units, retained-package seeding, and `GET /api/v1/update` / `POST /api/v1/update/approve`. Default policy is approve-before-install.
+
 ### Changed
 
 - Held-open peer sessions are now live: after catch-up each side streams newly committed origin records (`PeerStore.Live` wakes a bounded in-flight sender; receivers acknowledge through the same idempotent per-origin replication, cursors and gaps stay authoritative, a gap acknowledgement rewinds the sender). The phone (`MobilePeerRuntime.Start`) keeps one long-lived session per paired desktop with capped-backoff reconnect instead of a connect-drain-close loop every ~15 s (`SyncOnceAsync` remains as a fallback); desktop `NodePeerConnectionManager` sessions also stream live and ask the remote to push its origin (the remote may have no locator). The server bounds live sessions by messages per minute (not a lifetime total), closes idle ones (`PeerHostOptions.LiveIdleTimeout`, 120 s) and ends them on host shutdown; stale acknowledgements no longer fail a session. gRPC keep-alive pings detect dead links.

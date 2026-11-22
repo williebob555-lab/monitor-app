@@ -84,11 +84,12 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public static Task<PeerNodeRuntime> StartAsync(
         NodeOptions options,
-        CancellationToken cancellationToken = default) => StartAsync(options, null, cancellationToken);
+        CancellationToken cancellationToken = default) => StartAsync(options, null, null, cancellationToken);
 
     public static async Task<PeerNodeRuntime> StartAsync(
         NodeOptions options,
         NodeLiveOptions? live,
+        ILocalUpdateController? updates = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -177,7 +178,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             invitationService,
             new PhonePairingOptions([options.PeerBindAddress], options.PeerPort, pairingCodes),
             alertStore,
-            interests);
+            interests,
+            updates);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

@@ -36,7 +36,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         IPeerInvitationService? invitationService = null,
         PhonePairingOptions? phonePairing = null,
         AlertStore? alertStore = null,
-        LiveInterestRegistry? interests = null)
+        LiveInterestRegistry? interests = null,
+        ILocalUpdateController? updates = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -68,6 +69,11 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (alertStore is not null)
         {
             builder.Services.AddSingleton(alertStore);
+        }
+
+        if (updates is not null)
+        {
+            builder.Services.AddSingleton(updates);
         }
 
         builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
@@ -208,6 +214,29 @@ public sealed class LocalApiHost : IAsyncDisposable
             CancellationToken token) => QueryAsync(() => history.ReconstructAsync(
                 asOf, lookbackSeconds, subjectEntityId, signalId, limit, token)));
 
+        application.MapGet("/api/v1/update", (HttpContext context) =>
+            context.RequestServices.GetService<ILocalUpdateController>() is { } updates
+                ? Results.Json(updates.GetStatus())
+                : Results.NotFound());
+        application.MapPost("/api/v1/update/approve", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<ILocalUpdateController>() is not { } updates)
+            {
+                return Results.NotFound();
+            }
+
+            return await updates.ApproveAsync(token).ConfigureAwait(false)
+                ? Results.Json(updates.GetStatus())
+                : Results.Conflict(new { error = "No staged update is awaiting approval." });
+        });
         application.MapPost("/api/pairings/{pairingId}/approve", async (
             string pairingId,
             HttpContext context,

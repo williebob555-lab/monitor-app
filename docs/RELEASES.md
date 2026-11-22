@@ -12,7 +12,7 @@ The repository has an executable release and update-verification foundation. It 
 
 Unsigned, incorrectly targeted, downgraded, truncated, or modified artifacts fail closed. No code in this repository silently installs an update.
 
-`MonitorApp.Update` now also provides the apply layer as a library (not yet called by the node or any installer): updates are staged automatically and applied only on an explicit approval, with health-gated rollback. Linux uses `dpkg -i`/`rpm -U` plus a retained last-known-good package; Windows uses side-by-side version directories and a `current` pointer; Android offers a verified APK for the system installer. Windows service execution, rpm, and node/installer wiring are unverified. See DECISIONS T032.
+`MonitorApp.Update` now also provides the apply layer; the node wires it for Linux packages (see Preview builds below): updates are staged automatically and applied only on an explicit approval, with health-gated rollback. Linux uses `dpkg -i`/`rpm -U` plus a retained last-known-good package; Windows uses side-by-side version directories and a `current` pointer; Android offers a verified APK for the system installer. Windows service execution, rpm, and node/installer wiring are unverified. See DECISIONS T032.
 
 ## GitHub configuration
 
@@ -59,6 +59,32 @@ The initial artifact names are:
 - `monitorapp-agent-ubuntu-x64-VERSION.tar.gz`
 
 These are self-contained alpha archives, not installed-service packages. RPM, DEB, Windows service installation, clean upgrade, rollback, and uninstall remain separate release gates.
+
+## Preview builds (pre-releases) and automatic updates
+
+`.github/workflows/preview.yml` runs on `workflow_dispatch` and on every push to `main` (docs-only pushes are skipped). Version `0.1.<run_number>` (`PREVIEW_SERIES` in the workflow) only grows, so it satisfies the updater's anti-rollback check and is also the Android `versionCode`. It publishes tag `preview-<version>` as a GitHub **pre-release** whose notes list commits since the previous preview and the open items of `TODO.md` ("known gaps"). Assets are moved between jobs through a draft release (no third-party actions); the draft is published only after the manifest is signed and is deleted if any job fails.
+
+Artifacts (all listed in the signed `update-manifest.json`, channel `preview`; the signature is embedded in the manifest envelope, `SHA256SUMS` is for humans):
+
+- `monitorapp-node-ubuntu-x64-V.deb` and `monitorapp-node-fedora-x64-V.rpm`: the node service (rpm built in a `fedora:42` container from the same staged tree).
+- `monitorapp-desktop-ubuntu-x64-V.tar.gz` / `monitorapp-desktop-fedora-x64-V.tar.gz`: Avalonia desktop app as a self-contained tarball (identical payload; not part of the packages so the node package stays headless).
+- `monitorapp-node-windows-x64-V.zip`: node and desktop app plus `Install-MonitorApp.ps1` (service plus Start menu shortcut; re-run it from a newer zip to update; in-place Windows apply is TODO).
+- `monitorapp-mobile-android-universal-V.apk`: release-signed with your keystore; sideload it.
+
+Installed Linux nodes carry the public key and repository in `/etc/monitor-app/update-key.json` (written from the non-secret variables at package time). `NodeUpdateAgent` polls the GitHub releases API every ~6 h (jittered, plus on start), picks the newest `preview-*` pre-release, verifies the signed manifest, downloads and verifies the `.deb`/`.rpm`, and then:
+
+- `MONITOR_APP_UPDATE_POLICY=approve` (default, confirmed by the project owner): wait for approval via `POST /api/v1/update/approve` (loopback, antiforgery; status at `GET /api/v1/update`). Phone approval over a live session is a TODO.
+- `auto`: install right after staging. Switching is one line in `/etc/monitor-app/node.conf` plus `systemctl restart monitor-app`.
+
+The unprivileged service cannot run `dpkg`/`rpm`, so it writes a request and the root `monitor-app-update.service` (started by `monitor-app-update.path`, same binary with `--apply-update`) re-verifies the signed manifest with the root-owned key, re-checks the digest on a private copy, installs, restarts, waits for the health marker the node writes at startup, and rolls back to the retained package on failure. The package scriptlets best-effort seed the retained last-known-good package on first install.
+
+### First preview checklist (one time, about 10 minutes)
+
+1. In the repository, Settings, Environments: create an environment named `release` (a required reviewer is optional; each run then needs approval for the Android and signing jobs).
+2. On your Windows machine run `pwsh eng/release/New-ReleaseSigningKeys.ps1 -Repository <owner>/<repo>`. It writes keys outside the repo, uploads nothing, and prints the commands. Install a JDK first (`winget install Microsoft.OpenJDK.21`) if you want the Android keystore created.
+3. Run the printed `gh secret set ... --env release` commands. Secrets (environment `release`): `MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+4. Run the printed `gh variable set` commands (repository variables, non-secret): `MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64`, `MONITOR_UPDATE_SIGNING_KEY_ID`.
+5. Actions, "Preview build", Run workflow (or push to `main`). A missing value fails the job with a message naming it. Back up the key folder, then delete the plain files.
 
 ## Android gate
 

@@ -5,7 +5,10 @@ using MonitorApp.Peer.Collection;
 namespace MonitorApp.Peer.Node;
 
 /// <summary>Owns the <see cref="PeerNodeRuntime"/> lifetime inside the Generic Host.</summary>
-public sealed partial class PeerNodeHostedService(NodeOptions options, ILogger<PeerNodeHostedService> logger) : IHostedService
+public sealed partial class PeerNodeHostedService(
+    NodeOptions options,
+    ILogger<PeerNodeHostedService> logger,
+    MonitorApp.Peer.LocalApi.ILocalUpdateController? updates = null) : IHostedService
 {
     private PeerNodeRuntime? runtime;
 
@@ -21,7 +24,7 @@ public sealed partial class PeerNodeHostedService(NodeOptions options, ILogger<P
         PeerNodeRuntime started;
         try
         {
-            started = await PeerNodeRuntime.StartAsync(options, cancellationToken).ConfigureAwait(false);
+            started = await PeerNodeRuntime.StartAsync(options, null, updates, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

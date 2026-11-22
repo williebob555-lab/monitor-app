@@ -32,13 +32,17 @@ exit 0
 
 %post
 install -d -m 0700 -o monitor-app -g monitor-app /var/lib/monitor-app
+/usr/libexec/monitor-app/seed-retained-package.sh rpm "$(rpm -q --qf '%%{VERSION}\n' monitor-app 2>/dev/null | head -n 1)" >/dev/null 2>&1 || :
 %systemd_post monitor-app.service
+%systemd_post monitor-app-update.path
 
 %preun
 %systemd_preun monitor-app.service
+%systemd_preun monitor-app-update.path
 
 %postun
 %systemd_postun monitor-app.service
+%systemd_postun monitor-app-update.path
 # Package removal keeps /var/lib/monitor-app (identity and data) and the monitor-app user.
 # Delete them manually for a purge: rm -rf /var/lib/monitor-app /etc/monitor-app; userdel monitor-app
 
@@ -47,4 +51,8 @@ install -d -m 0700 -o monitor-app -g monitor-app /var/lib/monitor-app
 /opt/monitor-app/*
 %config(noreplace) /etc/monitor-app/node.conf
 /usr/lib/systemd/system/monitor-app.service
+/usr/lib/systemd/system/monitor-app-update.service
+/usr/lib/systemd/system/monitor-app-update.path
+/usr/libexec/monitor-app/seed-retained-package.sh
+/etc/monitor-app/update-key.json
 /usr/lib/sysusers.d/monitor-app.conf

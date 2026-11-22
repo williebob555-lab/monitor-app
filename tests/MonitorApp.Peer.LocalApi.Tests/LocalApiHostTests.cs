@@ -355,7 +355,8 @@ public sealed class LocalApiHostTests : IDisposable
         public static async Task<Fixture> CreateAsync(
             string directory,
             IPeerInvitationService? invitationService = null,
-            PhonePairingOptions? phonePairing = null)
+            PhonePairingOptions? phonePairing = null,
+            ILocalUpdateController? updates = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -425,7 +426,8 @@ public sealed class LocalApiHostTests : IDisposable
                 TestClock.Instance,
                 invitationService,
                 phonePairing,
-                alerts);
+                alerts,
+                updates: updates);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {
