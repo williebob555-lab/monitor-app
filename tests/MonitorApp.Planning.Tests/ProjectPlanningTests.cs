@@ -4,6 +4,7 @@ using Xunit;
 
 namespace MonitorApp.Planning.Tests;
 
+[Trait("Category", "Unit")]
 public sealed class ProjectPlanningTests
 {
     private static readonly DateTimeOffset ObservedAt = new(2026, 11, 22, 12, 0, 0, TimeSpan.Zero);
