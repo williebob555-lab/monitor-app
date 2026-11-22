@@ -350,9 +350,17 @@ public sealed class LocalApiHost : IAsyncDisposable
             return Results.Json(AlertRuleCatalog.Describe(services.GetService<AlertRulesConfig>() ?? AlertRulesConfig.Default, local.PeerId, active, overrides)
                 .Select(item => new
                 {
-                    subjectPeerId = item.SubjectPeerId, ruleId = item.RuleId, title = item.Title, unit = item.Unit,
-                    defaultThreshold = item.DefaultThreshold, threshold = item.Threshold, enabled = item.Enabled,
-                    overridden = item.Overridden, minimum = item.Minimum, maximum = item.Maximum, updatedAt = item.UpdatedAt,
+                    subjectPeerId = item.SubjectPeerId,
+                    ruleId = item.RuleId,
+                    title = item.Title,
+                    unit = item.Unit,
+                    defaultThreshold = item.DefaultThreshold,
+                    threshold = item.Threshold,
+                    enabled = item.Enabled,
+                    overridden = item.Overridden,
+                    minimum = item.Minimum,
+                    maximum = item.Maximum,
+                    updatedAt = item.UpdatedAt,
                 }));
         });
         application.MapPost("/api/v1/alerts/rules/{peerId}", async (

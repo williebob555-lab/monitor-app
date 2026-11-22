@@ -221,9 +221,16 @@ public sealed class ControlService(
             {
                 var item = new AlertRuleState
                 {
-                    SubjectPeerId = state.SubjectPeerId, RuleId = state.RuleId, Title = state.Title, Unit = state.Unit,
-                    DefaultThreshold = state.DefaultThreshold, Threshold = state.Threshold, Enabled = state.Enabled,
-                    Overridden = state.Overridden, Minimum = state.Minimum, Maximum = state.Maximum,
+                    SubjectPeerId = state.SubjectPeerId,
+                    RuleId = state.RuleId,
+                    Title = state.Title,
+                    Unit = state.Unit,
+                    DefaultThreshold = state.DefaultThreshold,
+                    Threshold = state.Threshold,
+                    Enabled = state.Enabled,
+                    Overridden = state.Overridden,
+                    Minimum = state.Minimum,
+                    Maximum = state.Maximum,
                 };
                 if (state.UpdatedAt is { } updated)
                 {
