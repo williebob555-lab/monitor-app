@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 5;
+    private const int SchemaVersion = 6;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -191,7 +191,74 @@ public sealed class AlertStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 6)
+        {
+            // T054: per-peer rule overrides (enable/disable and threshold) for the built-in rule kinds.
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_rule_overrides(
+                    peer_id TEXT NOT NULL,
+                    rule_id TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    threshold REAL NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(peer_id, rule_id));
+                UPDATE alert_schema_version SET version = 6 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces every rule override of one subject peer in one transaction (an empty list restores the built-in defaults).
+    /// Inputs are validated with <see cref="AlertRuleCatalog.Validate"/>; invalid input throws and changes nothing.
+    /// </summary>
+    public async Task SetRuleOverridesAsync(
+        string peerId,
+        IReadOnlyCollection<AlertRuleOverrideInput> overrides,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(peerId);
+        if (AlertRuleCatalog.Validate(overrides) is { } problem)
+        {
+            throw new ArgumentException(problem, nameof(overrides));
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, transaction, "DELETE FROM alert_rule_overrides WHERE peer_id = $p;",
+            [("$p", peerId)], cancellationToken).ConfigureAwait(false);
+        foreach (var item in overrides)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO alert_rule_overrides(peer_id, rule_id, enabled, threshold, updated_at) VALUES ($p, $r, $e, $t, $at);";
+            command.Parameters.AddWithValue("$p", peerId);
+            command.Parameters.AddWithValue("$r", item.RuleId);
+            command.Parameters.AddWithValue("$e", item.Enabled ? 1 : 0);
+            command.Parameters.AddWithValue("$t", item.Threshold is { } value ? value : DBNull.Value);
+            command.Parameters.AddWithValue("$at", Format(now));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<StoredRuleOverride>> ReadRuleOverridesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT peer_id, rule_id, enabled, threshold, updated_at FROM alert_rule_overrides ORDER BY peer_id, rule_id;";
+        var result = new List<StoredRuleOverride>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new StoredRuleOverride(reader.GetString(0), reader.GetString(1), reader.GetInt32(2) != 0,
+                reader.IsDBNull(3) ? null : reader.GetDouble(3), Parse(reader.GetString(4))));
+        }
+
+        return result;
     }
 
     /// <summary>

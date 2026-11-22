@@ -184,6 +184,21 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, IViewingSour
             ct,
             body: new { minSeverity, mutedRuleKinds });
 
+    /// <summary>Effective alert rules on this desktop (T054): the CPU, memory and disk rules, and peer-not-seen per trusted peer, with defaults and accepted ranges.</summary>
+    public Task<IReadOnlyList<AlertRuleDto>> GetAlertRulesAsync(CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<AlertRuleDto>>("api/v1/alerts/rules", ct);
+
+    /// <summary>
+    /// Replaces the rule overrides for <paramref name="subjectPeerId"/> (this desktop for CPU, memory and disk; a trusted peer for
+    /// peer not seen). An empty list restores the defaults. The server rejects out-of-range thresholds with 400.
+    /// </summary>
+    public Task SetAlertRulesAsync(
+        string subjectPeerId, IReadOnlyCollection<AlertRuleOverrideDto> overrides, CancellationToken ct = default) =>
+        PostAsync(
+            $"api/v1/alerts/rules/{Uri.EscapeDataString(subjectPeerId)}",
+            ct,
+            body: new { overrides });
+
     /// <summary>Phone presence-key enrollments waiting for approval (newest first), with the key fingerprint to compare on the phone.</summary>
     public Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<PresenceEnrollmentDto>>("api/v1/control/presence-enrollments", ct);

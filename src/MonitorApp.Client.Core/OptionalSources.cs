@@ -66,6 +66,7 @@ public enum ControlActionKind
     MuteAlerts,
     UnmuteAlerts,
     SetAlertPreferences,
+    SetAlertRules,
     ApprovePairing,
     RejectPairing,
     EnrollPresenceKey,
@@ -148,6 +149,17 @@ public interface IControlSource
     /// null when the peer cannot be reached or has not granted this device monitoring controls.
     /// </summary>
     Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the alert rule overrides (T054) for one subject peer on the peer that owns the alerts: the peer itself
+    /// (<paramref name="subjectPeerId"/> null or empty) for the CPU, memory and disk rules, a watched peer for peer.silent. An empty
+    /// list restores the built-in defaults. Changes what alerts fire for every recipient, so it is an elevated action.
+    /// </summary>
+    Task<ControlOutcomeDto> SetAlertRulesAsync(
+        string peerId, string? subjectPeerId, IReadOnlyCollection<AlertRuleOverrideDto> ruleOverrides, CancellationToken ct = default);
+
+    /// <summary>The peer's effective alert rules; null when it cannot be reached or has not granted this device monitoring controls.</summary>
+    Task<IReadOnlyList<AlertRuleDto>?> ReadAlertRulesAsync(string peerId, CancellationToken ct = default);
 
     /// <summary>Pairing requests the peer holds for approval; empty when it does not let this device approve pairings or is unreachable.</summary>
     Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default);

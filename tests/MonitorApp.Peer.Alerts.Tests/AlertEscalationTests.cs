@@ -150,6 +150,7 @@ public sealed class AlertEscalationTests
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 DROP TABLE alert_escalations;
+                DROP TABLE alert_rule_overrides;
                 ALTER TABLE alert_inbox DROP COLUMN escalated;
                 CREATE TABLE alert_outbox_v4(
                     recipient_peer_id TEXT NOT NULL, alert_id TEXT NOT NULL, revision INTEGER NOT NULL,

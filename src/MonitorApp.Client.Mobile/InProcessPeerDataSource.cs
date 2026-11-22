@@ -288,6 +288,41 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
             () => ControlRequest.SetAlertPreferences(severity, mutedRuleKinds), ct);
     }
 
+    public Task<ControlOutcomeDto> SetAlertRulesAsync(
+        string peerId, string? subjectPeerId, IReadOnlyCollection<AlertRuleOverrideDto> ruleOverrides, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(ruleOverrides);
+        var inputs = ruleOverrides.Select(item => new MonitorApp.Peer.Alerts.AlertRuleOverrideInput(item.RuleId, item.Enabled, item.Threshold)).ToArray();
+        if (MonitorApp.Peer.Alerts.AlertRuleCatalog.Validate(inputs) is { } problem)
+        {
+            // Rejected locally with the same ranges the desktop enforces, so the person sees why before any biometric prompt.
+            return Task.FromResult(new ControlOutcomeDto("Refused", "invalid_payload", problem, false));
+        }
+
+        return SendAsync(peerId, ControlActionKind.SetAlertRules, null,
+            () => ControlRequest.SetAlertRuleOverrides(subjectPeerId, inputs), ct);
+    }
+
+    public async Task<IReadOnlyList<AlertRuleDto>?> ReadAlertRulesAsync(string peerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await runtime.ReadAlertRulesAsync(peerId, ct).ConfigureAwait(false);
+            if (!response.Permitted)
+            {
+                return null;
+            }
+
+            return response.Rules.Select(item => new AlertRuleDto(
+                item.SubjectPeerId, item.RuleId, item.Title, item.Unit, item.DefaultThreshold, item.Threshold, item.Enabled,
+                item.Overridden, item.Minimum, item.Maximum, item.UpdatedAt is null ? null : item.UpdatedAt.ToDateTimeOffset())).ToArray();
+        }
+        catch (MobileControlFailedException)
+        {
+            return null;
+        }
+    }
+
     public async Task<AlertPreferencesDto?> ReadAlertPreferencesAsync(string peerId, CancellationToken ct = default)
     {
         try

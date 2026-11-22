@@ -64,25 +64,35 @@ public sealed class AlertEvaluator(
                     string.Equals(item.OriginPeerId, local.PeerId, StringComparison.Ordinal))
                 .ToArray();
 
+            var overrides = (await alerts.ReadRuleOverridesAsync(cancellationToken).ConfigureAwait(false))
+                .ToDictionary(item => (item.PeerId, item.RuleId));
             var outcomes = new List<Outcome>();
             foreach (var observation in owned)
             {
                 outcomes.Add(await EvaluateUnavailableAsync(local.PeerId, observation, cancellationToken).ConfigureAwait(false));
             }
 
-            foreach (var rule in config.Thresholds)
+            foreach (var baseRule in config.Thresholds)
             {
+                // A disabled rule reports Healthy so an episode already open for it resolves instead of staying raised forever.
+                overrides.TryGetValue((local.PeerId, baseRule.RuleId), out var overridden);
+                var rule = overridden?.Threshold is { } threshold ? baseRule with { ThresholdPercent = threshold } : baseRule;
                 foreach (var observation in owned.Where(item => item.SignalId == rule.SignalId))
                 {
-                    outcomes.Add(await EvaluateThresholdAsync(local.PeerId, rule, observation, cancellationToken)
-                        .ConfigureAwait(false));
+                    outcomes.Add(overridden is { Enabled: false }
+                        ? new Outcome(Verdict.Healthy, rule.RuleId, observation.SubjectEntityId, observation.ObservedAt)
+                        : await EvaluateThresholdAsync(local.PeerId, rule, observation, cancellationToken).ConfigureAwait(false));
                 }
             }
 
             var lastSeen = await alerts.ReadPeerLastSeenAsync(cancellationToken).ConfigureAwait(false);
             foreach (var peer in trusted.Where(item => item.PeerId != local.PeerId))
             {
-                outcomes.Add(EvaluatePeerSilence(peer, lastSeen, current, now, config));
+                overrides.TryGetValue((peer.PeerId, AlertRulesConfig.PeerSilentRuleId), out var silence);
+                outcomes.Add(silence is { Enabled: false }
+                    ? new Outcome(Verdict.Healthy, AlertRulesConfig.PeerSilentRuleId, peer.PeerId, now)
+                    : EvaluatePeerSilence(peer, lastSeen, current, now,
+                        silence?.Threshold is { } minutes ? config with { PeerSilentAfter = TimeSpan.FromMinutes(minutes) } : config));
             }
 
             var raised = 0;

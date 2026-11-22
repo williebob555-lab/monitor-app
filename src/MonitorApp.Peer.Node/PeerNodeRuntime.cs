@@ -170,7 +170,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var monitoring = new MonitoringControlState();
         var controlService = new ControlService(
             controlStore, peerStore, pairingStore, pairing, alertStore, monitoring, identity,
-            updates: updates is null ? null : new MonitorApp.Peer.Node.Update.RemoteUpdateGateway(updates));
+            updates: updates is null ? null : new MonitorApp.Peer.Node.Update.RemoteUpdateGateway(updates),
+            alertRules: alertRules);
         await controlService.RestoreMonitoringAsync(cancellationToken).ConfigureAwait(false);
         var alertEngine = new AlertEngine(new AlertEvaluator(peerStore, alertStore, alertRules), alertStore);
         var capabilityRegistry = new PeerCapabilityRegistry(peerStore);

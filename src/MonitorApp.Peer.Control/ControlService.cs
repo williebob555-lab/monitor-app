@@ -24,8 +24,10 @@ public sealed class ControlService(
     MonitoringControlState monitoring,
     ILocalPeerIdentityProvider local,
     TimeProvider? timeProvider = null,
-    IRemoteUpdateGateway? updates = null) : IDisposable
+    IRemoteUpdateGateway? updates = null,
+    AlertRulesConfig? alertRules = null) : IDisposable
 {
+    private readonly AlertRulesConfig rules = alertRules ?? AlertRulesConfig.Default;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim serialize = new(1, 1);
 
@@ -183,6 +185,57 @@ public sealed class ControlService(
 
         await store.AppendAuditAsync(new ControlAuditEntry(
             0, now, remotePeerId, Truncate(request.RequestId ?? string.Empty), "read_alert_preferences", ControlRiskTier.Normal.ToString(),
+            permitted ? "applied" : "refused", reason, string.Empty, false, string.Empty), cancellationToken)
+            .ConfigureAwait(false);
+        return response;
+    }
+
+    /// <summary>
+    /// Read-only effective alert rules (built-in defaults plus per-peer overrides). Needs trust and the monitoring-controls grant,
+    /// like setting them; every read, granted or refused, is audited.
+    /// </summary>
+    public async Task<AlertRulesResponse> ReadAlertRulesAsync(
+        string remotePeerId,
+        AlertRulesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = clock.GetUtcNow();
+        var response = new AlertRulesResponse { RequestId = request.RequestId };
+        var trusted = await peers.ReadTrustedPeerAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        var grant = await store.ReadGrantAsync(remotePeerId, cancellationToken).ConfigureAwait(false) ??
+            ControlGrant.Default(remotePeerId);
+        var permitted = trusted is { TrustState: PeerTrustState.Active } && grant.MonitoringControls;
+        string reason;
+        if (!permitted)
+        {
+            reason = trusted is not { TrustState: PeerTrustState.Active } ? "untrusted" : "not_permitted";
+        }
+        else
+        {
+            response.Permitted = true;
+            reason = "applied";
+            var active = (await peers.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
+                .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId);
+            var overrides = await alerts.ReadRuleOverridesAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var state in AlertRuleCatalog.Describe(rules, local.PublicIdentity.PeerId, active, overrides))
+            {
+                var item = new AlertRuleState
+                {
+                    SubjectPeerId = state.SubjectPeerId, RuleId = state.RuleId, Title = state.Title, Unit = state.Unit,
+                    DefaultThreshold = state.DefaultThreshold, Threshold = state.Threshold, Enabled = state.Enabled,
+                    Overridden = state.Overridden, Minimum = state.Minimum, Maximum = state.Maximum,
+                };
+                if (state.UpdatedAt is { } updated)
+                {
+                    item.UpdatedAt = Timestamp.FromDateTimeOffset(updated);
+                }
+
+                response.Rules.Add(item);
+            }
+        }
+
+        await store.AppendAuditAsync(new ControlAuditEntry(
+            0, now, remotePeerId, Truncate(request.RequestId ?? string.Empty), "read_alert_rules", ControlRiskTier.Normal.ToString(),
             permitted ? "applied" : "refused", reason, string.Empty, false, string.Empty), cancellationToken)
             .ConfigureAwait(false);
         return response;
@@ -464,6 +517,26 @@ public sealed class ControlService(
                     remotePeerId, command.SetAlertPreferences.MinSeverity, command.SetAlertPreferences.MutedRuleKinds, now, cancellationToken)
                     .ConfigureAwait(false);
                 return Ok("Alert preferences saved for this phone.");
+            case ControlCommand.PayloadOneofCase.SetAlertRuleOverrides:
+                {
+                    var edit = command.SetAlertRuleOverrides;
+                    var localId = local.PublicIdentity.PeerId;
+                    var subject = edit.SubjectPeerId.Length == 0 ? localId : edit.SubjectPeerId;
+                    var inputs = edit.Overrides
+                        .Select(item => new AlertRuleOverrideInput(item.RuleId, item.Enabled, item.HasThreshold ? item.Threshold : null))
+                        .ToArray();
+                    var active = (await peers.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
+                        .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId)
+                        .ToHashSet(StringComparer.Ordinal);
+                    if (AlertRuleCatalog.Validate(inputs) is not null ||
+                        AlertRuleCatalog.ValidateSubject(subject, localId, active, inputs) is not null)
+                    {
+                        return Refused("invalid_payload", "The alert rule overrides are not valid for that peer.");
+                    }
+
+                    await alerts.SetRuleOverridesAsync(subject, inputs, now, cancellationToken).ConfigureAwait(false);
+                    return Ok("Alert rules saved.");
+                }
             case ControlCommand.PayloadOneofCase.ResolvePairing:
                 return await ResolvePairingAsync(command, remotePeerId, now, cancellationToken).ConfigureAwait(false);
             case ControlCommand.PayloadOneofCase.EnrollPresenceKey:
@@ -597,6 +670,8 @@ public sealed class ControlService(
         ControlCommand.PayloadOneofCase.UnmuteAlerts => "scope=" + Scope(command.UnmuteAlerts.RuleId),
         ControlCommand.PayloadOneofCase.SetAlertPreferences => string.Create(CultureInfo.InvariantCulture,
             $"min={command.SetAlertPreferences.MinSeverity} muted={command.SetAlertPreferences.MutedRuleKinds.Count}"),
+        ControlCommand.PayloadOneofCase.SetAlertRuleOverrides => string.Create(CultureInfo.InvariantCulture,
+            $"subject={Truncate(command.SetAlertRuleOverrides.SubjectPeerId)} rules={string.Join(',', command.SetAlertRuleOverrides.Overrides.Select(item => item.RuleId + (item.Enabled ? "=" + (item.HasThreshold ? item.Threshold.ToString("G6", CultureInfo.InvariantCulture) : "default") : "=off")))}"),
         ControlCommand.PayloadOneofCase.ResolvePairing => "pairing=" + Truncate(command.ResolvePairing.PairingId),
         ControlCommand.PayloadOneofCase.ApproveUpdate =>
             "version=" + Truncate(command.ApproveUpdate.Version) + " sha256=" + Convert.ToHexStringLower(command.ApproveUpdate.ArtifactSha256.Span),

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Core;
 
 namespace MonitorApp.Peer.Control;
@@ -54,6 +55,27 @@ public sealed class ControlRequest
         var prefs = new SetAlertPreferences { MinSeverity = minimumSeverity };
         prefs.MutedRuleKinds.AddRange(mutedRuleKinds ?? []);
         command.SetAlertPreferences = prefs;
+    });
+
+    /// <summary>
+    /// Replaces the alert rule overrides (enable/disable, threshold) for one subject peer on the alert-owning desktop; an empty list
+    /// restores the defaults. <paramref name="subjectPeerId"/> empty means the target desktop itself. Elevated: needs the biometric.
+    /// </summary>
+    public static ControlRequest SetAlertRuleOverrides(string? subjectPeerId, IEnumerable<AlertRuleOverrideInput> overrides) => new(command =>
+    {
+        var rules = new SetAlertRuleOverrides { SubjectPeerId = subjectPeerId ?? string.Empty };
+        foreach (var item in overrides)
+        {
+            var entry = new AlertRuleOverride { RuleId = item.RuleId, Enabled = item.Enabled };
+            if (item.Threshold is { } threshold)
+            {
+                entry.Threshold = threshold;
+            }
+
+            rules.Overrides.Add(entry);
+        }
+
+        command.SetAlertRuleOverrides = rules;
     });
 
     /// <summary>Approves or rejects a pending pairing the desktop reported. <paramref name="remoteFingerprintSha256"/> is what the user saw.</summary>

@@ -23,6 +23,10 @@ internal sealed record LiveInterestInput(string? PeerId, string[]? SignalIds);
 
 internal sealed record AlertPreferencesInput(string? MinSeverity, string[]? MutedRuleKinds);
 
+internal sealed record AlertRuleOverrideBody(string? RuleId, bool? Enabled, double? Threshold);
+
+internal sealed record AlertRulesInput(AlertRuleOverrideBody[]? Overrides);
+
 internal sealed record ControlGrantInput(bool MonitoringControls, bool PairingApproval, bool UpdateApproval = false);
 
 internal sealed record LocalPresenceChallengeRequest(string? Action, string? Subject);
@@ -327,6 +331,72 @@ public sealed class LocalApiHost : IAsyncDisposable
                 minSeverity = AlertPreferences.SeverityName(severity),
                 mutedRuleKinds = (body.MutedRuleKinds ?? []).Select(kind => kind.Trim()).Where(kind => kind.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal),
             });
+        });
+        application.MapGet("/api/v1/alerts/rules", async (
+            PeerStore peerStore,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            var store = services.GetService<AlertStore>();
+            var local = await peerStore.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            if (store is null || local is null)
+            {
+                return Results.Json(Array.Empty<object>());
+            }
+
+            var active = (await peerStore.ReadTrustedPeersAsync(token).ConfigureAwait(false))
+                .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId);
+            var overrides = await store.ReadRuleOverridesAsync(token).ConfigureAwait(false);
+            return Results.Json(AlertRuleCatalog.Describe(services.GetService<AlertRulesConfig>() ?? AlertRulesConfig.Default, local.PeerId, active, overrides)
+                .Select(item => new
+                {
+                    subjectPeerId = item.SubjectPeerId, ruleId = item.RuleId, title = item.Title, unit = item.Unit,
+                    defaultThreshold = item.DefaultThreshold, threshold = item.Threshold, enabled = item.Enabled,
+                    overridden = item.Overridden, minimum = item.Minimum, maximum = item.Maximum, updatedAt = item.UpdatedAt,
+                }));
+        });
+        application.MapPost("/api/v1/alerts/rules/{peerId}", async (
+            string peerId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            IPeerClock clock,
+            PeerStore peerStore,
+            IServiceProvider services,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var store = services.GetService<AlertStore>();
+            AlertRulesInput? body;
+            try
+            {
+                body = await context.Request.ReadFromJsonAsync<AlertRulesInput>(token).ConfigureAwait(false);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                body = null;
+            }
+
+            var local = await peerStore.ReadLocalIdentityAsync(token).ConfigureAwait(false);
+            if (store is null || local is null || body?.Overrides is null || body.Overrides.Any(item => item is null || item.Enabled is null))
+            {
+                return Results.BadRequest(new { error = "A peer id and a list of overrides (ruleId, enabled, optional threshold) are required." });
+            }
+
+            var inputs = body.Overrides.Select(item => new AlertRuleOverrideInput(item.RuleId ?? string.Empty, item.Enabled!.Value, item.Threshold)).ToArray();
+            var active = (await peerStore.ReadTrustedPeersAsync(token).ConfigureAwait(false))
+                .Where(item => item.TrustState == PeerTrustState.Active).Select(item => item.PeerId).ToHashSet(StringComparer.Ordinal);
+            var problem = AlertRuleCatalog.Validate(inputs) ?? AlertRuleCatalog.ValidateSubject(peerId, local.PeerId, active, inputs);
+            if (problem is not null)
+            {
+                return Results.BadRequest(new { error = problem });
+            }
+
+            await store.SetRuleOverridesAsync(peerId, inputs, clock.UtcNow, token).ConfigureAwait(false);
+            return Results.Json(new { peerId, overrides = inputs.Select(item => new { ruleId = item.RuleId, enabled = item.Enabled, threshold = item.Threshold }) });
         });
         application.MapPost("/api/v1/live/interest", async (
             HttpContext context,

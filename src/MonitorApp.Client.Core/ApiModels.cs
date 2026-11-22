@@ -125,6 +125,27 @@ public sealed record AlertPreferencesDto(
     IReadOnlyList<string> MutedRuleKinds,
     DateTimeOffset? UpdatedAt);
 
+/// <summary>
+/// One alert rule as the user can edit it (T054). <see cref="Unit"/> is "percent" (CPU, memory, disk) or "minutes" (peer not seen);
+/// <see cref="Minimum"/> and <see cref="Maximum"/> are the range the server accepts. <see cref="SubjectPeerId"/> is the peer the rule
+/// applies to (the owning peer for CPU, memory and disk; a watched peer for peer not seen).
+/// </summary>
+public sealed record AlertRuleDto(
+    string SubjectPeerId,
+    string RuleId,
+    string Title,
+    string Unit,
+    double DefaultThreshold,
+    double Threshold,
+    bool Enabled,
+    bool Overridden,
+    double Minimum,
+    double Maximum,
+    DateTimeOffset? UpdatedAt);
+
+/// <summary>A requested rule override: <see cref="Threshold"/> null keeps the built-in default.</summary>
+public sealed record AlertRuleOverrideDto(string RuleId, bool Enabled, double? Threshold);
+
 /// <summary>Query for a bounded history window. Paging is handled by the client.</summary>
 public sealed record HistoryQuery(
     DateTimeOffset From,

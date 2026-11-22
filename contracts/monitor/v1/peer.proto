@@ -350,6 +350,22 @@ message SetAlertPreferences {
   repeated string muted_rule_kinds = 2;
 }
 
+// One alert rule override. rule_id is one of threshold.cpu_high, threshold.memory_high, threshold.disk_free
+// (threshold in percent) or peer.silent (threshold in minutes). An absent threshold keeps the built-in default.
+message AlertRuleOverride {
+  string rule_id = 1;
+  bool enabled = 2;
+  optional double threshold = 3;
+}
+
+// Replaces the rule overrides for one subject peer on the alert-owning desktop (an empty list restores the built-in
+// defaults). subject_peer_id is empty or the target itself for the CPU, memory and disk rules (the owner only evaluates its own
+// signals) and the watched trusted peer for peer.silent. Changes what alerts fire for every recipient, so it is an elevated command.
+message SetAlertRuleOverrides {
+  string subject_peer_id = 1;
+  repeated AlertRuleOverride overrides = 2;
+}
+
 message ControlCommand {
   string command_id = 1;
   google.protobuf.Timestamp issued_at = 2;
@@ -369,6 +385,7 @@ message ControlCommand {
     EnrollPresenceKey enroll_presence_key = 17;
     ApproveUpdate approve_update = 18;
     SetAlertPreferences set_alert_preferences = 19;
+    SetAlertRuleOverrides set_alert_rule_overrides = 22;
   }
   // ECDSA P-256 (IEEE P1363) by the issuer's peer identity key over the canonical command encoding.
   bytes issuer_signature = 20;
@@ -444,6 +461,34 @@ message AlertPreferencesResponse {
   google.protobuf.Timestamp updated_at = 5;
 }
 
+// Read-only: the effective alert rules of the desktop (built-in defaults plus overrides). Needs the monitoring-controls grant.
+message AlertRulesRequest {
+  string request_id = 1;
+}
+
+message AlertRuleState {
+  // Peer the rule applies to: the desktop itself for the CPU, memory and disk rules, a watched peer for peer.silent.
+  string subject_peer_id = 1;
+  string rule_id = 2;
+  string title = 3;
+  // "percent" or "minutes".
+  string unit = 4;
+  double default_threshold = 5;
+  double threshold = 6;
+  bool enabled = 7;
+  bool overridden = 8;
+  double minimum = 9;
+  double maximum = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message AlertRulesResponse {
+  string request_id = 1;
+  // False when this peer lacks the monitoring-controls grant (or is not trusted); every other field is then empty.
+  bool permitted = 2;
+  repeated AlertRuleState rules = 3;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -463,6 +508,7 @@ message PeerSessionRequest {
     PendingPairingsRequest pending_pairings_request = 31;
     UpdateStatusRequest update_status_request = 32;
     AlertPreferencesRequest alert_preferences_request = 33;
+    AlertRulesRequest alert_rules_request = 34;
   }
 }
 
@@ -486,5 +532,6 @@ message PeerSessionResponse {
     PendingPairingsResponse pending_pairings_response = 31;
     UpdateStatusResponse update_status_response = 32;
     AlertPreferencesResponse alert_preferences_response = 33;
+    AlertRulesResponse alert_rules_response = 34;
   }
 }

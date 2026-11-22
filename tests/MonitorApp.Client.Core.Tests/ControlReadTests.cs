@@ -96,4 +96,39 @@ public sealed class ControlReadTests
 
         await Assert.ThrowsAnyAsync<Exception>(() => client.SetAlertPreferencesAsync("phone-a", "loud", []));
     }
+
+    [Fact]
+    public async Task AlertRuleOverridesRoundTripThroughTheLocalApiAndOutOfRangeValuesAreRejected()
+    {
+        var service = LocalPresenceService.Create(null, LocalPresencePolicy.Off, new SystemPeerClock());
+        await using var node = await NodeFixture.CreateAsync(presence: service, withControl: true);
+        using var client = node.NewClient();
+
+        var defaults = await client.GetAlertRulesAsync();
+        Assert.Contains(defaults, rule => rule.SubjectPeerId == "peer-local" && rule.RuleId == "threshold.cpu_high" && rule.Threshold == 90 && !rule.Overridden);
+        Assert.Contains(defaults, rule => rule.SubjectPeerId == "peer-local" && rule.RuleId == "threshold.memory_high");
+        Assert.Contains(defaults, rule => rule.SubjectPeerId == "peer-local" && rule.RuleId == "threshold.disk_free" && rule.Threshold == 10);
+        Assert.Contains(defaults, rule => rule.SubjectPeerId == "peer-trusted" && rule.RuleId == "peer.silent" && rule.Unit == "minutes" && rule.Threshold == 10);
+
+        await client.SetAlertRulesAsync("peer-local", [new("threshold.cpu_high", true, 75), new("threshold.disk_free", false, null)]);
+        await client.SetAlertRulesAsync("peer-trusted", [new("peer.silent", true, 4)]);
+        var edited = await client.GetAlertRulesAsync();
+        Assert.Contains(edited, rule => rule.RuleId == "threshold.cpu_high" && rule.Threshold == 75 && rule.Overridden && rule.Enabled);
+        Assert.Contains(edited, rule => rule.RuleId == "threshold.disk_free" && !rule.Enabled && rule.Overridden);
+        Assert.Contains(edited, rule => rule.SubjectPeerId == "peer-trusted" && rule.RuleId == "peer.silent" && rule.Threshold == 4);
+        Assert.Equal(3, (await node.Alerts!.ReadRuleOverridesAsync()).Count);
+
+        // Out-of-range, unknown, wrong-peer and unknown-peer edits are 400s and leave the saved overrides untouched.
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => client.SetAlertRulesAsync("peer-local", [new("threshold.cpu_high", true, 100)]));
+        Assert.Contains("between 1 and 99", ex.Message, StringComparison.Ordinal);
+        await Assert.ThrowsAsync<ApiValidationException>(() => client.SetAlertRulesAsync("peer-local", [new("observation.unavailable", true, 5)]));
+        await Assert.ThrowsAsync<ApiValidationException>(() => client.SetAlertRulesAsync("peer-trusted", [new("threshold.cpu_high", true, 50)]));
+        await Assert.ThrowsAsync<ApiValidationException>(() => client.SetAlertRulesAsync("peer-stranger", [new("peer.silent", true, 5)]));
+        await Assert.ThrowsAsync<ApiValidationException>(() => client.SetAlertRulesAsync("peer-trusted", [new("peer.silent", true, 20000)]));
+        Assert.Equal(3, (await node.Alerts.ReadRuleOverridesAsync()).Count);
+
+        await client.SetAlertRulesAsync("peer-local", []);
+        Assert.DoesNotContain(await node.Alerts.ReadRuleOverridesAsync(), item => item.PeerId == "peer-local");
+        Assert.Contains(await client.GetAlertRulesAsync(), rule => rule.RuleId == "threshold.cpu_high" && rule.Threshold == 90 && !rule.Overridden);
+    }
 }

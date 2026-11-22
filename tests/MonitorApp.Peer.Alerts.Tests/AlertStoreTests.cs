@@ -130,7 +130,7 @@ public sealed class AlertStoreTests
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT version FROM alert_schema_version;";
-            Assert.Equal(5L, await command.ExecuteScalarAsync());
+            Assert.Equal(6L, await command.ExecuteScalarAsync());
             command.CommandText = "UPDATE alert_schema_version SET version = 99;";
             await command.ExecuteNonQueryAsync();
         }
@@ -153,6 +153,7 @@ public sealed class AlertStoreTests
             command.CommandText = """
                 DROP TABLE alert_preferences;
                 DROP TABLE alert_escalations;
+                DROP TABLE alert_rule_overrides;
                 ALTER TABLE alert_inbox DROP COLUMN escalated;
                 CREATE TABLE alert_outbox_v4(
                     recipient_peer_id TEXT NOT NULL, alert_id TEXT NOT NULL, revision INTEGER NOT NULL,
