@@ -499,6 +499,7 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `RemoteUpdateApprovalTests` (real loopback gRPC, real `NodeUpdateAgent` with fake fetch/download/applier: no grant, no presence, applied exactly once, replay idempotent, digest/version mismatch, nothing staged) and `NodeUpdateAgentTests.BoundApprovalRequiresTheExactStagedVersionAndDigest`.
 - Consequences: Existing grants do not gain update approval. Enrollment of a presence key is allowed for a peer holding only the update grant. A mismatch tells the user to re-read status. Not verified on a real phone or with a real package install.
 - Revisit condition: Adding rollback/skip commands, per-version policies, or a stronger binding to the signed manifest envelope hash.
+
 ### T046 Camera QR scanning on Android through framework camera2 and ZXing
 
 - Status: Accepted (owner-confirmed: a phone pairs by scanning the QR on the computer's admin page, with the typed short code as fallback).
