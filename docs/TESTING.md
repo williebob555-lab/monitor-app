@@ -92,7 +92,7 @@ Run against the actual selected persistence engine. Required cases include:
 - Duplicate rejection or idempotent acceptance.
 - Ordered time-window query.
 - Snapshot reconstruction.
-- Retention deletion boundaries.
+- Retention deletion boundaries (tiered retention: rollup aggregation with states kept as counts, idempotent re-run, pinned windows, transition/event retention, replication hold and hard cap, pruned-range replica outcome, hourly history auto-switch, schema v3 to v4 migration on a real file; `PeerRetentionTests`, `PeerStoreTests`).
 - Backup and restore before release support is claimed.
 
 The first production engine is file-backed SQLite in WAL mode. Persistence integration tests must use that provider and configuration. The EF Core in-memory provider does not satisfy this level, and SQLite's transient in-memory mode does not prove restart durability, file locking, WAL recovery, backup, or restore.

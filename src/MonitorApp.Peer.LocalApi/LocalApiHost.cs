@@ -142,9 +142,10 @@ public sealed class LocalApiHost : IAsyncDisposable
             string? originPeerId,
             int? limit,
             string? cursor,
+            string? resolution,
             PeerHistoryQueryService history,
             CancellationToken token) => QueryAsync(() => history.QueryHistoryAsync(
-                from, to, subjectEntityId, signalId, originPeerId, limit, cursor, token)));
+                from, to, subjectEntityId, signalId, originPeerId, limit, cursor, token, resolution)));
         application.MapGet("/api/v1/state", (
             string? asOf,
             int? lookbackSeconds,

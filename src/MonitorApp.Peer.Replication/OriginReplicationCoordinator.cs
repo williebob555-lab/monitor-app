@@ -142,6 +142,14 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             throw new OriginReplicationValidationException(string.Join(" ", validation.Errors));
         }
 
+        var pruned = await store.ReadPrunedRangeContainingAsync(request.OriginPeerId, request.OriginStreamId, request.FirstSequence, cancellationToken).ConfigureAwait(false);
+        if (pruned is not null)
+        {
+            throw new OriginRangePrunedException(request.FirstSequence, pruned.LastSequence);
+        }
+
+        // A batch never spans a pruned range: it stops before it so the next request lands on the explicit outcome.
+        var nextPruned = await store.ReadNextPrunedRangeAfterAsync(request.OriginPeerId, request.OriginStreamId, request.FirstSequence, cancellationToken).ConfigureAwait(false);
         var recordLimit = (int)Math.Min(request.MaximumRecordCount, (uint)options.MaximumBatchRecords);
         var byteLimit = (int)Math.Min(request.MaximumBatchBytes, (uint)options.MaximumBatchBytes);
         var stored = await store.ReadOriginRangeAsync(request.OriginPeerId, request.OriginStreamId, request.FirstSequence,
@@ -150,6 +158,7 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         foreach (var item in stored)
         {
             if (request.LastSequence != 0 && item.Sequence > request.LastSequence) break;
+            if (nextPruned is not null && item.Sequence >= nextPruned.FirstSequence) break;
             if (response.Records.Count == recordLimit) break;
             var record = ToContract(item);
             if (response.CalculateSize() + record.CalculateSize() > byteLimit)
@@ -166,7 +175,8 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         }
 
         var lastReturned = response.Records.Count == 0 ? request.FirstSequence - 1 : response.Records[^1].Sequence;
-        response.HasMore = stored.Any(item => item.Sequence > lastReturned && (request.LastSequence == 0 || item.Sequence <= request.LastSequence));
+        response.HasMore = stored.Any(item => item.Sequence > lastReturned && (request.LastSequence == 0 || item.Sequence <= request.LastSequence)) ||
+            (nextPruned is not null && nextPruned.FirstSequence > lastReturned && (request.LastSequence == 0 || nextPruned.FirstSequence <= request.LastSequence));
         return response;
     }
 

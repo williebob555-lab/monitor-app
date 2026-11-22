@@ -68,6 +68,8 @@ enum ProtocolErrorCode {
   PROTOCOL_ERROR_CODE_MESSAGE_TOO_LARGE = 5;
   PROTOCOL_ERROR_CODE_UNAUTHORIZED = 6;
   PROTOCOL_ERROR_CODE_INTERNAL = 7;
+  // The requested origin range was removed by retention; resume from the sequence in safe_message.
+  PROTOCOL_ERROR_CODE_RANGE_PRUNED = 8;
 }
 
 message ProtocolError {

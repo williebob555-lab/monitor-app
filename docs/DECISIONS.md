@@ -397,6 +397,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: Codes are lost on desktop restart; a failed pairing after redemption needs a new code; a burst of wrong guesses locks redemption for a minute; Peer.Node must share one registry between the admin page and the peer host.
 - Revisit condition: Needing multi-source rate limiting, offline code issuance, or desktop-to-desktop typed pairing.
 
+### T035 Tiered retention with hourly rollups
+
+- Status: Accepted (working decision; thresholds are configurable defaults)
+- Decision: Keep full-detail raw observations 7 days, hourly rollups 365 days, and pinned-incident windows indefinitely. "Events" are not an alerting engine yet: a transition record (first record of a subject/signal series, or observation quality differing from the previous record of that series) is kept for 5 years. Locally originated raw records that any active trusted peer has not acknowledged (replication cursor below the sequence, missing cursor counts as 0) are held past 7 days but never beyond a 30-day hard cap; revoked peers do not hold records. Replicated records from other origins are pruned by age only. Pruned sequence runs are recorded and answered to replicas as `RANGE_PRUNED` with a resume sequence. Rollups are keyed by (origin peer, subject, signal, UTC hour) without stream.
+- Reason: Adaptive sampling will make raw volume high, while long-range views need only aggregates and state changes; replication must stay explicit about compaction.
+- Evidence: `PeerRetentionTests`, `PeerStoreTests` schema v4 migration test.
+- Consequences: Rollup hours older than raw retention are finalised once, so records replicated later into a finalised hour are not rolled up. Unpinning makes the window prunable on the next pass but never restores pruned data. Quality-only transitions miss value-only state changes (for example collector status text); richer event kinds need a real event model. A lagging or offline peer past the hard cap receives `RANGE_PRUNED` and loses raw detail for that range (rollups/transitions remain). Receiver-side RANGE_PRUNED handling and pin management UI are not implemented.
+- Revisit condition: When an alerting/event engine or adaptive sampling lands, or retention storage cost is measured on real data.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

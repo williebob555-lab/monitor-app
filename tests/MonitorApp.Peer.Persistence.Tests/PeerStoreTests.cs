@@ -108,7 +108,7 @@ public sealed class PeerStoreTests : IDisposable
         await check.OpenAsync();
         await using var versions = check.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(3L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
         await using var plan = check.CreateCommand();
         plan.CommandText = "EXPLAIN QUERY PLAN SELECT sequence FROM origin_records WHERE observed_at >= 'a' AND observed_at < 'b' ORDER BY observed_at, origin_peer_id, origin_stream_id, sequence;";
         var detail = string.Empty;
@@ -404,6 +404,45 @@ public sealed class PeerStoreTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task SchemaV3DatabaseMigratesToV4WithRetentionTablesAndKeepsData()
+    {
+        var store = await CreateStoreAsync();
+        await store.SetLocalIdentityAsync(Identity());
+        var bytes = new byte[] { 1, 2, 3 };
+        await store.AppendOriginRecordAsync(LocalRecord(1, now, bytes));
+
+        // Reduce the real file to what a v3 database holds: no retention tables, latest recorded version 3.
+        var databasePath = Path.Combine(directory, "peer.db");
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString()))
+        {
+            await connection.OpenAsync();
+            await using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = """
+                DROP TABLE observation_rollups_hourly;
+                DROP TABLE pinned_incidents;
+                DROP TABLE pruned_origin_ranges;
+                DELETE FROM schema_migrations WHERE version >= 4;
+                INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, '2026-11-01T00:00:00.0000000+00:00');
+                """;
+            await downgrade.ExecuteNonQueryAsync();
+        }
+
+        var migrated = await CreateStoreAsync();
+
+        Assert.Single(await migrated.ReadOriginRangeAsync("peer-a", "origin-a", 1, 10));
+        await migrated.PinIncidentAsync(new PinnedIncident("inc-1", "outage", now, now.AddHours(1), now));
+        Assert.Equal("inc-1", Assert.Single(await migrated.ReadPinnedIncidentsAsync()).IncidentId);
+        Assert.Empty((await migrated.ReadHourlyRollupsAsync(new HourlyRollupQuery(now, now.AddHours(1), null, null, null, null, 10))).Rollups);
+        Assert.Null(await migrated.ReadPrunedRangeContainingAsync("peer-a", "origin-a", 1));
+        await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString());
+        await verify.OpenAsync();
+        await using var versions = verify.CreateCommand();
+        versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
+        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
     }
 
     private async Task<PeerStore> CreateStoreAsync()
