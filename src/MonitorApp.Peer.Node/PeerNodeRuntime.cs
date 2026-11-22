@@ -338,6 +338,13 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
             {
             }
+
+            // Kestrel may return from a timed-out stop while a session handler (and its push loops) is still unwinding;
+            // those use the stores below, so wait for them (they were cancelled by ApplicationStopping) before disposing.
+            if (peerApplication.Services.GetService<PeerSessionHandlerTracker>() is { } handlers)
+            {
+                await handlers.WaitForIdleAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
         }).ConfigureAwait(false);
         await Step(() => peerApplication.DisposeAsync()).ConfigureAwait(false);
         await Step(() =>

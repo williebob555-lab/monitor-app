@@ -14,6 +14,8 @@ namespace MonitorApp.Peer.Node.Tests;
 
 public sealed class PeerNodeRuntimeTests
 {
+    static PeerNodeRuntimeTests() => SqliteConnectionTracker.TrackStacks = true;
+
     // Tests that compare exact record counts disable the scheduled self-LAN collection, which adds its own records.
     private static readonly NodeLiveOptions NoLan = new(CollectSelfLan: false);
 
@@ -633,11 +635,30 @@ public sealed class PeerNodeRuntimeTests
     }
 
     /// <summary>
+    /// Fails (on every OS) when a SQLite connection to a database under <paramref name="path"/> is still open after the
+    /// runtimes were disposed; Windows would otherwise only show it as a locked peer.db at delete time. A short grace
+    /// period lets a handler that was just cancelled finish unwinding.
+    /// </summary>
+    internal static void AssertNoOpenConnections(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (SqliteConnectionTracker.OpenCountUnder(path) > 0 && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(50);
+        }
+
+        var open = SqliteConnectionTracker.OpenCountUnder(path);
+        Assert.True(open == 0, $"{open} SQLite connection(s) still open under {path} after dispose:{Environment.NewLine}"
+            + SqliteConnectionTracker.DescribeOpenUnder(path));
+    }
+
+    /// <summary>
     /// Windows keeps pooled SQLite handles (and briefly, handles of just-stopped background work) open after a runtime is
     /// disposed, so the temp directory delete clears the pools and retries briefly instead of failing a passing test.
     /// </summary>
     private static void DeleteDirectory(string path, bool recursive = true)
     {
+        AssertNoOpenConnections(path);
         for (var attempt = 0; ; attempt++)
         {
             try

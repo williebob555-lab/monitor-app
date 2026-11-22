@@ -65,7 +65,14 @@ public sealed class QrScanPairingTests
 
             var pairing = source.ScanAndPairAsync();
             string? pending = null;
-            await WaitAsync(() => (pending = phone.GetStatus().PendingPairingId) is not null);
+            // If the pairing attempt fails before the desktop sees it, surface that failure instead of a bare timeout.
+            await WaitAsync(() => (pending = phone.GetStatus().PendingPairingId) is not null || pairing.IsCompleted);
+            if (pending is null)
+            {
+                await pairing;
+                Assert.Fail("Pairing completed without a pending request: " + pairing.Status);
+            }
+
             await desktop.ApproveWhenPendingAsync(pending!);
             Assert.Equal(desktop.Identity.PeerId, await pairing.WaitAsync(Deadline));
             Assert.Equal("Active", Assert.Single(await source.GetPeersAsync()).TrustState);
