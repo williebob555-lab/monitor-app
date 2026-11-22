@@ -6,7 +6,9 @@
   <meta name="theme-color" content="#090e14">
   <title>Monitor / Rack Studio</title>
   <link rel="stylesheet" href="./studio.css">
+  <link rel="stylesheet" href="./audio.css">
   <script src="./studio.js" defer></script>
+  <script src="./audio.js" defer></script>
 </head>
 <body>
 <div id="app" class="shell">
@@ -15,6 +17,9 @@
     <div class="rail-separator"></div>
     <button class="nav-icon active" data-tab="rack" title="Rack studio" aria-label="Rack studio">
       <svg viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="1.8"/><path d="M5 9h14M5 15h14M8 5.7h2M8 12h2M8 18.2h2"/></svg>
+    </button>
+    <button class="nav-icon" data-tab="audio" title="Audio rig & pedalboard routing" aria-label="Audio rig">
+      <svg viewBox="0 0 24 24"><path d="M3 10v4M7 6v12M11 3v18M15 8v8M19 5v14M22 10v4"/></svg>
     </button>
     <button class="nav-icon" data-tab="project" title="Project planning" aria-label="Project planning">
       <svg viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11"/><path d="M3.5 5h2M3.5 12h2M3.5 19h2"/></svg>
@@ -72,7 +77,8 @@
           <button class="segment" data-view="thermal" role="tab" aria-selected="false">Thermal map</button>
         </div>
         <div class="toolbar-right">
-          <label class="inline-select-label">FORMAT <select id="rackFormat"><option value="19">19″ EIA</option><option value="10">10″ EIA</option><option value="23">23″ EIA</option><option value="21">21″ Open Rack</option><option value="euro">Eurorack</option><option value="custom">Custom</option></select></label>
+          <label class="inline-select-label">ASSEMBLY <select id="assemblySelect"><option value="main">Main rack</option><option value="pedalboard">Pedalboard</option></select></label>
+          <label class="inline-select-label">FORMAT <select id="rackFormat"><option value="19">19″ EIA</option><option value="10">10″ EIA</option><option value="23">23″ EIA</option><option value="21">21″ Open Rack</option><option value="euro">Eurorack</option><option value="pedal">Pedalboard</option><option value="api500">500-series</option><option value="mod4">Modular 4U</option><option value="mod5">Modular 5U</option><option value="desktop">Desktop audio</option><option value="custom">Custom</option></select></label>
           <label class="inline-select-label">HEIGHT <select id="rackHeight"><option value="6">6U</option><option value="9">9U</option><option value="12" selected>12U</option><option value="18">18U</option><option value="24">24U</option><option value="42">42U</option></select></label>
           <button id="configButton" class="round-tool" title="Rack dimensions and clearances" aria-label="Rack settings">⚙</button>
         </div>
@@ -100,6 +106,31 @@
           <div class="dock-findings" id="dockFindings"><span class="findings-glow"></span><div><span class="metric-label">DESIGN REVIEW</span><strong id="reviewHeadline">Reviewing model</strong></div><span class="review-count" id="reviewCount">—</span></div>
         </div>
       </div>
+    </section>
+
+    <section class="workspace-panel" id="audioPanel" aria-label="Audio routing and power">
+      <div class="page-head">
+        <div><div class="tiny-label accent-label">SIGNAL SYSTEM DESIGN / 02</div><h2>Signal <em>Lab</em><span class="heading-plus">✳</span></h2><p>A patchbay for signal, power and physical reality.</p></div>
+        <div class="revision-stamp"><span class="stamp-disc"></span><span>PROPOSED ROUTING<br><strong>Not energized</strong></span></div>
+      </div>
+      <div class="signal-topline">
+        <span>CHAIN 01 / BASS · PEDALBOARD · INTERFACE</span>
+        <button class="button button-subtle" id="addAudioNode">+ Insert stage</button>
+      </div>
+      <div id="signalGraph" class="signal-graph" aria-label="Interactive signal chain"></div>
+      <div class="audio-bottom-grid">
+        <section class="audio-diagnostic">
+          <div class="tiny-label">ANALYSIS / AUDIO & CONTROL</div>
+          <h3>Connection intelligence</h3>
+          <div id="signalFindings"></div>
+        </section>
+        <section class="audio-diagnostic">
+          <div class="tiny-label">POWER / PEDALBOARD</div>
+          <h3>DC power distribution</h3>
+          <div id="dcGraph"></div>
+        </section>
+      </div>
+      <div class="audio-legend">All routing is proposed. Connector matching alone does not establish electrical, signal-level or voltage compatibility. No audio is played.</div>
     </section>
 
     <section class="workspace-panel" id="projectPanel" aria-label="Project planning">
