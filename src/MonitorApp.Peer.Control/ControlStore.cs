@@ -13,8 +13,11 @@ public sealed record ControlStoreOptions(string DatabasePath, TimeSpan BusyTimeo
 /// <summary>What a trusted peer may ask this desktop to do. Presence requirements are policy, never grantable away.</summary>
 public sealed record ControlGrant(string PeerId, bool MonitoringControls, bool PairingApproval, DateTimeOffset? UpdatedAt)
 {
-    /// <summary>Phones: monitoring controls allowed; pairing approval allowed only with a biometric presence signature.</summary>
-    public static ControlGrant Default(string peerId) => new(peerId, true, true, null);
+    /// <summary>
+    /// Owner decision (2026-11-22): deny by default. A newly paired device can read replicated data but may not issue any control
+    /// command (including presence-key enrollment) until the administrator grants it on this computer.
+    /// </summary>
+    public static ControlGrant Default(string peerId) => new(peerId, false, false, null);
 
     public bool AllowsAnything => MonitoringControls || PairingApproval;
 }

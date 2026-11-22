@@ -70,7 +70,8 @@ public sealed class ControlTests
         }
     }
 
-    private static async Task<Phone> PairPhoneAsync(DesktopPeer desktop, string pairingId)
+    /// <summary>Pairs a phone; by default also performs the administrator's explicit grant, since an ungranted peer may do nothing.</summary>
+    private static async Task<Phone> PairPhoneAsync(DesktopPeer desktop, string pairingId, bool grant = true)
     {
         var root = TestDirectories.Create();
         var identity = new SoftwareIdentity();
@@ -79,6 +80,12 @@ public sealed class ControlTests
         var pairing = runtime.PairAsync(desktop.Invitation(), pairingId);
         await desktop.ApproveWhenPendingAsync(pairingId);
         await pairing.WaitAsync(Deadline);
+        if (grant)
+        {
+            // Test setup writes the grant directly so audit assertions only see what each test exercises.
+            await desktop.ControlStore.SetGrantAsync(new ControlGrant(runtime.Identity.PeerId, MonitoringControls: true, PairingApproval: true, null), DateTimeOffset.UtcNow);
+        }
+
         return new Phone(root, identity, presence, runtime);
     }
 
@@ -436,10 +443,15 @@ public sealed class ControlTests
         try
         {
             await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
-            await using var phone = await PairPhoneAsync(desktop, "ctl-grant");
+            await using var phone = await PairPhoneAsync(desktop, "ctl-grant", grant: false);
             var desktopId = desktop.Identity.PeerId;
             await using var newcomer = await PairingNewcomerAsync(desktop, "ctl-grant-newcomer");
 
+            // Owner decision: a newly paired device is denied everything until the administrator grants it.
+            Assert.Equal("not_permitted", (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.ResumeCollection())).ReasonCode);
+            Assert.Equal("not_permitted", (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.EnrollPresenceKey())).ReasonCode);
+            Assert.Empty(await phone.Runtime.ReadPendingPairingsAsync(desktopId));
+            await desktop.Control.SetGrantAsync(new ControlGrant(phone.PeerId, MonitoringControls: true, PairingApproval: true, null), default);
             Assert.Single(await phone.Runtime.ReadPendingPairingsAsync(desktopId));
             await desktop.Control.SetGrantAsync(new ControlGrant(phone.PeerId, MonitoringControls: false, PairingApproval: false, null), default);
             Assert.Equal("not_permitted", (await phone.Runtime.SendControlAsync(desktopId, ControlRequest.ResumeCollection())).ReasonCode);
