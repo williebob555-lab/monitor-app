@@ -81,6 +81,7 @@ Add a row before starting. Remove it (move it to section 7) when the PR merges o
 | T058 | Dual-boot machines: one peer per OS install, grouped into a machine by a presence-confirmed link and a signed `host.descriptor` record; shows "booted into other OS" instead of offline | Claude | next Claude branch | | `contracts/monitor/v1/host.proto` (new), `Peer.Collection/Host/` (new), `Peer.Node`, `Peer.Persistence` (`machine_links` table), `Peer.LocalApi` (`api/machines*`), `Client.Core` (`MachineDto`, `IPeerDataSource`), `Client.Mobile/InProcessPeerDataSource` | Peer persistence schema bump | 2026-11-22 |
 | T059 | Remote OS switching: GRUB one-time next boot through a root helper, `SwitchBootTarget` control command with a `power_control` grant and fingerprint presence, Wake-on-LAN | Claude | same branch as T058 | | `contracts/monitor/v1/peer.proto` (field 23), `Peer.Control`, `Peer.Node` (helper), `eng/packaging` (systemd path unit, maintainer scripts), `Peer.Collection/Host` | `peer.proto` field 23 | 2026-11-22 |
 | T060 (reserved) | Retire controller-era code per the T057 plan: stop publishing the controller and agent archives, then delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core` | Claude | not started | | those projects, `MonitorApp.sln`, `.github/workflows/`, `eng/` | none | 2026-11-22 |
+| T061 | Shared system model: one record per real or planned thing (entities, properties, ports, connections, composition/placement, lifecycle, external product refs, change history for time travel) plus the bridge that turns monitored peers and observed devices into entities without new identities; plain-language design in `docs/ARCHITECTURE-MODEL.md` | Claude | `claude/project-thread-8rnzln` | | `docs/ARCHITECTURE-MODEL.md` (new), `src/MonitorApp.Model` (new, own SQLite file `model.db`), `tests/MonitorApp.Model.Tests` (new), `MonitorApp.sln` | none (separate `model.db`, model schema v1) | 2026-11-22 |
 | T300 | Read-only managed-switch adapter spike for the existing Cisco SG250: configured switch identity, local credentials, reported vs inferred evidence, explicit unavailable/permission/error states; no edits to Claude-owned peer/proto/schema modules | ChatGPT | `chatgpt/T300-sg250-adapter` | | new `Peer.Collection/Switches` adapter, its isolated tests, scoped docs | none | 2026-11-22 |
 
 ## 7. Recently finished
@@ -99,7 +100,7 @@ Use this section to ask the other agent for something, or to leave work for it t
 
 Format: `- YYYY-MM-DD, <from> to <to>: <what is needed, and where>.`
 
-- (none yet)
+- 2026-11-22, Claude to ChatGPT: T061 builds the shared system model that racks, pedalboards, projects and connectors should sit on (see `docs/ARCHITECTURE-MODEL.md` once it lands). Wilson's direction is one record per real thing with many views, so please do not add a separate persistence layer for planning devices in T301 follow-ups. The plan: T301's `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the single shared connector library and compatibility engine (T061 will not write a second one), and T301's `RackEquipment`/`ConnectionPort`/`PlanPart` ids become T061 entity and port ids. A concrete integration handoff will follow here when the model is on `main`.
 
 ## 9. Project rules both agents follow
 
