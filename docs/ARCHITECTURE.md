@@ -51,7 +51,7 @@ Documentation examples are plans, not support claims.
 - Avalonia remains reserved for the later shared experience; the functional client may be plain.
 - Native Windows Service and `systemd` packages for desktop and Linux peers.
 - Android uses only platform-supported foreground/background mechanisms and reports when service continuity is unavailable.
-- Signed release manifests and platform-specific verified update application.
+- Signed release manifests and platform-specific verified update application: `MonitorApp.Update` stages verified artifacts and applies them through `IUpdateApplier` (Linux package, Windows side-by-side, Android offer) with a persisted state machine; the peer node/service calls it (wiring pending).
 
 ## Functional system shape
 

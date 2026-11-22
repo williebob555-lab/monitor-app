@@ -8,7 +8,8 @@ public static class UpdatePolicy
         string channel,
         string component,
         string platform,
-        string architecture)
+        string architecture,
+        DowngradeAuthorization? downgrade = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
 
@@ -19,7 +20,10 @@ public static class UpdatePolicy
                 "Update manifest channel does not match the configured channel.");
         }
 
-        if (manifest.Version <= currentVersion)
+        var authorizedDowngrade = downgrade is not null
+            && manifest.Version < currentVersion
+            && downgrade.TargetVersion == manifest.Version;
+        if (manifest.Version <= currentVersion && !authorizedDowngrade)
         {
             throw new UpdateVerificationException(
                 UpdateVerificationError.DowngradeOrReinstall,

@@ -12,6 +12,8 @@ The repository has an executable release and update-verification foundation. It 
 
 Unsigned, incorrectly targeted, downgraded, truncated, or modified artifacts fail closed. No code in this repository silently installs an update.
 
+`MonitorApp.Update` now also provides the apply layer as a library (not yet called by the node or any installer): updates are staged automatically and applied only on an explicit approval, with health-gated rollback. Linux uses `dpkg -i`/`rpm -U` plus a retained last-known-good package; Windows uses side-by-side version directories and a `current` pointer; Android offers a verified APK for the system installer. Windows service execution, rpm, and node/installer wiring are unverified. See DECISIONS T032.
+
 ## GitHub configuration
 
 Create a protected GitHub Environment named `release`. Require a reviewer for that environment before permitting release-signing access.
