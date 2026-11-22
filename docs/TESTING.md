@@ -146,6 +146,10 @@ Required target environments:
 
 The peer node tests (restart-stable identity, 0600/0700 key storage and unsafe-permission refusal tagged `Category=Linux`, two-node pairing, and offline convergence) run on Linux in an Ubuntu 24.04 container; that is Linux engineering-preview evidence, not Ubuntu or Fedora support. A Linux container can test portable Linux collection code but does not prove RPM installation, SELinux behavior, `systemd`, or a Fedora release claim. The same distinction applies to Ubuntu packaging and Windows services.
 
+### LAN self-observation tests
+
+`tests/MonitorApp.Peer.Collection.Tests` cover route/VLAN/MAC parsers, interface classification (overlay/virtual/bridge/loopback non-physical), a fixture sysfs tree, a run against this host's real `/sys/class/net` (Linux), a real-SQLite persistence round trip, and reconciliation that IP-only matches never hard-merge. Windows classification is unit-tested from enum/name inputs only; the real Windows collector is unverified on hardware. Contract rules are in `MonitorApp.Contracts.Tests`.
+
 ### Packaging tests
 
 Before platform support is claimed, test a clean install, upgrade, restart, and uninstall for:

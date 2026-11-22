@@ -237,6 +237,10 @@ The user explicitly assigns a collector peer. Adapter credentials remain local a
 
 When multiple peers observe one device or topology, records reconcile around strong identity while preserving each source and evidence. Contradictions remain visible rather than being silently overwritten.
 
+### Physical LAN self-observation
+
+Physical LAN entities (peer, network interface, overlay interface, segment, VLAN, gateway, switch, port, peripheral, unknown upstream segment) and relationships (attached_to, member_of_segment, member_of_vlan, routes_via, uplink_to, connected_to_port, probable_same_segment) are typed in `MonitorApp.Contracts.LanTopology` with validation; overlay interfaces cannot join segments, VLANs, or gateways. Without a managed switch, each peer models only itself: its own interfaces, link attributes, own MAC (strong claim for physical interfaces only), own subnets and default-gateway IP (weak claims), and Linux VLAN sub-interfaces. Segments are per-observer entities; two peers with matching subnet (and gateway) claims get an inferred `probable_same_segment` edge (confidence 0.3 subnet only, 0.6 with gateway, never 1.0) rather than a merge. Switch and port entities are only filled by a future adapter; today each segment gets an inferred unknown-upstream placeholder. Collection code is `Peer.Collection.Lan`; the node registers `SelfLanCollector`.
+
 ## Persistence
 
 Every peer stores local identity, paired-peer directory, local origin records, retained replicas, per-origin cursors and gaps, capability/adaptor configuration, observed-device identity and collector assignments, physical and overlay relationships with evidence, security audit events, and local UI/retention policy.

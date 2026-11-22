@@ -370,6 +370,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: The adapter has no operational actions and no credentials. USB container/location values are correlation evidence only. The existing `dev-0.1.0` pre-release remains a controller/agent development build; a current peer download requires reviewed committed source, an immutable version tag, configured signing environment, and a successful release workflow.
 - Revisit condition: Replace or extend the spike when the user's normal hardware setup is available or a supported Yamaha API is needed for a concrete read-only job.
 
+### T032 Physical LAN self-observation model
+
+- Status: Accepted for engineering preview (working decision)
+- Decision: With no managed switch, model the physical LAN only from each peer's own interfaces. Overlay/virtual/bridge/loopback interfaces are explicitly non-physical and separate from segments. The interface's own MAC is a strong claim for physical interfaces only. Segments are per-observer; subnet and gateway-IP matches yield only inferred `probable_same_segment` edges (cap 0.6). The default-gateway MAC is not collected (it would require neighbor-table access, which the network-data boundary forbids in ordinary monitoring); gateway identity stays weak. Switch/port types exist for a future adapter; only unknown-upstream placeholders are inferred. No schema change: relationship kinds 7-9 extend the existing integer enum.
+- Reason: Respects the aggregate-without-communication-identities boundary and the rule that IPs cannot merge entities.
+- Evidence: Collection tests (fixture, real /sys, real SQLite) and contract validator tests.
+- Consequences: Link attributes (speed, duplex, MTU) are carried in the collected fragment but have no persistence slot until observation emission is wired. Android and macOS report unsupported.
+- Revisit condition: A managed switch or user-approved gateway-MAC collection.
+
 ### T031 Android outbound-only peer with foreground service
 
 - Status: Accepted
