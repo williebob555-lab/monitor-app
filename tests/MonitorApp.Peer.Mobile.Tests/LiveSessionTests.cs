@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Mobile;
 using MonitorApp.Peer.Node;
@@ -79,6 +80,75 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
     }
 
     [Fact]
+    public async Task DesktopAlertReachesTheConnectedPhoneInboxWithinTwoSecondsAndIsAcknowledged()
+    {
+        var desktopRoot = TestDirectories.Create();
+        var phoneRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(
+                LiveOptions(phoneRoot), phoneIdentity, new ScriptedDeviceReader());
+            await PairAsync(phone, desktop, "pairing-live-alert");
+            var phoneId = phone.Identity.PeerId;
+            var received = new ConcurrentQueue<(string Id, uint Revision, long At)>();
+            var arrival = new SemaphoreSlim(0);
+            phone.NewAlerts += items =>
+            {
+                foreach (var item in items)
+                {
+                    received.Enqueue((item.Alert.AlertId, item.Alert.Revision, Stopwatch.GetTimestamp()));
+                }
+
+                arrival.Release();
+            };
+
+            phone.Start();
+            await WaitAsync(() => phone.GetStatus().Peers is [{ State: MobileSyncState.Synced }]);
+
+            // The phone's first pull on the held-open session subscribes it; after that only push (not the slow
+            // safety-net pull) can deliver within the budget below.
+            await WaitAsync(async () => (await desktop.Alerts.ReadRecipientsAsync()).Contains(phoneId));
+
+            var owner = desktop.Identity.PeerId;
+            var alert = new Alert(
+                Alert.CreateId(owner, "threshold.disk_free", "peer:disk", DateTimeOffset.UtcNow), 1, "threshold.disk_free",
+                "peer:disk", owner, AlertSeverity.Critical, AlertState.Raised, "Low free disk space", "5.0% free",
+                DateTimeOffset.UtcNow, null);
+            var raisedAt = Stopwatch.GetTimestamp();
+            Assert.True(await desktop.Alerts.RaiseAsync(alert, [phoneId], TimeSpan.FromDays(1), DateTimeOffset.UtcNow));
+            Assert.True(await arrival.WaitAsync(Deadline), "The alert never reached the phone.");
+            Assert.True(received.TryPeek(out var first));
+            var latency = Stopwatch.GetElapsedTime(raisedAt, first.At);
+            output.WriteLine($"desktop alert -> phone inbox latency: {latency.TotalMilliseconds:F1} ms");
+            Assert.Equal(alert.AlertId, first.Id);
+            Assert.True(latency < TimeSpan.FromSeconds(2), $"Alert took {latency.TotalMilliseconds:F0} ms to reach the phone.");
+
+            var stored = Assert.Single(await phone.ReadAlertsAsync());
+            Assert.Equal(alert.AlertId, stored.Alert.AlertId);
+
+            // The acknowledgement still follows the phone's durable write and clears the desktop outbox row.
+            await WaitAsync(async () => (await desktop.Alerts.ReadOutboxAsync(phoneId)).All(row => row.AckedAt is not null));
+
+            // The resolve travels the same way as revision 2.
+            var resolveStarted = Stopwatch.GetTimestamp();
+            await desktop.Alerts.ResolveAsync(owner, "threshold.disk_free", "peer:disk", DateTimeOffset.UtcNow, [phoneId],
+                TimeSpan.FromDays(1), DateTimeOffset.UtcNow);
+            await WaitAsync(() => received.Any(item => item.Revision == 2));
+            var resolveLatency = Stopwatch.GetElapsedTime(resolveStarted, received.First(item => item.Revision == 2).At);
+            output.WriteLine($"desktop resolve -> phone inbox latency: {resolveLatency.TotalMilliseconds:F1} ms");
+            Assert.True(resolveLatency < TimeSpan.FromSeconds(2));
+            Assert.Equal(AlertState.Resolved, Assert.Single(await phone.ReadAlertsAsync()).Alert.State);
+            await WaitAsync(async () => (await desktop.Alerts.ReadOutboxAsync(phoneId)).All(row => row.AckedAt is not null));
+        }
+        finally
+        {
+            Cleanup(desktopRoot, phoneRoot);
+        }
+    }
+
+    [Fact]
     public async Task KillingTheServerMidSessionReconnectsAndConvergesWithoutDuplicatesThenGoesLiveAgain()
     {
         var desktopRoot = TestDirectories.Create();
@@ -114,6 +184,8 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             var target = await CollectPhoneAsync(phone);
             var latency = await MeasureAsync(phoneLocalProbe, desktopSeesPhone, target);
             output.WriteLine($"phone -> desktop latency after reconnect: {latency.TotalMilliseconds:F1} ms");
+            // The collection tick also appends the phone's LAN link records after the measured sequence; let them land.
+            await WaitAsync(async () => await Converged(phone, desktop));
             await AssertSameHistoryAsync(phone.Store, desktop.Store, phone.Identity.PeerId);
         }
         finally

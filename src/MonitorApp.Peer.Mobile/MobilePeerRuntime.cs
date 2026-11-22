@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using Grpc.Core;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Collection;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
@@ -59,6 +61,9 @@ public sealed record MobileStatus(
 
 public sealed class MobilePairingFailedException(string message, Exception? inner = null) : Exception(message, inner);
 
+/// <summary>A control command or query could not be delivered (not refused: a refusal is a <see cref="ControlResult"/>).</summary>
+public sealed class MobileControlFailedException(string message, Exception? inner = null) : Exception(message, inner);
+
 /// <summary>
 /// Portable, lifecycle-agnostic phone peer: local store, signed origin collection, explicit outbound pairing, and a
 /// phone-initiated sync loop. It never listens; replication in both directions rides the sessions it dials.
@@ -71,8 +76,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private readonly PeerStore store;
     private readonly OriginReplicationCoordinator replication;
     private readonly PeerSystemMetricsIngestionBridge collection;
+    private readonly PhoneLanCollection lan;
     private readonly AlertStore alerts;
     private readonly LiveInterestRegistry interests;
+    private readonly IUserPresenceSigner? presence;
     private readonly object gate = new();
     private readonly Dictionary<string, MobilePeerSyncStatus> peerStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
@@ -87,8 +94,12 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         ILocalPeerIdentityProvider identity,
         PeerStore store,
         AlertStore alerts,
-        PeerSystemMetricsIngestionBridge collection)
+        PeerSystemMetricsIngestionBridge collection,
+        PhoneLanCollection lan,
+        IUserPresenceSigner? presence)
     {
+        this.lan = lan;
+        this.presence = presence;
         this.alerts = alerts;
         this.options = options;
         this.identity = identity;
@@ -104,6 +115,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         MobilePeerOptions options,
         ILocalPeerIdentityProvider identity,
         IMobileDeviceReader reader,
+        IUserPresenceSigner? presence = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -118,20 +130,25 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         await MobilePeerIdentity.EnsureRegisteredAsync(store, identity, cancellationToken).ConfigureAwait(false);
         await new PeerCapabilityRegistry(store).RegisterAsync(AndroidCapabilityDeclaration.Create(), cancellationToken)
             .ConfigureAwait(false);
+        var recordingReader = new RecordingDeviceReader(reader);
         var bridge = new PeerSystemMetricsIngestionBridge(
             store,
             identity,
-            new AndroidDeviceSnapshotCollector(reader),
+            new AndroidDeviceSnapshotCollector(recordingReader),
             new PeerCollectionOptions(
                 $"peer:{identity.PublicIdentity.PeerId}",
                 AndroidDeviceSnapshotCollector.ModuleId,
                 Guid.NewGuid().ToString("N"),
                 TimeSpan.FromSeconds(30),
                 256));
-        return new MobilePeerRuntime(options, identity, store, alertStore, bridge);
+        var lan = PhoneLanCollection.Create(store, identity, recordingReader);
+        return new MobilePeerRuntime(options, identity, store, alertStore, bridge, lan, presence);
     }
 
     public PeerStore Store => store;
+
+    /// <summary>Exception type of the last failed phone-transport LAN run (null after a success); it never fails ordinary collection.</summary>
+    public string? LastLanError => lan.LastError;
 
     /// <summary>
     /// Newly stored observations (own readings and replicated desktop data) as they commit, for the app UI.
@@ -143,8 +160,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     /// The UI is viewing live data: for a paired desktop peer id the held-open session declares and renews interest so
     /// that desktop samples fast; with no id the phone itself samples fast. Dispose to stop viewing.
     /// </summary>
-    public IDisposable BeginViewing(string? remotePeerId = null) =>
-        remotePeerId is null ? interests.WatchLocal(identity.PublicIdentity.PeerId) : interests.WatchRemote(remotePeerId);
+    public IDisposable BeginViewing(string? remotePeerId = null, IReadOnlyCollection<string>? signalIds = null) =>
+        remotePeerId is null
+            ? interests.WatchLocal(identity.PublicIdentity.PeerId, signalIds)
+            : interests.WatchRemote(remotePeerId, signalIds);
 
     /// <summary>The phone's current collection interval (fast while a desktop is viewing it).</summary>
     public TimeSpan CurrentCollectionInterval =>
@@ -284,6 +303,159 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     }
 
     /// <summary>Stops trusting a paired peer on this phone; the next sync will not dial it.</summary>
+    /// <summary>True when this phone can produce biometric (user-presence) signatures for high-risk commands.</summary>
+    public bool CanVerifyUserPresence => presence?.IsAvailable == true;
+
+    /// <summary>
+    /// Hex SHA-256 of this phone's presence public key (what the desktop administrator compares when approving the
+    /// enrollment), or null when the device has no biometric signer.
+    /// </summary>
+    public async Task<string?> GetPresenceKeyFingerprintAsync(CancellationToken cancellationToken = default)
+    {
+        if (presence is not { IsAvailable: true })
+        {
+            return null;
+        }
+
+        var spki = await presence.GetPublicKeySpkiAsync(cancellationToken).ConfigureAwait(false);
+        return Convert.ToHexString(SHA256.HashData(spki));
+    }
+
+    /// <summary>
+    /// Sends one monitoring control to a paired desktop over a short authenticated session and returns the desktop's
+    /// durable result (applied, refused with a reason, or pending local approval). Commands needing biometric
+    /// verification prompt the person first (<see cref="UserPresenceDeniedException"/> when declined). Reusing a
+    /// <paramref name="commandId"/> is an idempotent retry: the desktop returns the stored result.
+    /// </summary>
+    public async Task<ControlResult> SendControlAsync(
+        string targetPeerId,
+        ControlRequest request,
+        string? commandId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        ArgumentNullException.ThrowIfNull(request);
+        var signer = new ControlCommandSigner(identity.PublicIdentity, identity.IdentityKey, presence);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.SendControlAsync(
+                (sessionId, token) => signer.CreateAsync(targetPeerId, sessionId, request, commandId, token),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached to deliver the command.", exception);
+        }
+    }
+
+    /// <summary>
+    /// Pairing requests the desktop is holding for approval (read-only: name and fingerprint to show the user).
+    /// Empty when the desktop does not let this phone approve pairings.
+    /// </summary>
+    public async Task<IReadOnlyList<PendingPairingSummary>> ReadPendingPairingsAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return (await connector.ReadPendingPairingsAsync(cancellationToken).ConfigureAwait(false)).Pairings.ToArray();
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
+    /// This phone's own alert preferences on the desktop. Read-only; the response has <c>Permitted = false</c> and nothing
+    /// else when the desktop has not granted this phone monitoring controls.
+    /// </summary>
+    public async Task<AlertPreferencesResponse> ReadAlertPreferencesAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.ReadAlertPreferencesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
+    /// The desktop's update state (installed version, staged version and digest, state, last error). Read-only; the response
+    /// has <c>Permitted = false</c> and nothing else when the desktop has not granted this phone update approval.
+    /// </summary>
+    public async Task<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string targetPeerId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerId);
+        try
+        {
+            await using var connector = await ConnectAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+            return await connector.ReadUpdateStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
+            or IOException or TimeoutException or PeerSyncException)
+        {
+            throw new MobileControlFailedException("The desktop could not be reached.", exception);
+        }
+    }
+
+    /// <summary>
+    /// Approves installing the update a desktop has staged, bound to the exact version and digest from
+    /// <paramref name="status"/> (a prior <see cref="ReadUpdateStatusAsync"/>). Needs a biometric confirmation; the desktop
+    /// refuses when its staged update has changed since the status was read.
+    /// </summary>
+    public Task<ControlResult> ApproveUpdateAsync(
+        string targetPeerId,
+        UpdateStatusResponse status,
+        string? commandId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (status.StagedVersion.Length == 0 || status.StagedArtifactSha256.Length != 32)
+        {
+            throw new MobileControlFailedException("The desktop has no staged update to approve.");
+        }
+
+        return SendControlAsync(
+            targetPeerId,
+            ControlRequest.ApproveUpdate(status.StagedVersion, status.StagedArtifactSha256.ToByteArray()),
+            commandId,
+            cancellationToken);
+    }
+
+    private async Task<PeerGrpcConnector> ConnectAsync(string targetPeerId, CancellationToken cancellationToken)
+    {
+        var peer = await store.ReadTrustedPeerAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+        if (peer is null || peer.TrustState != PeerTrustState.Active)
+        {
+            throw new MobileControlFailedException("That desktop is not an actively trusted peer.");
+        }
+
+        var locators = await store.ReadPeerLocatorsAsync(targetPeerId, cancellationToken).ConfigureAwait(false);
+        if (locators.Count == 0 || !System.Net.IPAddress.TryParse(locators[0].Host, out var address))
+        {
+            throw new MobileControlFailedException("No usable address is known for that desktop.");
+        }
+
+        var endpoint = new PeerPairingInvitation(address, locators[0].Port, peer.PeerId, peer.PublicKeyFingerprint, null).ToEndpoint();
+        var remote = new PeerPublicIdentity(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint);
+        return new PeerGrpcConnector(
+            PeerTransportOptions.Create(endpoint),
+            new P256PeerSessionAuthenticationProvider(identity.PublicIdentity, remote, identity.IdentityKey),
+            new PeerSyncApplication(store, replication));
+    }
+
     public Task RevokeAsync(string peerId, CancellationToken cancellationToken = default) =>
         store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken);
 
@@ -292,6 +464,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         try
         {
             var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+            await lan.RunAsync(cancellationToken).ConfigureAwait(false);
             lock (gate)
             {
                 collectionStatus = new MobileCollectionStatus(result.ObservedAt ?? collectionStatus.LastObservedAt,

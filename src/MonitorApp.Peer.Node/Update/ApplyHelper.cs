@@ -40,7 +40,12 @@ public static class ApplyHelper
     };
 
     /// <summary>Unprivileged side: write the request and wait (bounded) for the helper's result.</summary>
-    public sealed class HandoffApplier(NodeUpdateOptions options) : IUpdateApplier
+    /// <param name="options">Paths for the request/result handshake.</param>
+    /// <param name="launchHelper">
+    /// Starts the privileged helper when nothing else does (Windows: the on-demand scheduled task). Null on Linux, where
+    /// the systemd path unit fires on the request file. A launch failure is reported as a failed apply, never swallowed.
+    /// </param>
+    public sealed class HandoffApplier(NodeUpdateOptions options, Func<CancellationToken, Task>? launchHelper = null) : IUpdateApplier
     {
         public async Task<ApplyOutcome> ApplyAsync(ApplyRequest request, CancellationToken cancellationToken)
         {
@@ -50,6 +55,19 @@ public static class ApplyHelper
             var temp = options.RequestPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await File.WriteAllBytesAsync(temp, body, cancellationToken).ConfigureAwait(false);
             File.Move(temp, options.RequestPath, overwrite: true);
+
+            if (launchHelper is not null)
+            {
+                try
+                {
+                    await launchHelper(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+                {
+                    File.Delete(options.RequestPath);
+                    return new ApplyOutcome(ApplyOutcomeKind.Failed, "Could not start the update helper: " + exception.Message);
+                }
+            }
 
             var deadline = DateTimeOffset.UtcNow + (request.HealthTimeout * 3) + TimeSpan.FromMinutes(6);
             while (DateTimeOffset.UtcNow < deadline)
@@ -63,12 +81,12 @@ public static class ApplyHelper
             }
 
             File.Delete(options.RequestPath);
-            return new ApplyOutcome(ApplyOutcomeKind.Failed, "The privileged update helper did not report a result (is monitor-app-update.path enabled?).");
+            return new ApplyOutcome(ApplyOutcomeKind.Failed, "The privileged update helper did not report a result (Linux: is monitor-app-update.path enabled? Windows: is the MonitorAppUpdate task registered?).");
         }
     }
 
-    /// <summary>Root side. <paramref name="updateDirectory"/> is the service's (untrusted) update directory.</summary>
-    public static async Task<int> RunHelperAsync(
+    /// <summary>Root side (Linux). <paramref name="updateDirectory"/> is the service's (untrusted) update directory.</summary>
+    public static Task<int> RunHelperAsync(
         string updateDirectory,
         string keyFile,
         string workDirectory,
@@ -77,6 +95,42 @@ public static class ApplyHelper
         IProcessRunner? runner = null,
         TimeSpan? healthTimeout = null,
         CancellationToken cancellationToken = default)
+    {
+        var rpm = packageKind == "rpm";
+        return RunVerifiedAsync(
+            updateDirectory,
+            keyFile,
+            workDirectory,
+            rpm ? "fedora" : "ubuntu",
+            "pending-" + packageKind + "." + (rpm ? "rpm" : "deb"),
+            channel,
+            restrictStagedPathToUpdateDirectory: false,
+            marker => new LinuxPackageApplier(
+                runner ?? new SystemProcessRunner(),
+                new FileHealthProbe(marker),
+                new LinuxPackageOptions(
+                    rpm ? LinuxPackageKind.Rpm : LinuxPackageKind.Deb,
+                    Path.Combine(workDirectory, "retained"),
+                    new ServiceCommand("systemctl", ["restart", "monitor-app"]))),
+            healthTimeout,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Shared privileged flow: read and consume the request, then trust only the signed manifest and key file. The
+    /// artifact is copied to a private work directory and its digest verified on the copy before the platform applier runs.
+    /// </summary>
+    internal static async Task<int> RunVerifiedAsync(
+        string updateDirectory,
+        string keyFile,
+        string workDirectory,
+        string platform,
+        string pendingFileName,
+        string channel,
+        bool restrictStagedPathToUpdateDirectory,
+        Func<string, IUpdateApplier> createApplier,
+        TimeSpan? healthTimeout,
+        CancellationToken cancellationToken)
     {
         var requestPath = Path.Combine(updateDirectory, "apply-request.json");
         var resultPath = Path.Combine(updateDirectory, "apply-result.json");
@@ -122,6 +176,11 @@ public static class ApplyHelper
 
         try
         {
+            if (restrictStagedPathToUpdateDirectory && !IsUnder(request.StagedPath, updateDirectory))
+            {
+                return await FinishAsync(ApplyOutcomeKind.Failed, "The staged package is not inside the update directory.").ConfigureAwait(false);
+            }
+
             var installed = NodeUpdateOptions.InstalledVersionFromAssembly();
             var manifest = UpdateManifestCodec.VerifyAndRead(
                 File.ReadAllBytes(manifestPath),
@@ -131,31 +190,28 @@ public static class ApplyHelper
                 return await FinishAsync(ApplyOutcomeKind.Failed, "Signed manifest version differs from the approved version.").ConfigureAwait(false);
             }
 
-            var platform = packageKind == "rpm" ? "fedora" : "ubuntu";
             var artifact = UpdatePolicy.SelectArtifact(manifest, installed, channel, "node", platform, "x64");
 
             Directory.CreateDirectory(workDirectory);
-            var copy = Path.Combine(workDirectory, "pending-" + packageKind + "." + (packageKind == "rpm" ? "rpm" : "deb"));
+            var copy = Path.Combine(workDirectory, pendingFileName);
             File.Copy(request.StagedPath, copy, overwrite: true);
             await ArtifactIntegrityVerifier.VerifyFileAsync(copy, artifact, cancellationToken).ConfigureAwait(false);
 
-            var kind = packageKind == "rpm" ? LinuxPackageKind.Rpm : LinuxPackageKind.Deb;
-            var applier = new LinuxPackageApplier(
-                runner ?? new SystemProcessRunner(),
-                new FileHealthProbe(marker),
-                new LinuxPackageOptions(
-                    kind,
-                    Path.Combine(workDirectory, "retained"),
-                    new ServiceCommand("systemctl", ["restart", "monitor-app"])));
-            var outcome = await applier.ApplyAsync(
+            var outcome = await createApplier(marker).ApplyAsync(
                 new ApplyRequest(copy, target, installed, healthTimeout ?? TimeSpan.FromSeconds(90)),
                 cancellationToken).ConfigureAwait(false);
             File.Delete(copy);
             return await FinishAsync(outcome.Kind, outcome.Detail).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is UpdateVerificationException or IOException or FormatException)
+        catch (Exception exception) when (exception is UpdateVerificationException or IOException or FormatException or UnauthorizedAccessException)
         {
             return await FinishAsync(ApplyOutcomeKind.Failed, $"Refused to install: {exception.Message}").ConfigureAwait(false);
         }
+    }
+
+    private static bool IsUnder(string path, string directory)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 }

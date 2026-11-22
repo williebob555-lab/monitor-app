@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.PairingsView" x:DataType="vm:PairingsViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="Pairing and trust" Classes="heading" />
+    <Button Content="Refresh" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" />
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="Pairings" Classes="subheading" />
+    <TextBlock Text="Compare the fingerprint with the one shown on the other device before approving." TextWrapping="Wrap" />
+    <ItemsControl Name="PendingList" ItemsSource="{Binding Pending}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:PendingPairingRow">
+          <Border Classes="card">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding PeerId, StringFormat='Peer id: {0}'}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding ApprovalState, StringFormat='State: {0}'}" />
+              <TextBlock Text="{Binding ExpiresAt, StringFormat='Expires: {0}'}" />
+              <WrapPanel IsVisible="{Binding CanDecide}">
+                <Button Content="Approve" Margin="0,0,8,0" Command="{Binding #PendingList.((vm:PairingsViewModel)DataContext).ApproveCommand}" CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding Name, StringFormat='Approve pairing with {0}'}" />
+                <Button Content="Reject" Command="{Binding #PendingList.((vm:PairingsViewModel)DataContext).RejectCommand}" CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding Name, StringFormat='Reject pairing with {0}'}" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Text="Trusted and revoked peers" Classes="subheading" />
+    <Border IsVisible="{Binding IsRevocationPending}" Classes="card alarm">
+      <StackPanel Spacing="6">
+        <TextBlock Text="{Binding RevocationPrompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+        <WrapPanel>
+          <Button Content="Confirm revoke" Command="{Binding ConfirmRevokeCommand}" Margin="0,0,8,0" />
+          <Button Content="Cancel" Command="{Binding CancelRevokeCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+    <ItemsControl Name="PeerList" ItemsSource="{Binding Peers}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:TrustedPeerRow">
+          <Border Classes="card">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding TrustState, StringFormat='Trust: {0}'}" />
+              <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
+              <Button Content="Revoke trust..." IsVisible="{Binding CanRevoke}" HorizontalAlignment="Left"
+                      Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).RequestRevokeCommand}" CommandParameter="{Binding}"
+                      AutomationProperties.Name="{Binding Name, StringFormat='Revoke trust in {0}'}" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel></ScrollViewer>
+</UserControl>

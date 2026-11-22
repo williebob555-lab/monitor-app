@@ -3,7 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using MonitorApp.Client.Core;
 using MonitorApp.Client.Core.ViewModels;
-using MonitorApp.Client.Desktop.Views;
+
 
 namespace MonitorApp.Client.Desktop;
 

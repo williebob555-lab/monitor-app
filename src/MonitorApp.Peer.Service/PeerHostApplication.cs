@@ -22,6 +22,7 @@ public static class PeerHostApplication
                 listen => listen.Protocols = HttpProtocols.Http2));
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<PeerRuntimeState>();
+        builder.Services.AddSingleton<PeerSessionHandlerTracker>();
         builder.Services.AddGrpc(grpc =>
         {
             grpc.EnableDetailedErrors = false;

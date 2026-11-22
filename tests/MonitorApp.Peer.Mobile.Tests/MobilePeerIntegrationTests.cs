@@ -8,6 +8,10 @@ namespace MonitorApp.Peer.Mobile.Tests;
 
 public sealed class MobilePeerIntegrationTests
 {
+    // The state alone says nothing about why a session failed; the recorded error does.
+    private static void AssertState(MobileSyncState expected, MobilePeerSyncStatus status) =>
+        Assert.True(expected == status.State, $"Expected {expected}, got {status.State}: {status.LastError ?? "(no error)"}");
+
     private static MobilePeerOptions FastOptions(string dir) => new(
         dir, "test-phone", TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
@@ -41,23 +45,24 @@ public sealed class MobilePeerIntegrationTests
 
             // First phone-initiated session: both directions over the one outbound connection.
             var first = Assert.Single(await phone.SyncOnceAsync());
-            Assert.Equal(MobileSyncState.Synced, first.State);
+            AssertState(MobileSyncState.Synced, first);
             await AssertConvergedAsync(phone, desktop);
 
             // Desktop goes away; phone and desktop both keep collecting; sync reports offline.
             await desktop.StopHostAsync();
             await phone.CollectOnceAsync();
             await desktop.CollectAsync();
-            Assert.Equal(MobileSyncState.Offline, Assert.Single(await phone.SyncOnceAsync()).State);
+            AssertState(MobileSyncState.Offline, Assert.Single(await phone.SyncOnceAsync()));
             Assert.NotNull(phone.GetStatus().Peers[0].LastSuccess);
 
             // Reconnect: both histories converge with no duplicates, and a repeat session is idempotent.
             await desktop.StartHostAsync();
             await Task.Delay(300); // exceed the capped backoff
-            Assert.Equal(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()).State);
+            AssertState(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()));
             var counts = await AssertConvergedAsync(phone, desktop);
-            Assert.Equal(3 * 6, counts.PhoneOrigin);
-            Assert.Equal(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()).State);
+            // Per collection: 6 device records plus 8 phone-transport LAN records (Wi-Fi up, mtu, speed, duplex, metered, two bandwidth estimates; lan health).
+            Assert.Equal(3 * (6 + 8), counts.PhoneOrigin);
+            AssertState(MobileSyncState.Synced, Assert.Single(await phone.SyncOnceAsync()));
             Assert.Equal(counts, await AssertConvergedAsync(phone, desktop));
 
             // Phone-origin records on the desktop keep their provenance, units and quality.
@@ -75,7 +80,7 @@ public sealed class MobilePeerIntegrationTests
             await phone.CollectOnceAsync();
             await Task.Delay(300);
             var refused = Assert.Single(await phone.SyncOnceAsync());
-            Assert.Equal(MobileSyncState.Refused, refused.State);
+            AssertState(MobileSyncState.Refused, refused);
             var afterRevoke = await desktop.Store.ReadOriginRangeAsync(phoneLocal.PeerId, phoneLocal.OriginStreamId, 1, 1000);
             Assert.Equal(desktopCountBefore, afterRevoke.Count);
         }

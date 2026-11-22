@@ -42,6 +42,26 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task BoundApprovalRequiresTheExactStagedVersionAndDigest()
+    {
+        var applier = new RecordingApplier();
+        using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, applier);
+        await agent.RunCycleAsync(default);
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Package));
+        Assert.Equal(digest, agent.GetStatus().TargetDigest);
+
+        Assert.False(await agent.ApproveAsync("0.1.3", digest, default));
+        Assert.False(await agent.ApproveAsync("0.1.2", new string('0', 64), default));
+        await agent.WhenIdleAsync();
+        Assert.Equal(0, applier.Calls);
+
+        Assert.True(await agent.ApproveAsync("0.1.2", digest.ToUpperInvariant(), default));
+        await agent.WhenIdleAsync();
+        Assert.Equal(1, applier.Calls);
+        Assert.False(await agent.ApproveAsync("0.1.2", digest, default));
+    }
+
+    [Fact]
     public async Task AutoPolicyAppliesWithoutApproval()
     {
         var applier = new RecordingApplier();
@@ -167,6 +187,61 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task WindowsZipWithoutTheInstalledHelperStagesButNeverOffersApproval()
+    {
+        var applier = new RecordingApplier();
+        var options = Options(NodeUpdatePolicy.Auto, TimeSpan.FromHours(6), "zip", Path.Combine(directory, "install"));
+        using var agent = CreateWindows(options, applier);
+
+        await agent.RunCycleAsync(default);
+
+        var status = agent.GetStatus();
+        Assert.Equal("Staged", status.Stage);
+        Assert.False(status.ApprovalPending);
+        Assert.False(await agent.ApproveAsync(default));
+        Assert.Equal(0, applier.Calls);
+    }
+
+    [Fact]
+    public async Task WindowsZipWithTheInstalledHelperWaitsForApprovalThenApplies()
+    {
+        var installRoot = Path.Combine(directory, "install");
+        Directory.CreateDirectory(Path.Combine(installRoot, "versions"));
+        File.WriteAllText(Path.Combine(installRoot, WindowsApplyHelper.MarkerFileName), "{}");
+        var applier = new RecordingApplier();
+        using var agent = CreateWindows(Options(NodeUpdatePolicy.Approve, TimeSpan.FromHours(6), "zip", installRoot), applier);
+
+        await agent.RunCycleAsync(default);
+
+        Assert.True(agent.GetStatus().ApprovalPending);
+        Assert.Equal(0, applier.Calls);
+        Assert.True(await agent.ApproveAsync(default));
+        await agent.WhenIdleAsync();
+        Assert.Equal(1, applier.Calls);
+    }
+
+    [Fact]
+    public void InstallRootComesFromTheEnvironmentAndGatesWindowsApply()
+    {
+        var node = new NodeOptions(directory, System.Net.IPAddress.Loopback, 1, 0);
+        var options = NodeUpdateOptions.FromEnvironment(node, name => name == NodeUpdateOptions.InstallRootVariable ? directory : null);
+        Assert.Equal(directory, options.InstallRoot);
+        Assert.Null(NodeUpdateOptions.FromEnvironment(node, _ => null).InstallRoot);
+        Assert.True(Options(NodeUpdatePolicy.Approve, TimeSpan.FromHours(1), "deb").CanApplyHere);
+        Assert.True(Options(NodeUpdatePolicy.Approve, TimeSpan.FromHours(1), "rpm").CanApplyHere);
+        Assert.False(Options(NodeUpdatePolicy.Approve, TimeSpan.FromHours(1), "zip").CanApplyHere);
+    }
+
+    private NodeUpdateAgent CreateWindows(NodeUpdateOptions options, IUpdateApplier applier) =>
+        new(
+            options,
+            new TrustedUpdateKey("preview-key", key.ExportSubjectPublicKeyInfo()),
+            new FakeFetcher(Envelope("0.1.2", Package, platform: "windows", extension: "zip")),
+            new FakeDownloader(Package),
+            applier,
+            NullLogger<NodeUpdateAgent>.Instance);
+
+    [Fact]
     public void FetcherRejectsNonHttpsAndMalformedRepository()
     {
         using var client = new HttpClient();
@@ -186,7 +261,7 @@ public sealed class NodeUpdateAgentTests : IDisposable
         }
     }
 
-    private NodeUpdateOptions Options(NodeUpdatePolicy policy, TimeSpan interval) =>
+    private NodeUpdateOptions Options(NodeUpdatePolicy policy, TimeSpan interval, string packageKind = "deb", string? installRoot = null) =>
         new(
             policy,
             "owner/repo",
@@ -195,9 +270,10 @@ public sealed class NodeUpdateAgentTests : IDisposable
             interval,
             Path.Combine(directory, "update"),
             Path.Combine(directory, "update-key.json"),
-            "deb",
+            packageKind,
             ReleaseVersion.Parse("0.1.1"),
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            installRoot);
 
     private NodeUpdateAgent Create(
         NodeUpdatePolicy policy,
@@ -213,7 +289,7 @@ public sealed class NodeUpdateAgentTests : IDisposable
             applier,
             NullLogger<NodeUpdateAgent>.Instance);
 
-    private byte[] Envelope(string version, byte[] artifact, ECDsa? signer = null) =>
+    private byte[] Envelope(string version, byte[] artifact, ECDsa? signer = null, string platform = "ubuntu", string extension = "deb") =>
         UpdateManifestCodec.CreateSignedEnvelope(
             new UpdateManifest(
                 UpdateManifestCodec.CurrentSchemaVersion,
@@ -224,9 +300,9 @@ public sealed class NodeUpdateAgentTests : IDisposable
                 [
                     new UpdateArtifact(
                         "node",
-                        "ubuntu",
+                        platform,
                         "x64",
-                        new Uri($"https://github.com/o/r/releases/download/preview-{version}/monitorapp-node-ubuntu-x64-{version}.deb"),
+                        new Uri($"https://github.com/o/r/releases/download/preview-{version}/monitorapp-node-{platform}-x64-{version}.{extension}"),
                         artifact.Length,
                         Convert.ToHexStringLower(SHA256.HashData(artifact))),
                 ]),

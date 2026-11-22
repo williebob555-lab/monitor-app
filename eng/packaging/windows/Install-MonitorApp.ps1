@@ -6,10 +6,12 @@ for review; see docs/TESTING.md. Run from the extracted zip root (it contains no
   pwsh .\Install-MonitorApp.ps1 [-PeerBind <tailnet address>]
 
 Installs the node as the MonitorApp service (via install-service.ps1), copies the desktop app to
-%ProgramFiles%\MonitorApp\Desktop and adds a Start menu shortcut for all users. Re-running over an existing
+%ProgramFiles%\MonitorApp\current\desktop and adds a Start menu shortcut for all users. Re-running over an existing
 install replaces the binaries and KEEPS the node identity and data. The service is started after install.
-On Windows the node only downloads and verifies updates (preview); install a newer build by re-running this script
-from the new zip. Applying updates in place is a TODO.
+Layout is side by side (versions\<version>\node and \desktop, with 'current' pointing at the active one) and a
+SYSTEM-run on-demand scheduled task, MonitorAppUpdate, lets the node install an approved, signed update in place
+(stop, switch, start, health check, roll back on failure). The node still waits for your approval ("Ask me first").
+Re-running this script from a newer zip also works and replaces the whole install, keeping identity and data.
 #>
 [CmdletBinding()]
 param(
@@ -39,15 +41,16 @@ $installArguments = @{
     DataDirectory    = $DataDirectory
     PeerPort         = $PeerPort
     AdminPort        = $AdminPort
+    DesktopDirectory = $desktopSource
 }
 if ($PeerBind) { $installArguments.PeerBind = $PeerBind }
 & (Join-Path $here 'install-service.ps1') @installArguments
 
-$desktopTarget = Join-Path $InstallDirectory 'Desktop'
-New-Item -ItemType Directory -Force -Path $desktopTarget | Out-Null
-Copy-Item -Path (Join-Path $desktopSource '*') -Destination $desktopTarget -Recurse -Force
-# install-service.ps1 restricted the install directory ACL; let all users read and run the desktop app.
-& icacls.exe $desktopTarget /grant:r '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
+# The desktop app lives in the active version directory and is reached through 'current', so updates replace it too.
+# install-service.ps1 restricted the install directory ACL; let all users traverse and run the desktop app.
+$desktopTarget = Join-Path $InstallDirectory 'current\desktop'
+& icacls.exe $InstallDirectory '/grant:r' '*S-1-5-32-545:(RX)' | Out-Null
+& icacls.exe (Join-Path $InstallDirectory 'versions') '/grant:r' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 
 $shortcutDirectory = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
 $shell = New-Object -ComObject WScript.Shell

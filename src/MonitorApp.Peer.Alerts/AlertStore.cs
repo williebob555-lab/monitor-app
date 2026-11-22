@@ -16,7 +16,7 @@ public sealed record AlertStoreOptions(string DatabasePath, TimeSpan BusyTimeout
 /// </summary>
 public sealed class AlertStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 4;
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
 
@@ -116,6 +116,53 @@ public sealed class AlertStore
                 """, [], cancellationToken).ConfigureAwait(false);
         }
 
+        if (current < 2)
+        {
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_mutes(
+                    scope TEXT PRIMARY KEY,
+                    muted_until TEXT NOT NULL,
+                    muted_by TEXT NOT NULL,
+                    muted_at TEXT NOT NULL);
+                CREATE TABLE alert_operator_acks(
+                    alert_id TEXT PRIMARY KEY,
+                    acknowledged_by TEXT NOT NULL,
+                    acknowledged_at TEXT NOT NULL);
+                UPDATE alert_schema_version SET version = 2 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
+        if (current < 3)
+        {
+            // T047: mutes are per recipient. Existing (global) mutes become the issuing phone's own mute.
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_mutes_v3(
+                    recipient_peer_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    muted_until TEXT NOT NULL,
+                    muted_at TEXT NOT NULL,
+                    PRIMARY KEY(recipient_peer_id, scope));
+                INSERT INTO alert_mutes_v3(recipient_peer_id, scope, muted_until, muted_at)
+                    SELECT muted_by, scope, muted_until, muted_at FROM alert_mutes;
+                DROP TABLE alert_mutes;
+                ALTER TABLE alert_mutes_v3 RENAME TO alert_mutes;
+                UPDATE alert_schema_version SET version = 3 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
+        if (current < 4)
+        {
+            // T049: durable per-recipient delivery preferences (minimum severity, opted-out rule kinds).
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE alert_preferences(
+                    recipient_peer_id TEXT PRIMARY KEY,
+                    min_severity INTEGER NOT NULL,
+                    muted_rule_kinds TEXT NOT NULL,
+                    updated_at TEXT NOT NULL);
+                UPDATE alert_schema_version SET version = 4 WHERE singleton_id = 1;
+                """, [], cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -157,8 +204,11 @@ public sealed class AlertStore
 
         foreach (var recipient in recipients)
         {
-            await EnqueueAsync(connection, transaction, recipient, alert.AlertId, 1, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, recipient, alert, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, recipient, alert.AlertId, 1, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -206,8 +256,11 @@ public sealed class AlertStore
 
         foreach (var recipient in recipients)
         {
-            await EnqueueAsync(connection, transaction, recipient, resolved.AlertId, 2, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, recipient, resolved, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, recipient, resolved.AlertId, 2, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -269,8 +322,11 @@ public sealed class AlertStore
             transaction).ConfigureAwait(false);
         foreach (var alert in active)
         {
-            await EnqueueAsync(connection, transaction, peerId, alert.AlertId, alert.Revision, now, outboxTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (await WantsAsync(connection, transaction, peerId, alert, cancellationToken).ConfigureAwait(false))
+            {
+                await EnqueueAsync(connection, transaction, peerId, alert.AlertId, alert.Revision, now, outboxTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -309,11 +365,174 @@ public sealed class AlertStore
         var alerts = await QueryAlertsAsync(connection, AlertSelect + """
              WHERE EXISTS (SELECT 1 FROM alert_outbox o WHERE o.recipient_peer_id = $recipient AND o.alert_id = alerts.alert_id
                 AND o.acked_at IS NULL AND o.expires_at > $now)
+                AND NOT EXISTS (SELECT 1 FROM alert_mutes m WHERE m.recipient_peer_id = $recipient AND m.muted_until > $now AND (m.scope = '*' OR m.scope = alerts.rule_id))
              ORDER BY raised_at, alert_id LIMIT $limit;
             """,
             [("$recipient", recipientPeerId), ("$now", Format(now)), ("$limit", maximum + 1)], cancellationToken)
             .ConfigureAwait(false);
         return (alerts.Take(maximum).ToArray(), alerts.Count > maximum);
+    }
+
+    /// <summary>
+    /// Mutes delivery of alerts to one recipient for a rule (or every rule with scope "*") until <paramref name="until"/>.
+    /// Other recipients are unaffected. Muted alerts stay queued in the outbox (until their own expiry) and are delivered
+    /// after the mute is lifted or lapses.
+    /// </summary>
+    public async Task MuteAsync(
+        string recipientPeerId, string scope, DateTimeOffset until, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, null,
+            """
+            INSERT INTO alert_mutes(recipient_peer_id, scope, muted_until, muted_at) VALUES ($recipient, $scope, $until, $at)
+            ON CONFLICT(recipient_peer_id, scope) DO UPDATE SET muted_until = excluded.muted_until, muted_at = excluded.muted_at;
+            """,
+            [("$recipient", recipientPeerId), ("$scope", scope), ("$until", Format(until)), ("$at", Format(now))],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Lifts one recipient's mute and wakes that recipient's live session so queued alerts are delivered promptly. True when one existed.</summary>
+    public async Task<bool> UnmuteAsync(string recipientPeerId, string scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var removed = await ExecuteAsync(connection, null,
+            "DELETE FROM alert_mutes WHERE recipient_peer_id = $recipient AND scope = $scope;",
+            [("$recipient", recipientPeerId), ("$scope", scope)], cancellationToken).ConfigureAwait(false);
+        if (removed > 0)
+        {
+            OutboxEnqueued?.Invoke([recipientPeerId]);
+        }
+
+        return removed > 0;
+    }
+
+    /// <summary>Mutes still in force at <paramref name="now"/> as (recipient, scope, until).</summary>
+    public async Task<IReadOnlyList<(string Recipient, string Scope, DateTimeOffset Until)>> ReadActiveMutesAsync(
+        DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT recipient_peer_id, scope, muted_until FROM alert_mutes WHERE muted_until > $now ORDER BY recipient_peer_id, scope;";
+        command.Parameters.AddWithValue("$now", Format(now));
+        var result = new List<(string, string, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add((reader.GetString(0), reader.GetString(1), Parse(reader.GetString(2))));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Replaces one recipient's delivery preferences. Only alerts raised or resolved afterwards are filtered; rows already
+    /// queued are unaffected. Filtered alerts are still recorded as events, they are just not queued for this recipient.
+    /// </summary>
+    public async Task SetPreferencesAsync(
+        string recipientPeerId,
+        AlertSeverity minimumSeverity,
+        IReadOnlyCollection<string> mutedRuleKinds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientPeerId);
+        ArgumentNullException.ThrowIfNull(mutedRuleKinds);
+        if (minimumSeverity is < AlertSeverity.Unspecified or > AlertSeverity.Critical)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minimumSeverity));
+        }
+
+        var kinds = mutedRuleKinds.Select(kind => kind?.Trim() ?? string.Empty).Where(kind => kind.Length > 0)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, null,
+            """
+            INSERT INTO alert_preferences(recipient_peer_id, min_severity, muted_rule_kinds, updated_at) VALUES ($recipient, $min, $kinds, $at)
+            ON CONFLICT(recipient_peer_id) DO UPDATE SET min_severity = excluded.min_severity, muted_rule_kinds = excluded.muted_rule_kinds, updated_at = excluded.updated_at;
+            """,
+            [("$recipient", recipientPeerId), ("$min", (int)minimumSeverity), ("$kinds", string.Join('\n', kinds)), ("$at", Format(now))],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stored preferences (recipients without a row use the default: everything).</summary>
+    public async Task<IReadOnlyList<AlertPreferences>> ReadPreferencesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT recipient_peer_id, min_severity, muted_rule_kinds, updated_at FROM alert_preferences ORDER BY recipient_peer_id;";
+        var result = new List<AlertPreferences>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new AlertPreferences(
+                reader.GetString(0), (AlertSeverity)reader.GetInt32(1), SplitKinds(reader.GetString(2)), Parse(reader.GetString(3))));
+        }
+
+        return result;
+    }
+
+    private static string[] SplitKinds(string text) => text.Length == 0 ? [] : text.Split('\n');
+
+    private static async Task<bool> WantsAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string recipient, Alert alert, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT min_severity, muted_rule_kinds FROM alert_preferences WHERE recipient_peer_id = $r;";
+        command.Parameters.AddWithValue("$r", recipient);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        return (int)alert.Severity >= reader.GetInt32(0) && !SplitKinds(reader.GetString(1)).Contains(alert.RuleId, StringComparer.Ordinal);
+    }
+
+    /// <summary>Records an operator acknowledgement of a known alert. False when the alert does not exist; idempotent.</summary>
+    public async Task<bool> AcknowledgeByOperatorAsync(
+        string alertId, string acknowledgedBy, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(alertId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(acknowledgedBy);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var exists = connection.CreateCommand();
+        exists.Transaction = transaction;
+        exists.CommandText = "SELECT 1 FROM alerts WHERE alert_id = $id;";
+        exists.Parameters.AddWithValue("$id", alertId);
+        if (await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is null)
+        {
+            return false;
+        }
+
+        await ExecuteAsync(connection, transaction,
+            "INSERT OR IGNORE INTO alert_operator_acks(alert_id, acknowledged_by, acknowledged_at) VALUES ($id, $by, $at);",
+            [("$id", alertId), ("$by", acknowledgedBy), ("$at", Format(now))], cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>Operator acknowledgements as (alert id, acknowledged by, acknowledged at).</summary>
+    public async Task<IReadOnlyList<(string AlertId, string By, DateTimeOffset At)>> ReadOperatorAcknowledgementsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT alert_id, acknowledged_by, acknowledged_at FROM alert_operator_acks ORDER BY acknowledged_at, alert_id;";
+        var result = new List<(string, string, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add((reader.GetString(0), reader.GetString(1), Parse(reader.GetString(2))));
+        }
+
+        return result;
     }
 
     public async Task RecordAttemptsAsync(
@@ -387,6 +606,64 @@ public sealed class AlertStore
         }
 
         return result;
+    }
+
+    /// <summary>Delivery bookkeeping for the given alerts across all recipients (empty when none were queued or all were purged).</summary>
+    public async Task<IReadOnlyList<OutboxEntry>> ReadOutboxForAlertsAsync(
+        IReadOnlyCollection<string> alertIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alertIds);
+        if (alertIds.Count == 0)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        var names = alertIds.Select((_, index) => "$a" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
+        command.CommandText = $"""
+            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at
+            FROM alert_outbox WHERE alert_id IN ({string.Join(',', names)}) ORDER BY alert_id, recipient_peer_id, revision;
+            """;
+        var position = 0;
+        foreach (var id in alertIds)
+        {
+            command.Parameters.AddWithValue(names[position++], id);
+        }
+
+        var result = new List<OutboxEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new OutboxEntry(
+                reader.GetString(0), reader.GetString(1), checked((uint)reader.GetInt64(2)), Parse(reader.GetString(3)),
+                Parse(reader.GetString(4)), reader.GetInt32(5),
+                reader.IsDBNull(6) ? null : Parse(reader.GetString(6)),
+                reader.IsDBNull(7) ? null : Parse(reader.GetString(7))));
+        }
+
+        return result;
+    }
+
+    /// <summary>When the owner's most recent episode for the rule and subject resolved, or null if none has.</summary>
+    public async Task<DateTimeOffset?> ReadLastResolvedAtAsync(
+        string originPeerId,
+        string ruleId,
+        string subjectId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT MAX(resolved_at) FROM alerts
+            WHERE origin_peer_id = $origin AND rule_id = $rule AND subject_id = $subject AND state = 2;
+            """;
+        command.Parameters.AddWithValue("$origin", originPeerId);
+        command.Parameters.AddWithValue("$rule", ruleId);
+        command.Parameters.AddWithValue("$subject", subjectId);
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is string text ? Parse(text) : null;
     }
 
     /// <summary>Deletes delivery bookkeeping only (acknowledged or expired before the cutoff); alert events are kept.</summary>
@@ -556,11 +833,21 @@ public sealed class AlertStore
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA busy_timeout={busyTimeoutMilliseconds.ToString(CultureInfo.InvariantCulture)};";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            MonitorApp.Peer.Persistence.SqliteConnectionTracker.Track(connection);
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA busy_timeout={busyTimeoutMilliseconds.ToString(CultureInfo.InvariantCulture)};";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            // A cancelled or failed configuration must not leave an open handle on the database file behind.
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static string Format(DateTimeOffset value)

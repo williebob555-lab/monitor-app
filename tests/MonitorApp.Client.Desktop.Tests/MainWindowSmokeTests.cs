@@ -1,8 +1,9 @@
+using Avalonia.Headless;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using MonitorApp.Client.Core.ViewModels;
-using MonitorApp.Client.Desktop.Views;
+using MonitorApp.Client.Ui.Views;
 using Xunit;
 
 namespace MonitorApp.Client.Desktop.Tests;
@@ -19,7 +20,7 @@ public sealed class MainWindowSmokeTests
         window.Show();
 
         await model.ConnectAsync();
-        var tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
+        var nav = window.GetVisualDescendants().OfType<ListBox>().Single(box => box.Name == "NavList");
         foreach (var section in model.Sections)
         {
             model.SelectedSection = section;
@@ -28,9 +29,14 @@ public sealed class MainWindowSmokeTests
             Assert.Null(section.ErrorMessage);
         }
 
-        Assert.Equal(model.Sections.Count, tabs.ItemCount);
+        Assert.Equal(model.Sections.Count, nav.ItemCount);
         Assert.StartsWith("Connected", model.ConnectionStatus, StringComparison.Ordinal);
         Assert.Equal("peer-local", model.Overview.LocalPeerId);
+
+        // A frame really renders through Skia.
+        using var frame = window.CaptureRenderedFrame();
+        Assert.NotNull(frame);
+        Assert.True(frame!.PixelSize.Width > 0 && frame.PixelSize.Height > 0);
         window.Close();
     }
 }

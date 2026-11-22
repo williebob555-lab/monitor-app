@@ -33,7 +33,16 @@ public sealed class PeerSystemMetricsIngestionBridge
         this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public async Task<PeerCollectionRunResult> RunOnceAsync(CancellationToken cancellationToken = default)
+    public Task<PeerCollectionRunResult> RunOnceAsync(CancellationToken cancellationToken = default) =>
+        RunOnceAsync(null, cancellationToken);
+
+    /// <summary>
+    /// One collection run. With a <paramref name="signalFilter"/> only the named signals are stored (the cheap fast path
+    /// while a viewer watches specific signals); null stores everything.
+    /// </summary>
+    public async Task<PeerCollectionRunResult> RunOnceAsync(
+        IReadOnlySet<string>? signalFilter,
+        CancellationToken cancellationToken = default)
     {
         if (Interlocked.CompareExchange(ref running, 1, 0) != 0)
         {
@@ -61,6 +70,9 @@ public sealed class PeerSystemMetricsIngestionBridge
 
             cancellationToken.ThrowIfCancellationRequested();
             var observedAt = RequireUtc(snapshot.ObservedAt);
+            // Another bridge on the same store (LAN links) may be allocating local sequences right now.
+            await store.LocalAppendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            using var appendGate = new GateRelease(store.LocalAppendGate);
             var receivedAt = RequireUtc(utcNow());
             var identity = await store.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) ??
                 throw new InvalidOperationException("Local peer persistence identity is not initialized.");
@@ -71,6 +83,11 @@ public sealed class PeerSystemMetricsIngestionBridge
                 options.BootId,
                 options.CollectorId,
                 snapshot);
+            if (signalFilter is not null)
+            {
+                envelopes = [.. envelopes.Where(envelope => signalFilter.Contains(SignalId(envelope)))];
+            }
+
             if (envelopes.Count > options.MaximumRecordsPerRun)
             {
                 throw new InvalidOperationException("Collected snapshot exceeds the configured record limit.");
@@ -187,4 +204,10 @@ public sealed class PeerSystemMetricsIngestionBridge
         value.Offset == TimeSpan.Zero
             ? value
             : throw new InvalidOperationException("Collection timestamps must use UTC.");
+
+    private readonly struct GateRelease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
 }
+

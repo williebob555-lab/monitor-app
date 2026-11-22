@@ -9,9 +9,12 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
     private readonly TimeSpan interval;
     private readonly LiveInterestRegistry? interests;
     private readonly string? subjectPeerId;
+    private readonly MonitoringControlState? control;
+    private readonly string collectorId;
     private readonly CancellationTokenSource lifetime = new();
     private Task? loop;
     private long currentIntervalTicks;
+    private long lastFullCollection = Environment.TickCount64;
 
     /// <param name="interests">When set (with <paramref name="subjectPeerId"/>), live interest in this peer's own data
     /// switches sampling to the registry's fast interval until the interest lapses.</param>
@@ -19,8 +22,12 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
         PeerSystemMetricsIngestionBridge collection,
         TimeSpan? interval = null,
         LiveInterestRegistry? interests = null,
-        string? subjectPeerId = null)
+        string? subjectPeerId = null,
+        MonitoringControlState? control = null,
+        string collectorId = "monitor.system")
     {
+        this.control = control;
+        this.collectorId = collectorId;
         this.interests = interests;
         this.subjectPeerId = subjectPeerId;
         this.collection = collection ?? throw new ArgumentNullException(nameof(collection));
@@ -47,7 +54,11 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
     }
 
     public Task<PeerCollectionRunResult> RunOnceAsync(
-        CancellationToken cancellationToken = default) => collection.RunOnceAsync(cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+        return collection.RunOnceAsync(cancellationToken);
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -79,18 +90,41 @@ public sealed class NodeCollectionScheduler : IAsyncDisposable
                 subjectPeerId is null ? null : interests,
                 collectImmediately: false,
                 onInterval: value => Interlocked.Exchange(ref currentIntervalTicks, value.Ticks),
-                lifetime.Token).ConfigureAwait(false);
+                lifetime.Token,
+                control).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
         }
     }
 
+    /// <summary>True while an operator has paused this collector (scheduled collection is skipped).</summary>
+    public bool IsPaused => control?.IsPaused(collectorId) == true;
+
     private async Task CollectAsync(CancellationToken cancellationToken)
     {
+        if (IsPaused)
+        {
+            return;
+        }
+
         try
         {
-            var result = await collection.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+            // Viewers that named signals narrow the fast loop to those signals; everything else is still collected in
+            // full once per normal interval so the rest of the history does not go quiet while someone watches.
+            var filter = subjectPeerId is null ? null : interests?.FastSignalFilter(subjectPeerId);
+            var fullDue = Environment.TickCount64 - Interlocked.Read(ref lastFullCollection) >= interval.TotalMilliseconds;
+            if (filter is not null && fullDue)
+            {
+                filter = null;
+            }
+
+            if (filter is null)
+            {
+                Interlocked.Exchange(ref lastFullCollection, Environment.TickCount64);
+            }
+
+            var result = await collection.RunOnceAsync(filter, cancellationToken).ConfigureAwait(false);
             if (result.Status == PeerCollectionRunStatus.Completed)
             {
                 LastFailureKind = null;

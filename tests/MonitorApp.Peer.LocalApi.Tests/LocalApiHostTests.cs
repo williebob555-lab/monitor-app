@@ -92,6 +92,25 @@ public sealed class LocalApiHostTests : IDisposable
     }
 
     [Fact]
+    public async Task AlertsEndpointExposesPerRecipientDeliveryState()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        var alert = new Alert(
+            Alert.CreateId("peer-local", "rule.x", "s", Now), 1, "rule.x", "s", "peer-local",
+            MonitorApp.Contracts.V1.AlertSeverity.Warning, MonitorApp.Contracts.V1.AlertState.Raised, "T", "D", Now, null);
+        await fixture.Alerts.RaiseAsync(alert, ["peer-phone-a", "peer-phone-b"], TimeSpan.FromDays(1), Now);
+        await fixture.Alerts.AcknowledgeAsync("peer-phone-a", [(alert.AlertId, 1u)], Now.AddSeconds(3));
+
+        using var document = JsonDocument.Parse(await fixture.Client.GetStringAsync("api/v1/alerts"));
+        var item = Assert.Single(document.RootElement.GetProperty("alerts").EnumerateArray());
+        var deliveries = item.GetProperty("deliveries").EnumerateArray().ToDictionary(
+            entry => entry.GetProperty("recipientPeerId").GetString()!);
+        Assert.Equal(JsonValueKind.String, deliveries["peer-phone-a"].GetProperty("deliveredAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, deliveries["peer-phone-b"].GetProperty("deliveredAt").ValueKind);
+        Assert.Equal(1, deliveries["peer-phone-a"].GetProperty("revision").GetInt32());
+    }
+
+    [Fact]
     public async Task MutationWithoutCsrfTokenIsForbidden()
     {
         await using var fixture = await Fixture.CreateAsync(directory);
@@ -356,7 +375,8 @@ public sealed class LocalApiHostTests : IDisposable
             string directory,
             IPeerInvitationService? invitationService = null,
             PhonePairingOptions? phonePairing = null,
-            ILocalUpdateController? updates = null)
+            ILocalUpdateController? updates = null,
+            LocalPresenceService? presence = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -427,7 +447,8 @@ public sealed class LocalApiHostTests : IDisposable
                 invitationService,
                 phonePairing,
                 alerts,
-                updates: updates);
+                updates: updates,
+                localPresence: presence);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {

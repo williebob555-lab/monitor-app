@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Node;
 using Xunit;
 
@@ -18,6 +19,17 @@ public sealed class NodeServiceHostTests
         Assert.Equal("/srv/state/mon", custom.DataDirectory);
         var fallback = NodeOptions.Parse([], serviceMode: true, _ => null);
         Assert.Equal("/var/lib/monitor-app", fallback.DataDirectory);
+    }
+
+    [Fact]
+    public void LocalPresencePolicyDefaultsToRequiredWhenEnrolledAndRejectsUnknownValues()
+    {
+        Assert.Equal(LocalPresencePolicy.RequiredWhenEnrolled, NodeOptions.Parse([], false, _ => null).LocalPresence);
+        Assert.Equal(
+            LocalPresencePolicy.Required,
+            NodeOptions.Parse([], false, name => name == NodeOptions.LocalPresenceVariable ? "required" : null).LocalPresence);
+        Assert.Equal(LocalPresencePolicy.Off, NodeOptions.Parse(["--local-presence", "off"], false, name => name == NodeOptions.LocalPresenceVariable ? "required" : null).LocalPresence);
+        Assert.Throws<ArgumentException>(() => NodeOptions.Parse(["--local-presence", "maybe"], false, _ => null));
     }
 
     [Fact]

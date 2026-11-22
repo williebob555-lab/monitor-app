@@ -1,3 +1,4 @@
+using MonitorApp.Peer.Persistence;
 namespace MonitorApp.Peer.Replication;
 
 public sealed record OriginReplicationOptions(int MaximumBatchRecords, int MaximumBatchBytes, int CursorScanLimit)
@@ -55,6 +56,15 @@ public sealed class OriginRangePrunedException : OriginReplicationException
         RequestedSequence = requestedSequence;
         PrunedThroughSequence = prunedThroughSequence;
     }
+
+    public OriginRangePrunedException(ulong requestedSequence, PrunedOriginRange range)
+        : this(requestedSequence, (range ?? throw new ArgumentNullException(nameof(range))).LastSequence)
+    {
+        Range = range;
+    }
+
+    /// <summary>The exact pruned range, when known; replicas record it as intentionally absent.</summary>
+    public PrunedOriginRange? Range { get; }
 
     public ulong RequestedSequence { get; }
 

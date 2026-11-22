@@ -353,6 +353,48 @@ public sealed partial class PeerStore
         await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Durably records a sequence range as intentionally absent (pruned locally, or reported pruned by the origin),
+    /// merging it with overlapping or adjacent ranges. Idempotent.
+    /// </summary>
+    public async Task RecordPrunedRangeAsync(PrunedOriginRange range, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        EnsureIdentifier(range.OriginPeerId, nameof(range));
+        EnsureIdentifier(range.OriginStreamId, nameof(range));
+        EnsureUtc(range.PrunedAt, nameof(range));
+        if (range.FirstSequence == 0 || range.LastSequence < range.FirstSequence)
+        {
+            throw new ArgumentException("A pruned range needs a positive first sequence and a last sequence not before it.", nameof(range));
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+        await MergePrunedRangeAsync(connection, transaction, range, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Pruned (intentionally absent) ranges ending at or after the sequence, in sequence order.</summary>
+    public async Task<IReadOnlyList<PrunedOriginRange>> ReadPrunedRangesFromAsync(string originPeerId, string originStreamId, ulong sequence, CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(originPeerId, nameof(originPeerId));
+        EnsureIdentifier(originStreamId, nameof(originStreamId));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT first_sequence, last_sequence, pruned_at FROM pruned_origin_ranges WHERE origin_peer_id = $o AND origin_stream_id = $s AND last_sequence >= $q ORDER BY first_sequence;";
+        command.Parameters.AddWithValue("$o", originPeerId);
+        command.Parameters.AddWithValue("$s", originStreamId);
+        command.Parameters.AddWithValue("$q", ToInt64(sequence));
+        var result = new List<PrunedOriginRange>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new PrunedOriginRange(originPeerId, originStreamId, ToUInt64(reader.GetInt64(0)), ToUInt64(reader.GetInt64(1)), Parse(reader.GetString(2))));
+        }
+
+        return result;
+    }
+
     /// <summary>The pruned range containing the sequence, or null when it was never pruned.</summary>
     public async Task<PrunedOriginRange?> ReadPrunedRangeContainingAsync(string originPeerId, string originStreamId, ulong sequence, CancellationToken cancellationToken = default)
     {

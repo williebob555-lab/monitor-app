@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.DevicesView" x:DataType="vm:DevicesViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="Devices" Classes="heading" />
+    <WrapPanel>
+      <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,12,0" />
+      <TextBlock Text="{Binding UpdateMode, StringFormat='Updates: {0}'}" VerticalAlignment="Center" />
+    </WrapPanel>
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <ItemsControl ItemsSource="{Binding Devices}" AutomationProperties.Name="Devices">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:DeviceRow">
+          <Border Classes="card">
+            <StackPanel Spacing="4">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <!-- State is text, never colour alone. -->
+                <TextBlock Grid.Column="1" Text="{Binding Status}" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </Grid>
+              <TextBlock Text="{Binding Role}" Classes="label" />
+              <TextBlock Text="{Binding HeadlineText}" FontSize="16" TextWrapping="Wrap" IsVisible="{Binding HasHeadline}" />
+              <TextBlock Text="{Binding LastSeen, StringFormat='Last reading: {0}'}" Classes="muted" FontSize="13" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel></ScrollViewer>
+</UserControl>

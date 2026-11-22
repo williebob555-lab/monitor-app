@@ -115,14 +115,31 @@ try {
             --no-build
     }
 
-    Invoke-VerificationStep "Run desktop client core tests against the real local API" {
-        dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+    if ($IsLinux) {
+        Invoke-VerificationStep "Run desktop client core tests against the real local API" {
+            dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+                -c Release `
+                --no-build
+        }
+    }
+    else {
+        Invoke-VerificationStep "Run desktop client core tests against the real local API" {
+            dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category!=Linux"
+        }
+        Write-Warning "NOT RUN: fprintd presence tests (Category=Linux) require Linux; they run on the Ubuntu job."
+    }
+
+    Invoke-VerificationStep "Run headless shared client UI tests (desktop and phone widths)" {
+        dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
             -c Release `
             --no-build
     }
 
-    Invoke-VerificationStep "Run headless desktop client smoke test" {
-        dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
+    Invoke-VerificationStep "Run in-process phone client data source tests" {
+        dotnet test tests/MonitorApp.Client.Mobile.Tests/MonitorApp.Client.Mobile.Tests.csproj `
             -c Release `
             --no-build
     }

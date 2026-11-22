@@ -6,6 +6,10 @@
   <!-- specialUse avoids the 6-hour dataSync timeout of Android 15; this app is distributed by sideload, not Play. -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Camera is only used to scan the pairing QR on a computer's admin page; the typed code works without it. -->
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.any" android:required="false" />
   <application
       android:allowBackup="false"
       android:label="Monitor App"

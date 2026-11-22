@@ -15,14 +15,15 @@ public static class AdaptiveSampler
         LiveInterestRegistry? interests,
         bool collectImmediately,
         Action<TimeSpan>? onInterval,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MonitoringControlState? control = null)
     {
         ArgumentNullException.ThrowIfNull(work);
         ArgumentException.ThrowIfNullOrWhiteSpace(subjectPeerId);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(normalInterval, TimeSpan.Zero);
 
         using var wake = new SemaphoreSlim(0, 1);
-        using var subscription = interests?.Subscribe(() =>
+        void Wake()
         {
             try
             {
@@ -32,20 +33,27 @@ public static class AdaptiveSampler
             {
                 // A wake-up is already pending; coalescing is exactly what is wanted.
             }
-        });
+        }
+
+        using var subscription = interests?.Subscribe(Wake);
+        using var controlSubscription = control?.Subscribe(Wake);
         var first = true;
         while (!cancellationToken.IsCancellationRequested)
         {
+            // The period runs from the start of a collection, not its end, so a slow collector (Windows counters can
+            // take about a second) still samples at the target rate; an overrunning collection starts the next at once.
+            var waited = Stopwatch.StartNew();
             if (!first || collectImmediately)
             {
                 await work(cancellationToken).ConfigureAwait(false);
             }
 
             first = false;
-            var waited = Stopwatch.StartNew();
             while (true)
             {
-                var target = interests?.EffectiveInterval(subjectPeerId, normalInterval) ?? normalInterval;
+                // A manual interval replaces the configured normal interval; live interest may still make it faster.
+                var normal = control?.IntervalOverride ?? normalInterval;
+                var target = interests?.EffectiveInterval(subjectPeerId, normal) ?? normal;
                 onInterval?.Invoke(target);
                 var remaining = target - waited.Elapsed;
                 if (remaining <= TimeSpan.Zero)

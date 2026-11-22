@@ -24,6 +24,7 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
     private readonly TimeProvider _time;
     private readonly string _disabledReason;
     private readonly object _statusLock = new();
+    private readonly object _approveLock = new();
     private DateTimeOffset? _lastChecked;
     private string? _lastError;
     private Task _applyTask = Task.CompletedTask;
@@ -95,18 +96,32 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 _service is null ? _disabledReason : state?.Detail,
                 _lastChecked,
                 _lastError,
-                state is { Stage: UpdateStage.Staged } && CanApplyHere);
+                state is { Stage: UpdateStage.Staged } && CanApplyHere,
+                state?.ArtifactSha256);
         }
     }
 
-    public async Task<bool> ApproveAsync(CancellationToken cancellationToken)
+    public Task<bool> ApproveAsync(CancellationToken cancellationToken) => ApproveCoreAsync(null, null, "local-api");
+
+    /// <summary>Approval bound to the exact staged version and artifact digest; the check and the start of the apply are atomic.</summary>
+    public Task<bool> ApproveAsync(string version, string digestHex, CancellationToken cancellationToken) =>
+        ApproveCoreAsync(version, digestHex, "remote-control");
+
+    private async Task<bool> ApproveCoreAsync(string? version, string? digestHex, string approvedBy)
     {
-        if (_service is null || _service.Current is not { Stage: UpdateStage.Staged } || !CanApplyHere)
+        lock (_approveLock)
         {
-            return false;
+            if (_service is null || _service.Current is not { Stage: UpdateStage.Staged } staged || !CanApplyHere ||
+                (version is not null &&
+                    (!string.Equals(staged.TargetVersion, version, StringComparison.Ordinal) ||
+                     !string.Equals(staged.ArtifactSha256, digestHex, StringComparison.OrdinalIgnoreCase))))
+            {
+                return false;
+            }
+
+            _applyTask = ApplyStagedAsync(approvedBy, cancellationToken: default);
         }
 
-        _applyTask = ApplyStagedAsync("local-api", cancellationToken: default);
         await Task.Yield();
         return true;
     }
@@ -206,8 +221,8 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
         }
     }
 
-    // Package kind is validated against the host OS in NodeUpdateOptions.FromEnvironment; Windows ("zip") is download-and-verify only for now.
-    private bool CanApplyHere => _options.PackageKind is "deb" or "rpm";
+    // Package kind is validated against the host OS in NodeUpdateOptions.FromEnvironment; Windows ("zip") applies only when the detached helper is installed.
+    private bool CanApplyHere => _options.CanApplyHere;
 
     private async Task ApplyStagedAsync(string approvedBy, CancellationToken cancellationToken)
     {

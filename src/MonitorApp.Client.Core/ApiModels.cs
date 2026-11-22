@@ -29,6 +29,27 @@ public sealed record PendingPairingDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt);
 
+/// <summary>What a trusted peer may ask this desktop to do. A peer with no stored grant is denied everything.</summary>
+public sealed record ControlGrantDto(
+    string PeerId,
+    bool MonitoringControls,
+    bool PairingApproval,
+    bool UpdateApproval,
+    DateTimeOffset? UpdatedAt)
+{
+    public bool AllowsAnything => MonitoringControls || PairingApproval || UpdateApproval;
+
+    public static ControlGrantDto Default(string peerId) => new(peerId, false, false, false, null);
+}
+
+/// <summary>A phone's presence-key enrollment awaiting approval on this desktop. Compare <see cref="FingerprintSha256"/> with the phone.</summary>
+public sealed record PresenceEnrollmentDto(
+    string EnrollmentId,
+    string PeerId,
+    string? DisplayName,
+    DateTimeOffset RequestedAt,
+    string FingerprintSha256);
+
 public sealed record ObservationValueDto(string Kind, double? Number, string? Text, bool? Boolean);
 
 public sealed record HistoryPointDto(
@@ -77,6 +98,29 @@ public sealed record CatalogSubjectDto(string SubjectEntityId, IReadOnlyList<Cat
 
 public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IReadOnlyList<string> OriginPeers);
 
+public sealed record AlertDto(
+    string AlertId,
+    uint Revision,
+    string RuleId,
+    string SubjectId,
+    string OriginPeerId,
+    string Severity,
+    string State,
+    string Title,
+    string Detail,
+    DateTimeOffset RaisedAt,
+    DateTimeOffset? ResolvedAt);
+
+/// <summary>
+/// A recipient's alert preferences on this desktop (T049). <see cref="MinSeverity"/> is "All", "Info", "Warning" or "Critical";
+/// <see cref="MutedRuleKinds"/> are rule ids the recipient never receives. <see cref="UpdatedAt"/> is null for the default.
+/// </summary>
+public sealed record AlertPreferencesDto(
+    string PeerId,
+    string MinSeverity,
+    IReadOnlyList<string> MutedRuleKinds,
+    DateTimeOffset? UpdatedAt);
+
 /// <summary>Query for a bounded history window. Paging is handled by the client.</summary>
 public sealed record HistoryQuery(
     DateTimeOffset From,
@@ -90,3 +134,6 @@ public sealed record HistoryResult(
     string Resolution,
     int PagesFetched,
     bool MoreAvailable);
+
+/// <summary>A lease on live (fast) sampling granted by the node; renew it before it lapses.</summary>
+public sealed record LiveInterestLeaseDto(string LeaseId, DateTimeOffset ExpiresAt, int RenewAfterSeconds);

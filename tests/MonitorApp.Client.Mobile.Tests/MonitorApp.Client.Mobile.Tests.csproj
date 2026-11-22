@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MonitorApp.Client.Mobile\MonitorApp.Client.Mobile.csproj" />
+    <ProjectReference Include="..\..\src\MonitorApp.Peer.Service\MonitorApp.Peer.Service.csproj" />
+    <!-- Real desktop peer and phone test doubles are shared with the phone peer tests. -->
+    <Compile Include="..\MonitorApp.Peer.Mobile.Tests\MobileTestSupport.cs" Link="MobileTestSupport.cs" />
+  </ItemGroup>
+</Project>

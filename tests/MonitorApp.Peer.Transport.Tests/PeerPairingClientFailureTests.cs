@@ -108,7 +108,8 @@ public sealed class PeerPairingClientFailureTests : IDisposable
 
     private static PeerTransportOptions Options(Uri address) => new(
         new PeerTransportEndpoint(address, "z-server", PeerTransportSecurity.LoopbackDevelopment),
-        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10),
+        // Generous deadlines: a cold CI runner's first loopback gRPC call can exceed 2 s; failures here must be protocol refusals.
+        TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20),
         TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20), 1024 * 1024);
 
     private sealed class ApproveCandidate : IRemotePairingApproval

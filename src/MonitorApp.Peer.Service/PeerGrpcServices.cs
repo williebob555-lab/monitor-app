@@ -120,11 +120,13 @@ public sealed class PeerPairingGrpcService(
     internal static ProtocolError Error(
         ProtocolErrorCode code,
         string message,
-        bool retryable) => new()
+        bool retryable,
+        PrunedRange? prunedRange = null) => new()
         {
             Code = code,
             SafeMessage = message,
             Retryable = retryable,
+            PrunedRange = prunedRange?.Clone(),
         };
 
     internal static CompatibilityFailure Incompatibility(ProtocolVersion received) => new()
@@ -187,13 +189,15 @@ public sealed class PeerPairingGrpcService(
 public sealed class PeerSessionGrpcService(
     IPeerSessionCoordinator coordinator,
     PeerHostOptions options,
-    IHostApplicationLifetime? lifetime = null) : PeerService.PeerServiceBase
+    IHostApplicationLifetime? lifetime = null,
+    PeerSessionHandlerTracker? handlers = null) : PeerService.PeerServiceBase
 {
     public override async Task PeerSession(
         IAsyncStreamReader<PeerSessionRequest> requestStream,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ServerCallContext context)
     {
+        using var handlerScope = handlers?.Enter();
         // Live sessions write from the request loop and from a push task, so every write goes through one gate.
         using var serialized = new SerializedResponseWriter(responseStream);
         // Host shutdown must end held-open live sessions promptly or a graceful stop would wait out its timeout.
@@ -406,6 +410,7 @@ public sealed class PeerSessionGrpcService(
 
             await HandleAuthenticatedAsync(
                 remoteHello.PeerId,
+                remoteHello.SessionId,
                 request,
                 responseStream,
                 live,
@@ -415,6 +420,7 @@ public sealed class PeerSessionGrpcService(
 
     private async Task HandleAuthenticatedAsync(
         string remotePeerId,
+        string sessionId,
         PeerSessionRequest request,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         LiveSessionState live,
@@ -603,6 +609,12 @@ public sealed class PeerSessionGrpcService(
 
                         await responseStream.WriteAsync(new PeerSessionResponse { AlertBatch = batch }, cancellationToken)
                             .ConfigureAwait(false);
+                        if (live.Active)
+                        {
+                            // A live session whose peer pulls alerts is subscribed: push new alerts to it from now on.
+                            live.StartAlertPush(coordinator, remotePeerId, responseStream);
+                        }
+
                         break;
                     }
                 case PeerSessionRequest.MessageOneofCase.AlertAck:
@@ -623,6 +635,43 @@ public sealed class PeerSessionGrpcService(
                                 return true;
                             },
                             cancellationToken).ConfigureAwait(false);
+                        live.NotifyAlertAck();
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.ControlCommand:
+                    {
+                        var result = await BoundedAsync(
+                            token => coordinator.ExecuteControlAsync(remotePeerId, sessionId, request.ControlCommand, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { ControlResult = result }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.PendingPairingsRequest:
+                    {
+                        var response = await BoundedAsync(
+                            token => coordinator.ReadPendingPairingsAsync(remotePeerId, request.PendingPairingsRequest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { PendingPairingsResponse = response }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.UpdateStatusRequest:
+                    {
+                        var response = await BoundedAsync(
+                            token => coordinator.ReadUpdateStatusAsync(remotePeerId, request.UpdateStatusRequest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { UpdateStatusResponse = response }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                case PeerSessionRequest.MessageOneofCase.AlertPreferencesRequest:
+                    {
+                        var response = await BoundedAsync(
+                            token => coordinator.ReadAlertPreferencesAsync(remotePeerId, request.AlertPreferencesRequest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { AlertPreferencesResponse = response }, cancellationToken)
+                            .ConfigureAwait(false);
                         break;
                     }
                 case PeerSessionRequest.MessageOneofCase.Heartbeat:
@@ -664,7 +713,8 @@ public sealed class PeerSessionGrpcService(
                 responseStream,
                 exception.Code,
                 exception.SafeMessage,
-                exception.Retryable).ConfigureAwait(false);
+                exception.Retryable,
+                exception.PrunedRange).ConfigureAwait(false);
         }
     }
 
@@ -703,6 +753,9 @@ public sealed class PeerSessionGrpcService(
         private DateTimeOffset windowStart = DateTimeOffset.UtcNow;
         private int windowCount;
         private Task? pushLoop;
+        private Task? alertPushLoop;
+        private readonly System.Threading.Channels.Channel<byte> alertAcked = System.Threading.Channels.Channel.CreateBounded<byte>(
+            new System.Threading.Channels.BoundedChannelOptions(1) { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropWrite });
 
         public CancellationToken Token => cancellation.Token;
 
@@ -732,15 +785,107 @@ public sealed class PeerSessionGrpcService(
             bool pushInterests) =>
             pushLoop ??= Task.Run(() => PushAsync(session, writer, pushOrigin, pushInterests), CancellationToken.None);
 
+        /// <summary>
+        /// Starts (once) the unsolicited alert push for this held-open session: new outbox rows reach the phone as soon as
+        /// they are queued instead of at its next pull. Acknowledgements and the durable outbox are unchanged.
+        /// </summary>
+        public void StartAlertPush(
+            IPeerSessionCoordinator coordinator,
+            string remotePeerId,
+            IServerStreamWriter<PeerSessionResponse> writer) =>
+            alertPushLoop ??= Task.Run(() => PushAlertsAsync(coordinator, remotePeerId, writer), CancellationToken.None);
+
+        public void NotifyAlertAck()
+        {
+            // A bounded channel coalesces: an acknowledgement already pending for the push loop is enough.
+            alertAcked.Writer.TryWrite(0);
+        }
+
         public async Task StopAsync()
         {
             await cancellation.CancelAsync().ConfigureAwait(false);
-            if (pushLoop is not null)
+            try
             {
-                await pushLoop.ConfigureAwait(false);
+                // A loop that faulted with anything unexpected must neither skip the other loop nor the session dispose:
+                // both loops are already terminal here, so their failures are only awaited, not rethrown.
+                await AwaitQuietlyAsync(pushLoop).ConfigureAwait(false);
+                await AwaitQuietlyAsync(alertPushLoop).ConfigureAwait(false);
+            }
+            finally
+            {
+                Session?.Dispose();
+            }
+        }
+
+        private static async Task AwaitQuietlyAsync(Task? loop)
+        {
+            if (loop is null)
+            {
+                return;
             }
 
-            Session?.Dispose();
+            try
+            {
+                await loop.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // The loop is finished either way; the session ends and the client reconnects from its cursors.
+            }
+        }
+
+        private static readonly TimeSpan AlertPushWait = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan AlertRedeliveryAfter = TimeSpan.FromSeconds(5);
+
+        private async Task PushAlertsAsync(
+            IPeerSessionCoordinator coordinator,
+            string remotePeerId,
+            IServerStreamWriter<PeerSessionResponse> writer)
+        {
+            var token = cancellation.Token;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var batch = await coordinator.WaitForAlertPushAsync(remotePeerId, AlertPushWait, token).ConfigureAwait(false);
+                    if (batch is null)
+                    {
+                        continue;
+                    }
+
+                    if (!PeerContractValidator.Validate(batch).IsValid)
+                    {
+                        throw new PeerSessionOperationException(
+                            ProtocolErrorCode.Internal, "Peer coordinator returned an invalid alert batch.", true);
+                    }
+
+                    await writer.WriteAsync(new PeerSessionResponse { AlertBatch = batch }, token).ConfigureAwait(false);
+
+                    // Unacknowledged rows stay pending, so wait for the phone's acknowledgement (sent after its durable
+                    // write) rather than re-sending the same batch; redeliver if it never arrives.
+                    using var redelivery = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    redelivery.CancelAfter(AlertRedeliveryAfter);
+                    try
+                    {
+                        _ = await alertAcked.Reader.ReadAsync(redelivery.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                    {
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (PeerSessionOperationException exception)
+            {
+                await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
+                await cancellation.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                await cancellation.CancelAsync().ConfigureAwait(false);
+            }
         }
 
         private async Task PushAsync(
@@ -791,7 +936,7 @@ public sealed class PeerSessionGrpcService(
                 await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException or InvalidDataException)
+            catch (Exception)
             {
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
@@ -805,7 +950,7 @@ public sealed class PeerSessionGrpcService(
             {
                 await writer.WriteAsync(new PeerSessionResponse
                 {
-                    Error = PeerPairingGrpcService.Error(exception.Code, exception.SafeMessage, exception.Retryable),
+                    Error = PeerPairingGrpcService.Error(exception.Code, exception.SafeMessage, exception.Retryable, exception.PrunedRange),
                 }).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is IOException or InvalidOperationException or OperationCanceledException)
@@ -844,9 +989,10 @@ public sealed class PeerSessionGrpcService(
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ProtocolErrorCode code,
         string message,
-        bool retryable) => responseStream.WriteAsync(new PeerSessionResponse
+        bool retryable,
+        PrunedRange? prunedRange = null) => responseStream.WriteAsync(new PeerSessionResponse
         {
-            Error = PeerPairingGrpcService.Error(code, message, retryable),
+            Error = PeerPairingGrpcService.Error(code, message, retryable, prunedRange),
         });
 
     private static Task WriteTimeoutAsync(IServerStreamWriter<PeerSessionResponse> responseStream) =>

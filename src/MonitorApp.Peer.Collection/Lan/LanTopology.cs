@@ -172,14 +172,24 @@ public static class LanSegmentReconciler
 /// <summary>
 /// The collector a peer node registers: collects its own interfaces and persists them. Ownership is explicit:
 /// every record is observed by <see cref="OwnerPeerId"/> and describes only that peer's own interfaces.
+/// Relationships keep their original <c>ValidFrom</c> across runs; ones the host no longer reports (interface removed
+/// or link down) are ended by setting <c>ValidTo</c> to the collection time. A snapshot that could not be collected
+/// changes nothing: an unreadable host is "unknown", not "everything vanished".
 /// </summary>
 public sealed class SelfLanCollector(string ownerPeerId, ISelfInterfaceCollector source, PeerStore store, TimeProvider? clock = null)
 {
     public string OwnerPeerId { get; } = ownerPeerId;
 
+    /// <summary>Relationships ended (given a ValidTo) by the most recent run.</summary>
+    public int LastEndedRelationshipCount { get; private set; }
+
     public async Task<LanTopologyFragment> CollectAndPersistAsync(CancellationToken cancellationToken = default)
     {
-        var fragment = LanTopologyBuilder.Build(OwnerPeerId, source.Collect((clock ?? TimeProvider.System).GetUtcNow()));
+        var snapshot = source.Collect((clock ?? TimeProvider.System).GetUtcNow());
+        var fragment = LanTopologyBuilder.Build(OwnerPeerId, snapshot);
+        LastEndedRelationshipCount = 0;
+        if (snapshot.State != SelfCollectionState.Collected) return fragment;
+
         foreach (var e in fragment.Entities)
         {
             try { await store.UpsertObservedEntityAsync(e.Entity, cancellationToken).ConfigureAwait(false); }
@@ -187,7 +197,40 @@ public sealed class SelfLanCollector(string ownerPeerId, ISelfInterfaceCollector
         }
 
         foreach (var c in fragment.Claims) await store.AddIdentityClaimAsync(c, cancellationToken).ConfigureAwait(false);
-        foreach (var (_, o) in fragment.Relationships) await store.UpsertRelationshipAsync(o, cancellationToken).ConfigureAwait(false);
+
+        var at = snapshot.CollectedAt.ToUniversalTime();
+        var open = (await store.ReadOpenRelationshipsByObserverAsync(OwnerPeerId, cancellationToken).ConfigureAwait(false))
+            .ToDictionary(r => r.RelationshipId, StringComparer.Ordinal);
+        var current = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (_, observed) in fragment.Relationships)
+        {
+            current.Add(observed.RelationshipId);
+            var validFrom = open.TryGetValue(observed.RelationshipId, out var existing)
+                ? existing.ValidFrom
+                : (await ReadExistingAsync(observed, cancellationToken).ConfigureAwait(false))?.ValidFrom ?? observed.ValidFrom;
+            await store.UpsertRelationshipAsync(observed with { ValidFrom = validFrom, ValidTo = null }, cancellationToken).ConfigureAwait(false);
+        }
+
+        var ownPrefix = $"lan:{OwnerPeerId}:";
+        foreach (var stale in open.Values)
+        {
+            if (current.Contains(stale.RelationshipId) ||
+                stale.Kind == RelationshipKind.ProbableSameSegment ||
+                !stale.SourceEntityId.StartsWith(ownPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var validTo = at > stale.ValidFrom ? at : stale.ValidFrom.AddTicks(1);
+            await store.UpsertRelationshipAsync(stale with { ValidTo = validTo }, cancellationToken).ConfigureAwait(false);
+            LastEndedRelationshipCount++;
+        }
+
         return fragment;
     }
+
+    // A relationship that was ended earlier and reappears is reopened under its original start (the gap is not kept).
+    private async Task<RelationshipObservation?> ReadExistingAsync(RelationshipObservation observed, CancellationToken cancellationToken) =>
+        (await store.ReadRelationshipsAsync(observed.SourceEntityId, cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(r => r.RelationshipId == observed.RelationshipId);
 }

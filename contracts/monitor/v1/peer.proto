@@ -169,6 +169,9 @@ message OriginRecordBatch {
   string request_id = 1;
   repeated OriginRecord records = 2;
   bool has_more = 3;
+  // Pushed batches only: the range immediately before the first record (or the whole batch, when it has no
+  // records) was removed by the sender's retention. Receivers record it as intentionally absent and resume after it.
+  PrunedRange pruned_range = 4;
 }
 
 message OriginAck {
@@ -267,6 +270,176 @@ message AlertAck {
   reserved 3 to 8;
 }
 
+// ---- Remote control (additive; monitoring controls only, no power/service/script actions) ----
+// A ControlCommand rides the already authenticated PeerSession. It is additionally signed by the issuing peer's
+// identity key over a canonical encoding (see docs/SECURITY.md) bound to issuer, target, session, validity window and
+// payload; high-risk commands carry a second signature by the issuer's separately enrolled user-presence key.
+enum ControlStatus {
+  CONTROL_STATUS_UNSPECIFIED = 0;
+  CONTROL_STATUS_APPLIED = 1;
+  // Understood but not executed (authorization, validation, or target state); see reason_code.
+  CONTROL_STATUS_REFUSED = 2;
+  // Accepted but waiting for an explicit local approval on the target (presence-key enrollment).
+  CONTROL_STATUS_PENDING_LOCAL_APPROVAL = 3;
+}
+
+message PauseCollection {
+  // Empty pauses every collector; otherwise the collector/capability id (for example monitor.system).
+  string capability_id = 1;
+  // 0 pauses until resumed (or until the target restarts); otherwise the pause expires on its own.
+  uint32 duration_seconds = 2;
+}
+
+message ResumeCollection {
+  string capability_id = 1;
+}
+
+message SetSamplingInterval {
+  // 0 clears the manual interval; otherwise within the target's bounds.
+  uint32 interval_seconds = 1;
+  // 0 keeps the manual interval until cleared; otherwise it reverts on its own.
+  uint32 duration_seconds = 2;
+}
+
+message AcknowledgeAlert {
+  string alert_id = 1;
+}
+
+message MuteAlerts {
+  // Empty mutes every rule.
+  string rule_id = 1;
+  uint32 duration_seconds = 2;
+}
+
+message UnmuteAlerts {
+  string rule_id = 1;
+}
+
+message ResolvePairing {
+  string pairing_id = 1;
+  // The fingerprint the phone displayed to its user; the target refuses when it no longer matches the request.
+  bytes remote_public_key_sha256 = 2;
+  bool approve = 3;
+}
+
+message EnrollPresenceKey {
+  // P-256 SPKI of a key whose use requires biometric verification on the issuing device.
+  bytes presence_public_key_spki = 1;
+  // Presence-key signature over the canonical enrollment statement (proves possession and a working gate).
+  bytes proof_of_possession = 2;
+}
+
+// Approves installation of the update the desktop has already downloaded, verified and staged. Bound to the exact
+// version and artifact digest the phone displayed; the desktop refuses when its staged update no longer matches.
+message ApproveUpdate {
+  string version = 1;
+  // SHA-256 of the staged artifact as listed in the signed update manifest (32 bytes).
+  bytes artifact_sha256 = 2;
+}
+
+// Sets the issuing phone's own alert preferences on the alert-owning desktop (replaces its previous preferences). The
+// recipient is always the authenticated issuer. Alerts filtered out are still recorded as events but not queued.
+message SetAlertPreferences {
+  // Lowest severity the phone wants; UNSPECIFIED (0) means everything.
+  AlertSeverity min_severity = 1;
+  // Rule ids (for example threshold.cpu_high) the phone opts out of entirely.
+  repeated string muted_rule_kinds = 2;
+}
+
+message ControlCommand {
+  string command_id = 1;
+  google.protobuf.Timestamp issued_at = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  string issuer_peer_id = 4;
+  string target_peer_id = 5;
+  string session_id = 6;
+  bytes nonce = 7;
+  oneof payload {
+    PauseCollection pause_collection = 10;
+    ResumeCollection resume_collection = 11;
+    SetSamplingInterval set_sampling_interval = 12;
+    AcknowledgeAlert acknowledge_alert = 13;
+    MuteAlerts mute_alerts = 14;
+    UnmuteAlerts unmute_alerts = 15;
+    ResolvePairing resolve_pairing = 16;
+    EnrollPresenceKey enroll_presence_key = 17;
+    ApproveUpdate approve_update = 18;
+    SetAlertPreferences set_alert_preferences = 19;
+  }
+  // ECDSA P-256 (IEEE P1363) by the issuer's peer identity key over the canonical command encoding.
+  bytes issuer_signature = 20;
+  // Same canonical encoding signed by the issuer's user-presence key; required for elevated and high-risk commands.
+  bytes presence_signature = 21;
+}
+
+message ControlResult {
+  string command_id = 1;
+  ControlStatus status = 2;
+  // Stable machine-readable code ("applied", "expired", "presence_required", ...).
+  string reason_code = 3;
+  string safe_message = 4;
+  google.protobuf.Timestamp decided_at = 5;
+  // True when this is the stored result of an earlier identical command (idempotent resend).
+  bool replayed = 6;
+}
+
+// Read-only: pending pairing requests the target desktop holds, for display on a trusted phone.
+message PendingPairingsRequest {
+  string request_id = 1;
+}
+
+message PendingPairingSummary {
+  string pairing_id = 1;
+  string remote_peer_id = 2;
+  string display_name = 3;
+  bytes remote_public_key_sha256 = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message PendingPairingsResponse {
+  string request_id = 1;
+  repeated PendingPairingSummary pairings = 2;
+}
+
+// Read-only: the desktop's update state, for display on a trusted phone that holds the update-approval grant.
+message UpdateStatusRequest {
+  string request_id = 1;
+}
+
+message UpdateStatusResponse {
+  string request_id = 1;
+  // False when this peer lacks the update-approval grant; every other field is then empty.
+  bool permitted = 2;
+  // False when the desktop has no update agent configured.
+  bool available = 3;
+  string installed_version = 4;
+  // Empty unless an update is downloaded, verified and staged.
+  string staged_version = 5;
+  bytes staged_artifact_sha256 = 6;
+  // Update lifecycle stage (for example Idle, Staged, Applying, Applied, Failed).
+  string state = 7;
+  string last_error = 8;
+  // True when a staged update is waiting for approval and this desktop can install it.
+  bool approval_pending = 9;
+}
+
+// Read-only: the authenticated caller's own alert preferences (never another peer's). Needs the monitoring-controls grant.
+message AlertPreferencesRequest {
+  string request_id = 1;
+}
+
+message AlertPreferencesResponse {
+  string request_id = 1;
+  // False when this peer lacks the monitoring-controls grant (or is not trusted); every other field is then empty.
+  bool permitted = 2;
+  // UNSPECIFIED (0) means everything (also the default when the caller never set preferences).
+  AlertSeverity min_severity = 3;
+  repeated string muted_rule_kinds = 4;
+  // Unset when the caller never set preferences (the default applies).
+  google.protobuf.Timestamp updated_at = 5;
+}
+
 message PeerSessionRequest {
   oneof message {
     PeerHello hello = 1;
@@ -282,6 +455,10 @@ message PeerSessionRequest {
     // Additive alert delivery (phone pulls, acks after a durable write). Fields 10-15 are reserved for it.
     AlertPull alert_pull = 8;
     AlertAck alert_ack = 9;
+    ControlCommand control_command = 30;
+    PendingPairingsRequest pending_pairings_request = 31;
+    UpdateStatusRequest update_status_request = 32;
+    AlertPreferencesRequest alert_preferences_request = 33;
   }
 }
 
@@ -301,5 +478,9 @@ message PeerSessionResponse {
     LiveInterest live_interest = 21;
     LiveInterestAck live_interest_ack = 22;
     AlertBatch alert_batch = 11;
+    ControlResult control_result = 30;
+    PendingPairingsResponse pending_pairings_response = 31;
+    UpdateStatusResponse update_status_response = 32;
+    AlertPreferencesResponse alert_preferences_response = 33;
   }
 }

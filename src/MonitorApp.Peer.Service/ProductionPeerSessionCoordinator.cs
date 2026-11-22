@@ -6,6 +6,7 @@ using MonitorApp.Contracts;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Replication;
@@ -143,8 +144,12 @@ public sealed class PeerStoreAdvertisementProvider(
 public sealed class PeerSessionOperationException(
     ProtocolErrorCode code,
     string safeMessage,
-    bool retryable = false) : Exception(safeMessage)
+    bool retryable = false,
+    PrunedRange? prunedRange = null) : Exception(safeMessage)
 {
+    /// <summary>Set with <see cref="ProtocolErrorCode.RangePruned"/>: the range the origin removed.</summary>
+    public PrunedRange? PrunedRange { get; } = prunedRange;
+
     public ProtocolErrorCode Code { get; } = code;
 
     public string SafeMessage { get; } = safeMessage;
@@ -159,12 +164,13 @@ public sealed class ProductionPeerSessionCoordinator(
     ILocalPeerIdentityProvider localIdentity,
     IPeerAdvertisementProvider advertisement,
     LiveInterestRegistry? interests = null,
-    AlertDeliveryService? alerts = null) : IPeerSessionCoordinator
+    AlertDeliveryService? alerts = null,
+    ControlService? control = null) : IPeerSessionCoordinator
 {
     public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
         store,
         remotePeerId,
-        (request, token) => ReadOriginRangeAsync(remotePeerId, request, token),
+        (request, token) => ReadOriginRangeForPushAsync(remotePeerId, request, token),
         async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
         interests,
         RequestRemotePush: false));
@@ -267,6 +273,33 @@ public sealed class ProductionPeerSessionCoordinator(
         return response;
     }
 
+    private async ValueTask<OriginRecordBatch> ReadOriginRangeForPushAsync(
+        string remotePeerId,
+        OriginRangeRequest request,
+        CancellationToken cancellationToken)
+    {
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(request.OriginPeerId, localIdentity.PublicIdentity.PeerId, StringComparison.Ordinal))
+        {
+            throw new PeerSessionOperationException(
+                ProtocolErrorCode.Unauthorized,
+                "Relayed origin range requests are not supported.");
+        }
+
+        try
+        {
+            return await replication.ReadForPushAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OriginReplicationLimitException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.MessageTooLarge, "Origin range exceeds configured limits.");
+        }
+        catch (OriginReplicationValidationException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Origin range is invalid.");
+        }
+    }
+
     public async ValueTask<OriginRecordBatch> ReadOriginRangeAsync(
         string remotePeerId,
         OriginRangeRequest request,
@@ -286,7 +319,19 @@ public sealed class ProductionPeerSessionCoordinator(
         }
         catch (OriginRangePrunedException pruned)
         {
-            throw new PeerSessionOperationException(ProtocolErrorCode.RangePruned, pruned.Message);
+            throw new PeerSessionOperationException(
+                ProtocolErrorCode.RangePruned,
+                pruned.Message,
+                false,
+                pruned.Range is null
+                    ? null
+                    : new PrunedRange
+                    {
+                        OriginPeerId = pruned.Range.OriginPeerId,
+                        OriginStreamId = pruned.Range.OriginStreamId,
+                        FirstSequence = pruned.Range.FirstSequence,
+                        LastSequence = pruned.Range.LastSequence,
+                    });
         }
         catch (OriginReplicationLimitException)
         {
@@ -389,6 +434,23 @@ public sealed class ProductionPeerSessionCoordinator(
         }
     }
 
+    public async ValueTask<AlertBatch?> WaitForAlertPushAsync(
+        string remotePeerId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            return await service.WaitForPushAsync(remotePeerId, timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
+    }
+
     public async ValueTask AcceptAlertAckAsync(
         string remotePeerId,
         AlertAck acknowledgement,
@@ -404,6 +466,51 @@ public sealed class ProductionPeerSessionCoordinator(
         {
             throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
         }
+    }
+
+    public async ValueTask<ControlResult> ExecuteControlAsync(
+        string remotePeerId,
+        string sessionId,
+        ControlCommand command,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        // Refusals (including untrusted or revoked issuers) are ControlResults and are audited by the service.
+        return await service.ExecuteAsync(remotePeerId, sessionId, command, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<UpdateStatusResponse> ReadUpdateStatusAsync(
+        string remotePeerId,
+        UpdateStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        return await service.ReadUpdateStatusAsync(remotePeerId, request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<AlertPreferencesResponse> ReadAlertPreferencesAsync(
+        string remotePeerId,
+        AlertPreferencesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        return await service.ReadAlertPreferencesAsync(remotePeerId, request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<PendingPairingsResponse> ReadPendingPairingsAsync(
+        string remotePeerId,
+        PendingPairingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var service = control ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Remote control is not supported by this peer.");
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        return await service.ReadPendingPairingsAsync(remotePeerId, request, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task RequireActiveAsync(string remotePeerId, CancellationToken cancellationToken)

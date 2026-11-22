@@ -8,6 +8,7 @@ using MonitorApp.Android.Core;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.Mobile;
 using MonitorApp.Peer.Persistence;
@@ -82,11 +83,23 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public AlertStore Alerts { get; private set; } = null!;
 
+    public ControlStore ControlStore { get; private set; } = null!;
+
+    public ControlService Control { get; private set; } = null!;
+
+    public MonitoringControlState Monitoring { get; } = new();
+
+    public PeerSystemMetricsIngestionBridge Collector => collector;
+
+    public string DatabasePath => Path.Combine(root, "peer.db");
+
     public PairingApplicationStore PairingStore { get; }
 
     public PeerPairingCoordinator Pairing { get; }
 
     public PeerPublicIdentity Identity => identity.PublicIdentity;
+
+    public ILocalPeerIdentityProvider LocalIdentity => identity;
 
     public LiveInterestRegistry Interests { get; } = new();
 
@@ -96,7 +109,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
 
     public PeerPairingInvitation Invitation() => new(IPAddress.Loopback, Port, Identity.PeerId, Identity.PublicKeyFingerprint, null);
 
-    public static async Task<DesktopPeer> StartAsync(string root, TimeProvider? time = null)
+    public static async Task<DesktopPeer> StartAsync(string root, TimeProvider? time = null, IRemoteUpdateGateway? updates = null)
     {
         Directory.CreateDirectory(root);
         var identity = new SoftwareIdentity();
@@ -112,12 +125,16 @@ internal sealed class DesktopPeer : IAsyncDisposable
         await pairing.InitializeAsync();
         await new PeerCapabilityRegistry(store).RegisterAsync(SystemCapabilityDeclaration.Create());
         var collector = new PeerSystemMetricsIngestionBridge(
-            store, identity, new SystemSnapshotCollector(Platform.Ubuntu),
+            store, identity, new SystemSnapshotCollector(OperatingSystem.IsWindows() ? Platform.Windows : Platform.Ubuntu),
             PeerCollectionOptions.Default($"peer:{identity.PublicIdentity.PeerId}", Guid.NewGuid().ToString("N")));
         var desktop = new DesktopPeer(root, FreePort(), store, pairingStore, pairing, collector, identity);
         desktop.Codes = new PairingShortCodeRegistry(time);
         desktop.Alerts = new AlertStore(AlertStoreOptions.Create(databasePath));
         await desktop.Alerts.InitializeAsync();
+        desktop.ControlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
+        await desktop.ControlStore.InitializeAsync();
+        desktop.Control = new ControlService(
+            desktop.ControlStore, store, pairingStore, pairing, desktop.Alerts, desktop.Monitoring, identity, updates: updates);
         await desktop.StartHostAsync();
         return desktop;
     }
@@ -141,6 +158,7 @@ internal sealed class DesktopPeer : IAsyncDisposable
             services.AddSingleton(replication);
             services.AddSingleton(Interests);
             services.AddSingleton(new AlertDeliveryService(Store, Alerts, AlertRulesConfig.Default));
+            services.AddSingleton(Control);
             services.AddProductionPeerSessionCoordinator();
             services.AddSingleton(new PeerPairingServiceOptions("test-desktop"));
             services.AddProductionPeerPairingCoordinator();
@@ -210,4 +228,42 @@ internal static class TestDirectories
         Directory.CreateDirectory(path);
         return path;
     }
+}
+
+
+/// <summary>Software stand-in for the biometric-gated Keystore key: signs only when the scripted "person" allows it.</summary>
+internal sealed class SoftwarePresenceSigner : IUserPresenceSigner, IDisposable
+{
+    private readonly System.Security.Cryptography.ECDsa key =
+        System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+
+    public bool IsAvailable { get; set; } = true;
+
+    public bool Deny { get; set; }
+
+    public int Prompts { get; private set; }
+
+    public ValueTask<byte[]> GetPublicKeySpkiAsync(CancellationToken cancellationToken) =>
+        ValueTask.FromResult(key.ExportSubjectPublicKeyInfo());
+
+    public ValueTask<byte[]> SignAsync(ReadOnlyMemory<byte> data, UserPresenceChallenge challenge, CancellationToken cancellationToken)
+    {
+        Prompts++;
+        if (Deny)
+        {
+            throw new UserPresenceDeniedException("Biometric verification was declined.");
+        }
+
+        return ValueTask.FromResult(key.SignData(
+            data.Span,
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+    }
+
+    public void Dispose() => key.Dispose();
+}
+
+internal sealed class OffsetTimeProvider(TimeSpan offset) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + offset;
 }

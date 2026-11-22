@@ -16,6 +16,12 @@ public sealed partial class PeerStore
     /// <summary>Notifies in-process subscribers of origin records newly committed through this store instance.</summary>
     public PeerLiveFeed Live { get; } = new();
 
+    /// <summary>
+    /// Serializes local-origin writers sharing this store (the system-metrics bridge and the LAN link bridge each
+    /// allocate the next local sequence and sign it): hold it from reading <c>NextSequence</c> until the last append.
+    /// </summary>
+    public SemaphoreSlim LocalAppendGate { get; } = new(1, 1);
+
     public PeerStore(PeerStoreOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -788,6 +794,20 @@ public sealed partial class PeerStore
         return result;
     }
 
+    /// <summary>Relationships observed by the peer that have not been ended (no ValidTo), oldest first.</summary>
+    public async Task<IReadOnlyList<RelationshipObservation>> ReadOpenRelationshipsByObserverAsync(string observerPeerId, CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(observerPeerId, nameof(observerPeerId));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT relationship_id, source_entity_id, target_entity_id, relationship_kind, evidence_kind, observer_peer_id, confidence, valid_from, valid_to FROM relationship_observations WHERE observer_peer_id = $observer AND valid_to IS NULL ORDER BY valid_from, relationship_id;";
+        command.Parameters.AddWithValue("$observer", observerPeerId);
+        var result = new List<RelationshipObservation>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) result.Add(new RelationshipObservation(reader.GetString(0), reader.GetString(1), reader.GetString(2), (RelationshipKind)reader.GetInt32(3), (RelationshipEvidenceKind)reader.GetInt32(4), reader.GetString(5), reader.GetDouble(6), Parse(reader.GetString(7)), NullableDate(reader, 8)));
+        return result;
+    }
+
     public async Task UpsertAdapterInstanceAsync(AdapterInstance adapter, CancellationToken cancellationToken = default)
     {
         Validate(adapter);
@@ -997,11 +1017,21 @@ public sealed partial class PeerStore
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={busyTimeoutMilliseconds.ToString(CultureInfo.InvariantCulture)};";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            SqliteConnectionTracker.Track(connection);
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={busyTimeoutMilliseconds.ToString(CultureInfo.InvariantCulture)};";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            // A cancelled or failed configuration (a session being torn down) must not leave an open handle on peer.db.
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static async Task EnsureNextLocalSequenceAsync(SqliteConnection connection, SqliteTransaction transaction,
@@ -1076,11 +1106,17 @@ public sealed partial class PeerStore
         left.PublicKeyFingerprint.AsSpan().SequenceEqual(right.PublicKeyFingerprint) && left.KeyProviderReference == right.KeyProviderReference &&
         left.OriginStreamId == right.OriginStreamId && left.NextSequence == right.NextSequence && left.CreatedAt == right.CreatedAt;
 
+    // The receive time of a replicated record is local bookkeeping, not part of the origin's signed content: when two
+    // sessions deliver the same record concurrently, whichever commits first fixes it and the other is an identical retry.
+    // A locally originated record has one writer, so its timestamp stays part of the comparison.
+    private static bool ReceivedAtMatches(StoredOriginRecord stored, OriginRecordWrite write) =>
+        write.Provenance == RecordProvenance.Replicated || stored.ReceivedAt == write.ReceivedAt;
+
     private static bool Equal(StoredOriginRecord stored, OriginRecordWrite write, byte[] hash) =>
         stored.OriginPeerId == write.OriginPeerId && stored.OriginStreamId == write.OriginStreamId && stored.Sequence == write.Sequence &&
         stored.SubjectEntityId == write.SubjectEntityId && stored.AdapterInstanceId == write.AdapterInstanceId && stored.SignalId == write.SignalId &&
         stored.RecordBytes.AsSpan().SequenceEqual(write.RecordBytes) && stored.ContentHash.AsSpan().SequenceEqual(hash) && stored.Signature.AsSpan().SequenceEqual(write.Signature) &&
-        stored.ObservedAt == write.ObservedAt && stored.ReceivedAt == write.ReceivedAt && stored.ReceivedFromPeerId == write.ReceivedFromPeerId &&
+        stored.ObservedAt == write.ObservedAt && ReceivedAtMatches(stored, write) && stored.ReceivedFromPeerId == write.ReceivedFromPeerId &&
         stored.Provenance == write.Provenance && stored.Quality == write.Quality;
 
     private static void Validate(LocalPeerIdentity identity)

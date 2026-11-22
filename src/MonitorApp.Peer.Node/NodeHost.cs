@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Node.Update;
 using MonitorApp.Update;
+using MonitorApp.Update.Apply;
 
 namespace MonitorApp.Peer.Node;
 
@@ -71,7 +72,9 @@ public static class NodeHost
                 key,
                 fetcher,
                 downloader,
-                new ApplyHelper.HandoffApplier(update),
+                new ApplyHelper.HandoffApplier(
+                    update,
+                    OperatingSystem.IsWindows() ? token => WindowsApplyHelper.LaunchAsync(new SystemProcessRunner(), token) : null),
                 provider.GetRequiredService<ILogger<NodeUpdateAgent>>());
         });
         services.AddSingleton<ILocalUpdateController>(provider => provider.GetRequiredService<NodeUpdateAgent>());

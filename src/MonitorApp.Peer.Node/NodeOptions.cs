@@ -1,9 +1,16 @@
 using System.Net;
+using MonitorApp.Peer.LocalApi;
 
 namespace MonitorApp.Peer.Node;
 
-public sealed record NodeOptions(string DataDirectory, IPAddress PeerBindAddress, int PeerPort, int AdminPort)
+public sealed record NodeOptions(
+    string DataDirectory,
+    IPAddress PeerBindAddress,
+    int PeerPort,
+    int AdminPort,
+    LocalPresencePolicy LocalPresence = LocalPresencePolicy.RequiredWhenEnrolled)
 {
+    public const string LocalPresenceVariable = "MONITOR_APP_LOCAL_PRESENCE";
     public const string DataDirectoryVariable = "MONITOR_APP_DATA_DIR";
     public const string PeerBindVariable = "MONITOR_APP_PEER_BIND";
     public const string PeerPortVariable = "MONITOR_APP_PEER_PORT";
@@ -53,7 +60,14 @@ public sealed record NodeOptions(string DataDirectory, IPAddress PeerBindAddress
 
         var peerPort = ParsePort(Pick("peer-port", PeerPortVariable, "55431"), "peer-port", allowZero: false);
         var adminPort = ParsePort(Pick("admin-port", AdminPortVariable, "55432"), "admin-port", allowZero: true);
-        return new NodeOptions(dataDirectory, bindAddress, peerPort, adminPort);
+        var presence = Pick("local-presence", LocalPresenceVariable, "when-enrolled").ToLowerInvariant() switch
+        {
+            "off" => LocalPresencePolicy.Off,
+            "when-enrolled" => LocalPresencePolicy.RequiredWhenEnrolled,
+            "required" => LocalPresencePolicy.Required,
+            _ => throw new ArgumentException("--local-presence must be off, when-enrolled, or required.", nameof(args)),
+        };
+        return new NodeOptions(dataDirectory, bindAddress, peerPort, adminPort, presence);
     }
 
     /// <summary>
