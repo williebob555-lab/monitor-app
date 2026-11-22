@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
 using MonitorApp.Peer.Persistence;
 using MonitorApp.Peer.Transport;
@@ -14,7 +15,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IHostServiceControl, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IViewingSource, IPairingInitiator, IHostServiceControl, IControlSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -223,6 +224,99 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IVi
         await runtime.RevokeAsync(peerId, ct).ConfigureAwait(false);
         return true;
     });
+
+    public bool CanVerifyUserPresence => runtime.CanVerifyUserPresence;
+
+    public ControlTierDescription DescribeTier(ControlActionKind action, TimeSpan? duration = null) =>
+        ControlMapping.Describe(action, duration, runtime.CanVerifyUserPresence);
+
+    public Task<ControlOutcomeDto> PauseCollectionAsync(string peerId, TimeSpan? duration, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.PauseCollection, duration, () => ControlRequest.PauseCollection(duration), ct);
+
+    public Task<ControlOutcomeDto> ResumeCollectionAsync(string peerId, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.ResumeCollection, null, () => ControlRequest.ResumeCollection(), ct);
+
+    public Task<ControlOutcomeDto> SetSamplingIntervalAsync(string peerId, TimeSpan? interval, TimeSpan? duration, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.SetSamplingInterval, duration, () => ControlRequest.SetSamplingInterval(interval, duration), ct);
+
+    public Task<ControlOutcomeDto> AcknowledgeAlertAsync(string peerId, string alertId, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.AcknowledgeAlert, null, () => ControlRequest.AcknowledgeAlert(alertId), ct);
+
+    public Task<ControlOutcomeDto> MuteAlertsAsync(string peerId, TimeSpan duration, string? ruleId, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.MuteAlerts, duration, () => ControlRequest.MuteAlerts(duration, ruleId), ct);
+
+    public Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.UnmuteAlerts, null, () => ControlRequest.UnmuteAlerts(ruleId), ct);
+
+    public async Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var pairings = await runtime.ReadPendingPairingsAsync(peerId, ct).ConfigureAwait(false);
+            return pairings
+                .Select(item => new PendingPairingDto(
+                    item.PairingId,
+                    item.RemotePeerId,
+                    item.DisplayName.Length == 0 ? null : item.DisplayName,
+                    Convert.ToHexString(item.RemotePublicKeySha256.ToByteArray()),
+                    "AwaitingApproval",
+                    item.CreatedAt.ToDateTimeOffset(),
+                    item.ExpiresAt.ToDateTimeOffset()))
+                .ToArray();
+        }
+        catch (MobileControlFailedException)
+        {
+            return [];
+        }
+    }
+
+    public Task<ControlOutcomeDto> ResolvePairingAsync(
+        string peerId, string pairingId, string fingerprint, bool approve, CancellationToken ct = default)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromHexString(fingerprint?.Trim() ?? string.Empty);
+        }
+        catch (FormatException)
+        {
+            return Task.FromResult(new ControlOutcomeDto("Refused", "invalid_payload", "The fingerprint is not valid hex.", false));
+        }
+
+        var kind = approve ? ControlActionKind.ApprovePairing : ControlActionKind.RejectPairing;
+        return SendAsync(peerId, kind, null, () => ControlRequest.ResolvePairing(pairingId, bytes, approve), ct);
+    }
+
+    public Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default) =>
+        SendAsync(peerId, ControlActionKind.EnrollPresenceKey, null, () => ControlRequest.EnrollPresenceKey(), ct);
+
+    /// <summary>Sends one control; refusals and delivery/biometric failures become an outcome, never an exception.</summary>
+    private async Task<ControlOutcomeDto> SendAsync(
+        string peerId, ControlActionKind kind, TimeSpan? duration, Func<ControlRequest> build, CancellationToken ct)
+    {
+        var needsPresence = ControlMapping.Describe(kind, duration, runtime.CanVerifyUserPresence).RequiresPresence;
+        try
+        {
+            var result = await runtime.SendControlAsync(peerId, build(), null, ct).ConfigureAwait(false);
+            return ControlMapping.ToOutcome(result, needsPresence);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return new ControlOutcomeDto("Refused", "invalid_payload", "That duration is not valid.", needsPresence);
+        }
+        catch (UserPresenceUnavailableException exception)
+        {
+            return new ControlOutcomeDto("Failed", "presence_unavailable", exception.Message, needsPresence);
+        }
+        catch (UserPresenceDeniedException exception)
+        {
+            return new ControlOutcomeDto("Failed", "presence_denied", exception.Message, needsPresence);
+        }
+        catch (MobileControlFailedException exception)
+        {
+            return new ControlOutcomeDto("Failed", "unreachable", exception.Message, needsPresence);
+        }
+    }
 
     public void Dispose()
     {
