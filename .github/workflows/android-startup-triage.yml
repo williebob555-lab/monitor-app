@@ -35,8 +35,29 @@ jobs:
       - name: Install Android emulator image
         run: |
           set -euo pipefail
-          echo "y" | sdkmanager --install 'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
-          echo "no" | avdmanager create avd --name monitor-smoke --package 'system-images;android-35;google_apis;x86_64' --force
+          # Runner images often have Android SDK installed, but cmdline-tools is not on PATH.
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          avdmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name avdmanager -print -quit 2>/dev/null || true)"
+          if [ -z "$sdkmanager_path" ] || [ -z "$avdmanager_path" ]; then
+            echo "Downloading Android SDK command-line tools (runner image does not include them)."
+            mkdir -p "$sdk_root/cmdline-tools"
+            curl --fail --location --retry 3 --output /tmp/android-cmdline.zip \
+              'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip'
+            unzip -q /tmp/android-cmdline.zip -d /tmp/android-cmdline
+            mv /tmp/android-cmdline/cmdline-tools "$sdk_root/cmdline-tools/monitor-smoke"
+            sdkmanager_path="$sdk_root/cmdline-tools/monitor-smoke/bin/sdkmanager"
+            avdmanager_path="$sdk_root/cmdline-tools/monitor-smoke/bin/avdmanager"
+          fi
+          echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          echo "$sdk_root/emulator" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          yes | "$sdkmanager_path" --sdk_root="$sdk_root" --licenses >/dev/null || true
+          "$sdkmanager_path" --sdk_root="$sdk_root" --install \
+            'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
+          echo "no" | "$avdmanager_path" create avd --name monitor-smoke \
+            --package 'system-images;android-35;google_apis;x86_64' --force
           sudo chmod 666 /dev/kvm || true
 
       - name: Boot emulator and launch actual release
