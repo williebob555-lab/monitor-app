@@ -224,3 +224,13 @@ a chatbot with graphics.) A shared brief with identical sample data is ready for
 Status: the native shell in `Client.Ui` (WorkspaceShell, tokens, inspector, timeline, controls) and the
 schematic-canvas mechanics are built against the spec layout. Their view models, controls and data binding carry
 over to any structure; the layout itself is provisional until the interface comparison is decided.
+
+## Decision (2026-11-22): Dive with the grid overview
+
+Wilson chose **Dive** (prototype: `docs/ui-concepts/dive/index.html`), keeping the grid overview of devices as the home.
+- Home: a grid of large live device tiles (health in words + shape, key gauges, sparklines), with attention and pending-approval tiles.
+- Tapping a tile zooms the camera from that tile into the device, which unfolds into its own dashboard: layers as gauges,
+  hosted services as chambers you can dive into again (e.g. Server > Backup > HDD data shows the root cause).
+- No side inspector: details and actions live on the object you are inside. Breadcrumb (back chip on phone, Esc) climbs out.
+- A slim time scrubber stays at the bottom; recorded (as-of) state is clearly marked and disables actions.
+- The outline stays as the screen-reader alternative. Rail/bottom bar still switch top-level modes.
