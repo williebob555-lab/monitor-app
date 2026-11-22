@@ -50,6 +50,28 @@ public partial class WorkspaceShell : UserControl, IDisposable
     /// <summary>Keep the ecosystem current while the shell is on screen. Tests and screenshot tools switch it off to stay deterministic.</summary>
     public bool RunEnvironmentLive { get; set; } = true;
 
+    /// <summary>Change pages without the Dive's zoom animation (an accessibility preference; tests and screenshots use it too).</summary>
+    public bool ReducedMotion { get; set; }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        base.OnPropertyChanged(change);
+        if (change.Property == WorkspaceTemplateProperty)
+        {
+            SyncDive();
+        }
+    }
+
+    /// <summary>A head's own workspace template (a canvas) replaces the Dive and brings back the outline and inspector beside it.</summary>
+    private void SyncDive()
+    {
+        if (Model is { } model)
+        {
+            model.Shell.DiveEnabled = WorkspaceTemplate is null;
+        }
+    }
+
     /// <summary>The layout class from the current width.</summary>
     public ShellLayoutClass LayoutClass { get; private set; } = ShellLayoutClass.Wide;
 
@@ -96,6 +118,7 @@ public partial class WorkspaceShell : UserControl, IDisposable
             hookedSearch = model.Shell.Search;
             hookedSearch.Jumped += OnSearchJumped;
             model.Shell.PropertyChanged += OnShellChanged;
+            SyncDive();
             ApplyLayout(Bounds.Width);
         }
 

@@ -234,3 +234,5 @@ Wilson chose **Dive** (prototype: `docs/ui-concepts/dive/index.html`), keeping t
 - No side inspector: details and actions live on the object you are inside. Breadcrumb (back chip on phone, Esc) climbs out.
 - A slim time scrubber stays at the bottom; recorded (as-of) state is clearly marked and disables actions.
 - The outline stays as the screen-reader alternative. Rail/bottom bar still switch top-level modes.
+
+Status: built natively as the default Ecosystem workspace (`DiveViewModel` in Client.Core, `DiveView` in Client.Ui). The outline toggle in the toolbar switches to the outline plus inspector. Not built yet: sparklines and planned items (the scene has no data for them), a slimmer scrubber, and the sampling-interval and acknowledge actions.

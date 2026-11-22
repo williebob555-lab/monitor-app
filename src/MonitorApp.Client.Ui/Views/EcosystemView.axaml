@@ -7,8 +7,9 @@
     Until a canvas is plugged in (WorkspaceShell.WorkspaceTemplate), the host shows the structured outline, which stays
     available later as the screen-reader and keyboard alternative (the "Outline" panel beside the canvas).
   -->
+  <!-- By default (no head template) the host shows the Dive (DiveView); the toolbar's outline switch brings the outline and inspector back. -->
   <Grid RowDefinitions="Auto,*">
-    <StackPanel Grid.Row="0" Margin="12,8" Spacing="4">
+    <StackPanel Name="Header" Grid.Row="0" Margin="12,8" Spacing="4">
       <Grid ColumnDefinitions="*,Auto">
         <TextBlock Text="{Binding Summary}" Classes="mono" VerticalAlignment="Center" TextWrapping="Wrap"
                    AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Environment summary" />

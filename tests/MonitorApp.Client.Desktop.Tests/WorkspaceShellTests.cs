@@ -76,6 +76,13 @@ public sealed class WorkspaceShellTests
         await model.Environment.RefreshAsync();
         Pump();
 
+        // The Dive is the default; its toolbar switch opens the outline with the inspector (the accessible path this journey uses).
+        Assert.True(model.Shell.IsDive, "the ecosystem opens as the Dive");
+        Assert.False(Find<Border>(shell, "InspectorHost").IsVisible, "the Dive has no side inspector");
+        Find<Button>(shell, "OutlineToggle").Command!.Execute(null);
+        Pump();
+        Assert.False(model.Shell.IsDive);
+
         // Select an outline item: the inspector fills in.
         var tree = shell.GetVisualDescendants().OfType<TreeView>().Single();
         Assert.Equal(model.Environment.Outline.Count, tree.ItemCount);

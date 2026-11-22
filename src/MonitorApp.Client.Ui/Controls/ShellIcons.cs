@@ -28,25 +28,37 @@ public static class ShellIcons
 
     /// <summary>Healthy: circle. Unknown: ring. Stale: diamond. Degraded: triangle. Offline: square.</summary>
     public static IValueConverter HealthShape { get; } =
-        new FuncValueConverter<SceneHealth, Geometry?>(health => health switch
-        {
-            SceneHealth.Healthy => Circle,
-            SceneHealth.Stale => Diamond,
-            SceneHealth.Degraded => Triangle,
-            SceneHealth.Offline => Square,
-            _ => Ring,
-        });
+        new FuncValueConverter<SceneHealth, Geometry?>(ShapeFor);
 
     public static IValueConverter HealthBrush { get; } =
-        new FuncValueConverter<SceneHealth, IBrush?>(health => Brush(health switch
-        {
-            SceneHealth.Healthy => "Brush.Healthy",
-            SceneHealth.Stale => "Brush.Warning",
-            SceneHealth.Degraded => "Brush.Warning",
-            SceneHealth.Offline => "Brush.Fault",
-            _ => "Brush.Muted",
-        }));
+        new FuncValueConverter<SceneHealth, IBrush?>(BrushFor);
 
-    private static IBrush? Brush(string key) =>
+    /// <summary>Toolbar switches: the selection tint while on, transparent while off.</summary>
+    public static IValueConverter ActiveBackground { get; } =
+        new FuncValueConverter<bool, IBrush?>(on => on ? Brush("Brush.Selection") : Brushes.Transparent);
+
+    /// <summary>A filled circle: the marker for active transfer, drawn in the Transfer colour.</summary>
+    public static Geometry TransferShape => Circle;
+
+    public static Geometry ShapeFor(SceneHealth health) => health switch
+    {
+        SceneHealth.Healthy => Circle,
+        SceneHealth.Stale => Diamond,
+        SceneHealth.Degraded => Triangle,
+        SceneHealth.Offline => Square,
+        _ => Ring,
+    };
+
+    public static IBrush? BrushFor(SceneHealth health) => Brush(health switch
+    {
+        SceneHealth.Healthy => "Brush.Healthy",
+        SceneHealth.Stale => "Brush.Warning",
+        SceneHealth.Degraded => "Brush.Warning",
+        SceneHealth.Offline => "Brush.Fault",
+        _ => "Brush.Muted",
+    });
+
+    /// <summary>A semantic brush from Theme/Tokens.axaml by key ("Brush.Fault").</summary>
+    public static IBrush? Brush(string key) =>
         Application.Current is { } app && app.TryFindResource(key, out var value) ? value as IBrush : null;
 }

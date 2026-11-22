@@ -286,12 +286,18 @@ public sealed partial class ControlsViewModel : ObservableObject
     private static ControlActionRow Row(IControlSource source, ControlActionKind kind, string title, TimeSpan? duration)
     {
         var tier = source.DescribeTier(kind, duration);
-        var text = tier.RequiresPresence
+        return new ControlActionRow(kind, title, duration, TierText(tier), tier.RequiresPresence);
+    }
+
+    /// <summary>What sending an action will ask of the person, said before they act ("Elevated tier: asks for your fingerprint").</summary>
+    public static string TierText(ControlTierDescription tier)
+    {
+        ArgumentNullException.ThrowIfNull(tier);
+        return tier.RequiresPresence
             ? tier.PresenceAvailable
                 ? $"{tier.Tier} tier: asks for your fingerprint"
                 : $"{tier.Tier} tier: asks for your fingerprint, which this device cannot give"
             : $"{tier.Tier} tier: no fingerprint needed";
-        return new ControlActionRow(kind, title, duration, text, tier.RequiresPresence);
     }
 
     private void Notify()

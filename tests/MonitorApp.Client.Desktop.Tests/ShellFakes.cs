@@ -65,6 +65,28 @@ internal class FakeEnvironmentSource : IPeerDataSource
             age, new ObservationValueDto("number", value, null, null), unit, null);
 }
 
+/// <summary>Scenes for the Dive built on <see cref="SampleEnvironment"/> (sample data only).</summary>
+internal static class DiveScenes
+{
+    /// <summary>
+    /// The sample with the prototype's story: the home server's storage is 94% full (240 GB free of 4 TB) while its Backup fails,
+    /// and the laptop is transferring.
+    /// </summary>
+    public static SceneGraph BackupDiskFull(DateTimeOffset now)
+    {
+        var scene = SampleEnvironment.Create(now);
+        var server = scene.Find(SampleEnvironment.Server)!;
+        SceneReading Bytes(string signal, double value) => new(
+            SampleEnvironment.Server, signal, SignalCatalog.Describe(signal).Label, SignalCatalog.FormatValue(signal, "Bytes", value, null, null),
+            value, "Bytes", "Valid", "Fresh", now.AddSeconds(-6), 6, SampleEnvironment.Server, "sample");
+        var readings = server.Layers.Where(l => l.Kind != SceneLayerKind.Storage).SelectMany(l => l.Readings)
+            .Concat([Bytes(SignalIds.StorageFree, 0.24e12), Bytes(SignalIds.StorageTotal, 4e12)]);
+        var full = server with { Layers = LayerBuilder.Build(readings, new HealthClassifier()) };
+        var nodes = scene.Nodes.Select(n => n.Id == server.Id ? full : n.Id == SampleEnvironment.Laptop ? n with { Activity = 0.4 } : n).ToList();
+        return scene with { Nodes = nodes };
+    }
+}
+
 /// <summary>A paired-device source that can also send controls. Its answers are scripted per test; it records what was sent.</summary>
 internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource, IViewingSource, IAlertSource
 {
@@ -130,8 +152,12 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
 
     public Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default) => Record("unmute", peerId);
 
+    /// <summary>When set, only this peer holds <see cref="PendingPairings"/>; otherwise every peer reports them.</summary>
+    public string? PairingsHeldBy { get; set; }
+
     public Task<IReadOnlyList<PendingPairingDto>> ReadPendingPairingsAsync(string peerId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<PendingPairingDto>>(PendingPairings.ToArray());
+        Task.FromResult<IReadOnlyList<PendingPairingDto>>(
+            PairingsHeldBy is null || PairingsHeldBy == peerId ? PendingPairings.ToArray() : []);
 
     public Task<ControlOutcomeDto> ResolvePairingAsync(string peerId, string pairingId, string fingerprint, bool approve, CancellationToken ct = default) =>
         Record("pairing", peerId, $"{(approve ? "approve" : "deny")}:{pairingId}:{fingerprint}");

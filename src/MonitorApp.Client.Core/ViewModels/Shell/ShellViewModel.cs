@@ -4,11 +4,13 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MonitorApp.Client.Core.Scene;
+using MonitorApp.Client.Core.ViewModels.Dive;
 
 namespace MonitorApp.Client.Core.ViewModels.Shell;
 
 /// <summary>One step of the breadcrumb trail; <see cref="NodeId"/> is set when it can be selected.</summary>
-public sealed record BreadcrumbItem(string Text, string? NodeId, bool ShowSeparator = false);
+/// <remarks>In the Dive, <see cref="LayerId"/> names a part (a layer of <see cref="NodeId"/>) and a crumb without a node is Home.</remarks>
+public sealed record BreadcrumbItem(string Text, string? NodeId, bool ShowSeparator = false, string? LayerId = null);
 
 /// <summary>
 /// State of the workspace shell (UI spec section 3): the active mode, panel visibility for the current layout class,
@@ -44,6 +46,12 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool searchDropdownOpen;
 
+    [ObservableProperty]
+    private bool diveEnabled = true;
+
+    [ObservableProperty]
+    private bool outlineOpen;
+
     public ShellViewModel(MainViewModel main, NodeConnection connection, EnvironmentViewModel environment)
     {
         this.main = main;
@@ -53,6 +61,15 @@ public sealed partial class ShellViewModel : ObservableObject
         Search = new SearchViewModel(environment);
         Inspector = new InspectorViewModel(environment, connection);
         Timeline = new TimelineViewModel(environment);
+        Dive = new DiveViewModel(environment, Inspector.Controls, connection);
+        Dive.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(DiveViewModel.Crumbs) or nameof(DiveViewModel.CanGoUp) or nameof(DiveViewModel.BackText))
+            {
+                RebuildBreadcrumbs();
+                OnPropertyChanged(nameof(ShowDiveBack));
+            }
+        };
 
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
@@ -126,8 +143,27 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public bool IsEcosystem => Mode == ShellMode.Ecosystem;
 
-    /// <summary>The inspector applies to the ecosystem workspace only; other modes are full-page.</summary>
-    private bool InspectorApplies => Mode == ShellMode.Ecosystem;
+    /// <summary>The ecosystem as the Dive (the default): home grid, pages per object, no side inspector.</summary>
+    public DiveViewModel Dive { get; }
+
+    /// <summary>
+    /// True when the ecosystem is shown as the Dive: on by default, off while the outline (the accessible alternative, with the
+    /// inspector) is open, and off when a head plugs in its own workspace template (see WorkspaceShell.WorkspaceTemplate).
+    /// </summary>
+    public bool IsDive => Mode == ShellMode.Ecosystem && DiveEnabled && !OutlineOpen;
+
+    public bool IsNotDive => !IsDive;
+
+    /// <summary>The toolbar's outline switch is offered wherever the Dive could be shown.</summary>
+    public bool ShowOutlineToggle => Mode == ShellMode.Ecosystem && DiveEnabled;
+
+    public bool ShowInspectorToggle => InspectorApplies;
+
+    /// <summary>The phone's back chip ("‹ Home server") replaces the breadcrumb trail while inside the Dive.</summary>
+    public bool ShowDiveBack => IsDive && IsNarrow && Dive.CanGoUp;
+
+    /// <summary>The inspector applies to the ecosystem workspace when it is not the Dive (the Dive has no side panels); other modes are full-page.</summary>
+    private bool InspectorApplies => Mode == ShellMode.Ecosystem && !IsDive;
 
     private bool HasSelection => Environment.SelectedNode is not null;
 
@@ -165,6 +201,14 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     public void ToggleTimeline() => TimelineOpen = !TimelineOpen;
 
+    /// <summary>Switches the ecosystem between the Dive and the outline with the inspector (the keyboard and screen-reader path).</summary>
+    [RelayCommand]
+    public void ToggleOutline() => OutlineOpen = !OutlineOpen;
+
+    partial void OnOutlineOpenChanged(bool value) => RaiseDive();
+
+    partial void OnDiveEnabledChanged(bool value) => RaiseDive();
+
     /// <summary>Escape: closes the search results, then the inspector or sheet (clearing the selection).</summary>
     [RelayCommand]
     public void Dismiss()
@@ -172,6 +216,11 @@ public sealed partial class ShellViewModel : ObservableObject
         if (SearchDropdownOpen)
         {
             SearchDropdownOpen = false;
+        }
+        else if (IsDive)
+        {
+            // The Dive climbs out one level at a time (part, device, host, Home).
+            Dive.Up();
         }
         else if (Environment.SelectedNodeId is not null)
         {
@@ -187,7 +236,11 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     public void SelectBreadcrumb(BreadcrumbItem? item)
     {
-        if (item?.NodeId is { } id)
+        if (IsDive && item is not null)
+        {
+            Dive.GoTo(item.NodeId, item.LayerId);
+        }
+        else if (item?.NodeId is { } id)
         {
             Environment.SelectedNodeId = id;
         }
@@ -212,7 +265,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(Content));
         OnPropertyChanged(nameof(ShowsConnection));
         OnPropertyChanged(nameof(IsEcosystem));
-        RaiseVisibility();
+        RaiseDive();
     }
 
     partial void OnSelectedModeItemChanged(ShellModeItem value)
@@ -240,6 +293,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsMedium));
         OnPropertyChanged(nameof(IsWide));
         OnPropertyChanged(nameof(IsNotNarrow));
+        OnPropertyChanged(nameof(ShowDiveBack));
         // The phone starts with the timeline folded away; historical state always keeps it reachable.
         TimelineOpen = value != ShellLayoutClass.Narrow || Environment.IsHistorical;
         RaiseVisibility();
@@ -390,6 +444,17 @@ public sealed partial class ShellViewModel : ObservableObject
     private void RebuildBreadcrumbs()
     {
         Breadcrumbs.Clear();
+        if (IsDive)
+        {
+            foreach (var crumb in Dive.Crumbs)
+            {
+                Breadcrumbs.Add(crumb);
+            }
+
+            OnPropertyChanged(nameof(ToolbarTitle));
+            return;
+        }
+
         var title = Modes.First(m => m.Mode == Mode).Title;
         Breadcrumbs.Add(new BreadcrumbItem(title, null));
         if (Mode == ShellMode.Ecosystem)
@@ -413,6 +478,17 @@ public sealed partial class ShellViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(ToolbarTitle));
+    }
+
+    private void RaiseDive()
+    {
+        OnPropertyChanged(nameof(IsDive));
+        OnPropertyChanged(nameof(IsNotDive));
+        OnPropertyChanged(nameof(ShowOutlineToggle));
+        OnPropertyChanged(nameof(ShowInspectorToggle));
+        OnPropertyChanged(nameof(ShowDiveBack));
+        RebuildBreadcrumbs();
+        RaiseVisibility();
     }
 
     private void RaiseVisibility()

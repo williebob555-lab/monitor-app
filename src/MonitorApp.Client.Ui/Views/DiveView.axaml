@@ -1,0 +1,576 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:dive="using:MonitorApp.Client.Core.ViewModels.Dive"
+             xmlns:shell="using:MonitorApp.Client.Core.ViewModels.Shell"
+             xmlns:views="using:MonitorApp.Client.Ui.Views"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
+             x:Class="MonitorApp.Client.Ui.Views.DiveView" x:DataType="dive:DiveViewModel" Name="DiveRoot">
+  <!--
+    The Dive (UI_DESIGN.md "Decision: Dive with the grid overview"). Home is a grid of device tiles; a tile zooms into its device page
+    (layers as gauges, services as chambers, controls on the object itself); a gauge dives into a part. No side panels: the breadcrumb
+    in the shell toolbar (back chip on a phone) and Esc climb out. Every status is a shape plus words; colours come from Theme/Tokens.
+  -->
+  <UserControl.Styles>
+    <Style Selector="Border.tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="20,18" />
+    </Style>
+    <Style Selector="Border.tile.planned">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Planned}" />
+    </Style>
+    <Style Selector="Border.tile.approval">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Planned}" />
+      <Setter Property="Background" Value="#1a1726" />
+    </Style>
+    <Style Selector="Border.tile.alarm">
+      <Setter Property="BorderBrush" Value="#7a2f2c" />
+      <Setter Property="Background" Value="#1a1314" />
+    </Style>
+    <Style Selector="Button.tile">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.tile:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.tile:pointerover Border.tile">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+    </Style>
+    <Style Selector="Button.tile:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+    <Style Selector="Border.panelbox">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="20" />
+    </Style>
+    <Style Selector="Border.panelbox.critical">
+      <Setter Property="BorderBrush" Value="#7a2f2c" />
+      <Setter Property="Background" Value="#191314" />
+    </Style>
+    <Style Selector="Border.badge">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Pill}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="9,3" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.tiletitle">
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.pagetitle">
+      <Setter Property="FontSize" Value="28" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.headline">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.gaugevalue">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.gaugeunit">
+      <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.chip">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Pill}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.cta">
+      <Setter Property="Background" Value="{DynamicResource Brush.Warning}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="18,8" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.cta:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#f0b955" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+    </Style>
+    <Style Selector="Button.action">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="16,8" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ItemsControl.home">
+      <Setter Property="Margin" Value="24,20,24,24" />
+    </Style>
+    <Style Selector="Panel.narrow ItemsControl.home">
+      <Setter Property="Margin" Value="16,12,16,16" />
+    </Style>
+    <Style Selector="StackPanel.page">
+      <Setter Property="Margin" Value="32,24,32,32" />
+      <Setter Property="MaxWidth" Value="1200" />
+      <Setter Property="Spacing" Value="16" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.page">
+      <Setter Property="Margin" Value="16,12,16,16" />
+    </Style>
+    <Style Selector="Panel.narrow TextBlock.pagetitle">
+      <Setter Property="FontSize" Value="24" />
+    </Style>
+    <!-- Part page: ring beside the readings when wide, above them on a phone. -->
+    <Style Selector="StackPanel.partring">
+      <Setter Property="Margin" Value="0,0,24,0" />
+    </Style>
+    <Style Selector="StackPanel.partdetail">
+      <Setter Property="Grid.Column" Value="1" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.partring">
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,0,16" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.partdetail">
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="Grid.Row" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <UserControl.DataTemplates>
+    <!-- Status: a shape and words in the same semantic colour, inside an outlined pill. -->
+    <DataTemplate DataType="dive:DiveBadge">
+      <Border Classes="badge" BorderBrush="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Path Classes="marker" Width="9" Height="9" Data="{Binding Converter={x:Static ctl:DiveConverters.BadgeShape}}"
+                Fill="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" />
+          <TextBlock Text="{Binding Text}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold" VerticalAlignment="Center"
+                     Foreground="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
+    <!-- Home: the grid overview. -->
+    <DataTemplate DataType="dive:DiveHomePage">
+      <ScrollViewer Name="HomeScroll" HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl Name="HomeTiles" Classes="home" ItemsSource="{Binding Tiles}" AutomationProperties.Name="Devices">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="4" MinColumnWidth="250" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
+            <DataTemplate DataType="dive:DiveDeviceTile">
+              <Button Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
+                      CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                <Border Classes="tile" MinHeight="196">
+                  <StackPanel Spacing="10">
+                    <TextBlock Text="{Binding Title}" Classes="tiletitle" />
+                    <WrapPanel>
+                      <ContentControl Content="{Binding Badge}" Margin="0,0,10,4" />
+                      <TextBlock Text="{Binding KindText}" Classes="label" VerticalAlignment="Center" Margin="0,0,0,4" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding Headline}" Classes="headline" IsVisible="{Binding HasHeadline}"
+                               Foreground="{Binding HeadlineHealth, Converter={x:Static ctl:DiveConverters.HeadlineBrush}}" />
+                    <ItemsControl ItemsSource="{Binding Gauges}" IsVisible="{Binding HasGauges}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="dive:DiveGauge">
+                          <StackPanel Spacing="4" Margin="0,0,18,4" AutomationProperties.Name="{Binding AccessibleText}">
+                            <Panel Width="72" Height="72">
+                              <ctl:DiveRing Value="{Binding FillValue}" Thickness="7" Track="{DynamicResource Brush.Surface3}"
+                                            Stroke="{Binding Level, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
+                              <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Value}" Classes="gaugevalue" />
+                                <TextBlock Text="{Binding Unit}" Classes="gaugeunit" />
+                              </StackPanel>
+                            </Panel>
+                            <TextBlock Text="{Binding Label}" Classes="label" HorizontalAlignment="Center" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <TextBlock Text="{Binding}" Classes="muted" Margin="0,0,0,2" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Spacing="4" IsVisible="{Binding HasActivity}">
+                      <ProgressBar Classes="fill" Minimum="0" Maximum="1" Value="{Binding Activity}" />
+                      <TextBlock Text="{Binding ActivityText}" Classes="meta" Foreground="{DynamicResource Brush.Transfer}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Detail}" Classes="muted" />
+                    <TextBlock Text="{Binding ChildrenText}" Classes="meta" IsVisible="{Binding HasChildren}" />
+                  </StackPanel>
+                </Border>
+              </Button>
+            </DataTemplate>
+
+            <DataTemplate DataType="dive:DiveApprovalTile">
+              <Button Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
+                      CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                <Border Classes="tile approval" MinHeight="196">
+                  <StackPanel Spacing="10">
+                    <Path Classes="icon" Data="{StaticResource Icon.lock}" Stroke="{DynamicResource Brush.Planned}" Width="28" Height="28"
+                          HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding KindText}" Classes="section" />
+                    <TextBlock Text="{Binding Title}" Classes="tiletitle" />
+                    <TextBlock Text="{Binding Detail}" Classes="muted" />
+                    <Border Classes="badge" BorderBrush="{DynamicResource Brush.Planned}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Path Classes="marker" Width="9" Height="9" Data="M6,0.5 L11.5,6 L6,11.5 L0.5,6 Z" Fill="{DynamicResource Brush.Planned}" />
+                        <TextBlock Text="{Binding TierText}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.Planned}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
+                </Border>
+              </Button>
+            </DataTemplate>
+
+            <DataTemplate DataType="dive:DiveAttentionTile">
+              <Button Name="AttentionTile" Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
+                      CommandParameter="{Binding}" IsEnabled="{Binding HasCause}" AutomationProperties.Name="{Binding AccessibleText}">
+                <Border Classes="tile" Classes.alarm="{Binding HasCause}">
+                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,*">
+                    <TextBlock Text="NEEDS ATTENTION" Classes="section" />
+                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2"
+                               Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding !IsAllClear}" />
+                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2"
+                               Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsAllClear}" />
+                    <TextBlock Grid.Row="2" Text="{Binding Breakdown}" Classes="muted" Margin="0,0,0,8" />
+                    <ItemsControl Grid.Row="3" ItemsSource="{Binding Items}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="dive:DiveProblem">
+                          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                            <Path Classes="marker" Width="10" Height="10" Data="{Binding Converter={x:Static ctl:DiveConverters.ProblemShape}}"
+                                  Fill="{Binding Converter={x:Static ctl:DiveConverters.ProblemBrush}}" />
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border Grid.Column="1" Grid.RowSpan="4" VerticalAlignment="Bottom" IsVisible="{Binding HasCause}"
+                            Background="{DynamicResource Brush.Warning}" CornerRadius="8" Padding="16,10" Margin="12,0,0,0">
+                      <TextBlock Text="Dive to the cause ›" Foreground="{DynamicResource Brush.Ink}" FontWeight="SemiBold" />
+                    </Border>
+                  </Grid>
+                </Border>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
+        </ItemsControl>
+      </ScrollViewer>
+    </DataTemplate>
+
+    <!-- Inside a device or service. -->
+    <DataTemplate DataType="dive:DiveDevicePage">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Classes="page">
+          <StackPanel Spacing="6">
+            <WrapPanel>
+              <TextBlock Name="DiveTitle" Text="{Binding Title}" Classes="pagetitle" Margin="0,0,14,4" VerticalAlignment="Center" />
+              <ContentControl Content="{Binding Badge}" Margin="0,0,12,4" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding KindText}" Classes="label" VerticalAlignment="Center" Margin="0,0,0,4" />
+            </WrapPanel>
+            <TextBlock Name="DiveProvenance" Text="{Binding Provenance}" Classes="meta" />
+          </StackPanel>
+
+          <Border Classes="panelbox critical" IsVisible="{Binding HasProblem}">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="6" VerticalAlignment="Center">
+                <Border Classes="badge" BorderBrush="{Binding Problem, Converter={x:Static ctl:DiveConverters.ProblemBrush}}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path Classes="marker" Width="9" Height="9" Data="{Binding Problem, Converter={x:Static ctl:DiveConverters.ProblemShape}}"
+                          Fill="{Binding Problem, Converter={x:Static ctl:DiveConverters.ProblemBrush}}" />
+                    <TextBlock Text="{Binding ProblemBadgeText}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold"
+                               Foreground="{Binding Problem, Converter={x:Static ctl:DiveConverters.ProblemBrush}}" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Text="{Binding Problem.Text, FallbackValue=''}" Classes="muted" />
+                <TextBlock Text="{Binding LeadText}" Classes="muted" IsVisible="{Binding HasLead}" Foreground="{DynamicResource Brush.Text}" />
+              </StackPanel>
+              <Button Name="Investigate" Grid.Column="1" Classes="cta" Content="Investigate" Margin="16,0,0,0" VerticalAlignment="Center"
+                      IsVisible="{Binding HasInvestigate}"
+                      Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenProblemCommand}" CommandParameter="{Binding Investigate}"
+                      AutomationProperties.Name="Investigate: dive to the cause" />
+            </Grid>
+          </Border>
+
+          <Border Classes="panelbox" IsVisible="{Binding HasGauges}">
+            <ItemsControl ItemsSource="{Binding Gauges}" AutomationProperties.Name="Layers">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel HorizontalAlignment="Center" ItemWidth="172" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="dive:DiveGauge">
+                  <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Padding="4,8" CornerRadius="10"
+                          Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenPartCommand}" CommandParameter="{Binding}"
+                          AutomationProperties.Name="{Binding AccessibleText}" ToolTip.Tip="{Binding Caption}">
+                    <StackPanel Spacing="6">
+                      <Panel Width="104" Height="104" HorizontalAlignment="Center">
+                        <ctl:DiveRing Value="{Binding FillValue}" Thickness="9" Track="{DynamicResource Brush.Surface3}" IsVisible="{Binding HasFill}"
+                                      Stroke="{Binding Level, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
+                        <Ellipse Stroke="{DynamicResource Brush.Surface3}" StrokeThickness="9" IsVisible="{Binding !HasFill}" />
+                        <StackPanel VerticalAlignment="Center" Margin="12,0">
+                          <TextBlock Text="{Binding Value}" Classes="gaugevalue" FontSize="22" TextTrimming="CharacterEllipsis"
+                                     IsVisible="{Binding HasFill}" />
+                          <TextBlock Text="{Binding Value}" Classes="gaugevalue" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"
+                                     MaxLines="2" IsVisible="{Binding !HasFill}" />
+                          <TextBlock Text="{Binding Unit}" Classes="gaugeunit" />
+                        </StackPanel>
+                      </Panel>
+                      <TextBlock Text="{Binding Label}" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                      <TextBlock Text="{Binding Caption}" Classes="meta" TextAlignment="Center" HorizontalAlignment="Center" MaxLines="2"
+                                 TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+
+          <!-- Actions on this object reuse the controls (tiers said before acting; off while viewing history). -->
+          <Border Name="DiveControls" Classes="panelbox" IsVisible="{Binding Controls.IsAvailable}">
+            <StackPanel Spacing="10" DataContext="{Binding Controls}" x:DataType="shell:ControlsViewModel">
+              <TextBlock Text="COLLECTION AND ALERTS" Classes="section" />
+              <TextBlock Text="{Binding HistoryNotice}" Classes="meta" Foreground="{DynamicResource Brush.Warning}"
+                         IsVisible="{Binding IsHistorical}" AutomationProperties.LiveSetting="Polite" />
+              <ItemsControl ItemsSource="{Binding Actions}" AutomationProperties.Name="Actions">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="shell:ControlActionRow">
+                    <StackPanel Spacing="4" Margin="0,0,16,8" Width="236">
+                      <Button Classes="action" Content="{Binding Title}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                              Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).Controls.RunCommand}" CommandParameter="{Binding}"
+                              IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}"
+                              AutomationProperties.Name="{Binding AccessibleText}" />
+                      <DockPanel>
+                        <Path DockPanel.Dock="Left" Classes="icon" Data="{StaticResource Icon.lock}" Width="13" Height="13" Margin="0,0,6,0"
+                              VerticalAlignment="Top" Stroke="{DynamicResource Brush.Warning}" IsVisible="{Binding RequiresPresence}" />
+                        <TextBlock Text="{Binding TierText}" Classes="meta" />
+                      </DockPanel>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel Name="DiveUpdate" Spacing="6" IsVisible="{Binding HasPendingUpdate}">
+                <TextBlock Text="{Binding UpdateSummary}" TextWrapping="Wrap" />
+                <Button Classes="action" Content="Approve update" HorizontalAlignment="Left" Command="{Binding ApproveUpdateCommand}"
+                        IsEnabled="{Binding CanApproveUpdate}" />
+                <TextBlock Text="{Binding UpdateTierText}" Classes="meta" />
+              </StackPanel>
+              <ItemsControl Name="DivePairings" ItemsSource="{Binding PendingPairings}" IsVisible="{Binding HasPendingPairings}"
+                            AutomationProperties.Name="Pairing requests">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="shell:RemotePairingRow">
+                    <StackPanel Spacing="4" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleText}">
+                      <TextBlock>
+                        <Run Text="{Binding Name}" FontWeight="SemiBold" /><Run Text=" asks to join" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding Fingerprint, StringFormat='Fingerprint {0}'}" Classes="meta" TextWrapping="Wrap" />
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="action" Content="Approve"
+                                Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).Controls.ResolvePairingCommand}"
+                                CommandParameter="{Binding}" IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}" />
+                        <Button Classes="action" Content="Deny"
+                                Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).Controls.DenyPairingCommand}"
+                                CommandParameter="{Binding}" IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding TierText}" Classes="meta" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Name="DiveOutcome" Text="{Binding OutcomeText}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                         IsVisible="{Binding OutcomeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         Classes.error="{Binding OutcomeIsFailure}" />
+            </StackPanel>
+          </Border>
+
+          <TextBlock Text="INSIDE · DIVE IN" Classes="section" IsVisible="{Binding HasChambers}" Margin="0,8,0,0" />
+          <ItemsControl ItemsSource="{Binding Chambers}" IsVisible="{Binding HasChambers}" AutomationProperties.Name="Inside">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="4" MinColumnWidth="220" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="dive:DiveChamber">
+                <Button Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenChamberCommand}"
+                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                  <Border Classes="tile" MinHeight="140">
+                    <StackPanel Spacing="10">
+                      <TextBlock Text="{Binding Title}" Classes="tiletitle" />
+                      <ContentControl Content="{Binding Badge}" />
+                      <TextBlock Text="{Binding Detail}" Classes="muted" />
+                      <TextBlock Text="{Binding Hint, StringFormat='{}{0} ›'}" Classes="label" />
+                    </StackPanel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Text="RELATED" Classes="section" IsVisible="{Binding HasRelations}" Margin="0,8,0,0" />
+          <ItemsControl ItemsSource="{Binding Relations}" IsVisible="{Binding HasRelations}" AutomationProperties.Name="Related">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="dive:DiveRelation">
+                <Button Classes="chip" Margin="0,0,8,8" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenRelationCommand}"
+                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Path Classes="marker" Width="9" Height="9" Data="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthShape}}"
+                          Fill="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthBrush}}" />
+                    <TextBlock Text="{Binding Text}" VerticalAlignment="Center" />
+                    <TextBlock Text="›" Foreground="{DynamicResource Brush.TextSecondary}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+
+    <!-- A part: one layer, its fill, its readings and why it matters. -->
+    <DataTemplate DataType="dive:DivePartPage">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Classes="page">
+          <StackPanel Spacing="6">
+            <WrapPanel>
+              <TextBlock Name="PartTitle" Text="{Binding Title}" Classes="pagetitle" Margin="0,0,14,4" VerticalAlignment="Center" />
+              <ContentControl Content="{Binding Badge}" Margin="0,0,0,4" VerticalAlignment="Center" />
+            </WrapPanel>
+            <TextBlock Text="{Binding Context}" Classes="muted" />
+          </StackPanel>
+
+          <Border Classes="panelbox" Classes.critical="{Binding IsCritical}">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+              <StackPanel Classes="partring" Spacing="6" VerticalAlignment="Center">
+                <Panel Width="150" Height="150">
+                  <ctl:DiveRing Value="{Binding Gauge.FillValue, FallbackValue=0}" Thickness="14" Track="{DynamicResource Brush.Surface3}"
+                                Stroke="{Binding Gauge.Level, FallbackValue=None, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
+                  <StackPanel VerticalAlignment="Center" Margin="16,0">
+                    <TextBlock Text="{Binding Gauge.Value, FallbackValue='--'}" Classes="gaugevalue" FontSize="34" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Gauge.Unit, FallbackValue=''}" Classes="gaugeunit" />
+                  </StackPanel>
+                </Panel>
+                <TextBlock Text="{Binding Gauge.Label, FallbackValue=''}" Classes="label" HorizontalAlignment="Center" />
+              </StackPanel>
+              <StackPanel Classes="partdetail" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Summary}" FontSize="{DynamicResource Size.Heading}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Name="PartStatement" Text="{Binding Statement}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <ItemsControl ItemsSource="{Binding Readings}" AutomationProperties.Name="Readings">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="dive:DiveReadingRow">
+                      <StackPanel Margin="0,4,0,0" AutomationProperties.Name="{Binding AccessibleText}">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1" Text="{Binding Value}" Classes="value" Margin="12,0,0,0" />
+                        </Grid>
+                        <TextBlock Text="{Binding Meta}" Classes="meta" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <Border Classes="panelbox" IsVisible="{Binding HasRelated}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="{Binding RelatedHeading}" Classes="section" />
+              <ItemsControl ItemsSource="{Binding Related}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="dive:DiveProblem">
+                    <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenProblemCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Text}">
+                      <DockPanel>
+                        <Path DockPanel.Dock="Left" Classes="marker" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"
+                              Data="{Binding Converter={x:Static ctl:DiveConverters.ProblemShape}}"
+                              Fill="{Binding Converter={x:Static ctl:DiveConverters.ProblemBrush}}" />
+                        <TextBlock DockPanel.Dock="Right" Text="›" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                      </DockPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Name="PartActions" Classes="panelbox">
+            <StackPanel Spacing="10">
+              <WrapPanel>
+                <TextBlock Text="Actions" Classes="label" VerticalAlignment="Center" Margin="0,0,16,8" />
+                <Button Classes="action" Content="{Binding BackText}" Margin="0,0,12,8"
+                        Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).BackCommand}" />
+                <Button Name="PartMute" Classes="action" Content="{Binding MuteAction.Title, FallbackValue=''}" Margin="0,0,12,8"
+                        IsVisible="{Binding HasMuteAction}"
+                        Command="{Binding Controls.RunCommand}" CommandParameter="{Binding MuteAction}"
+                        IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}"
+                        AutomationProperties.Name="{Binding MuteAction.AccessibleText, FallbackValue=''}" />
+              </WrapPanel>
+              <TextBlock Text="{Binding MuteAction.TierText, FallbackValue=''}" Classes="meta" IsVisible="{Binding HasMuteAction}" />
+              <TextBlock Text="{Binding Controls.HistoryNotice}" Classes="meta" Foreground="{DynamicResource Brush.Warning}"
+                         IsVisible="{Binding Controls.IsHistorical}" />
+              <TextBlock Text="{Binding Controls.OutcomeText}" TextWrapping="Wrap"
+                         IsVisible="{Binding Controls.OutcomeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         Classes.error="{Binding Controls.OutcomeIsFailure}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Grid RowDefinitions="Auto,*">
+    <!-- Recorded: a hatched band and the moment in words, so a recorded page can never pass for live. -->
+    <Border Name="RecordedBand" IsVisible="{Binding IsHistorical}" BorderBrush="{DynamicResource Brush.Warning}" BorderThickness="0,0,0,1">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="10,10" SpreadMethod="Repeat">
+          <GradientStop Color="#1e232a" Offset="0" />
+          <GradientStop Color="#1e232a" Offset="0.5" />
+          <GradientStop Color="#14171c" Offset="0.5" />
+          <GradientStop Color="#14171c" Offset="1" />
+        </LinearGradientBrush>
+      </Border.Background>
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="16,8">
+        <Border Classes="badge" BorderBrush="{DynamicResource Brush.Warning}" Background="{DynamicResource Brush.Ink}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Classes="marker" Width="9" Height="9" Data="M6,0.5 L11.5,6 L6,11.5 L0.5,6 Z" Fill="{DynamicResource Brush.Warning}" />
+            <TextBlock Name="RecordedChip" Text="{Binding RecordedText}" FontFamily="{DynamicResource Font.Mono}" FontWeight="SemiBold"
+                       FontSize="{DynamicResource Size.Small}" Foreground="{DynamicResource Brush.Warning}" />
+          </StackPanel>
+        </Border>
+        <TextBlock Grid.Column="1" Text="{x:Static dive:DiveViewModel.RecordedNotice}" Classes="muted" VerticalAlignment="Center"
+                   Margin="12,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+        <Button Grid.Column="2" Classes="action" Content="Return to live" Command="{Binding ReturnToLiveCommand}"
+                Background="{DynamicResource Brush.Healthy}" Foreground="{DynamicResource Brush.Ink}" BorderThickness="0"
+                AutomationProperties.Name="Return to live" />
+      </Grid>
+    </Border>
+
+    <Panel Name="Stage" Grid.Row="1" ClipToBounds="True">
+      <ContentControl Name="PageHost" Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+    </Panel>
+  </Grid>
+</UserControl>

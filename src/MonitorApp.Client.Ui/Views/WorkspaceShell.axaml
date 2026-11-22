@@ -72,7 +72,7 @@
 
         <!-- Thin top toolbar: breadcrumbs, search, LIVE / RECORDED pill, panel toggles. -->
         <Border Name="Toolbar" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Classes="panel" BorderThickness="0,0,0,1" MinHeight="48">
-          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="12,0,8,0">
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="12,0,8,0">
             <ItemsControl Name="Breadcrumbs" Grid.Column="0" ItemsSource="{Binding Shell.Breadcrumbs}" IsVisible="{Binding Shell.IsNotNarrow}"
                           VerticalAlignment="Center" AutomationProperties.Name="Breadcrumbs">
               <ItemsControl.ItemsPanel>
@@ -90,8 +90,20 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Name="NarrowTitle" Grid.Column="0" Text="{Binding Shell.ToolbarTitle}" Classes="subheading" VerticalAlignment="Center"
-                       IsVisible="{Binding Shell.IsNarrow}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
+            <DockPanel Grid.Column="0" IsVisible="{Binding Shell.IsNarrow}">
+              <!-- Phone, inside the Dive: a back chip names where it climbs to (the breadcrumb trail does not fit). -->
+              <Button Name="DiveBack" DockPanel.Dock="Left" Classes="compact flat" Command="{Binding Shell.Dive.BackCommand}"
+                      IsVisible="{Binding Shell.ShowDiveBack}" Margin="-8,0,4,0"
+                      AutomationProperties.Name="{Binding Shell.Dive.BackText, StringFormat='Back to {0}'}">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
+                  <TextBlock Text="{Binding Shell.Dive.BackText}" VerticalAlignment="Center" MaxWidth="110" TextTrimming="CharacterEllipsis"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </Button>
+              <TextBlock Name="NarrowTitle" Text="{Binding Shell.ToolbarTitle}" Classes="subheading" VerticalAlignment="Center"
+                         IsVisible="{Binding Shell.IsNarrow}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
+            </DockPanel>
             <TextBox Name="SearchBox" Grid.Column="1" Text="{Binding Shell.Search.Query}" Width="280" MinHeight="32" Margin="8,0"
                      Watermark="Search  (Ctrl+K)" IsVisible="{Binding Shell.IsNotNarrow}"
                      AutomationProperties.Name="Search devices, services and readings" />
@@ -106,11 +118,17 @@
                 <TextBlock Name="LiveText" Text="{Binding Shell.LiveText}" FontFamily="{DynamicResource Font.Mono}" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
-            <Button Name="InspectorToggle" Grid.Column="3" Classes="compact flat" Command="{Binding Shell.ToggleInspectorCommand}"
-                    IsVisible="{Binding Shell.IsEcosystem}" AutomationProperties.Name="Show or hide inspector" ToolTip.Tip="Show or hide inspector">
+            <!-- The outline (with the inspector) is the keyboard and screen-reader alternative to the Dive. -->
+            <Button Name="OutlineToggle" Grid.Column="3" Classes="compact flat" Command="{Binding Shell.ToggleOutlineCommand}"
+                    Background="{Binding Shell.OutlineOpen, Converter={x:Static ctl:ShellIcons.ActiveBackground}}" IsVisible="{Binding Shell.ShowOutlineToggle}"
+                    AutomationProperties.Name="Switch between the Dive and the outline with inspector" ToolTip.Tip="Outline view (accessible list)">
+              <Path Classes="icon" Data="{StaticResource Icon.outline}" />
+            </Button>
+            <Button Name="InspectorToggle" Grid.Column="4" Classes="compact flat" Command="{Binding Shell.ToggleInspectorCommand}"
+                    IsVisible="{Binding Shell.ShowInspectorToggle}" AutomationProperties.Name="Show or hide inspector" ToolTip.Tip="Show or hide inspector">
               <Path Classes="icon" Data="{StaticResource Icon.inspector}" />
             </Button>
-            <Button Name="TimelineToggle" Grid.Column="4" Classes="compact flat" Command="{Binding Shell.ToggleTimelineCommand}"
+            <Button Name="TimelineToggle" Grid.Column="5" Classes="compact flat" Command="{Binding Shell.ToggleTimelineCommand}"
                     IsVisible="{Binding Shell.IsNotNarrow}" AutomationProperties.Name="Show or hide timeline" ToolTip.Tip="Show or hide timeline">
               <Path Classes="icon" Data="{StaticResource Icon.timeline}" />
             </Button>
@@ -160,6 +178,7 @@
           <Panel Name="HistoricalOutline" IsHitTestVisible="False" IsVisible="{Binding Shell.IsHistorical}">
             <Rectangle Stroke="{DynamicResource Brush.Warning}" StrokeThickness="2" StrokeDashArray="6,4" />
             <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,8" Padding="8,2" Background="{DynamicResource Brush.Surface2}"
+                    IsVisible="{Binding Shell.IsNotDive}"
                     BorderBrush="{DynamicResource Brush.Warning}" BorderThickness="1" CornerRadius="{DynamicResource Radius.Small}">
               <TextBlock Text="RECORDED VIEW · NOT LIVE" Classes="meta" Foreground="{DynamicResource Brush.Warning}" TextWrapping="NoWrap" />
             </Border>

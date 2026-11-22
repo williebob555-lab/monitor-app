@@ -306,8 +306,10 @@ public sealed partial class InspectorViewModel : ObservableObject
     };
 
     /// <summary>Spec 20: say who observed it and how old it is; never imply the reading is newer than it is.</summary>
-    private static string DescribeProvenance(SceneNode node, SceneGraph scene)
+    public static string DescribeProvenance(SceneNode node, SceneGraph scene)
     {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(scene);
         var origins = node.Layers.SelectMany(l => l.Readings).Select(r => r.OriginPeerId)
             .GroupBy(id => id, StringComparer.Ordinal).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault();
         string who;
