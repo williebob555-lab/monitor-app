@@ -28,10 +28,16 @@ Sg250Snapshot snapshot = await adapter.CollectAsync(cancellationToken);
 
 Collection is explicitly assigned to one peer; a second peer must be separately provisioned before takeover. Avoid polling a switch from multiple peers by default. No new listener, management API endpoint, credentials table, automatic failover or scheduler is introduced by T300.
 
+## SQLite composition without hardware
+
+`Sg250CollectionPipeline` now composes an explicitly provisioned `CiscoSg250Adapter` and the existing file-backed `PeerStore`. Before any SNMP request it checks the enabled adapter instance, configured switch entity, current collector assignment, and collecting peer. No assignment means **no poll**. Successful snapshots persist switch and port entities, strong/weak identity claims, read-only reported port attachment, and adapter health. Disappearing ports have their attachment relationship closed (`ValidTo`); an unavailable/denied/error poll leaves topology intact. A conflicting strong bridge-MAC claim is rejected without silently merging two switches. Original relationship `ValidFrom` is retained across repeated polls and restarts.
+
+Provisioning is deliberately a separate local-admin action; the pipeline never enables a switch or transfers credentials itself. No scheduler is registered in the node yet, and this is not an origin-signed observation stream. Later operational integration can invoke the pipeline from the assigned peer's scheduler while maintaining the current permission boundary.
+
 ## Verification / next boundaries
 
 Unit tests in `tests/MonitorApp.Peer.Collection.Tests/CiscoSg250Tests.cs` exercise production parsing/projection, bridge-port indexing, strong-vs-weak identity, failed reads, unknown values, and private-target enforcement.
 
-Run `dotnet test tests/MonitorApp.Peer.Collection.Tests/MonitorApp.Peer.Collection.Tests.csproj -c Release` and `dotnet format MonitorApp.sln --verify-no-changes` from the repository root. Those commands require the pinned .NET 10 SDK. A real SG250 probe, Windows/Linux execution, firmware differences, and integration with node scheduling/SQLite persistence must be verified separately. Until that integration is ready, T300 remains an **unwired adapter spike** and should not be presented as a working switch-monitoring UI or automated collector.
+Run `dotnet test tests/MonitorApp.Peer.Collection.Tests/MonitorApp.Peer.Collection.Tests.csproj -c Release` and `dotnet format MonitorApp.sln --verify-no-changes` from the repository root. Those commands require the pinned .NET 10 SDK. A real SG250 probe, Windows/Linux execution, firmware differences, node scheduling, and signed observation replication must be verified separately. Real SQLite persistence through `Sg250CollectionPipeline` is now covered by `CiscoSg250PersistenceTests` without switch hardware. Until runtime scheduling and application UI integration is ready, T300 remains a **non-running adapter slice** and should not be presented as a working switch-monitoring UI or automated collector.
 
 Sources for protocol support: Cisco 250 Series Smart Switches data sheet and Cisco 250 Series administration guide. Firmware versions may differ.
