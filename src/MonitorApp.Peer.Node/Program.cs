@@ -1,4 +1,18 @@
 using MonitorApp.Peer.Node;
+using MonitorApp.Peer.Node.Update;
+
+if (args.Length >= 2 && args[0] == ApplyHelper.HelperArgument)
+{
+    // Root-only helper started by monitor-app-update.service; not part of the normal node.
+    return await ApplyHelper.RunHelperAsync(
+        args[1],
+        NodeUpdateOptions.DefaultKeyFile(),
+        "/var/lib/monitor-app-helper",
+        Environment.GetEnvironmentVariable("MONITOR_APP_UPDATE_PACKAGE") is { Length: > 0 } kind && kind != "auto"
+            ? kind
+            : File.Exists("/etc/redhat-release") ? "rpm" : "deb",
+        Environment.GetEnvironmentVariable("MONITOR_APP_UPDATE_CHANNEL") is { Length: > 0 } channel ? channel : "preview").ConfigureAwait(false);
+}
 
 NodeOptions options;
 try

@@ -539,7 +539,8 @@
           "MonitorApp.Peer.Replication": "[1.0.0, )",
           "MonitorApp.Peer.Service": "[1.0.0, )",
           "MonitorApp.Peer.Sync": "[1.0.0, )",
-          "MonitorApp.Peer.Transport": "[1.0.0, )"
+          "MonitorApp.Peer.Transport": "[1.0.0, )",
+          "MonitorApp.Update": "[1.0.0, )"
         }
       },
       "monitorapp.peer.persistence": {
@@ -585,6 +586,9 @@
           "MonitorApp.Contracts": "[1.0.0, )",
           "MonitorApp.Peer.Core": "[1.0.0, )"
         }
+      },
+      "monitorapp.update": {
+        "type": "Project"
       },
       "Google.Protobuf": {
         "type": "CentralTransitive",

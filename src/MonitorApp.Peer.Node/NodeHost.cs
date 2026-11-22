@@ -3,6 +3,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.Systemd;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
+using MonitorApp.Peer.LocalApi;
+using MonitorApp.Peer.Node.Update;
+using MonitorApp.Update;
 
 namespace MonitorApp.Peer.Node;
 
@@ -27,6 +30,51 @@ public static class NodeHost
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<PeerNodeHostedService>();
         builder.Services.AddHostedService(provider => provider.GetRequiredService<PeerNodeHostedService>());
+        AddUpdateAgent(builder.Services, options);
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Registers the update agent after the node service so the health marker is written only once the node started.
+    /// Update configuration problems never prevent the node from starting: the agent reports itself disabled.
+    /// </summary>
+    private static void AddUpdateAgent(IServiceCollection services, NodeOptions options)
+    {
+        NodeUpdateOptions update;
+        try
+        {
+            update = NodeUpdateOptions.FromEnvironment(options);
+        }
+        catch (ArgumentException)
+        {
+            update = NodeUpdateOptions.FromEnvironment(options, _ => null);
+        }
+
+        var trust = NodeUpdateTrust.TryLoad(update.KeyFilePath);
+        services.AddSingleton(update);
+        services.AddSingleton(provider =>
+        {
+            TrustedUpdateKey? key = null;
+            IManifestFetcher? fetcher = null;
+            IArtifactDownloader? downloader = null;
+            if (trust is not null && update.Repository.Length > 0)
+            {
+                var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("MonitorApp-Node-Updater");
+                key = new TrustedUpdateKey(trust.KeyId, trust.PublicKeySpki);
+                fetcher = new GitHubPreviewManifestFetcher(http, update.ApiBase, update.Repository);
+                downloader = new HttpArtifactDownloader(http);
+            }
+
+            return new NodeUpdateAgent(
+                update,
+                key,
+                fetcher,
+                downloader,
+                new ApplyHelper.HandoffApplier(update),
+                provider.GetRequiredService<ILogger<NodeUpdateAgent>>());
+        });
+        services.AddSingleton<ILocalUpdateController>(provider => provider.GetRequiredService<NodeUpdateAgent>());
+        services.AddHostedService(provider => provider.GetRequiredService<NodeUpdateAgent>());
     }
 }

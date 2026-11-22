@@ -162,6 +162,10 @@ The peer node tests (restart-stable identity, 0600/0700 key storage and unsafe-p
 
 `tests/MonitorApp.Peer.Collection.Tests` cover route/VLAN/MAC parsers, interface classification (overlay/virtual/bridge/loopback non-physical), a fixture sysfs tree, a run against this host's real `/sys/class/net` (Linux), a real-SQLite persistence round trip, and reconciliation that IP-only matches never hard-merge. Windows classification is unit-tested from enum/name inputs only; the real Windows collector is unverified on hardware. Contract rules are in `MonitorApp.Contracts.Tests`.
 
+### Preview and update-agent tests
+
+`NodeUpdateAgentTests` (fake fetcher/downloader/applier; real signatures): approve versus auto policy, no re-apply, failed version not retried, untrusted key / bad hash / older version never staged or applied, health marker written at start, disabled-when-unconfigured, policy parsing. `ApplyHelperTests`: root helper installs only after signed-manifest, digest and version checks and records the result; tampered package, version mismatch and missing key fail closed. `PreviewManifestTests`: multi-artifact signed manifest round trip, tampering, numeric ordering of `0.1.N`. `LocalApiUpdateTests`: `GET/POST /api/v1/update` with antiforgery. Manually run: `eng/packaging/linux/build-packages.sh` (deb with update key, helper units, seed script) and `eng/release/MonitorApp.ReleaseTool create` over `.deb/.rpm/.apk/.zip/.tar.gz` names. Not verified: the workflow on GitHub, the Fedora rpm, systemd path-unit/helper on a real host, Android signing, Windows scripts, `gh` draft-release handling.
+
 ### Packaging tests
 
 Before platform support is claimed, test a clean install, upgrade, restart, and uninstall for:

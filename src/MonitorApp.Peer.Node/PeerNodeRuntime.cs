@@ -45,6 +45,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public static async Task<PeerNodeRuntime> StartAsync(
         NodeOptions options,
+        ILocalUpdateController? updates = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -127,7 +128,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             clock,
             invitationService,
             new PhonePairingOptions([options.PeerBindAddress], options.PeerPort, pairingCodes),
-            alertStore);
+            alertStore,
+            updates);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

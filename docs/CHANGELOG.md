@@ -4,6 +4,11 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Added
+
+- Preview pipeline: `.github/workflows/preview.yml` builds Ubuntu `.deb`, Fedora `.rpm`, Linux desktop tarballs, a Windows node+desktop zip with `Install-MonitorApp.ps1`, and a release-signed Android APK, signs one multi-artifact `preview` manifest, and publishes a GitHub pre-release with commit and TODO-gap notes. `eng/release/New-ReleaseSigningKeys.ps1` creates the signing key and Android keystore outside the repo and prints the `gh` commands.
+- `NodeUpdateAgent` in the peer node (periodic check, verify, stage, approve-or-auto apply), health marker, root update helper units, retained-package seeding, and `GET /api/v1/update` / `POST /api/v1/update/approve`. Default policy is approve-before-install.
+
 ### Changed
 
 - Peer node now runs inside the .NET Generic Host (`PeerNodeHostedService`) with `UseWindowsService`/`UseSystemd` integration (systemd `Type=notify`, journald-friendly logs, graceful stop disposes the runtime, non-zero exit on startup failure; console run unchanged). Service mode defaults the data directory to `STATE_DIRECTORY`/`/var/lib/monitor-app` (Linux) or `%ProgramData%\MonitorApp` (Windows); `MONITOR_APP_DATA_DIR`, `MONITOR_APP_PEER_BIND`, `MONITOR_APP_PEER_PORT`, `MONITOR_APP_ADMIN_PORT` environment variables sit between arguments and defaults. Peer bind stays loopback unless set explicitly. Added Linux packaging (`eng/packaging/linux`: hardened systemd unit, sysusers, `/etc/monitor-app/node.conf`, DEB build script, RPM spec) and Windows service install/uninstall scripts (`eng/packaging/windows`). Adds `Microsoft.Extensions.Hosting.Systemd`/`.WindowsServices` 10.0.0.
