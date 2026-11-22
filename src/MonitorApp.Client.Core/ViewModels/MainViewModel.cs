@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MonitorApp.Client.Core.ViewModels.Shell;
 
 namespace MonitorApp.Client.Core.ViewModels;
 
@@ -36,8 +37,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         addressText = connection.HasAddress ? connection.Source.Description : string.Empty;
         Overview = new OverviewViewModel(connection);
         Devices = new DevicesViewModel(connection);
+        Environment = new EnvironmentViewModel(connection);
         var sections = new List<SectionViewModel>
         {
+            Environment,
             Devices,
             new AlertsViewModel(connection),
             new StateViewModel(connection),
@@ -53,15 +56,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         sections.Add(Overview);
         Sections = sections;
-        selectedSection = Devices;
+        selectedSection = Environment;
+        Shell = new ShellViewModel(this, connection, Environment);
     }
 
     public IReadOnlyList<SectionViewModel> Sections { get; }
 
     public OverviewViewModel Overview { get; }
 
-    /// <summary>The command-center home screen; the default section.</summary>
+    /// <summary>The ecosystem workspace; the default section.</summary>
+    public EnvironmentViewModel Environment { get; }
+
+    /// <summary>The device list (command-center view), reachable from Settings.</summary>
     public DevicesViewModel Devices { get; }
+
+    /// <summary>Workspace shell state: mode, panels, breadcrumbs, search, inspector, timeline.</summary>
+    public ShellViewModel Shell { get; }
 
     /// <summary>The sections a compact (phone) layout keeps one tap away in its bottom bar; the rest are in the menu.</summary>
     public IReadOnlyList<SectionViewModel> PrimarySections => Sections.Take(4).ToArray();

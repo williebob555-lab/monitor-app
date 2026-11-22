@@ -19,7 +19,7 @@ public sealed class MainWindowSmokeTests
         window.Show();
 
         await model.ConnectAsync();
-        var nav = window.GetVisualDescendants().OfType<ListBox>().Single(box => box.Name == "NavList");
+        var rail = window.GetVisualDescendants().OfType<ListBox>().Single(box => box.Name == "Rail");
         foreach (var section in model.Sections)
         {
             model.SelectedSection = section;
@@ -28,7 +28,8 @@ public sealed class MainWindowSmokeTests
             Assert.Null(section.ErrorMessage);
         }
 
-        Assert.Equal(model.Sections.Count, nav.ItemCount);
+        Assert.Equal(model.Shell.Modes.Count, rail.ItemCount);
+        Assert.Contains(model.Sections, section => section is EnvironmentViewModel);
         Assert.StartsWith("Connected", model.ConnectionStatus, StringComparison.Ordinal);
         Assert.Equal("peer-local", model.Overview.LocalPeerId);
         window.Close();

@@ -206,3 +206,20 @@ Screenshots provided by Wilson on 2026-11-22 as loose inspiration, not to copy (
 - Network designer: network designer canvas. Device cards with an image and key values, port-to-port orthogonal wiring with direction arrows, dashed group regions, zoom control, properties panel.
 - Facility planner: 3D facility/rack planner. Physical workspace with capacity coloring (green/amber/red) and a fit-check tooltip (rack space, power, cooling, weight).
 - Exploded server: isometric exploded server. Lid lifted, CPU/heatsinks, RAM sticks, board, drives sliding out with status LEDs.
+
+## Preview feedback log (2026-11-22)
+
+- Three skins of one layout ("precision schematic", "sci-fi console", "technical sculpture"): "those are all the same".
+- Card-based workspace with port wiring and an exploded server: "closer, but still feels underwhelming".
+- 2.5D isometric world (rooms, floor cables, air arcs, explode): "fun, but ultimately the exact same interface".
+
+Takeaway: every preview so far kept the same structure (left rail + central map canvas + right inspector +
+bottom timeline) and changed only the look. The next round must compare **structurally different interfaces**:
+different primary surface, navigation and way details/actions appear. Candidate structures not yet tried:
+semantic-zoom "dive" with no side panels (a device unfolds into its own dashboard), a live mission-control wall
+ranked by urgency (no map), a conversational/feed surface with rich live answer cards, and an "orbit" view
+centred on the device in your hand. A shared brief with identical sample data is ready for that round.
+
+Status: the native shell in `Client.Ui` (WorkspaceShell, tokens, inspector, timeline, controls) and the
+schematic-canvas mechanics are built against the spec layout. Their view models, controls and data binding carry
+over to any structure; the layout itself is provisional until the interface comparison is decided.

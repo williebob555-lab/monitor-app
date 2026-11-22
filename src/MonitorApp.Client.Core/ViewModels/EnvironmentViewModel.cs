@@ -13,7 +13,8 @@ public sealed record OutlineItem(
     string Name,
     string HealthText,
     string AccessibleText,
-    IReadOnlyList<OutlineItem> Children);
+    IReadOnlyList<OutlineItem> Children,
+    SceneHealth Health = SceneHealth.Unknown);
 
 /// <summary>
 /// The living schematic's view model: projects peer data into a <see cref="SceneGraph"/> and keeps selection,
@@ -76,6 +77,16 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
             var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null);
             Apply(graph with { Layout = layout.Place(graph.Nodes) });
         });
+    }
+
+    /// <summary>
+    /// Shows a ready-made graph (demo mode, tests, screenshots) exactly as a refresh would: summary, outline and
+    /// selection are rebuilt from it. Nothing is read from the node.
+    /// </summary>
+    public void ShowScene(SceneGraph graph)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        Apply(graph);
     }
 
     /// <summary>Shows the environment as it was at <paramref name="time"/>.</summary>
@@ -192,7 +203,8 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
             node.Label,
             $"{node.Health}: {node.HealthReason}",
             $"{node.Label}, {KindWord(node.Kind)}. {node.Health}: {node.HealthReason}",
-            graph.Nodes.Where(c => c.ParentId == node.Id).Select(Item).ToList());
+            graph.Nodes.Where(c => c.ParentId == node.Id).Select(Item).ToList(),
+            node.Health);
         return graph.Nodes.Where(n => n.ParentId is null || !ids.Contains(n.ParentId)).Select(Item).ToList();
     }
 

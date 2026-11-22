@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
+             x:Class="MonitorApp.Client.Ui.Controls.OutlineTree" x:DataType="vm:EnvironmentViewModel">
+  <!-- Arrow keys move and expand; selection is mirrored to EnvironmentViewModel.SelectedNodeId (code-behind). -->
+  <TreeView Name="Tree" ItemsSource="{Binding Outline}" AutomationProperties.Name="Environment outline: devices and services"
+            Margin="4,0" SelectionMode="Single">
+    <TreeView.Styles>
+      <Style Selector="TreeViewItem" x:DataType="vm:OutlineItem">
+        <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleText}" />
+      </Style>
+    </TreeView.Styles>
+    <TreeView.ItemTemplate>
+      <TreeDataTemplate DataType="vm:OutlineItem" ItemsSource="{Binding Children}">
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4">
+          <Path Classes="marker" Data="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthShape}}"
+                Fill="{Binding Health, Converter={x:Static ctl:ShellIcons.HealthBrush}}" />
+          <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding HealthText}" Classes="meta" VerticalAlignment="Center" TextWrapping="NoWrap"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </TreeDataTemplate>
+    </TreeView.ItemTemplate>
+  </TreeView>
+</UserControl>

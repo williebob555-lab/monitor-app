@@ -1,0 +1,17 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- 24 x 24 stroked line icons; looked up by key ("Icon.<key>") for mode items, or with StaticResource in markup. -->
+  <StreamGeometry x:Key="Icon.ecosystem">M4,4 H10 V10 H4 Z M14,4 H20 V10 H14 Z M9,14 H15 V20 H9 Z M7,10 V12 H17 V10 M12,12 V14</StreamGeometry>
+  <StreamGeometry x:Key="Icon.alerts">M6,17 V11 A6,6 0 0 1 18,11 V17 L20,19 H4 Z M10,21 H14</StreamGeometry>
+  <StreamGeometry x:Key="Icon.history">M12,4 A8,8 0 1 1 11.99,4 Z M12,8 V12 L15,14</StreamGeometry>
+  <StreamGeometry x:Key="Icon.search">M4,10 A6,6 0 1 1 16,10 A6,6 0 1 1 4,10 Z M14.5,14.5 L20,20</StreamGeometry>
+  <StreamGeometry x:Key="Icon.settings">M4,7 H12 M16,7 H20 M12,5 V9 M16,5 V9 M4,17 H8 M12,17 H20 M8,15 V19 M12,15 V19</StreamGeometry>
+  <StreamGeometry x:Key="Icon.lock">M7,11 V8 A5,5 0 0 1 17,8 V11 M5,11 H19 V20 H5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.close">M6,6 L18,18 M18,6 L6,18</StreamGeometry>
+  <StreamGeometry x:Key="Icon.menu">M4,6 H20 M4,12 H20 M4,18 H20</StreamGeometry>
+  <StreamGeometry x:Key="Icon.inspector">M4,5 H20 V19 H4 Z M15,5 V19</StreamGeometry>
+  <StreamGeometry x:Key="Icon.timeline">M4,12 H20 M8,8 V16 M12,6 V18 M16,9 V15</StreamGeometry>
+  <StreamGeometry x:Key="Icon.back">M15,6 L9,12 L15,18</StreamGeometry>
+  <StreamGeometry x:Key="Icon.forward">M9,6 L15,12 L9,18</StreamGeometry>
+  <StreamGeometry x:Key="Icon.live">M12,6 A6,6 0 1 1 11.99,6 Z</StreamGeometry>
+</ResourceDictionary>

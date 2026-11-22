@@ -50,13 +50,13 @@ public sealed class CommandCenterViewModelTests
     }
 
     [Fact]
-    public async Task DevicesAndAlertsSectionsWorkOverTheHttpAdapterAndDefaultToDevicesHome()
+    public async Task DevicesAndAlertsSectionsWorkOverTheHttpAdapterAndDefaultToTheEcosystem()
     {
         await using var node = await NodeFixture.CreateAsync();
         await node.AddNumberAsync(Now.AddMinutes(-1), 0.5);
         using var main = new MainViewModel(node.Address);
 
-        Assert.Same(main.Devices, main.SelectedSection);
+        Assert.Same(main.Environment, main.SelectedSection);
         Assert.DoesNotContain(main.Sections, section => section is PairDeviceViewModel);
         Assert.Equal(4, main.PrimarySections.Count);
 

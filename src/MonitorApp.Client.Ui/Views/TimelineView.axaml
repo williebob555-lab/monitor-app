@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels.Shell"
+             x:Class="MonitorApp.Client.Ui.Views.TimelineView" x:DataType="vm:TimelineViewModel">
+  <!-- Time machine strip (UI spec 10). Scrubbing previews; releasing the thumb or pressing a key commits. Observational only. -->
+  <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" Margin="12,6" AutomationProperties.Name="Timeline">
+    <TextBlock Grid.Row="0" Grid.ColumnSpan="5" Classes="section" Text="{Binding RangeText, StringFormat='TIMELINE · {0}'}" Margin="0,0,0,2" />
+    <Button Grid.Row="1" Grid.Column="0" Classes="compact flat" Command="{Binding StepBackCommand}"
+            AutomationProperties.Name="Go back one hour" ToolTip.Tip="Back one hour">
+      <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
+    </Button>
+    <Button Grid.Row="1" Grid.Column="1" Classes="compact flat" Command="{Binding StepForwardCommand}"
+            AutomationProperties.Name="Go forward one hour" ToolTip.Tip="Forward one hour">
+      <Path Classes="icon" Data="{StaticResource Icon.forward}" Width="16" Height="16" />
+    </Button>
+    <Slider Name="Scrubber" Grid.Row="1" Grid.Column="2" Minimum="0" Maximum="1000" SmallChange="10" LargeChange="60"
+            Value="{Binding ScrubPosition}" VerticalAlignment="Center" Margin="8,0"
+            AutomationProperties.Name="Timeline scrubber" AutomationProperties.HelpText="Drag or use arrow keys to view an earlier moment; the far right is live." />
+    <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PreviewText}" Classes="mono" VerticalAlignment="Center" Margin="4,0,12,0"
+               AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Examined moment" />
+    <Button Name="ReturnToLive" Grid.Row="1" Grid.Column="4" Content="Return to live" Command="{Binding ReturnToLiveCommand}"
+            IsEnabled="{Binding IsHistorical}" Classes="compact" AutomationProperties.Name="Return to live" />
+  </Grid>
+</UserControl>
