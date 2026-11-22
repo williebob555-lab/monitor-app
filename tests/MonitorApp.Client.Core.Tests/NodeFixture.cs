@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using Google.Protobuf;
 using MonitorApp.Client.Core;
 using MonitorApp.Contracts.V1;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
+using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Core;
 using MonitorApp.Peer.LocalApi;
 using MonitorApp.Peer.Persistence;
@@ -48,9 +50,14 @@ internal sealed class NodeFixture : IAsyncDisposable
 
     public Uri Address => Host.Address!;
 
-    public LocalApiClient NewClient() => LocalApiClient.Create(Address);
+    public LocalApiClient NewClient(ILocalPresenceProvider? presence = null) => LocalApiClient.Create(Address, presence: presence);
 
-    public static async Task<NodeFixture> CreateAsync()
+    public ControlService? Control { get; private set; }
+
+    public static async Task<NodeFixture> CreateAsync(
+        LocalPresenceService? presence = null,
+        ILocalUpdateController? updates = null,
+        bool withControl = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), "monitor-client-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -98,12 +105,26 @@ internal sealed class NodeFixture : IAsyncDisposable
             new PeerProtocolRange(1, 0, 0),
             []));
 
+        ControlService? control = null;
+        AlertStore? alerts = null;
+        if (withControl)
+        {
+            alerts = new AlertStore(AlertStoreOptions.Create(databasePath));
+            await alerts.InitializeAsync();
+            var controlStore = new ControlStore(ControlStoreOptions.Create(databasePath));
+            await controlStore.InitializeAsync();
+            control = new ControlService(
+                controlStore, store, appStore, coordinator, alerts, new MonitoringControlState(), identity);
+        }
+
         var host = LocalApiHost.Create(
-            LocalApiOptions.Loopback(databasePath), store, appStore, coordinator, FixedClock.Instance);
+            LocalApiOptions.Loopback(databasePath), store, appStore, coordinator, FixedClock.Instance,
+            alertStore: alerts, updates: updates, control: control, localPresence: presence);
         await host.StartAsync();
         var fixture = new NodeFixture(
             directory, localKey, store, coordinator, host, pending.PairingId!, Convert.ToHexString(identity.PublicIdentity.PublicKeyFingerprint));
         fixture.keys.Add(pendingKey);
+        fixture.Control = control;
         return fixture;
     }
 
