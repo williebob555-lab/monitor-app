@@ -1,10 +1,59 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MonitorApp.Client.Core.ViewModels.Shell"
              xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
+             xmlns:views="using:MonitorApp.Client.Ui.Views"
              x:Class="MonitorApp.Client.Ui.Views.TimelineView" x:DataType="vm:TimelineViewModel">
-  <!-- Time machine strip (UI spec 10). Scrubbing previews; releasing the thumb or pressing a key commits. Observational only. -->
-  <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" Margin="12,6" AutomationProperties.Name="Timeline">
-    <TextBlock Grid.Row="0" Grid.ColumnSpan="5" Classes="section" Text="{Binding RangeText, StringFormat='TIMELINE · {0}'}" Margin="0,0,0,2" />
+  <!--
+    Time machine strip (UI spec 10). Scrubbing previews; releasing the thumb or pressing a key commits. Observational only.
+    The .slim class (the Dive) folds it into one row: the markers sit on the scrubber's track and the live button is labelled "Live".
+    Touch targets stay at 44 px inside a phone shell (Button.compact rule).
+  -->
+  <UserControl.Styles>
+    <Style Selector="Button#ReturnToLive">
+      <Setter Property="Content" Value="Return to live" />
+    </Style>
+    <Style Selector="views|TimelineView.slim Button#ReturnToLive">
+      <Setter Property="Content" Value="Live" />
+    </Style>
+    <Style Selector="Grid#TimelineGrid">
+      <Setter Property="Margin" Value="12,6" />
+    </Style>
+    <Style Selector="views|TimelineView.slim Grid#TimelineGrid">
+      <Setter Property="Margin" Value="8,0" />
+    </Style>
+    <Style Selector="views|TimelineView.slim TextBlock#RangeHeader">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ItemsControl#EventMarkers">
+      <Setter Property="Grid.Row" Value="2" />
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+    <Style Selector="views|TimelineView.slim ItemsControl#EventMarkers">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Panel.glyph">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- Slim: the glyph sits just under the track so the thumb and the line stay readable. -->
+    <Style Selector="views|TimelineView.slim ItemsControl#EventMarkers Panel.glyph">
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+    </Style>
+    <Style Selector="Panel.narrow Slider#Scrubber">
+      <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <Style Selector="views|TimelineView.slim TextBlock#PreviewText">
+      <Setter Property="FontSize" Value="{DynamicResource Size.Small}" />
+    </Style>
+  </UserControl.Styles>
+  <Grid Name="TimelineGrid" ColumnDefinitions="Auto,Auto,*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" AutomationProperties.Name="Timeline">
+    <TextBlock Name="RangeHeader" Grid.Row="0" Grid.ColumnSpan="5" Classes="section" Text="{Binding RangeText, StringFormat='TIMELINE · {0}'}" Margin="0,0,0,2" />
     <Button Grid.Row="1" Grid.Column="0" Classes="compact flat" Command="{Binding StepBackCommand}"
             AutomationProperties.Name="Go back one hour" ToolTip.Tip="Back one hour">
       <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
@@ -17,7 +66,7 @@
             Value="{Binding ScrubPosition}" VerticalAlignment="Center" Margin="8,0"
             AutomationProperties.Name="Timeline scrubber" AutomationProperties.HelpText="Drag or use arrow keys to view an earlier moment; the far right is live." />
     <!-- Event markers: shape and colour by severity (never colour alone). Hit area is the Button (32 px, 44 px on phones); the glyph stays small. -->
-    <ItemsControl Name="EventMarkers" Grid.Row="2" Grid.Column="2" ItemsSource="{Binding Markers}" Margin="8,0" MinHeight="32"
+    <ItemsControl Name="EventMarkers" Grid.Column="2" ItemsSource="{Binding Markers}" Margin="8,0"
                   AutomationProperties.Name="Timeline events">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate><ctl:FractionPanel /></ItemsPanelTemplate>
@@ -29,8 +78,9 @@
       </ItemsControl.Styles>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:TimelineMarker">
-          <Button Classes="compact flat" Click="OnMarkerClick" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding AutomationName}">
-            <Panel Width="12" Height="12">
+          <Button Classes="compact flat" Click="OnMarkerClick" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding AutomationName}"
+                  VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Center">
+            <Panel Classes="glyph">
               <Path IsVisible="{Binding IsFault}" Fill="{DynamicResource Brush.Fault}" Data="M6,0 L12,6 L6,12 L0,6 Z" />
               <Path IsVisible="{Binding IsWarning}" Fill="{DynamicResource Brush.Warning}" Data="M6,0 L12,11 L0,11 Z" />
               <Path IsVisible="{Binding IsOffline}" Fill="{DynamicResource Brush.Muted}" Data="M1,1 L11,1 L11,11 L1,11 Z" />
@@ -40,9 +90,9 @@
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
-    <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PreviewText}" Classes="mono" VerticalAlignment="Center" Margin="4,0,12,0"
+    <TextBlock Name="PreviewText" Grid.Row="1" Grid.Column="3" Text="{Binding PreviewText}" Classes="mono" VerticalAlignment="Center" Margin="4,0,12,0"
                AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Examined moment" />
-    <Button Name="ReturnToLive" Grid.Row="1" Grid.Column="4" Content="Return to live" Command="{Binding ReturnToLiveCommand}"
+    <Button Name="ReturnToLive" Grid.Row="1" Grid.Column="4" Command="{Binding ReturnToLiveCommand}"
             IsEnabled="{Binding IsHistorical}" Classes="compact" AutomationProperties.Name="Return to live" />
   </Grid>
 </UserControl>

@@ -31,15 +31,21 @@ public sealed record DiveGauge(
     string Unit,
     double? Fill,
     DiveLevel Level,
-    string Caption)
+    string Caption,
+    DiveTrend? Trend = null)
 {
     public bool HasFill => Fill is not null;
+
+    /// <summary>A sparkline of the recent window is shown only when real readings make one (never in a recorded view).</summary>
+    public bool HasTrend => Trend is not null;
 
     public double FillValue => Fill ?? 0;
 
     public string AccessibleText => HasFill
-        ? $"{Label}: {Value}{Unit}. {Caption}. Open {Label}."
-        : $"{Label}: {Value}. {Caption}. Open {Label}.";
+        ? $"{Label}: {Value}{Unit}. {Caption}.{TrendSentence} Open {Label}."
+        : $"{Label}: {Value}. {Caption}.{TrendSentence} Open {Label}.";
+
+    private string TrendSentence => Trend is null ? string.Empty : " " + Trend.Text + ".";
 }
 
 /// <summary>Something that needs attention, located as precisely as the data allows (a node, or a layer of it).</summary>
@@ -71,9 +77,23 @@ public sealed record DiveDeviceTile(
     string Detail,
     double Activity,
     string? ChildrenText,
-    int Attention) : DiveTile(NodeId)
+    int Attention,
+    IReadOnlyList<DiveTrend>? Trends = null) : DiveTile(NodeId)
 {
     public bool HasGauges => Gauges.Count > 0;
+
+    /// <summary>Sparklines of the recent window (CPU, network) built from real readings; empty when there are none.</summary>
+    public IReadOnlyList<DiveTrend> TrendList => Trends ?? [];
+
+    public bool HasTrends => TrendList.Count > 0;
+
+    /// <summary>The one reading a compact (phone) tile shows: the fullest gauge, the first on a tie.</summary>
+    public DiveGauge? KeyGauge => Gauges.Count == 0 ? null : Gauges.OrderByDescending(g => g.Level).ThenByDescending(g => g.FillValue).First();
+
+    public bool HasKeyGauge => KeyGauge is not null;
+
+    /// <summary>The compact tile's one line when it has no gauge: the first fact, else the detail.</summary>
+    public string CompactLine => Lines.Count > 0 ? Lines[0] : Detail;
 
     public bool HasLines => Lines.Count > 0;
 
@@ -86,7 +106,7 @@ public sealed record DiveDeviceTile(
     public string ActivityText => "Transfer activity " + SignalCatalog.Percent(Activity);
 
     public override string AccessibleText =>
-        $"{Title}, {KindText}. {Badge.Text}. {string.Join(". ", Gauges.Select(g => $"{g.Label} {g.Value}{g.Unit}"))} {Detail}. Dive in.";
+        $"{Title}, {KindText}. {Badge.Text}. {string.Join(". ", Gauges.Select(g => $"{g.Label} {g.Value}{g.Unit}"))} {string.Concat(TrendList.Select(t => t.Text + ". "))}{Detail}. Dive in.";
 }
 
 /// <summary>The summary of everything that needs attention, with a way to dive straight to the most likely cause.</summary>

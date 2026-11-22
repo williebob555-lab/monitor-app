@@ -32,6 +32,18 @@ public sealed partial class DiveView : UserControl
     /// <summary>When true the page changes without animation; otherwise the shell's setting decides.</summary>
     public bool? ReducedMotion { get; set; }
 
+    /// <summary>True while a zoom is running.</summary>
+    public bool IsZooming => zoom is not null;
+
+    /// <summary>How many zooms have started since this view was created (tests check that a tap animated).</summary>
+    public int ZoomsStarted { get; private set; }
+
+    /// <summary>
+    /// Ends a running zoom at once, at rest (full size, full opacity). The zoom is timed by the wall clock, so tests call this instead of
+    /// waiting for frames, which a slow machine may not deliver within any fixed time.
+    /// </summary>
+    public void CompleteAnimations() => StopZoom();
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -114,6 +126,7 @@ public sealed partial class DiveView : UserControl
     private void StartZoom(double startScale, RelativePoint center)
     {
         StopZoom();
+        ZoomsStarted++;
         var elapsed = Stopwatch.StartNew();
         PageHost.RenderTransformOrigin = center;
         void Apply(double progress)

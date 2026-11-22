@@ -58,4 +58,8 @@ public static class DiveConverters
         new FuncValueConverter<DiveProblem?, Geometry?>(problem => problem is null ? null : ShellIcons.ShapeFor(problem.Health));
 
     public static IValueConverter HealthBrush => ShellIcons.HealthBrush;
+
+    /// <summary>Sparklines: network movement in the Transfer colour; CPU in a neutral colour (a load line is not a health verdict).</summary>
+    public static IValueConverter TrendBrush { get; } =
+        new FuncValueConverter<DiveTrendKind, IBrush?>(kind => ShellIcons.Brush(kind == DiveTrendKind.Network ? "Brush.Transfer" : "Brush.TextSecondary"));
 }

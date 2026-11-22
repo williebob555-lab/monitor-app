@@ -220,7 +220,8 @@
         <!-- Bottom timeline strip: scrubber, persistent Return to live. -->
         <Border Name="TimelinePanel" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Classes="panel" BorderThickness="0,1,0,0"
                 IsVisible="{Binding Shell.ShowTimeline}">
-          <views:TimelineView DataContext="{Binding Shell.Timeline}" />
+          <!-- In the Dive the strip is one slim row (scrubber, markers on the track, Live); elsewhere the taller panel. -->
+          <views:TimelineView Name="Timeline" DataContext="{Binding Shell.Timeline}" Classes.slim="{Binding $parent[views:WorkspaceShell].((vm:MainViewModel)DataContext).Shell.IsDive}" />
         </Border>
 
         <!-- Phone: bottom navigation with the same modes (Ecosystem, Alerts, History, Search, More). -->

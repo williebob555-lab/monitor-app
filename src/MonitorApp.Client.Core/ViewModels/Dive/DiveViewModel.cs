@@ -35,6 +35,7 @@ public sealed partial class DiveViewModel : ObservableObject
     private bool navigating;
     private DateTimeOffset lastApprovals = DateTimeOffset.MinValue;
     private IReadOnlyList<DiveApprovalTile> approvals = [];
+    private bool trendsSeeded;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHome), nameof(CanGoUp))]
@@ -101,6 +102,12 @@ public sealed partial class DiveViewModel : ObservableObject
 
     /// <summary>Actions can be sent: live, a control source, a paired device and nothing in flight.</summary>
     public bool CanAct => !IsHistorical && Controls.CanAct;
+
+    /// <summary>Recent CPU and network readings behind the sparklines: seeded from history, appended by each live refresh.</summary>
+    public DiveTrendBuffer Trends { get; } = new();
+
+    /// <summary>Completes when the last history read for the sparklines has finished (tests await this).</summary>
+    public Task TrendsTask { get; private set; } = Task.CompletedTask;
 
     /// <summary>Raised after every move, for the zoom animation.</summary>
     public event EventHandler<DiveNavigatedEventArgs>? Navigated;
@@ -292,6 +299,40 @@ public sealed partial class DiveViewModel : ObservableObject
         RebuildHome();
     }
 
+    /// <summary>
+    /// Fills the sparkline buffers with the last <see cref="DiveTrendBuffer.Window"/> of real CPU and network-counter history from the node.
+    /// Runs once when live data first arrives and again after returning from a recorded view; a failed read leaves the sparklines to grow
+    /// from live refreshes alone.
+    /// </summary>
+    public async Task SeedTrendsAsync(CancellationToken cancellationToken = default)
+    {
+        trendsSeeded = true;
+        if (connection.Source is not { } source || environment.IsHistorical)
+        {
+            return;
+        }
+
+        var end = environment.Scene.AsOf > DateTimeOffset.UnixEpoch ? environment.Scene.AsOf : timeProvider.GetUtcNow();
+        foreach (var signal in DiveTrendBuffer.Signals)
+        {
+            try
+            {
+                var history = await source.GetHistoryAsync(
+                    new HistoryQuery(end - DiveTrendBuffer.Window, end, SignalId: signal), maxPages: 2, ct: cancellationToken);
+                Trends.AddHistory(history.Points);
+            }
+            catch (LocalApiException)
+            {
+                // Sparklines are optional; the live refreshes still add to them.
+            }
+        }
+
+        if (!environment.IsHistorical)
+        {
+            Rebuild();
+        }
+    }
+
     /// <summary>Everything that needs attention in the scene, or under <paramref name="withinNodeId"/> (itself included).</summary>
     public static IReadOnlyList<DiveProblem> Problems(SceneGraph scene, string? withinNodeId = null)
     {
@@ -356,13 +397,14 @@ public sealed partial class DiveViewModel : ObservableObject
     /// The Home tiles for a scene: the attention tile (a full row), decisions waiting for approval, then one tile per top-level device by
     /// attention (faults, offline, stale, then the rest in scene order).
     /// </summary>
-    public static IReadOnlyList<DiveTile> BuildTiles(SceneGraph scene, IReadOnlyList<DiveApprovalTile>? pending = null)
+    /// <param name="trends">Sparkline data; null (as in a recorded view) shows none.</param>
+    public static IReadOnlyList<DiveTile> BuildTiles(SceneGraph scene, IReadOnlyList<DiveApprovalTile>? pending = null, DiveTrendBuffer? trends = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         var ids = scene.Nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
         var devices = scene.Nodes
             .Where(n => n.ParentId is null || !ids.Contains(n.ParentId))
-            .Select(n => Tile(scene, n))
+            .Select(n => Tile(scene, n, trends))
             .OrderByDescending(t => t.Attention)
             .ToList();
         var tiles = new List<DiveTile> { Attention(scene) };
@@ -399,14 +441,17 @@ public sealed partial class DiveViewModel : ObservableObject
             problems.FirstOrDefault());
     }
 
-    private static DiveDeviceTile Tile(SceneGraph scene, SceneNode node)
+    private static DiveDeviceTile Tile(SceneGraph scene, SceneNode node, DiveTrendBuffer? trends)
     {
         var problems = Problems(scene, node.Id);
         var children = scene.Nodes.Where(c => c.ParentId == node.Id).ToList();
         var untrusted = node.Health is SceneHealth.Offline or SceneHealth.Stale;
         var gauges = untrusted
             ? []
-            : node.Layers.Where(l => l.Fill is not null).Take(3).Select(l => Gauge(node, l)).ToList();
+            : node.Layers.Where(l => l.Fill is not null).Take(3).Select(l => Gauge(node, l, null)).ToList();
+        var trendList = untrusted || trends is null
+            ? []
+            : new[] { trends.Cpu(node), trends.Network(node) }.OfType<DiveTrend>().ToList();
         var lines = untrusted
             ? []
             : node.Layers.Where(l => l.Fill is null && l.Kind != SceneLayerKind.Other).Take(2).Select(l => $"{l.Title}: {l.Summary}").ToList();
@@ -432,7 +477,7 @@ public sealed partial class DiveViewModel : ObservableObject
             : node.Health == SceneHealth.Unknown ? 1 : 0;
         return new DiveDeviceTile(
             node.Id, node.Label, InspectorViewModel.KindText(node.Kind), BadgeFor(scene, node, problems), gauges, lines, headline, node.Health,
-            detail, node.Health == SceneHealth.Healthy ? Math.Clamp(node.Activity, 0, 1) : 0, childrenText, attention);
+            detail, node.Health == SceneHealth.Healthy ? Math.Clamp(node.Activity, 0, 1) : 0, childrenText, attention, trendList);
     }
 
     /// <summary>The node's status in words: its own health first, then the worst thing inside it, then transfer activity.</summary>
@@ -476,16 +521,25 @@ public sealed partial class DiveViewModel : ObservableObject
             : new DiveBadge("Online", SceneHealth.Healthy);
     }
 
-    private static DiveGauge Gauge(SceneNode node, SceneLayer layer)
+    private static DiveGauge Gauge(SceneNode node, SceneLayer layer, DiveTrendBuffer? trends)
     {
+        var trend = trends is null || node.Health is SceneHealth.Offline or SceneHealth.Stale
+            ? null
+            : layer.Kind switch
+            {
+                SceneLayerKind.Compute => trends.Cpu(node),
+                SceneLayerKind.Network => trends.Network(node),
+                _ => null,
+            };
         if (layer.Fill is { } fill)
         {
             var level = fill >= FullThreshold ? DiveLevel.Critical : fill >= HighThreshold ? DiveLevel.High : DiveLevel.Normal;
-            return new DiveGauge(node.Id, layer.Id, DiveText.ShortLabel(layer), DiveText.Percent(fill), "%", fill, level, layer.Summary);
+            return new DiveGauge(node.Id, layer.Id, DiveText.ShortLabel(layer), DiveText.Percent(fill), "%", fill, level, layer.Summary, trend);
         }
 
         var first = layer.Readings.Count > 0 ? layer.Readings[0] : null;
-        return new DiveGauge(node.Id, layer.Id, DiveText.ShortLabel(layer), first?.DisplayValue ?? "--", string.Empty, null, DiveLevel.None, layer.Summary);
+        return new DiveGauge(
+            node.Id, layer.Id, DiveText.ShortLabel(layer), first?.DisplayValue ?? "--", string.Empty, null, DiveLevel.None, layer.Summary, trend);
     }
 
     private static bool IsFull(SceneLayer layer) =>
@@ -575,6 +629,15 @@ public sealed partial class DiveViewModel : ObservableObject
 
                 break;
             case nameof(EnvironmentViewModel.Scene):
+                if (!environment.IsHistorical && !environment.Scene.IsHistorical)
+                {
+                    Trends.AddScene(environment.Scene);
+                    if (!trendsSeeded && connection.Source is not null && environment.Scene.Nodes.Count > 0)
+                    {
+                        TrendsTask = SeedTrendsAsync();
+                    }
+                }
+
                 Rebuild();
                 if (!environment.IsHistorical && timeProvider.GetUtcNow() - lastApprovals > ApprovalRefreshInterval
                     && connection.Source is IControlSource)
@@ -590,6 +653,10 @@ public sealed partial class DiveViewModel : ObservableObject
                 if (environment.IsHistorical)
                 {
                     approvals = []; // decisions are made live; a recorded view never offers them
+                }
+                else
+                {
+                    trendsSeeded = false; // fill the gap left while viewing history on the next live scene
                 }
 
                 Rebuild();
@@ -620,7 +687,7 @@ public sealed partial class DiveViewModel : ObservableObject
         else
         {
             var device = Page as DiveDevicePage is { } current && current.NodeId == node.Id ? current : new DiveDevicePage(node.Id, Controls);
-            FillDevice(device, scene, node);
+            FillDevice(device, scene, node, LiveTrends);
             Page = device;
         }
 
@@ -631,7 +698,7 @@ public sealed partial class DiveViewModel : ObservableObject
     {
         var scene = environment.Scene;
         Home.Summary = EnvironmentViewModel.Describe(scene);
-        Sync(Home.Tiles, BuildTiles(scene, environment.IsHistorical ? [] : approvals));
+        Sync(Home.Tiles, BuildTiles(scene, environment.IsHistorical ? [] : approvals, LiveTrends));
     }
 
     private void RebuildCrumbs(SceneGraph scene, SceneNode? node)
@@ -656,7 +723,9 @@ public sealed partial class DiveViewModel : ObservableObject
         OnPropertyChanged(nameof(Crumbs));
     }
 
-    private static void FillDevice(DiveDevicePage device, SceneGraph scene, SceneNode node)
+    private DiveTrendBuffer? LiveTrends => environment.IsHistorical ? null : Trends;
+
+    private static void FillDevice(DiveDevicePage device, SceneGraph scene, SceneNode node, DiveTrendBuffer? trends)
     {
         var problems = Problems(scene, node.Id);
         device.Title = node.Label;
@@ -686,7 +755,7 @@ public sealed partial class DiveViewModel : ObservableObject
             : cause.LayerId is not null ? "Part full"
             : cause.Health == SceneHealth.Degraded ? $"{scene.Find(cause.NodeId)?.Label ?? cause.NodeId} degraded"
             : DiveText.HealthWord(cause.Health);
-        Sync(device.Gauges, node.Layers.Select(l => Gauge(node, l)).ToList());
+        Sync(device.Gauges, node.Layers.Select(l => Gauge(node, l, trends)).ToList());
         device.HasGauges = device.Gauges.Count > 0;
         var children = scene.Nodes.Where(c => c.ParentId == node.Id).ToList();
         var causeNode = cause?.NodeId;
@@ -723,7 +792,7 @@ public sealed partial class DiveViewModel : ObservableObject
 
     private void FillPart(DivePartPage part, SceneGraph scene, SceneNode node, SceneLayer layer)
     {
-        var gauge = Gauge(node, layer);
+        var gauge = Gauge(node, layer, LiveTrends);
         part.Title = layer.Title;
         part.ParentTitle = node.Label;
         part.Context = $"{layer.Summary}, inside {node.Label}";

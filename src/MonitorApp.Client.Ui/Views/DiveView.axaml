@@ -113,6 +113,69 @@
       <Setter Property="Padding" Value="16,8" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <Style Selector="Border.tile.device">
+      <Setter Property="MinHeight" Value="196" />
+    </Style>
+    <!-- Home grid: 4/2/1 columns from 250 px each; on a phone 2 compact tiles when each gets about 170 px, else 1. -->
+    <Style Selector="ctl|DiveTileGrid.home">
+      <Setter Property="MinColumnWidth" Value="250" />
+    </Style>
+    <Style Selector="Panel.narrow ctl|DiveTileGrid.home">
+      <Setter Property="MinColumnWidth" Value="168" />
+      <Setter Property="Gap" Value="12" />
+    </Style>
+    <Style Selector="StackPanel.compacttile">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.compacttile">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.fulltile">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Panel.narrow Border.tile">
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Panel.narrow Border.tile.device">
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Panel.narrow TextBlock.tiletitle">
+      <Setter Property="FontSize" Value="16" />
+    </Style>
+    <Style Selector="Panel.narrow TextBlock.headline">
+      <Setter Property="FontSize" Value="24" />
+    </Style>
+    <!-- Attention tile: the cause button sits beside the list when wide and below it on a phone, so the headline keeps the width. -->
+    <Style Selector="Border.causecta">
+      <Setter Property="Grid.Column" Value="1" />
+      <Setter Property="Grid.RowSpan" Value="4" />
+      <Setter Property="Margin" Value="12,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+    </Style>
+    <Style Selector="Panel.narrow Border.causecta">
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Grid.Row" Value="4" />
+      <Setter Property="Grid.RowSpan" Value="1" />
+      <Setter Property="Margin" Value="0,10,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <!-- Device page gauges: 172 px each; two a row on a phone. -->
+    <Style Selector="WrapPanel.gauges">
+      <Setter Property="ItemWidth" Value="172" />
+    </Style>
+    <Style Selector="Panel.narrow WrapPanel.gauges">
+      <Setter Property="ItemWidth" Value="148" />
+    </Style>
+    <Style Selector="Panel.narrow Border.panelbox">
+      <Setter Property="Padding" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.trendnow">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="ItemsControl.home">
       <Setter Property="Margin" Value="24,20,24,24" />
     </Style>
@@ -152,13 +215,14 @@
   <UserControl.DataTemplates>
     <!-- Status: a shape and words in the same semantic colour, inside an outlined pill. -->
     <DataTemplate DataType="dive:DiveBadge">
-      <Border Classes="badge" BorderBrush="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}">
-        <StackPanel Orientation="Horizontal" Spacing="6">
-          <Path Classes="marker" Width="9" Height="9" Data="{Binding Converter={x:Static ctl:DiveConverters.BadgeShape}}"
+      <Border Classes="badge" BorderBrush="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" ToolTip.Tip="{Binding Text}">
+        <DockPanel>
+          <Path DockPanel.Dock="Left" Classes="marker" Width="9" Height="9" Margin="0,0,6,0"
+                Data="{Binding Converter={x:Static ctl:DiveConverters.BadgeShape}}"
                 Fill="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" />
           <TextBlock Text="{Binding Text}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold" VerticalAlignment="Center"
                      Foreground="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" TextTrimming="CharacterEllipsis" />
-        </StackPanel>
+        </DockPanel>
       </Border>
     </DataTemplate>
 
@@ -167,14 +231,36 @@
       <ScrollViewer Name="HomeScroll" HorizontalScrollBarVisibility="Disabled">
         <ItemsControl Name="HomeTiles" Classes="home" ItemsSource="{Binding Tiles}" AutomationProperties.Name="Devices">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="4" MinColumnWidth="250" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><ctl:DiveTileGrid Classes="home" MaxColumns="4" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.DataTemplates>
             <DataTemplate DataType="dive:DiveDeviceTile">
               <Button Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
                       CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
-                <Border Classes="tile" MinHeight="196">
-                  <StackPanel Spacing="10">
+                <Border Classes="tile device">
+                  <Panel>
+                  <!-- Phone: a compact tile with one key reading and a smaller ring. -->
+                  <StackPanel Classes="compacttile" Spacing="6">
+                    <TextBlock Text="{Binding Title}" Classes="tiletitle" />
+                    <ContentControl Content="{Binding Badge}" />
+                    <TextBlock Text="{Binding Headline}" Classes="headline" IsVisible="{Binding HasHeadline}"
+                               Foreground="{Binding HeadlineHealth, Converter={x:Static ctl:DiveConverters.HeadlineBrush}}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasKeyGauge}">
+                      <Panel Width="52" Height="52">
+                        <ctl:DiveRing Value="{Binding KeyGauge.FillValue, FallbackValue=0}" Thickness="5" Track="{DynamicResource Brush.Surface3}"
+                                      Stroke="{Binding KeyGauge.Level, FallbackValue=None, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
+                        <TextBlock Text="{Binding KeyGauge.Value, FallbackValue=''}" Classes="gaugevalue" FontSize="15" VerticalAlignment="Center" />
+                      </Panel>
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding KeyGauge.Label, FallbackValue=''}" Classes="label" />
+                        <TextBlock Text="{Binding KeyGauge.Unit, FallbackValue=''}" Classes="meta" />
+                      </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="{Binding CompactLine}" Classes="muted" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
+                               IsVisible="{Binding !HasKeyGauge}" />
+                    <TextBlock Text="{Binding ChildrenText}" Classes="meta" IsVisible="{Binding HasChildren}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <StackPanel Classes="fulltile" Spacing="10">
                     <TextBlock Text="{Binding Title}" Classes="tiletitle" />
                     <WrapPanel>
                       <ContentControl Content="{Binding Badge}" Margin="0,0,10,4" />
@@ -202,6 +288,20 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <!-- Sparklines of the recent window, from real readings only (hidden when there are none). -->
+                    <ItemsControl Name="TileTrends" ItemsSource="{Binding TrendList}" IsVisible="{Binding HasTrends}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="dive:DiveTrend">
+                          <Grid ColumnDefinitions="64,*,Auto" Height="26" Margin="0,0,0,2" AutomationProperties.Name="{Binding AccessibleText}"
+                                ToolTip.Tip="{Binding Text}">
+                            <TextBlock Text="{Binding Label}" Classes="label" VerticalAlignment="Center" />
+                            <ctl:Sparkline Grid.Column="1" Points="{Binding Points}" StrokeThickness="1.5"
+                                           Stroke="{Binding Kind, Converter={x:Static ctl:DiveConverters.TrendBrush}}" />
+                            <TextBlock Grid.Column="2" Text="{Binding NowText}" Classes="trendnow" Margin="8,0,0,0" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="x:String">
@@ -216,6 +316,7 @@
                     <TextBlock Text="{Binding Detail}" Classes="muted" />
                     <TextBlock Text="{Binding ChildrenText}" Classes="meta" IsVisible="{Binding HasChildren}" />
                   </StackPanel>
+                  </Panel>
                 </Border>
               </Button>
             </DataTemplate>
@@ -223,7 +324,7 @@
             <DataTemplate DataType="dive:DiveApprovalTile">
               <Button Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
                       CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
-                <Border Classes="tile approval" MinHeight="196">
+                <Border Classes="tile approval device">
                   <StackPanel Spacing="10">
                     <Path Classes="icon" Data="{StaticResource Icon.lock}" Stroke="{DynamicResource Brush.Planned}" Width="28" Height="28"
                           HorizontalAlignment="Left" />
@@ -231,11 +332,12 @@
                     <TextBlock Text="{Binding Title}" Classes="tiletitle" />
                     <TextBlock Text="{Binding Detail}" Classes="muted" />
                     <Border Classes="badge" BorderBrush="{DynamicResource Brush.Planned}">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Path Classes="marker" Width="9" Height="9" Data="M6,0.5 L11.5,6 L6,11.5 L0.5,6 Z" Fill="{DynamicResource Brush.Planned}" />
+                      <DockPanel>
+                        <Path DockPanel.Dock="Left" Classes="marker" Width="9" Height="9" Margin="0,3,6,0" VerticalAlignment="Top"
+                              Data="M6,0.5 L11.5,6 L6,11.5 L0.5,6 Z" Fill="{DynamicResource Brush.Planned}" />
                         <TextBlock Text="{Binding TierText}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.Planned}" TextWrapping="Wrap" />
-                      </StackPanel>
+                      </DockPanel>
                     </Border>
                   </StackPanel>
                 </Border>
@@ -246,11 +348,11 @@
               <Button Name="AttentionTile" Classes="tile" Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenCommand}"
                       CommandParameter="{Binding}" IsEnabled="{Binding HasCause}" AutomationProperties.Name="{Binding AccessibleText}">
                 <Border Classes="tile" Classes.alarm="{Binding HasCause}">
-                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,*">
+                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,*,Auto">
                     <TextBlock Text="NEEDS ATTENTION" Classes="section" />
-                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2"
+                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2" TextWrapping="Wrap"
                                Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding !IsAllClear}" />
-                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2"
+                    <TextBlock Grid.Row="1" Text="{Binding Headline}" Classes="headline" Margin="0,8,0,2" TextWrapping="Wrap"
                                Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsAllClear}" />
                     <TextBlock Grid.Row="2" Text="{Binding Breakdown}" Classes="muted" Margin="0,0,0,8" />
                     <ItemsControl Grid.Row="3" ItemsSource="{Binding Items}">
@@ -264,9 +366,9 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <Border Grid.Column="1" Grid.RowSpan="4" VerticalAlignment="Bottom" IsVisible="{Binding HasCause}"
-                            Background="{DynamicResource Brush.Warning}" CornerRadius="8" Padding="16,10" Margin="12,0,0,0">
-                      <TextBlock Text="Dive to the cause ›" Foreground="{DynamicResource Brush.Ink}" FontWeight="SemiBold" />
+                    <Border Classes="causecta" IsVisible="{Binding HasCause}"
+                            Background="{DynamicResource Brush.Warning}" CornerRadius="8" Padding="16,10">
+                      <TextBlock Text="Dive to the cause ›" Foreground="{DynamicResource Brush.Ink}" FontWeight="SemiBold" VerticalAlignment="Center" />
                     </Border>
                   </Grid>
                 </Border>
@@ -314,11 +416,11 @@
           <Border Classes="panelbox" IsVisible="{Binding HasGauges}">
             <ItemsControl ItemsSource="{Binding Gauges}" AutomationProperties.Name="Layers">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel HorizontalAlignment="Center" ItemWidth="172" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><WrapPanel Classes="gauges" HorizontalAlignment="Center" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="dive:DiveGauge">
-                  <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Padding="4,8" CornerRadius="10"
+                  <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalAlignment="Top" Padding="4,8" CornerRadius="10"
                           Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenPartCommand}" CommandParameter="{Binding}"
                           AutomationProperties.Name="{Binding AccessibleText}" ToolTip.Tip="{Binding Caption}">
                     <StackPanel Spacing="6">
@@ -337,6 +439,11 @@
                       <TextBlock Text="{Binding Label}" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                       <TextBlock Text="{Binding Caption}" Classes="meta" TextAlignment="Center" HorizontalAlignment="Center" MaxLines="2"
                                  TextTrimming="CharacterEllipsis" />
+                      <StackPanel Classes="gaugetrend" Spacing="2" IsVisible="{Binding HasTrend}" HorizontalAlignment="Center">
+                        <ctl:Sparkline Width="132" Height="28" Points="{Binding Trend.Points, FallbackValue={x:Null}}" StrokeThickness="1.5"
+                                       Stroke="{Binding Trend.Kind, FallbackValue=Cpu, Converter={x:Static ctl:DiveConverters.TrendBrush}}" />
+                        <TextBlock Text="last 10 min" Classes="meta" HorizontalAlignment="Center" />
+                      </StackPanel>
                     </StackPanel>
                   </Button>
                 </DataTemplate>
@@ -367,6 +474,45 @@
                         <TextBlock Text="{Binding TierText}" Classes="meta" />
                       </DockPanel>
                     </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <!-- Sampling pace: 10 s to 1 h is what a computer accepts; while someone watches live it samples about every second anyway. -->
+              <StackPanel Name="DiveSampling" Spacing="6" IsVisible="{Binding HasSamplingChoices}">
+                <TextBlock Text="Sampling interval" Classes="label" />
+                <ItemsControl ItemsSource="{Binding SamplingChoices}" AutomationProperties.Name="Sampling interval">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="shell:SamplingChoice">
+                      <Button Classes="chip" Content="{Binding Title}" Margin="0,0,8,8" MinWidth="76" HorizontalContentAlignment="Center"
+                              Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).Controls.SetSamplingIntervalCommand}"
+                              CommandParameter="{Binding}" IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}"
+                              AutomationProperties.Name="{Binding AccessibleText}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding SamplingTierText}" Classes="meta" />
+                <TextBlock Text="Accepted range 10 s to 1 h. While you watch live it samples about every second on its own." Classes="meta"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <ItemsControl Name="DiveAlerts" ItemsSource="{Binding OpenAlerts}" IsVisible="{Binding HasOpenAlerts}" AutomationProperties.Name="Open alerts">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="shell:AlertAckRow">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleText}">
+                      <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding StateText}" Classes="meta" />
+                        <TextBlock Text="{Binding TierText}" Classes="meta" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="action" Content="Acknowledge" Margin="12,0,0,0" VerticalAlignment="Center"
+                              IsVisible="{Binding CanAcknowledge}"
+                              Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).Controls.AcknowledgeAlertCommand}"
+                              CommandParameter="{Binding}" IsEnabled="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanAct}"
+                              AutomationProperties.Name="{Binding Title, StringFormat='Acknowledge {0}'}" />
+                    </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -473,6 +619,12 @@
                   </StackPanel>
                 </Panel>
                 <TextBlock Text="{Binding Gauge.Label, FallbackValue=''}" Classes="label" HorizontalAlignment="Center" />
+                <ctl:Sparkline Width="150" Height="34" IsVisible="{Binding Gauge.HasTrend, FallbackValue=False}"
+                               Points="{Binding Gauge.Trend.Points, FallbackValue={x:Null}}" StrokeThickness="1.75"
+                               Stroke="{Binding Gauge.Trend.Kind, FallbackValue=Cpu, Converter={x:Static ctl:DiveConverters.TrendBrush}}"
+                               AutomationProperties.Name="{Binding Gauge.Trend.Text, FallbackValue=''}" />
+                <TextBlock Text="{Binding Gauge.Trend.Text, FallbackValue=''}" Classes="meta" TextWrapping="Wrap" MaxWidth="150"
+                           TextAlignment="Center" IsVisible="{Binding Gauge.HasTrend, FallbackValue=False}" />
               </StackPanel>
               <StackPanel Classes="partdetail" Spacing="12" VerticalAlignment="Center">
                 <TextBlock Text="{Binding Summary}" FontSize="{DynamicResource Size.Heading}" FontWeight="SemiBold" TextWrapping="Wrap" />

@@ -11,6 +11,27 @@ public sealed record ControlActionRow(ControlActionKind Kind, string Title, Time
     public string AccessibleText => $"{Title}. {TierText}";
 }
 
+/// <summary>
+/// A sampling pace the person can ask a paired computer for. <see cref="Interval"/> null restores the computer's own default. The computer
+/// accepts 10 s to 1 h (ControlPolicy); faster sampling (about 1 s) happens on its own while someone watches live.
+/// </summary>
+public sealed record SamplingChoice(TimeSpan? Interval, string Title, string TierText)
+{
+    public string AccessibleText => Interval is null
+        ? $"Restore the default sampling interval. {TierText}"
+        : $"Sample every {Title.Replace("Every ", string.Empty, StringComparison.Ordinal)}. {TierText}";
+}
+
+/// <summary>An alert the selected computer raised and still holds, which this device can acknowledge.</summary>
+public sealed record AlertAckRow(string AlertId, string Title, string Detail, string Severity, string TierText, bool IsAcknowledged)
+{
+    public string StateText => IsAcknowledged ? "Acknowledged from this device" : $"{Severity} · raised, not resolved";
+
+    public bool CanAcknowledge => !IsAcknowledged;
+
+    public string AccessibleText => $"{Severity} alert: {Title}. {Detail}. {StateText}. {TierText}";
+}
+
 /// <summary>A pairing request held by the selected computer, awaiting this device's decision (the fingerprint is what gets confirmed).</summary>
 public sealed record RemotePairingRow(string PairingId, string Name, string Fingerprint, string TierText)
 {
@@ -31,6 +52,9 @@ public sealed partial class ControlsViewModel : ObservableObject
     private readonly NodeConnection connection;
     private readonly EnvironmentViewModel environment;
     private SceneNode? node;
+
+    // The alert list carries no acknowledgement state, so acknowledgements this device made are remembered for the session.
+    private readonly HashSet<string> acknowledged = new(StringComparer.Ordinal);
 
     [ObservableProperty]
     private bool isAvailable;
@@ -89,6 +113,19 @@ public sealed partial class ControlsViewModel : ObservableObject
 
     public ObservableCollection<ControlActionRow> Actions { get; } = [];
 
+    /// <summary>Sampling paces for the selected computer (10 s, 30 s, 1 min, default); empty when controls do not apply.</summary>
+    public ObservableCollection<SamplingChoice> SamplingChoices { get; } = [];
+
+    public bool HasSamplingChoices => SamplingChoices.Count > 0;
+
+    /// <summary>What sending a sampling change asks of the person (one tier for every pace).</summary>
+    public string SamplingTierText => SamplingChoices.Count > 0 ? SamplingChoices[0].TierText : string.Empty;
+
+    /// <summary>Unresolved alerts the selected computer raised, when the source can list alerts.</summary>
+    public ObservableCollection<AlertAckRow> OpenAlerts { get; } = [];
+
+    public bool HasOpenAlerts => OpenAlerts.Count > 0;
+
     public bool IsHistorical => environment.IsHistorical;
 
     /// <summary>False while viewing history or while a command is in flight.</summary>
@@ -109,6 +146,8 @@ public sealed partial class ControlsViewModel : ObservableObject
         UpdateStatus = null;
         PendingPairings.Clear();
         Actions.Clear();
+        SamplingChoices.Clear();
+        OpenAlerts.Clear();
         OutcomeText = null;
         OutcomeIsFailure = false;
         var source = connection.Source as IControlSource;
@@ -118,6 +157,11 @@ public sealed partial class ControlsViewModel : ObservableObject
             Actions.Add(Row(source, ControlActionKind.PauseCollection, "Pause collection for 1 hour", PauseFor));
             Actions.Add(Row(source, ControlActionKind.ResumeCollection, "Resume collection", null));
             Actions.Add(Row(source, ControlActionKind.MuteAlerts, "Mute alerts for 1 hour", MuteFor));
+            var samplingTier = TierText(source.DescribeTier(ControlActionKind.SetSamplingInterval));
+            SamplingChoices.Add(new SamplingChoice(TimeSpan.FromSeconds(10), "Every 10 s", samplingTier));
+            SamplingChoices.Add(new SamplingChoice(TimeSpan.FromSeconds(30), "Every 30 s", samplingTier));
+            SamplingChoices.Add(new SamplingChoice(TimeSpan.FromMinutes(1), "Every 1 min", samplingTier));
+            SamplingChoices.Add(new SamplingChoice(null, "Default", samplingTier));
         }
 
         LoadTask = IsAvailable ? LoadRemoteAsync(selected!.Id) : Task.CompletedTask;
@@ -133,10 +177,15 @@ public sealed partial class ControlsViewModel : ObservableObject
 
         RemoteUpdateStatusDto? status = null;
         IReadOnlyList<PendingPairingDto> pairings = [];
+        IReadOnlyList<AlertDto> alerts = [];
         try
         {
             status = await source.ReadUpdateStatusAsync(peerId);
             pairings = await source.ReadPendingPairingsAsync(peerId);
+            if (connection.Source is IAlertSource alertSource)
+            {
+                alerts = await alertSource.GetAlertsAsync(100);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -162,6 +211,14 @@ public sealed partial class ControlsViewModel : ObservableObject
                 Row(source, ControlActionKind.ApprovePairing, string.Empty, null).TierText));
         }
 
+        var ackTier = TierText(source.DescribeTier(ControlActionKind.AcknowledgeAlert));
+        OpenAlerts.Clear();
+        foreach (var alert in alerts.Where(a => a.OriginPeerId == peerId && !string.Equals(a.State, "Resolved", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(a => a.RaisedAt).Take(5))
+        {
+            OpenAlerts.Add(new AlertAckRow(alert.AlertId, alert.Title, alert.Detail, alert.Severity, ackTier, acknowledged.Contains(alert.AlertId)));
+        }
+
         Notify();
     }
 
@@ -177,6 +234,45 @@ public sealed partial class ControlsViewModel : ObservableObject
         var target = node;
         await Send($"Sending: approve update {version}...", target, () => source.ApproveUpdateAsync(target.Id, version, digest));
         LoadTask = LoadRemoteAsync(target.Id);
+    }
+
+    /// <summary>Asks the selected computer to sample at the chosen pace (or its default) until changed again.</summary>
+    [RelayCommand]
+    public async Task SetSamplingIntervalAsync(SamplingChoice? choice)
+    {
+        if (choice is null || node is null || !CanAct || connection.Source is not IControlSource source)
+        {
+            return;
+        }
+
+        var target = node;
+        await Send(
+            choice.Interval is null ? "Sending: restore the default sampling interval..." : $"Sending: sample {choice.Title.ToLowerInvariant()}...",
+            target,
+            () => source.SetSamplingIntervalAsync(target.Id, choice.Interval, null));
+    }
+
+    /// <summary>Acknowledges one of the selected computer's alerts; when applied, the row says so.</summary>
+    [RelayCommand]
+    public async Task AcknowledgeAlertAsync(AlertAckRow? alert)
+    {
+        if (alert is null || alert.IsAcknowledged || node is null || !CanAct || connection.Source is not IControlSource source)
+        {
+            return;
+        }
+
+        var target = node;
+        ControlOutcomeDto? result = null;
+        await Send($"Sending: acknowledge {alert.Title}...", target, async () => result = await source.AcknowledgeAlertAsync(target.Id, alert.AlertId));
+        if (result is { IsApplied: true } && node?.Id == target.Id)
+        {
+            acknowledged.Add(alert.AlertId);
+            var index = OpenAlerts.IndexOf(alert);
+            if (index >= 0)
+            {
+                OpenAlerts[index] = alert with { IsAcknowledged = true };
+            }
+        }
     }
 
     [RelayCommand]
@@ -308,6 +404,9 @@ public sealed partial class ControlsViewModel : ObservableObject
         OnPropertyChanged(nameof(UpdateSummary));
         OnPropertyChanged(nameof(CanApproveUpdate));
         OnPropertyChanged(nameof(HasPendingPairings));
+        OnPropertyChanged(nameof(HasSamplingChoices));
+        OnPropertyChanged(nameof(SamplingTierText));
+        OnPropertyChanged(nameof(HasOpenAlerts));
         RunCommand.NotifyCanExecuteChanged();
         ApproveUpdateCommand.NotifyCanExecuteChanged();
     }

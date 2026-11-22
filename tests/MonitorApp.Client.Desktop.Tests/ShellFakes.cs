@@ -50,9 +50,23 @@ internal class FakeEnvironmentSource : IPeerDataSource
         return Task.FromResult(new StateDto(at, at.AddHours(-1), 1000, "raw", false, points));
     }
 
+    /// <summary>Points served by <see cref="GetHistoryAsync"/>, filtered by the query's signal, subject and time range.</summary>
+    public List<HistoryPointDto> History { get; } = [];
+
     public Task<HistoryResult> GetHistoryAsync(
         HistoryQuery query, int maxPages = LocalApiClient.DefaultMaxPages, int pageSize = LocalApiClient.PageSize, CancellationToken ct = default) =>
-        Task.FromResult(new HistoryResult([], "raw", 1, false));
+        Task.FromResult(new HistoryResult(
+            History.Where(p => (query.SignalId is null || p.SignalId == query.SignalId)
+                && (query.SubjectEntityId is null || p.SubjectEntityId == query.SubjectEntityId)
+                && p.ObservedAt >= query.From && p.ObservedAt <= query.To).ToList(),
+            "raw",
+            1,
+            false));
+
+    /// <summary>A recorded numeric reading as history returns it (test data for sparklines).</summary>
+    public static HistoryPointDto Recorded(string subject, string signal, double value, string unit, DateTimeOffset observedAt, ulong sequence) =>
+        new(subject, "stream", sequence, subject, signal, observedAt, observedAt, "fake", "Observed", "Valid", "Fresh",
+            0, new ObservationValueDto("number", value, null, null), unit, null);
 
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) => Task.CompletedTask;
 
@@ -85,18 +99,41 @@ internal static class DiveScenes
         var nodes = scene.Nodes.Select(n => n.Id == server.Id ? full : n.Id == SampleEnvironment.Laptop ? n with { Activity = 0.4 } : n).ToList();
         return scene with { Nodes = nodes };
     }
+
+    /// <summary>
+    /// Ten minutes of recorded history behind the sample's sparklines (test data): the server's CPU every 30 s and its network counters,
+    /// and the laptop's CPU. Other devices have none, so their sparklines stay hidden.
+    /// </summary>
+    public static void AddTrendHistory(FakeEnvironmentSource source, DateTimeOffset now)
+    {
+        ulong seq = 1;
+        double sent = 1e9, received = 4e9;
+        for (var i = 20; i >= 1; i--)
+        {
+            var at = now.AddSeconds(-30 * i);
+            source.History.Add(FakeEnvironmentSource.Recorded(SampleEnvironment.Server, SignalIds.CpuUtilization, 0.12 + (0.1 * Math.Abs(Math.Sin(i / 3.0))), "Ratio", at, seq++));
+            source.History.Add(FakeEnvironmentSource.Recorded(SampleEnvironment.Laptop, SignalIds.CpuUtilization, 0.2 + (0.015 * i), "Ratio", at, seq++));
+            sent += 30 * (2e5 + (1.5e5 * Math.Sin(i / 2.0)));
+            received += 30 * (9e5 + (6e5 * Math.Cos(i / 4.0)));
+            source.History.Add(FakeEnvironmentSource.Recorded(SampleEnvironment.Server, SignalIds.NetworkBytesSent, sent, "Bytes", at, seq++));
+            source.History.Add(FakeEnvironmentSource.Recorded(SampleEnvironment.Server, SignalIds.NetworkBytesReceived, received, "Bytes", at, seq++));
+        }
+    }
 }
 
 /// <summary>A paired-device source that can also send controls. Its answers are scripted per test; it records what was sent.</summary>
 internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, IControlSource, IViewingSource, IAlertSource
 {
-    /// <summary>One critical alert on the server, raised 5 h ago and resolved 4 h ago.</summary>
+    /// <summary>One critical alert on the server, raised 5 h ago and resolved 4 h ago, plus any <see cref="ExtraAlerts"/>.</summary>
     public Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<AlertDto>>(
         [
             new AlertDto("a1", 1, "cpu-high", "peer:" + ServerId, ServerId, "Critical", "Resolved", "CPU saturated", "CPU at 99%",
                 DateTimeOffset.UtcNow.AddHours(-5), DateTimeOffset.UtcNow.AddHours(-4)),
+            .. ExtraAlerts,
         ]);
+
+    public List<AlertDto> ExtraAlerts { get; } = [];
 
     /// <summary>Viewing interest as it happened: "begin:peer:signals" and "end:peer" (peer "local" for this device).</summary>
     public List<string> Viewing { get; } = [];
@@ -143,9 +180,9 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
     public Task<ControlOutcomeDto> ResumeCollectionAsync(string peerId, CancellationToken ct = default) => Record("resume", peerId);
 
     public Task<ControlOutcomeDto> SetSamplingIntervalAsync(string peerId, TimeSpan? interval, TimeSpan? duration, CancellationToken ct = default) =>
-        Record("interval", peerId);
+        Record("interval", peerId, interval is { } i ? i.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + "s" : "default");
 
-    public Task<ControlOutcomeDto> AcknowledgeAlertAsync(string peerId, string alertId, CancellationToken ct = default) => Record("ack", peerId);
+    public Task<ControlOutcomeDto> AcknowledgeAlertAsync(string peerId, string alertId, CancellationToken ct = default) => Record("ack", peerId, alertId);
 
     public Task<ControlOutcomeDto> MuteAlertsAsync(string peerId, TimeSpan duration, string? ruleId, CancellationToken ct = default) =>
         Record("mute", peerId);

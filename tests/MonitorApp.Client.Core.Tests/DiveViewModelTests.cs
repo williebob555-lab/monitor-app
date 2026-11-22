@@ -14,9 +14,25 @@ public sealed class DiveViewModelTests
     {
         var now = DateTimeOffset.UtcNow;
         var source = new ControlFake();
+        // Recorded history for the sparklines: five CPU readings on the server, and a network counter that resets once.
+        for (var i = 5; i >= 1; i--)
+        {
+            source.History.Add(Point(SampleEnvironment.Server, SignalIds.CpuUtilization, (6 - i) / 10.0, "Ratio", now.AddMinutes(-i)));
+        }
+
+        foreach (var (minutes, bytes) in new[] { (-4, 100.0), (-3, 6100.0), (-2, 50.0), (-1, 1250.0) })
+        {
+            source.History.Add(Point(SampleEnvironment.Server, SignalIds.NetworkBytesSent, bytes, "Bytes", now.AddMinutes(minutes)));
+        }
+
+        source.Alerts.Add(new AlertDto("al-1", 1, "disk-free", SampleEnvironment.Server, SampleEnvironment.Server, "Warning", "Raised",
+            "Storage almost full", "61% used", now.AddMinutes(-3), null));
+        source.Alerts.Add(new AlertDto("al-0", 1, "disk-free", SampleEnvironment.Server, SampleEnvironment.Server, "Warning", "Resolved",
+            "Old", "resolved", now.AddHours(-3), now.AddHours(-2)));
         using var model = new MainViewModel(source);
         model.Environment.ShowScene(SampleEnvironment.Create(now));
         var dive = model.Shell.Dive;
+        await dive.TrendsTask;
         var moves = new List<DiveDirection>();
         dive.Navigated += (_, e) => moves.Add(e.Direction);
 
@@ -40,6 +56,17 @@ public sealed class DiveViewModelTests
             server.Badge.Text == "2 problems inside" && server.Gauges.Select(g => g.Label).SequenceEqual(["CPU", "Memory", "Storage"])
                 && server.Gauges[0].Value == "18" && server.ChildrenText == "3 services · 2 need attention",
             $"server tile: {server.Badge.Text}; {string.Join(",", server.Gauges.Select(g => g.Label + "=" + g.Value))}; {server.ChildrenText}");
+        // Sparklines: real history plus the live reading; a counter reset gives no rate; devices without history show none.
+        var cpu = server.TrendList.FirstOrDefault(t => t.Kind == DiveTrendKind.Cpu);
+        Assert.True(
+            cpu is { NowText: "18 %" } && cpu.Points.Count == 6 && cpu.Text == "CPU over the last 5 min: 10 to 50 %, now 18 %",
+            $"server CPU sparkline: {cpu?.Points.Count} points, '{cpu?.Text}'");
+        var network = server.TrendList.FirstOrDefault(t => t.Kind == DiveTrendKind.Network);
+        Assert.True(
+            network is not null && network.Points.SequenceEqual([1.0, 0.2]) && network.Text == "Network over the last 2 min: peak 100 B/s, now 20 B/s",
+            $"server network sparkline from 100/6100/50(reset)/1250 bytes: [{string.Join(",", network?.Points ?? [])}] '{network?.Text}'");
+        Assert.All(devices.Where(t => t.NodeId != SampleEnvironment.Server), t => Assert.False(t.HasTrends, $"{t.Title}: no history, no sparkline"));
+        Assert.True(server.KeyGauge?.Label == "Storage", $"compact tile key reading is the fullest gauge: {server.KeyGauge?.Label}");
         Assert.True(attention.Headline == "5 need attention" && attention.Breakdown == "3 faults · 1 offline · 1 stale", $"{attention.Headline} / {attention.Breakdown}");
 
         // "Dive to the cause": Media server depends on the failed Backup, so the dive lands on Backup, with the real reason.
@@ -92,6 +119,20 @@ public sealed class DiveViewModelTests
         Assert.True(dive.CanAct && dive.Controls.IsAvailable, "a live paired device can be acted on");
         await dive.Controls.RunCommand.ExecuteAsync(dive.Controls.Actions.Single(a => a.Kind == ControlActionKind.PauseCollection));
         Assert.Equal([$"pause:{SampleEnvironment.Server}"], source.Sent);
+
+        // Sampling pace and acknowledging the server's open alert go through the same controls, with tier text and outcome.
+        await dive.Controls.LoadTask;
+        Assert.True(
+            dive.Controls.SamplingChoices.Select(c => c.Title).SequenceEqual(["Every 10 s", "Every 30 s", "Every 1 min", "Default"])
+                && dive.Controls.SamplingTierText == "Normal tier: no fingerprint needed",
+            $"sampling: {string.Join(",", dive.Controls.SamplingChoices.Select(c => c.Title))} / {dive.Controls.SamplingTierText}");
+        await dive.Controls.SetSamplingIntervalCommand.ExecuteAsync(dive.Controls.SamplingChoices[1]);
+        Assert.True(source.Sent[^1] == $"interval:{SampleEnvironment.Server}:30" && dive.Controls.OutcomeText == "Done: done", $"{source.Sent[^1]} / {dive.Controls.OutcomeText}");
+        var open = Assert.Single(dive.Controls.OpenAlerts);
+        Assert.True(open.AlertId == "al-1" && open.CanAcknowledge, $"only the unresolved alert is offered: {open}");
+        await dive.Controls.AcknowledgeAlertCommand.ExecuteAsync(open);
+        Assert.True(source.Sent[^1] == $"ack:{SampleEnvironment.Server}" && dive.Controls.OpenAlerts.Single().IsAcknowledged,
+            $"{source.Sent[^1]} / {dive.Controls.OpenAlerts.Single()}");
         await dive.RefreshApprovalsAsync();
         var approval = dive.Home.Tiles.OfType<DiveApprovalTile>().Single();
         Assert.True(approval.HostNodeId == SampleEnvironment.Server && approval.TierText.Contains("asks for your fingerprint", StringComparison.Ordinal), approval.ToString());
@@ -107,7 +148,9 @@ public sealed class DiveViewModelTests
         Assert.Contains("Return to live to act", dive.Controls.HistoryNotice, StringComparison.Ordinal);
         Assert.False(dive.Controls.RunCommand.CanExecute(dive.Controls.Actions[0]), "the pause command refuses in history");
         Assert.Empty(dive.Home.Tiles.OfType<DiveApprovalTile>());
-        Assert.Single(source.Sent);
+        Assert.All(dive.Home.Tiles.OfType<DiveDeviceTile>(), t => Assert.False(t.HasTrends, $"{t.Title} shows a live sparkline over a recorded moment"));
+        await dive.Controls.SetSamplingIntervalCommand.ExecuteAsync(dive.Controls.SamplingChoices[0]);
+        Assert.Equal(3, source.Sent.Count);
     }
 
     private static SceneGraph WithServerStorage(SceneGraph scene, double free, double total)
@@ -122,9 +165,19 @@ public sealed class DiveViewModelTests
         return scene with { Nodes = scene.Nodes.Select(n => n.Id == server.Id ? updated : n).ToList() };
     }
 
-    /// <summary>A source that can send controls; it records what was sent and holds pending pairings on the sample server.</summary>
-    private sealed class ControlFake : IPeerDataSource, IControlSource
+    private static HistoryPointDto Point(string subject, string signal, double value, string unit, DateTimeOffset at) =>
+        new(subject, "stream", 1, subject, signal, at, at, "test", "Observed", "Valid", "Fresh", 0, new ObservationValueDto("number", value, null, null), unit, null);
+
+    /// <summary>A source that can send controls; it records what was sent and holds pending pairings, history and alerts on the sample server.</summary>
+    private sealed class ControlFake : IPeerDataSource, IControlSource, IAlertSource
     {
+        public List<HistoryPointDto> History { get; } = [];
+
+        public List<AlertDto> Alerts { get; } = [];
+
+        public Task<IReadOnlyList<AlertDto>> GetAlertsAsync(int limit = 100, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<AlertDto>>(Alerts.ToArray());
+
         private static readonly ControlOutcomeDto Applied = new("Applied", "applied", "done", false);
 
         public List<string> Sent { get; } = [];
@@ -158,7 +211,8 @@ public sealed class DiveViewModelTests
 
         public Task<HistoryResult> GetHistoryAsync(
             HistoryQuery query, int maxPages = LocalApiClient.DefaultMaxPages, int pageSize = LocalApiClient.PageSize, CancellationToken ct = default) =>
-            Task.FromResult(new HistoryResult([], "raw", 1, false));
+            Task.FromResult(new HistoryResult(
+                History.Where(p => p.SignalId == query.SignalId && p.ObservedAt >= query.From && p.ObservedAt <= query.To).ToList(), "raw", 1, false));
 
         public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) => Task.CompletedTask;
 
@@ -176,7 +230,7 @@ public sealed class DiveViewModelTests
         public Task<ControlOutcomeDto> ResumeCollectionAsync(string peerId, CancellationToken ct = default) => Record("resume", peerId);
 
         public Task<ControlOutcomeDto> SetSamplingIntervalAsync(string peerId, TimeSpan? interval, TimeSpan? duration, CancellationToken ct = default) =>
-            Record("interval", peerId);
+            Record("interval", peerId + ":" + (interval?.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "default"));
 
         public Task<ControlOutcomeDto> AcknowledgeAlertAsync(string peerId, string alertId, CancellationToken ct = default) => Record("ack", peerId);
 

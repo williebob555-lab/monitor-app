@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MonitorApp.Client.Core;
 using MonitorApp.Client.Core.Scene;
 using MonitorApp.Client.Core.ViewModels;
@@ -33,16 +34,30 @@ public sealed class ShellScreenshots
         var source = new FakeControlEnvironmentSource { PairingsHeldBy = SampleEnvironment.Server };
         source.PendingPairings.Add(new PendingPairingDto(
             "pair-watch", "peer-watch", "Pixel Watch", "9F2C4E7A1B3D5F60", "PendingApproval", now, now.AddMinutes(5)));
+        source.ExtraAlerts.Add(new AlertDto("a2", 1, "disk-free", SampleEnvironment.Server, SampleEnvironment.Server, "Warning", "Raised",
+            "Storage almost full", "240 GB free of 4 TB", now.AddMinutes(-20), null));
+        DiveScenes.AddTrendHistory(source, now);
         using var model = new MainViewModel(source);
 
         // The Dive (default): home grid wide and on a phone, a device, the root-cause part, and a recorded moment.
         model.Environment.ShowScene(DiveScenes.BackupDiskFull(now));
         model.Shell.Dive.RefreshApprovalsAsync().GetAwaiter().GetResult();
+        model.Shell.Dive.TrendsTask.GetAwaiter().GetResult();
         Capture(model, 1400, 860, dir, "dive-home-wide-1400x860", () => model.Shell.Dive.GoHome());
         Capture(model, 860, 860, dir, "dive-home-medium-860x860", () => model.Shell.Dive.GoHome());
         Capture(model, 390, 844, dir, "dive-home-phone-390x844", () => model.Shell.Dive.GoHome());
         Capture(model, 1400, 860, dir, "dive-device-wide-1400x860", () => model.Shell.Dive.GoTo(SampleEnvironment.Server));
         Capture(model, 390, 844, dir, "dive-device-phone-390x844", () => model.Shell.Dive.GoTo(SampleEnvironment.Server));
+        Capture(model, 1400, 860, dir, "dive-device-controls-1400x860", () =>
+        {
+            model.Shell.Dive.GoTo(SampleEnvironment.Server);
+            model.Shell.Dive.Controls.LoadTask.GetAwaiter().GetResult();
+        }, scrollToName: "DiveControls");
+        Capture(model, 390, 844, dir, "dive-home-phone-timeline-390x844", () =>
+        {
+            model.Shell.Dive.GoHome();
+            model.Shell.TimelineOpen = true;
+        });
         Capture(model, 1400, 860, dir, "dive-service-wide-1400x860", () => model.Shell.Dive.GoTo(SampleEnvironment.Backup));
         Capture(model, 1400, 860, dir, "dive-part-wide-1400x860", () =>
         {
@@ -81,7 +96,7 @@ public sealed class ShellScreenshots
         });
     }
 
-    private static string Capture(MainViewModel model, double width, double height, string dir, string name, Action arrange)
+    private static string Capture(MainViewModel model, double width, double height, string dir, string name, Action arrange, string? scrollToName = null)
     {
         model.Shell.GoTo(name.Contains("search", StringComparison.Ordinal) ? ShellMode.Search : ShellMode.Ecosystem);
         var shell = new WorkspaceShell { RunEnvironmentLive = false, ReducedMotion = true, DataContext = model };
@@ -92,6 +107,13 @@ public sealed class ShellScreenshots
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
         Dispatcher.UIThread.RunJobs();
+        if (scrollToName is not null)
+        {
+            shell.GetVisualDescendants().OfType<Control>().First(c => c.Name == scrollToName).BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+        }
+
         // Let the sheet slide-up (0.22 s) finish before capturing: the headless render timer only ticks when forced.
         for (var i = 0; i < 12; i++)
         {
