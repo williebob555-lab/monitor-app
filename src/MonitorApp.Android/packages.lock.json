@@ -598,7 +598,8 @@
         "type": "Project",
         "dependencies": {
           "MonitorApp.Client.Core": "[1.0.0, )",
-          "MonitorApp.Peer.Mobile": "[1.0.0, )"
+          "MonitorApp.Peer.Mobile": "[1.0.0, )",
+          "ZXing.Net": "[0.16.10, )"
         }
       },
       "monitorapp.client.ui": {
@@ -799,6 +800,12 @@
         "requested": "[2.1.14, )",
         "resolved": "2.1.14",
         "contentHash": "Yx2MRvpooyXlDhwhklJIVSlM7pphBbtDVgeHcxn5WxLUQkmZqLmDPInSCz7G4zgl5VAev78O6MJ2ekV4CIlebA=="
+      },
+      "ZXing.Net": {
+        "type": "CentralTransitive",
+        "requested": "[0.16.10, )",
+        "resolved": "0.16.10",
+        "contentHash": "9avtcn21T7Ndcl8PQ1LHR7/wEoCruX1QKKHvO6zBPTsDW9IdvR5vKOmd618AY+DtDWZz8NaFDTkpbZdgaF4l4w=="
       }
     },
     "net10.0-android36.0/android-arm64": {
