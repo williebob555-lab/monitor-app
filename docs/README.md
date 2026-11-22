@@ -25,6 +25,7 @@ The earlier controller/agent and automatic self-hosted Headscale plan is superse
 - [`DEVELOPMENT.md`](DEVELOPMENT.md): implementation workflow and platform obligations.
 - [`TESTING.md`](TESTING.md): meaningful tests and release gates.
 - [`SECURITY.md`](SECURITY.md): peer trust, adapter credentials, privacy, and defensive detection.
+- [`SWITCH_ADAPTER.md`](SWITCH_ADAPTER.md): opt-in SG250 read-only SNMPv3 spike, credential setup, and hardware verification gates (T300).
 - [`DECISIONS.md`](DECISIONS.md): confirmed constraints and working technical decisions.
 - [`CHANGELOG.md`](CHANGELOG.md): durable completed changes.
 - [`RELEASES.md`](RELEASES.md): release and update trust.
