@@ -435,3 +435,12 @@ This log separates confirmed product constraints from working technical decision
 - Consequences:
 - Revisit condition:
 ```
+
+### T032 Shared Avalonia client over a peer data-source abstraction
+
+- Status: Accepted (working choice; Avalonia remains subject to platform proof).
+- Decision: One client codebase. `MonitorApp.Client.Core` (net10.0, no UI dependency) holds view models and `IPeerDataSource` (runtime, peers, pairings, catalog, state, history, approve/reject/revoke, plus `StateChanged`/`SupportsLiveUpdates` for push). The desktop head uses the loopback HTTP adapter `LocalApiClient` (antiforgery handshake per POST, cursor paging with a page cap, errors mapped to unreachable / validation / incompatible). `MonitorApp.Client.Desktop` (Avalonia 11.3, compiled bindings) only contains views. An Android head, which has no local HTTP API, would implement `IPeerDataSource` over the in-process mobile runtime and its replicated SQLite store and reuse Core and the views; it is not created yet.
+- Reason: Phones must show live data from desktop peers without an HTTP server; views and view models must not depend on a transport. Avalonia is pinned at 11.3.x (DataGrid 11.3.13) because the 12.x line is not adopted.
+- Evidence: Core tests run the real `LocalApiHost` with seeded SQLite records and exercise paging, unavailable values (never shown as 0), validation errors, antiforgery approval, revoke confirmation, unreachable node, polling and push update paths. A headless Avalonia test binds all sections.
+- Consequences: Unavailable, denied, or stale readings are shown as states. Approved pairings stay listed as Approved until the peer completes pairing. Alerts will be a new `SectionViewModel` plus one DataTemplate. Desktop GUI and any Android head are not visually or device verified. Live push has only a test adapter; no production source raises it yet.
+- Revisit condition: If Avalonia fails on Android or a target platform, or a push-capable source needs a different contract than `StateChanged`.

@@ -352,6 +352,10 @@ The Android core suite calls the production URI policy, one-time enrollment pars
 
 Do not leave multiple undocumented ways to run the same suite. Package and platform jobs may wrap these commands, but the root verification script is authoritative.
 
+## Desktop client tests
+
+`tests/MonitorApp.Client.Core.Tests` starts the real `LocalApiHost` over a file-backed SQLite store seeded through the production `PeerStore`, and drives the typed client and view models against it (round trip, cursor paging and page cap, unavailable values, validation, antiforgery, revoke confirmation, unreachable node, polling and push updates). `tests/MonitorApp.Client.Desktop.Tests` is an Avalonia.Headless smoke test that binds every section to a real node. Neither verifies visual appearance; run `dotnet test` on each project (both are in `eng/verify.ps1`).
+
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.

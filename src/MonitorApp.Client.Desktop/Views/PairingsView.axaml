@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Desktop.Views.PairingsView" x:DataType="vm:PairingsViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="8">
+    <Button Content="Refresh" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" />
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="Pairings" FontWeight="SemiBold" />
+    <TextBlock Text="Compare the fingerprint with the one shown on the other device before approving." TextWrapping="Wrap" />
+    <ItemsControl Name="PendingList" ItemsSource="{Binding Pending}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:PendingPairingRow">
+          <Border BorderBrush="Gray" BorderThickness="1" Padding="8" Margin="0,0,0,6">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding PeerId, StringFormat='Peer id: {0}'}" />
+              <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding ApprovalState, StringFormat='State: {0}'}" />
+              <TextBlock Text="{Binding ExpiresAt, StringFormat='Expires: {0}'}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding CanDecide}">
+                <Button Content="Approve" Command="{Binding #PendingList.((vm:PairingsViewModel)DataContext).ApproveCommand}" CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding Name, StringFormat='Approve pairing with {0}'}" />
+                <Button Content="Reject" Command="{Binding #PendingList.((vm:PairingsViewModel)DataContext).RejectCommand}" CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding Name, StringFormat='Reject pairing with {0}'}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Text="Trusted and revoked peers" FontWeight="SemiBold" />
+    <Border IsVisible="{Binding IsRevocationPending}" BorderBrush="Firebrick" BorderThickness="2" Padding="8">
+      <StackPanel Spacing="6">
+        <TextBlock Text="{Binding RevocationPrompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Confirm revoke" Command="{Binding ConfirmRevokeCommand}" />
+          <Button Content="Cancel" Command="{Binding CancelRevokeCommand}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <ItemsControl Name="PeerList" ItemsSource="{Binding Peers}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:TrustedPeerRow">
+          <Border BorderBrush="Gray" BorderThickness="1" Padding="8" Margin="0,0,0,6">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding TrustState, StringFormat='Trust: {0}'}" />
+              <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
+              <Button Content="Revoke trust..." IsVisible="{Binding CanRevoke}" HorizontalAlignment="Left"
+                      Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).RequestRevokeCommand}" CommandParameter="{Binding}"
+                      AutomationProperties.Name="{Binding Name, StringFormat='Revoke trust in {0}'}" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel></ScrollViewer>
+</UserControl>
