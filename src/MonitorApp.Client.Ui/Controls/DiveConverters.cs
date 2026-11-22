@@ -8,6 +8,12 @@ namespace MonitorApp.Client.Ui.Controls;
 /// <summary>Brushes and shapes for the Dive: a badge's health (or transfer) and a gauge's fill level, always from the semantic tokens.</summary>
 public static class DiveConverters
 {
+    /// <summary>A signal id as its plain label ("lan.link.wifi.up" becomes "Wi-Fi link"); "(all)" reads "All".</summary>
+    public static IValueConverter SignalLabel { get; } =
+        new FuncValueConverter<string?, string?>(id => id is null ? null
+            : id == Core.ViewModels.SignalPicker.All ? "All"
+            : SignalCatalog.Describe(id).Label);
+
     public static IValueConverter BadgeBrush { get; } =
         new FuncValueConverter<DiveBadge?, IBrush?>(badge => badge switch
         {

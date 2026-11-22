@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using MonitorApp.Client.Core.Scene;
 using MonitorApp.Client.Core.ViewModels.Shell;
 
@@ -114,9 +115,27 @@ public sealed partial class DivePartPage(string nodeId, string layerId, Controls
     [ObservableProperty]
     private ControlActionRow? muteAction;
 
+    [ObservableProperty]
+    private bool showUnavailable;
+
+    [ObservableProperty]
+    private int unavailableCount;
+
     public string NodeId { get; } = nodeId;
 
     public string LayerId { get; } = layerId;
+
+    public bool HasStatement => Statement.Length > 0;
+
+    public bool HasUnavailable => UnavailableCount > 0;
+
+    /// <summary>"Show 9 readings this device doesn't provide" / "Hide ...": unavailable readings are folded away by default.</summary>
+    public string UnavailableToggleText => (ShowUnavailable ? "Hide " : "Show ")
+        + (UnavailableCount == 1 ? "1 reading" : UnavailableCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + " readings")
+        + " this device doesn't provide";
+
+    /// <summary>Readings with no value (not supported here, or not readable right now). Shown only on request.</summary>
+    public ObservableCollection<DiveReadingRow> UnavailableReadings { get; } = [];
 
     public ControlsViewModel Controls { get; } = controls;
 
@@ -131,4 +150,17 @@ public sealed partial class DivePartPage(string nodeId, string layerId, Controls
     partial void OnParentTitleChanged(string value) => OnPropertyChanged(nameof(BackText));
 
     partial void OnMuteActionChanged(ControlActionRow? value) => OnPropertyChanged(nameof(HasMuteAction));
+
+    partial void OnStatementChanged(string value) => OnPropertyChanged(nameof(HasStatement));
+
+    partial void OnShowUnavailableChanged(bool value) => OnPropertyChanged(nameof(UnavailableToggleText));
+
+    partial void OnUnavailableCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasUnavailable));
+        OnPropertyChanged(nameof(UnavailableToggleText));
+    }
+
+    [RelayCommand]
+    private void ToggleUnavailable() => ShowUnavailable = !ShowUnavailable;
 }

@@ -66,6 +66,9 @@ public enum SceneLayerKind
     Power,
     Connectivity,
     Other,
+
+    /// <summary>Whether each of the device's own data collectors is working (battery reader, network reader, ...).</summary>
+    Collection,
 }
 
 /// <summary>One exact reading, always with unit, time, source, quality, and freshness (spec 3: exact text for every metric).</summary>

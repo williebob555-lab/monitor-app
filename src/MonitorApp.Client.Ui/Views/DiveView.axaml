@@ -478,7 +478,7 @@
 
           <Border Classes="panelbox" Classes.critical="{Binding IsCritical}">
             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
-              <StackPanel Classes="partring" Spacing="6" VerticalAlignment="Center">
+              <StackPanel Classes="partring" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding Gauge.HasFill, FallbackValue=False}">
                 <Panel Width="150" Height="150">
                   <ctl:DiveRing Value="{Binding Gauge.FillValue, FallbackValue=0}" Thickness="14" Track="{DynamicResource Brush.Surface3}"
                                 Stroke="{Binding Gauge.Level, FallbackValue=None, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
@@ -497,8 +497,24 @@
               </StackPanel>
               <StackPanel Classes="partdetail" Spacing="12" VerticalAlignment="Center">
                 <TextBlock Text="{Binding Summary}" FontSize="{DynamicResource Size.Heading}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Name="PartStatement" Text="{Binding Statement}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <TextBlock Name="PartStatement" Text="{Binding Statement}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}"
+                           IsVisible="{Binding HasStatement}" />
                 <ItemsControl ItemsSource="{Binding Readings}" AutomationProperties.Name="Readings">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="dive:DiveReadingRow">
+                      <StackPanel Margin="0,4,0,0" AutomationProperties.Name="{Binding AccessibleText}">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1" Text="{Binding Value}" Classes="value" Margin="12,0,0,0" />
+                        </Grid>
+                        <TextBlock Text="{Binding Meta}" Classes="meta" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="flat" HorizontalAlignment="Left" Content="{Binding UnavailableToggleText}" IsVisible="{Binding HasUnavailable}"
+                        Command="{Binding ToggleUnavailableCommand}" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <ItemsControl ItemsSource="{Binding UnavailableReadings}" AutomationProperties.Name="Unavailable readings" IsVisible="{Binding ShowUnavailable}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="dive:DiveReadingRow">
                       <StackPanel Margin="0,4,0,0" AutomationProperties.Name="{Binding AccessibleText}">
