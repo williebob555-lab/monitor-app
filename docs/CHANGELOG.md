@@ -10,7 +10,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
-- T300 (ChatGPT): isolated Cisco SG250 read-only collection adapter with a private-target Net-SNMPv3 authPriv CLI reader, bounded output/timeouts, IF-MIB link facts, bridge-port/PVID mapping, bridge-MAC identity evidence and explicit failures. Added deterministic parser/projection tests. Not yet scheduled, persisted, or verified on SG250 hardware; see `docs/SWITCH_ADAPTER.md`.
+- T300 (ChatGPT): isolated Cisco SG250 read-only collection adapter with a private-target Net-SNMPv3 authPriv CLI reader, bounded output/timeouts, IF-MIB link facts, bridge-port/PVID mapping, bridge-MAC identity evidence and explicit failures. Added deterministic parser/projection tests and an assignment-gated, file-backed SQLite pipeline with restart, disappearance and identity-conflict coverage. Not yet scheduled or verified on SG250 hardware; see `docs/SWITCH_ADAPTER.md`.
 
 - Shared Claude/ChatGPT work board (`docs/COLLABORATION.md`) and a multi-agent section in `AGENTS.md`: claim-before-code table, area ownership, per-agent branch names and task-ID ranges, rules for conflict-prone shared files and version counters, and handoff notes.
 - Operator sections on the loopback administration page (T056): alerts with acknowledge, per-peer alert-rule editor showing the API's validation text, control grants with grant/revoke and pending presence enrollments, recent peer-state and update history, pin/unpin of incidents, and update status with approve. Reuses the page's CSP nonce and antiforgery token, adds no endpoint, and keeps presence-gated actions gated (the page reports the refusal). `LocalApiAdminPageTests`.
