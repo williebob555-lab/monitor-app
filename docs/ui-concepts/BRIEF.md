@@ -46,3 +46,7 @@ numbers, moving transfer indicators, 1 s ticks. Quality bar: a polished product,
   text, empty areas). Also screenshot one "opened detail" state. Check console for errors.
 - Do not publish anything; do not touch the git repo. Report: the concept in 3 sentences, what interactions exist,
   and the screenshot paths.
+
+## Budget
+Usage is nearly exhausted. Aim for one compact, polished page (roughly 500-800 lines). At most two screenshot/fix
+rounds. Do not explore the repo or other files beyond this brief.

@@ -216,9 +216,10 @@ Screenshots provided by Wilson on 2026-11-22 as loose inspiration, not to copy (
 Takeaway: every preview so far kept the same structure (left rail + central map canvas + right inspector +
 bottom timeline) and changed only the look. The next round must compare **structurally different interfaces**:
 different primary surface, navigation and way details/actions appear. Candidate structures not yet tried:
-semantic-zoom "dive" with no side panels (a device unfolds into its own dashboard), a live mission-control wall
-ranked by urgency (no map), a conversational/feed surface with rich live answer cards, and an "orbit" view
-centred on the device in your hand. A shared brief with identical sample data is ready for that round.
+semantic-zoom "dive" with no side panels (a device unfolds into its own dashboard), a time-first "rewind"
+view where history is the main axis, and an exploded-assembly "workbench" sandbox where you take systems apart
+and simulate changes. (A tile wall and a chat feed were rejected: the spec rules out metric-card collections and
+a chatbot with graphics.) A shared brief with identical sample data is ready for that round.
 
 Status: the native shell in `Client.Ui` (WorkspaceShell, tokens, inspector, timeline, controls) and the
 schematic-canvas mechanics are built against the spec layout. Their view models, controls and data binding carry
