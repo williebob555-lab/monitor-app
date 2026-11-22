@@ -249,6 +249,8 @@ The local experience renders the same domain model available to replication and 
 
 The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.
 
+The shared client is `MonitorApp.Client.Core` (view models plus `IPeerDataSource`) with an Avalonia desktop head, `MonitorApp.Client.Desktop`. Desktop reads the peer's loopback API through the HTTP adapter; a future Android head implements `IPeerDataSource` over its in-process runtime and local store. The current-state view updates by push when the source supports it and polls otherwise. See T032.
+
 The client also keeps actual and design contexts visually and semantically distinct. The default current view shows actual state. A named plan or deliberate overlay may compare actual and design state, with separate costs, quantities, loads, cable availability, connections, freshness, and constraint findings. Historical time applies to recorded actual state; plan revisions use their own revision history and must not masquerade as observed history.
 
 ## Planning and constraint services

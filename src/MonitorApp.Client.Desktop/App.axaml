@@ -1,0 +1,19 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:views="using:MonitorApp.Client.Desktop.Views"
+             x:Class="MonitorApp.Client.Desktop.App"
+             RequestedThemeVariant="Default">
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
+  </Application.Styles>
+  <!-- One template per section view model. Adding a section (for example Alerts) means adding one entry here. -->
+  <Application.DataTemplates>
+    <DataTemplate DataType="vm:OverviewViewModel"><views:OverviewView /></DataTemplate>
+    <DataTemplate DataType="vm:StateViewModel"><views:StateView /></DataTemplate>
+    <DataTemplate DataType="vm:HistoryViewModel"><views:HistoryView /></DataTemplate>
+    <DataTemplate DataType="vm:AsOfViewModel"><views:AsOfView /></DataTemplate>
+    <DataTemplate DataType="vm:PairingsViewModel"><views:PairingsView /></DataTemplate>
+  </Application.DataTemplates>
+</Application>

@@ -46,6 +46,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [ ] Add clean install, upgrade, restart, recovery, and uninstall tests for Windows service, Fedora RPM, Ubuntu DEB, and Android package paths.
 - [ ] Preserve signed update-manifest verification and implement tested platform-specific apply/rollback.
 - [x] Add bounded historical query/reconstruction (versioned `/api/v1/history`, `/state`, `/catalog`; resolution field `raw`) and a plain test-only local page. Follow-up: tiered retention/rollups (7d raw, hourly to 1y) and the separate Avalonia client consuming these endpoints.
+- [x] First shared Avalonia client (`MonitorApp.Client.Core` + `MonitorApp.Client.Desktop`): overview, current state (push/poll), history with chart, as-of, pairing approve/reject and revoke. Follow-up: visual/manual verification on Windows and Fedora, Alerts view when `/api/v1/alerts` exists, Android head implementing `IPeerDataSource` over the mobile runtime, QR/invitation UI, push source for live state.
 
 ## Deferred until the functional peer foundation works
 

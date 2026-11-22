@@ -21,6 +21,7 @@ For documentation-only changes with no executable instruction or configuration i
 
 - .NET 10 LTS, C#, standard gRPC/Protocol Buffers, and SQLite WAL remain the accepted functional foundation.
 - Avalonia remains a later working choice for shared UI, subject to platform proof.
+- The shared client lives in `MonitorApp.Client.Core` (no UI or transport dependencies in view models; talk to peers only through `IPeerDataSource`) and `MonitorApp.Client.Desktop` (views only). Add a view by adding a `SectionViewModel`, listing it in `MainViewModel.Sections`, and adding a DataTemplate in `App.axaml`. Run the desktop head with `dotnet run --project src/MonitorApp.Client.Desktop` (set `MONITOR_NODE_ADDRESS` to override `http://127.0.0.1:55432`).
 - Replace the controller/agent split with a peer service composed of identity and pairing, local observation storage/query, direct replication, collectors/adapters, and a local API/UI boundary.
 - Keep versioned contracts in `MonitorApp.Contracts` and platform-independent rules in `MonitorApp.Domain`.
 - Reuse controller-era cryptographic, persistence, telemetry, spool, collector, Android, and signed-update work only where tests show that it fits peer semantics.

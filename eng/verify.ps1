@@ -94,6 +94,18 @@ try {
             --no-build
     }
 
+    Invoke-VerificationStep "Run desktop client core tests against the real local API" {
+        dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run headless desktop client smoke test" {
+        dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run controller enrollment and loopback gRPC telemetry tests" {
         dotnet test tests/MonitorApp.Controller.IntegrationTests/MonitorApp.Controller.IntegrationTests.csproj `
             -c Release `
