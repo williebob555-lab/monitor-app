@@ -23,17 +23,24 @@ public sealed class PeerHistoryQueryService
     public const int DefaultLookbackHours = 24;
     /// <summary>Granularity of returned points. Only raw detail exists today; rollup tiers will add values.</summary>
     public const string RawResolution = "raw";
+    /// <summary>Hourly rollup points: one per (origin, subject, signal, UTC hour).</summary>
+    public const string HourlyResolution = "hourly";
+    /// <summary>Request value: raw while the whole window is inside raw retention, hourly otherwise.</summary>
+    public const string AutoResolution = "auto";
+    private const string RollupCursorPrefix = "h1.";
     private const int MaximumIdentifierLength = 256;
 
     private readonly PeerStore store;
     private readonly IPeerClock clock;
     private readonly TimeSpan staleAfter;
+    private readonly PeerRetentionPolicy retention;
 
-    public PeerHistoryQueryService(PeerStore store, IPeerClock clock, TimeSpan staleAfter)
+    public PeerHistoryQueryService(PeerStore store, IPeerClock clock, TimeSpan staleAfter, PeerRetentionPolicy? retention = null)
     {
         this.store = store;
         this.clock = clock;
         this.staleAfter = staleAfter;
+        this.retention = retention ?? PeerRetentionPolicy.Default;
     }
 
     public async Task<HistoryResponse> QueryHistoryAsync(
@@ -44,7 +51,8 @@ public sealed class PeerHistoryQueryService
         string? originPeerId,
         int? limit,
         string? cursor,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? resolution = null)
     {
         var start = RequireTime(from, "from");
         var end = RequireTime(to, "to");
@@ -62,6 +70,20 @@ public sealed class PeerHistoryQueryService
         if (take is < 1 or > MaximumRows)
         {
             throw new PeerQueryException($"limit must be 1 through {MaximumRows}.");
+        }
+
+        var mode = string.IsNullOrWhiteSpace(resolution) ? AutoResolution : resolution.Trim().ToLowerInvariant();
+        if (mode is not (RawResolution or HourlyResolution or AutoResolution))
+        {
+            throw new PeerQueryException("resolution must be raw, hourly or auto.");
+        }
+
+        // Auto serves hourly rollups once any part of the window is older than raw retention: raw detail there is
+        // pruned (apart from transition records), so a raw answer would silently look empty or sparse.
+        var rawFloor = PeerRetentionService.FloorToHour(clock.UtcNow - retention.RawRetention);
+        if (mode == HourlyResolution || (mode == AutoResolution && start < rawFloor))
+        {
+            return await QueryHourlyAsync(start, end, take, subjectEntityId, signalId, originPeerId, cursor, cancellationToken).ConfigureAwait(false);
         }
 
         var after = DecodeCursor(cursor);
@@ -83,6 +105,52 @@ public sealed class PeerHistoryQueryService
 
         return new HistoryResponse(start, end, take, RawResolution, points.Length, page.Truncated, next, points);
     }
+
+    private async Task<HistoryResponse> QueryHourlyAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int take,
+        string? subjectEntityId,
+        string? signalId,
+        string? originPeerId,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        var page = await store.ReadHourlyRollupsAsync(new HourlyRollupQuery(
+            PeerRetentionService.FloorToHour(start),
+            end,
+            Filter(subjectEntityId, "subjectEntityId"),
+            Filter(signalId, "signalId"),
+            Filter(originPeerId, "originPeerId"),
+            DecodeRollupCursor(cursor),
+            take), cancellationToken).ConfigureAwait(false);
+        var views = page.Rollups.Select(ToRollupView).ToArray();
+        string? next = null;
+        if (page.Truncated && page.Rollups.Count > 0)
+        {
+            var last = page.Rollups[^1];
+            next = RollupCursorPrefix + EncodeCursor(new HourlyRollupKey(last.OriginPeerId, last.SubjectEntityId, last.SignalId, last.HourStart));
+        }
+
+        return new HistoryResponse(start, end, take, HourlyResolution, views.Length, page.Truncated, next, [], views);
+    }
+
+    private static HourlyRollupView ToRollupView(HourlyRollup rollup) => new(
+        rollup.OriginPeerId,
+        rollup.SubjectEntityId,
+        rollup.SignalId,
+        rollup.HourStart,
+        rollup.HourStart.AddHours(1),
+        rollup.SampleCount,
+        rollup.Unit,
+        rollup.NumericCount == 0 || rollup.MinValue is null || rollup.MaxValue is null || rollup.SumValue is null
+            ? null
+            : new RollupNumbersView(rollup.NumericCount, rollup.MinValue.Value, rollup.MaxValue.Value, rollup.SumValue.Value / rollup.NumericCount),
+        rollup.FirstObservedAt,
+        rollup.LastObservedAt,
+        rollup.WorstQuality,
+        new RollupQualityCountsView(
+            rollup.ValidCount, rollup.EstimatedCount, rollup.UnavailableCount, rollup.DeniedCount, rollup.ErrorCount, rollup.OtherQualityCount));
 
     public async Task<StateAsOfResponse> ReconstructAsync(
         string? asOf,
@@ -272,7 +340,38 @@ public sealed class PeerHistoryQueryService
         return value;
     }
 
-    private static string EncodeCursor(OriginRecordCursor cursor) =>
+    private static HourlyRollupKey? DecodeRollupCursor(string? cursor)
+    {
+        if (string.IsNullOrEmpty(cursor))
+        {
+            return null;
+        }
+
+        try
+        {
+            if (!cursor.StartsWith(RollupCursorPrefix, StringComparison.Ordinal))
+            {
+                throw new PeerQueryException("cursor is invalid.");
+            }
+
+            var padded = cursor[RollupCursorPrefix.Length..].Replace('-', '+').Replace('_', '/');
+            padded = padded.PadRight(padded.Length + ((4 - (padded.Length % 4)) % 4), '=');
+            var value = JsonSerializer.Deserialize<HourlyRollupKey>(Convert.FromBase64String(padded));
+            if (value is null || value.HourStart.Offset != TimeSpan.Zero ||
+                string.IsNullOrEmpty(value.OriginPeerId) || string.IsNullOrEmpty(value.SubjectEntityId) || string.IsNullOrEmpty(value.SignalId))
+            {
+                throw new PeerQueryException("cursor is invalid.");
+            }
+
+            return value;
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException)
+        {
+            throw new PeerQueryException("cursor is invalid.");
+        }
+    }
+
+    private static string EncodeCursor<T>(T cursor) =>
         Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cursor)))
             .Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
@@ -333,7 +432,27 @@ public sealed record HistoryResponse(
     int Count,
     bool Truncated,
     string? NextCursor,
-    IReadOnlyList<HistoryPointView> Points);
+    IReadOnlyList<HistoryPointView> Points,
+    IReadOnlyList<HourlyRollupView>? Rollups = null);
+
+/// <summary>An hourly rollup point. States are counted, never averaged: <see cref="Numeric"/> covers Valid/Estimated numeric samples only.</summary>
+public sealed record HourlyRollupView(
+    string OriginPeerId,
+    string SubjectEntityId,
+    string SignalId,
+    DateTimeOffset HourStart,
+    DateTimeOffset HourEnd,
+    int SampleCount,
+    string? Unit,
+    RollupNumbersView? Numeric,
+    DateTimeOffset FirstObservedAt,
+    DateTimeOffset LastObservedAt,
+    string WorstQuality,
+    RollupQualityCountsView QualityCounts);
+
+public sealed record RollupNumbersView(int Count, double Min, double Max, double Mean);
+
+public sealed record RollupQualityCountsView(int Valid, int Estimated, int Unavailable, int PermissionDenied, int Error, int Other);
 
 public sealed record StateAsOfResponse(
     DateTimeOffset AsOf,

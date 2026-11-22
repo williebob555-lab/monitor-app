@@ -272,6 +272,10 @@ public sealed class ProductionPeerSessionCoordinator(
         {
             return await replication.ReadAsync(request, cancellationToken).ConfigureAwait(false);
         }
+        catch (OriginRangePrunedException pruned)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.RangePruned, pruned.Message);
+        }
         catch (OriginReplicationLimitException)
         {
             throw new PeerSessionOperationException(ProtocolErrorCode.MessageTooLarge, "Origin range exceeds configured limits.");

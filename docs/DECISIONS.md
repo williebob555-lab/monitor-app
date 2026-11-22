@@ -379,6 +379,15 @@ This log separates confirmed product constraints from working technical decision
 - Consequences: A phone is reachable only while it dials; a desktop cannot push to an offline phone, it waits for the next phone session. Phone sync is polling (default 15 s) with capped backoff; a refused (revoked) status is reported but local trust is not changed by a remote refusal. Android pairing over non-loopback uses the same plaintext-over-user-managed-private-network policy as desktop peers (Tailscale encrypts); `usesCleartextTraffic` stays false because gRPC uses managed sockets, which is unverified on device. Planned, not implemented: adaptive sampling (about 1 s while viewed, about 30 s otherwise) and tiered retention (7 days full, hourly rollups 1 year, events for years, pinned incidents forever). Alert rules are not implemented; the app shows an honest empty alert list.
 - Revisit condition: Device testing of Doze/OEM battery behavior, or a requirement for desktop-initiated push to phones.
 
+### T032 Tiered retention with hourly rollups
+
+- Status: Accepted (working decision; thresholds are configurable defaults)
+- Decision: Keep full-detail raw observations 7 days, hourly rollups 365 days, and pinned-incident windows indefinitely. "Events" are not an alerting engine yet: a transition record (first record of a subject/signal series, or observation quality differing from the previous record of that series) is kept for 5 years. Locally originated raw records that any active trusted peer has not acknowledged (replication cursor below the sequence, missing cursor counts as 0) are held past 7 days but never beyond a 30-day hard cap; revoked peers do not hold records. Replicated records from other origins are pruned by age only. Pruned sequence runs are recorded and answered to replicas as `RANGE_PRUNED` with a resume sequence. Rollups are keyed by (origin peer, subject, signal, UTC hour) without stream.
+- Reason: Adaptive sampling will make raw volume high, while long-range views need only aggregates and state changes; replication must stay explicit about compaction.
+- Evidence: `PeerRetentionTests`, `PeerStoreTests` schema v4 migration test.
+- Consequences: Rollup hours older than raw retention are finalised once, so records replicated later into a finalised hour are not rolled up. Unpinning makes the window prunable on the next pass but never restores pruned data. Quality-only transitions miss value-only state changes (for example collector status text); richer event kinds need a real event model. A lagging or offline peer past the hard cap receives `RANGE_PRUNED` and loses raw detail for that range (rollups/transitions remain). Receiver-side RANGE_PRUNED handling and pin management UI are not implemented.
+- Revisit condition: When an alerting/event engine or adaptive sampling lands, or retention storage cost is measured on real data.
+
 ## Rejected directions inherited from the product specification
 
 - Generic progressive-information-density dashboard.

@@ -17,7 +17,8 @@ This is the target functional architecture after the user explicitly superseded 
 | Universal inventory with separate actual and design state | Implemented contract foundation | Versioned object/relationship schema validates named design revisions, provenance/validity, cross-plane references, and distinct product/offer/physical-instance identity; persistence and a plain local client remain |
 | Cable connector/length inventory | Implemented narrow contract slice | Two typed connector ends, directionality, and unit-bearing nominal/measured length are validated; manual templates, persistence, matching, query, and constraint tests remain |
 | Observed-device identity and collector ownership | Implemented persistence plus first adapter spike | Strong identity evidence, typed attachment history, adapter-local credential references, validated current ownership, and restart-stable reassignment history are covered by real SQLite tests; IP-only identity is never strong. A provisional read-only Yamaha AG06MK2 Windows adapter reports presence, driver/attachment evidence, freshness, and explicit failure states without operational controls |
-| Bounded history/as-of query and catalog | Implemented raw-resolution service and versioned local JSON API | Real-SQLite window, cursor, as-of, state-not-zero, and HTTP tests; rollup tiers not implemented |
+| Bounded history/as-of query and catalog | Implemented raw-resolution service and versioned local JSON API | Real-SQLite window, cursor, as-of, state-not-zero, and HTTP tests; hourly rollup resolution (`resolution` raw, hourly, or auto) implemented over schema v4 |
+| Tiered retention (raw 7d, hourly rollups 365d, transition records 5y, pinned incidents) | Implemented service and storage, not yet scheduled by the node | `PeerRetentionService.RunAsync`; real-SQLite tests for rollups, pruning rules, replication hold, and pruned-range replica outcome |
 | Historical scene reconstruction and living/exploded UI | Confirmed scope; not implemented | Snapshot/event reconstruction and functional client before advanced rendering |
 | Physical, audio, RF, electrical, and thermal design modules | Confirmed scope; not implemented | Bounded validated module per domain |
 | Product sourcing, offers, and price history | Confirmed scope; not implemented | Permitted source adapter and provenance/freshness tests |
@@ -197,6 +198,12 @@ Anything safely and truthfully measurable should be measurable through a support
 Breadth is bounded by truthfulness, privacy, collection cost, platform power, local storage, and replication budgets. Sampling adapts to change rate and cost. A peer may keep raw high-resolution detail locally while replicating summaries or requested ranges. Unsupported, denied, stale, unavailable, unknown, and error states remain explicit and never become zero.
 
 Secrets, message/file content, and unrelated content payloads remain excluded by default. Sensitive or high-cost modules are explicit opt-in and visible in collection and retention settings.
+
+### Tiered retention (working decision)
+
+Peer.Application `PeerRetentionService.RunAsync` is the single periodic pass: (1) roll up completed UTC hours per (origin, subject, signal) using the production envelope decoder; (2) prune raw records older than the hour-aligned raw cutoff; (3) prune rollups older than their retention. Rollups count availability states (valid, estimated, unavailable, permission denied, error) and keep numeric min/max/sum only over Valid/Estimated numeric samples; states are never averaged. Hours older than the raw cutoff are finalised once; hours still inside raw retention are recomputed when late arrivals change their record count.
+
+Raw pruning keeps: records inside user-pinned windows; "transition" records (first record of a series, or quality differs from the previous record of that series) while younger than event retention; and locally originated records that any active trusted peer has not acknowledged (replication cursor below the sequence) until the replication hard cap. Removed sequence runs are stored in `pruned_origin_ranges`; `OriginReplicationCoordinator.ReadAsync` throws `OriginRangePrunedException` (wire code `RANGE_PRUNED`) for a request starting in such a range and stops batches before one, so replicas never see a silent hole. History queries serve hourly points when the window starts before raw retention (or on request); pruned raw detail never reappears.
 
 ## Network boundaries
 

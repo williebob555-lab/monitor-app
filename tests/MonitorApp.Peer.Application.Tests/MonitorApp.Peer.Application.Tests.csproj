@@ -13,5 +13,6 @@
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
   </ItemGroup>
 </Project>
