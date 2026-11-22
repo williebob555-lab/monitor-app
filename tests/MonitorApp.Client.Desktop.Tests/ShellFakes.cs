@@ -185,7 +185,7 @@ internal sealed class FakeControlEnvironmentSource : FakeEnvironmentSource, ICon
     public Task<ControlOutcomeDto> AcknowledgeAlertAsync(string peerId, string alertId, CancellationToken ct = default) => Record("ack", peerId, alertId);
 
     public Task<ControlOutcomeDto> MuteAlertsAsync(string peerId, TimeSpan duration, string? ruleId, CancellationToken ct = default) =>
-        Record("mute", peerId);
+        Record("mute", peerId, ruleId is null ? null : $"{ruleId}:{duration.TotalHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}h");
 
     public Task<ControlOutcomeDto> UnmuteAlertsAsync(string peerId, string? ruleId, CancellationToken ct = default) => Record("unmute", peerId);
 

@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Input;
 using MonitorApp.Client.Core;
 using MonitorApp.Client.Core.Scene;
 using MonitorApp.Client.Core.ViewModels;
+using MonitorApp.Client.Core.ViewModels.Alerts;
 using MonitorApp.Client.Core.ViewModels.Dive;
 using MonitorApp.Client.Core.ViewModels.Shell;
 using MonitorApp.Client.Ui.Controls;
@@ -194,6 +195,143 @@ public sealed class DiveViewTests
             $"zoom ended at {dive.NodeId}, zooming {view.IsZooming}, transform {page.RenderTransform}, opacity {page.Opacity}");
         window.Close();
     }
+
+    [AvaloniaFact]
+    public async Task AlertsGroupByStateAlertPageActsAndDivesIntoTheDevice()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new FakeControlEnvironmentSource { PairingsHeldBy = SampleEnvironment.Server };
+        source.PendingPairings.Add(new PendingPairingDto("pair-1", "peer-watch", "Pixel Watch", "FEEDBEEF", "PendingApproval", now, now.AddMinutes(5)));
+        var since = now.AddMinutes(-35).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        source.ExtraAlerts.Add(new AlertDto("a3", 1, "threshold.disk_free", SampleEnvironment.Server, SampleEnvironment.Server, "Critical", "Raised",
+            "Low free disk space", $"Low free disk space on {SampleEnvironment.Server}: 6.0% is below 10.0% since {since}.", now.AddMinutes(-35), null));
+        source.ExtraAlerts.Add(new AlertDto("a4", 1, "threshold.cpu_high", SampleEnvironment.Laptop, SampleEnvironment.Laptop, "Warning", "Raised",
+            "Sustained high CPU", $"Sustained high CPU on {SampleEnvironment.Laptop}: 93.4% is above 90.0% since {since}.", now.AddMinutes(-14), null));
+        source.ExtraAlerts.Add(new AlertDto("a2", 1, "disk-free", SampleEnvironment.Server, SampleEnvironment.Server, "Warning", "Raised",
+            "Storage almost full", "240 GB free of 4 TB", now.AddMinutes(-20), null));
+        source.ExtraAlerts.Add(new AlertDto("old", 1, "peer.silent", SampleEnvironment.Tablet, SampleEnvironment.Server, "Warning", "Resolved",
+            "Peer not seen: Tablet", "Tablet has not connected.", now.AddDays(-3), now.AddDays(-2)));
+        DiveScenes.AddTrendHistory(source, now);
+        using var model = new MainViewModel(source);
+        var shell = new WorkspaceShell { RunEnvironmentLive = false, ReducedMotion = true, DataContext = model };
+        var window = new Window { Width = 1400, Height = 860, Content = shell };
+        window.Show();
+        model.Environment.ShowScene(DiveScenes.BackupDiskFull(now));
+        await model.Shell.Dive.RefreshApprovalsAsync();
+        await model.Shell.Dive.TrendsTask;
+        model.Shell.GoTo(ShellMode.Alerts);
+        var alerts = model.Shell.Alerts;
+        await alerts.RefreshAsync();
+        Pump();
+
+        // Home: the approval on top, then the alerts by state; the 3-day-old resolved alert is not "recent".
+        string Groups() => string.Join(" | ", alerts.Home.Groups.Select(g => $"{g.Kind}: {string.Join(",", g.Items.Select(i => i.AlertId))}"));
+        Assert.True(Groups() == "NeedsYou: a3 | Active: a4,a2 | Resolved: a1", $"groups: {Groups()}");
+        Assert.True(alerts.Home.Headline == "1 needs you" && alerts.Home.HasApprovals && Find<ItemsControl>(shell, "AlertApprovals").IsEffectivelyVisible,
+            $"headline '{alerts.Home.Headline}', approvals {alerts.Home.Approvals.Count}");
+        var disk = alerts.Home.Groups[0].Items[0];
+        var cpu = alerts.Home.Groups[1].Items[0];
+        Assert.True(disk.Severity.Text == "Critical" && disk.DeviceText == "Home server · Storage" && disk.ValueText == "Storage 94 %" && disk.IsAlarm,
+            $"disk card: {disk.Severity.Text} / {disk.DeviceText} / {disk.ValueText} / alarm {disk.IsAlarm}");
+        Assert.True(cpu.HasTrend && cpu.AgeText.StartsWith("For 14 min", StringComparison.Ordinal), $"cpu card trend {cpu.HasTrend}, age '{cpu.AgeText}'");
+        var cards = AlertCards(shell);
+        Assert.True(cards.Count == 4, $"{cards.Count} alert cards rendered");
+        Assert.All(cards, c => Assert.True(c.Bounds.Height >= 44 && c.Bounds.Width <= 961, $"card {c.DataContext} is {c.Bounds.Size}"));
+
+        // Tap the critical card: the alert page says what fired from the alert's own words, and the breadcrumb follows.
+        Tap(window, cards.Single(c => c.DataContext is AlertCard { AlertId: "a3" }));
+        var page = Assert.IsType<AlertPage>(alerts.Page);
+        Assert.Equal(["Alerts", "Low free disk space"], model.Shell.Breadcrumbs.Select(b => b.Text));
+        Assert.True(Find<TextBlock>(shell, "AlertObserved").Text == "6.0 %" && Find<TextBlock>(shell, "AlertThreshold").Text == "below 10.0 %",
+            $"observed '{page.ObservedText}', threshold '{page.ThresholdText}'");
+        Assert.DoesNotContain(since, Find<TextBlock>(shell, "AlertDetail").Text, StringComparison.Ordinal);
+        Assert.True(page.Gauge is { Value: "94" } && page.DiveIntoText == "Dive into Home server", $"gauge {page.Gauge?.Value}, link '{page.DiveIntoText}'");
+
+        // Actions go to the computer that raised it, with tiers said first; acknowledging moves it to "Acknowledged".
+        var acknowledge = Find<Button>(shell, "AlertAcknowledge");
+        Assert.True(acknowledge.IsEnabled && page.AcknowledgeTier == "Normal tier: no fingerprint needed", $"ack enabled {acknowledge.IsEnabled}, tier '{page.AcknowledgeTier}'");
+        source.Outcome = new ControlOutcomeDto("Applied", "applied", "Alert acknowledged.", false);
+        acknowledge.BringIntoView();
+        Pump();
+        Tap(window, acknowledge);
+        Assert.True(source.Sent[^1] == $"ack:{SampleEnvironment.Server}:a3" && page.IsAcknowledged && !acknowledge.IsEnabled,
+            $"sent {string.Join(",", source.Sent)}, acknowledged {page.IsAcknowledged}, still enabled {acknowledge.IsEnabled}");
+        Assert.Equal("Done: Alert acknowledged.", Find<TextBlock>(shell, "AlertOutcome").Text);
+        source.Outcome = new ControlOutcomeDto("Applied", "applied", "Alerts muted.", false);
+        var muteDay = Find<Button>(shell, "AlertMuteDay");
+        muteDay.BringIntoView();
+        Pump();
+        Tap(window, muteDay);
+        Assert.True(source.Sent[^1] == $"mute:{SampleEnvironment.Server}:threshold.disk_free:24h", $"mute sent {source.Sent[^1]}");
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        Pump();
+        Assert.True(alerts.IsHome && Groups() == "Active: a4,a2 | Acknowledged: a3 | Resolved: a1", $"after acknowledge and Escape: home {alerts.IsHome}, {Groups()}");
+
+        // Phone: one column, 44 px targets, a back chip to Alerts.
+        window.Width = 390;
+        window.Height = 844;
+        Pump();
+        Assert.All(AlertCards(shell), c => Assert.True(c.Bounds.Height >= 44 && c.Bounds.Width >= 300, $"phone card {c.DataContext} is {c.Bounds.Size}"));
+        alerts.OpenAlert("a4");
+        Pump();
+        var back = Find<Button>(shell, "AlertBack");
+        Assert.True(back.IsEffectivelyVisible, "phone alert page has a back chip");
+        Assert.All(AlertPageButtons.Select(n => Find<Button>(shell, n)),
+            b => Assert.True(b.Bounds.Height >= 44, $"{b.Name} is {b.Bounds.Size} on a phone"));
+        Tap(window, back);
+        Assert.True(alerts.IsHome, "back chip returns to the Alerts home");
+        window.Width = 1400;
+        window.Height = 860;
+        Pump();
+
+        // "Dive into" switches to the Ecosystem's Dive, at the part the rule watches.
+        // (Switching mode refreshes the environment from the fake, whose own scene lacks the sample devices, so the landing place is
+        // recorded when the Dive moves rather than read afterwards.)
+        alerts.OpenAlert("a3");
+        Pump();
+        string? landed = null;
+        void OnDive(object? sender, DiveNavigatedEventArgs e) => landed ??= $"{model.Shell.Dive.NodeId}/{model.Shell.Dive.LayerId}";
+        model.Shell.Dive.Navigated += OnDive;
+        Tap(window, Find<Button>(shell, "DiveInto"));
+        model.Shell.Dive.Navigated -= OnDive;
+        Assert.True(model.Shell.Mode == ShellMode.Ecosystem && model.Shell.IsDive && landed == $"{SampleEnvironment.Server}/storage",
+            $"dove to {model.Shell.Mode} (Dive {model.Shell.IsDive}) landing at {landed}");
+        model.Environment.ShowScene(DiveScenes.BackupDiskFull(now));
+
+        // Recorded: actions are off on the alert page.
+        model.Environment.AsOf = now.AddHours(-2);
+        model.Shell.GoTo(ShellMode.Alerts);
+        alerts.GoHome();
+        alerts.OpenAlert("a4");
+        Pump();
+        Assert.True(Find<Border>(shell, "AlertsRecordedBand").IsVisible && !Find<Button>(shell, "AlertAcknowledge").IsEnabled
+            && !Find<Button>(shell, "AlertMuteHour").IsEnabled, "recorded: band shown, actions disabled");
+        var sent = source.Sent.Count;
+        await alerts.AcknowledgeCommand.ExecuteAsync(null);
+        Assert.Equal(sent, source.Sent.Count);
+        await model.Environment.ReturnToNowAsync();
+        model.Environment.ShowScene(DiveScenes.BackupDiskFull(now));
+
+        // With motion on, opening an alert zooms like the Dive and comes to rest.
+        alerts.GoHome();
+        shell.ReducedMotion = false;
+        Pump();
+        var view = shell.GetVisualDescendants().OfType<AlertsView>().Single();
+        var zooms = view.ZoomsStarted;
+        Tap(window, AlertCards(shell).Single(c => c.DataContext is AlertCard { AlertId: "a4" }));
+        Assert.True(view.ZoomsStarted == zooms + 1, $"the tap should start one zoom; started {view.ZoomsStarted - zooms}");
+        view.CompleteAnimations();
+        Pump();
+        var host = view.GetVisualDescendants().OfType<ContentControl>().First(c => c.Name == "PageHost");
+        Assert.True(!view.IsZooming && host.RenderTransform is null && host.Opacity == 1 && alerts.Page is AlertPage { AlertId: "a4" },
+            $"zooming {view.IsZooming}, transform {host.RenderTransform}, opacity {host.Opacity}");
+        window.Close();
+    }
+
+    private static readonly string[] AlertPageButtons = ["AlertAcknowledge", "AlertMuteHour", "AlertMuteDay", "DiveInto"];
+
+    private static List<Button> AlertCards(WorkspaceShell shell) =>
+        Find<ItemsControl>(shell, "AlertGroups").GetVisualDescendants().OfType<Button>().Where(b => b.DataContext is AlertCard).ToList();
 
     private static DiveTileGrid HomeGrid(WorkspaceShell shell) =>
         Find<ItemsControl>(shell, "HomeTiles").GetVisualDescendants().OfType<DiveTileGrid>().First();

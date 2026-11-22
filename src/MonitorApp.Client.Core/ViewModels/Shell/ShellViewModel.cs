@@ -71,6 +71,18 @@ public sealed partial class ShellViewModel : ObservableObject
             }
         };
 
+        Alerts = main.Sections.OfType<AlertsViewModel>().Single();
+        Alerts.Attach(environment, Inspector.Controls, Dive);
+        Alerts.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(AlertsViewModel.Page))
+            {
+                RebuildBreadcrumbs();
+                OnPropertyChanged(nameof(ShowAlertBack));
+            }
+        };
+        Alerts.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
+
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
         Search.PropertyChanged += (_, args) =>
@@ -162,6 +174,29 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>The phone's back chip ("‹ Home server") replaces the breadcrumb trail while inside the Dive.</summary>
     public bool ShowDiveBack => IsDive && IsNarrow && Dive.CanGoUp;
 
+    /// <summary>The Alerts mode: grouped alert cards and a page per alert, in the Dive's language.</summary>
+    public AlertsViewModel Alerts { get; }
+
+    /// <summary>The phone's back chip ("‹ Alerts") while an alert page is open.</summary>
+    public bool ShowAlertBack => Mode == ShellMode.Alerts && IsNarrow && Alerts.CanGoBack;
+
+    /// <summary>Switches to the Ecosystem and goes to a node (and part): in the Dive when it is shown, otherwise by selecting it.</summary>
+    public void DiveTo(string? nodeId, string? layerId = null)
+    {
+        // Move first, then switch: the switch refreshes the environment, which keeps the place as long as the node still exists.
+        OutlineOpen = false;
+        if (DiveEnabled)
+        {
+            Dive.GoTo(nodeId, layerId);
+        }
+        else
+        {
+            Environment.SelectedNodeId = nodeId;
+        }
+
+        Mode = ShellMode.Ecosystem;
+    }
+
     /// <summary>The inspector applies to the ecosystem workspace when it is not the Dive (the Dive has no side panels); other modes are full-page.</summary>
     private bool InspectorApplies => Mode == ShellMode.Ecosystem && !IsDive;
 
@@ -222,6 +257,10 @@ public sealed partial class ShellViewModel : ObservableObject
             // The Dive climbs out one level at a time (part, device, host, Home).
             Dive.Up();
         }
+        else if (Mode == ShellMode.Alerts)
+        {
+            Alerts.GoHome();
+        }
         else if (Environment.SelectedNodeId is not null)
         {
             Environment.SelectedNodeId = null;
@@ -239,6 +278,14 @@ public sealed partial class ShellViewModel : ObservableObject
         if (IsDive && item is not null)
         {
             Dive.GoTo(item.NodeId, item.LayerId);
+        }
+        else if (Mode == ShellMode.Alerts && item is not null)
+        {
+            // "Alerts" goes home; the open alert's own crumb is where you are.
+            if (item.NodeId is null)
+            {
+                Alerts.GoHome();
+            }
         }
         else if (item?.NodeId is { } id)
         {
@@ -265,6 +312,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(Content));
         OnPropertyChanged(nameof(ShowsConnection));
         OnPropertyChanged(nameof(IsEcosystem));
+        OnPropertyChanged(nameof(ShowAlertBack));
         RaiseDive();
     }
 
@@ -294,6 +342,7 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWide));
         OnPropertyChanged(nameof(IsNotNarrow));
         OnPropertyChanged(nameof(ShowDiveBack));
+        OnPropertyChanged(nameof(ShowAlertBack));
         // The phone starts with the timeline folded away; historical state always keeps it reachable.
         TimelineOpen = value != ShellLayoutClass.Narrow || Environment.IsHistorical;
         RaiseVisibility();
@@ -471,6 +520,10 @@ public sealed partial class ShellViewModel : ObservableObject
             {
                 Breadcrumbs.Add(new BreadcrumbItem(item.Label, item.Id, true));
             }
+        }
+        else if (Mode == ShellMode.Alerts && Alerts.Page is Alerts.AlertPage open)
+        {
+            Breadcrumbs.Add(new BreadcrumbItem(open.Title, "alert:" + open.AlertId, true));
         }
         else if (SelectedSubSection is { } sub)
         {

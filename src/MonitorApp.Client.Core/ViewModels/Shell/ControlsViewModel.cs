@@ -131,6 +131,71 @@ public sealed partial class ControlsViewModel : ObservableObject
     /// <summary>False while viewing history or while a command is in flight.</summary>
     public bool CanAct => IsAvailable && !IsHistorical && !IsBusy;
 
+    /// <summary>A command could be sent to any paired computer now (live, a control source, nothing in flight), whatever is selected.</summary>
+    public bool CanSend => connection.Source is IControlSource && !IsHistorical && !IsBusy;
+
+    /// <summary>Raised with the alert id after this device's acknowledgement was applied (from any page).</summary>
+    public event EventHandler<string>? AlertAcknowledged;
+
+    /// <summary>True when this device acknowledged the alert during this session (the alert list carries no acknowledgement state).</summary>
+    public bool IsAcknowledged(string alertId) => acknowledged.Contains(alertId);
+
+    /// <summary>What sending an action would ask of the person, or null without a control source.</summary>
+    public string? TierTextFor(ControlActionKind kind, TimeSpan? duration = null) =>
+        connection.Source is IControlSource source ? TierText(source.DescribeTier(kind, duration)) : null;
+
+    /// <summary>Clears the last outcome (a newly opened page starts without someone else's result).</summary>
+    public void ClearOutcome()
+    {
+        OutcomeText = null;
+        OutcomeIsFailure = false;
+    }
+
+    /// <summary>Acknowledges an alert on the computer that raised it, whatever is selected. True when applied.</summary>
+    public async Task<bool> AcknowledgeAlertOnAsync(string peerId, string computerName, string alertId, string title)
+    {
+        if (!CanSend || acknowledged.Contains(alertId) || connection.Source is not IControlSource source)
+        {
+            return false;
+        }
+
+        ControlOutcomeDto? result = null;
+        await Send($"Sending: acknowledge {title}...", computerName, async () => result = await source.AcknowledgeAlertAsync(peerId, alertId));
+        if (result is { IsApplied: true })
+        {
+            MarkAcknowledged(alertId);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Mutes one rule's alerts on the computer that raised them for <paramref name="duration"/>. True when applied.</summary>
+    public async Task<bool> MuteAlertRuleAsync(string peerId, string computerName, string ruleId, TimeSpan duration, string ruleTitle)
+    {
+        if (!CanSend || connection.Source is not IControlSource source)
+        {
+            return false;
+        }
+
+        ControlOutcomeDto? result = null;
+        var hours = duration.TotalHours.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+        await Send($"Sending: mute {ruleTitle} for {hours} h...", computerName, async () => result = await source.MuteAlertsAsync(peerId, duration, ruleId));
+        return result is { IsApplied: true };
+    }
+
+    private void MarkAcknowledged(string alertId)
+    {
+        acknowledged.Add(alertId);
+        var index = OpenAlerts.ToList().FindIndex(a => a.AlertId == alertId);
+        if (index >= 0)
+        {
+            OpenAlerts[index] = OpenAlerts[index] with { IsAcknowledged = true };
+        }
+
+        AlertAcknowledged?.Invoke(this, alertId);
+    }
+
     public string? HistoryNotice => IsAvailable && IsHistorical
         ? "Controls are disabled while viewing history. Return to live to act."
         : null;
@@ -266,12 +331,7 @@ public sealed partial class ControlsViewModel : ObservableObject
         await Send($"Sending: acknowledge {alert.Title}...", target, async () => result = await source.AcknowledgeAlertAsync(target.Id, alert.AlertId));
         if (result is { IsApplied: true } && node?.Id == target.Id)
         {
-            acknowledged.Add(alert.AlertId);
-            var index = OpenAlerts.IndexOf(alert);
-            if (index >= 0)
-            {
-                OpenAlerts[index] = alert with { IsAcknowledged = true };
-            }
+            MarkAcknowledged(alert.AlertId);
         }
     }
 
@@ -302,14 +362,16 @@ public sealed partial class ControlsViewModel : ObservableObject
         LoadTask = LoadRemoteAsync(target.Id);
     }
 
-    private async Task Send(string progress, SceneNode target, Func<Task<ControlOutcomeDto>> send)
+    private Task Send(string progress, SceneNode target, Func<Task<ControlOutcomeDto>> send) => Send(progress, target.Label, send);
+
+    private async Task Send(string progress, string computerName, Func<Task<ControlOutcomeDto>> send)
     {
         IsBusy = true;
         OutcomeText = progress;
         OutcomeIsFailure = false;
         try
         {
-            Describe(await send(), target.Label);
+            Describe(await send(), computerName);
         }
         catch (OperationCanceledException)
         {
@@ -399,6 +461,7 @@ public sealed partial class ControlsViewModel : ObservableObject
     private void Notify()
     {
         OnPropertyChanged(nameof(CanAct));
+        OnPropertyChanged(nameof(CanSend));
         OnPropertyChanged(nameof(HistoryNotice));
         OnPropertyChanged(nameof(HasPendingUpdate));
         OnPropertyChanged(nameof(UpdateSummary));

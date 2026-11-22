@@ -1,9 +1,6 @@
-using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Media;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MonitorApp.Client.Core.ViewModels.Dive;
 
@@ -16,15 +13,14 @@ namespace MonitorApp.Client.Ui.Views;
 /// </summary>
 public sealed partial class DiveView : UserControl
 {
-    private static readonly TimeSpan ZoomDuration = TimeSpan.FromMilliseconds(250);
-
+    private readonly PageZoom zoom;
     private DiveViewModel? model;
     private Rect? origin;
-    private DispatcherTimer? zoom;
 
     public DiveView()
     {
         InitializeComponent();
+        zoom = new PageZoom(PageHost);
         // Click is raised before the button's command runs, so the tile's bounds are known when the Dive moves.
         AddHandler(Button.ClickEvent, OnAnyClick, RoutingStrategies.Bubble, handledEventsToo: true);
     }
@@ -33,10 +29,10 @@ public sealed partial class DiveView : UserControl
     public bool? ReducedMotion { get; set; }
 
     /// <summary>True while a zoom is running.</summary>
-    public bool IsZooming => zoom is not null;
+    public bool IsZooming => zoom.IsZooming;
 
     /// <summary>How many zooms have started since this view was created (tests check that a tap animated).</summary>
-    public int ZoomsStarted { get; private set; }
+    public int ZoomsStarted => zoom.Started;
 
     /// <summary>
     /// Ends a running zoom at once, at rest (full size, full opacity). The zoom is timed by the wall clock, so tests call this instead of
@@ -98,67 +94,11 @@ public sealed partial class DiveView : UserControl
     {
         var from = origin;
         origin = null;
-        if (IsReducedMotion || Stage.Bounds.Width <= 0 || Stage.Bounds.Height <= 0)
+        if (!IsReducedMotion)
         {
-            return;
-        }
-
-        double startScale;
-        RelativePoint center;
-        if (e.Direction == DiveDirection.In && from is { } rect)
-        {
-            startScale = Math.Clamp(Math.Max(rect.Width / Stage.Bounds.Width, rect.Height / Stage.Bounds.Height), 0.15, 0.95);
-            center = new RelativePoint(rect.Center.X / Stage.Bounds.Width, rect.Center.Y / Stage.Bounds.Height, RelativeUnit.Relative);
-        }
-        else
-        {
-            startScale = e.Direction == DiveDirection.In ? 0.92 : 1.06;
-            center = RelativePoint.Center;
-        }
-
-        StartZoom(startScale, center);
-    }
-
-    /// <summary>
-    /// Scale and fade from the start state to the page at rest over <see cref="ZoomDuration"/> (cubic ease-out), timed by wall clock on
-    /// a frame timer, so the zoom is the same length however long the app sat idle before it.
-    /// </summary>
-    private void StartZoom(double startScale, RelativePoint center)
-    {
-        StopZoom();
-        ZoomsStarted++;
-        var elapsed = Stopwatch.StartNew();
-        PageHost.RenderTransformOrigin = center;
-        void Apply(double progress)
-        {
-            var eased = 1 - Math.Pow(1 - progress, 3);
-            var scale = startScale + ((1 - startScale) * eased);
-            PageHost.RenderTransform = progress >= 1 ? null : new ScaleTransform(scale, scale);
-            PageHost.Opacity = 0.15 + (0.85 * eased);
-        }
-
-        Apply(0);
-        zoom = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(15) };
-        zoom.Tick += (_, _) =>
-        {
-            var progress = Math.Min(1, elapsed.Elapsed / ZoomDuration);
-            Apply(progress);
-            if (progress >= 1)
-            {
-                StopZoom();
-            }
-        };
-        zoom.Start();
-    }
-
-    private void StopZoom()
-    {
-        if (zoom is not null)
-        {
-            zoom.Stop();
-            zoom = null;
-            PageHost.RenderTransform = null;
-            PageHost.Opacity = 1;
+            zoom.Play(e.Direction, from, Stage.Bounds.Size);
         }
     }
+
+    private void StopZoom() => zoom.Complete();
 }

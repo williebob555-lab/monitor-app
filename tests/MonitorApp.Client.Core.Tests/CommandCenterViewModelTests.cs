@@ -69,6 +69,8 @@ public sealed class CommandCenterViewModelTests
         Assert.Null(alerts.ErrorMessage);
         Assert.Empty(alerts.Alerts);
         Assert.Equal("No alerts.", alerts.Summary);
+        Assert.True(alerts.IsHome && alerts.Home.IsAllClear && alerts.Home.Headline == "All clear" && alerts.Home.Groups.Count == 0,
+            $"empty alerts home: '{alerts.Home.Headline}', {alerts.Home.Groups.Count} groups");
     }
 
     [Fact]

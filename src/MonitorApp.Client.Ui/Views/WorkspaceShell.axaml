@@ -101,6 +101,14 @@
                              Foreground="{DynamicResource Brush.TextSecondary}" />
                 </StackPanel>
               </Button>
+              <!-- Phone, on an alert page: the same chip climbs back to the Alerts home. -->
+              <Button Name="AlertBack" DockPanel.Dock="Left" Classes="compact flat" Command="{Binding Shell.Alerts.BackCommand}"
+                      IsVisible="{Binding Shell.ShowAlertBack}" Margin="-8,0,4,0" AutomationProperties.Name="Back to Alerts">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Path Classes="icon" Data="{StaticResource Icon.back}" Width="16" Height="16" />
+                  <TextBlock Text="Alerts" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </Button>
               <TextBlock Name="NarrowTitle" Text="{Binding Shell.ToolbarTitle}" Classes="subheading" VerticalAlignment="Center"
                          IsVisible="{Binding Shell.IsNarrow}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
             </DockPanel>

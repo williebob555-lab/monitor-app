@@ -74,6 +74,33 @@ public sealed class ShellScreenshots
         model.Environment.AsOf = null;
         model.Shell.Dive.GoHome();
 
+        // Alerts in the Dive's language: grouped home (an approval on top, one acknowledged this session) and an alert page, wide and phone.
+        string Iso(DateTimeOffset at) => at.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        source.ExtraAlerts.Add(new AlertDto("a3", 1, "threshold.disk_free", SampleEnvironment.Server, SampleEnvironment.Server, "Critical", "Raised",
+            "Low free disk space", $"Low free disk space on {SampleEnvironment.Server}: 6.0% is below 10.0% since {Iso(now.AddMinutes(-35))}.",
+            now.AddMinutes(-35), null));
+        source.ExtraAlerts.Add(new AlertDto("a4", 1, "threshold.cpu_high", SampleEnvironment.Laptop, SampleEnvironment.Laptop, "Warning", "Raised",
+            "Sustained high CPU", $"Sustained high CPU on {SampleEnvironment.Laptop}: 93.4% is above 90.0% since {Iso(now.AddMinutes(-14))}.",
+            now.AddMinutes(-14), null));
+        source.ExtraAlerts.Add(new AlertDto("a5", 1, "peer.silent", SampleEnvironment.Tablet, SampleEnvironment.Server, "Warning", "Resolved",
+            "Peer not seen: Tablet", $"Tablet has not connected or replicated since {Iso(now.AddHours(-3))} (silent for at least 10 min).",
+            now.AddHours(-2.8), now.AddHours(-2)));
+        var alerts = model.Shell.Alerts;
+        alerts.RefreshAsync().GetAwaiter().GetResult();
+        model.Shell.Inspector.Controls.AcknowledgeAlertOnAsync(SampleEnvironment.Server, "Home server", "a2", "Storage almost full").GetAwaiter().GetResult();
+        model.Shell.Inspector.Controls.ClearOutcome();
+        Capture(model, 1400, 860, dir, "alerts-home-wide-1400x860", () => alerts.GoHome());
+        Capture(model, 390, 844, dir, "alerts-home-phone-390x844", () => alerts.GoHome());
+        Capture(model, 1400, 860, dir, "alerts-page-wide-1400x860", () => alerts.OpenAlert("a3"));
+        Capture(model, 390, 844, dir, "alerts-page-phone-390x844", () => { });
+        Capture(model, 390, 844, dir, "alerts-page-phone-actions-390x844", () => { }, scrollToName: "AlertActions");
+        Capture(model, 1400, 860, dir, "alerts-resolved-wide-1400x860", () =>
+        {
+            alerts.GoHome();
+            alerts.OpenAlert("a5");
+        });
+        alerts.GoHome();
+
         // The outline with the inspector (the accessible alternative to the Dive).
         model.Environment.ShowScene(SampleEnvironment.Create(now));
         model.Shell.OutlineOpen = true;
@@ -98,7 +125,8 @@ public sealed class ShellScreenshots
 
     private static string Capture(MainViewModel model, double width, double height, string dir, string name, Action arrange, string? scrollToName = null)
     {
-        model.Shell.GoTo(name.Contains("search", StringComparison.Ordinal) ? ShellMode.Search : ShellMode.Ecosystem);
+        model.Shell.GoTo(name.Contains("search", StringComparison.Ordinal) ? ShellMode.Search
+            : name.StartsWith("alerts", StringComparison.Ordinal) ? ShellMode.Alerts : ShellMode.Ecosystem);
         var shell = new WorkspaceShell { RunEnvironmentLive = false, ReducedMotion = true, DataContext = model };
         var window = new Window { Width = width, Height = height, Content = shell };
         window.Show();

@@ -103,6 +103,9 @@ public sealed partial class DiveViewModel : ObservableObject
     /// <summary>Actions can be sent: live, a control source, a paired device and nothing in flight.</summary>
     public bool CanAct => !IsHistorical && Controls.CanAct;
 
+    /// <summary>Decisions waiting for this person on paired computers (empty while viewing history). The Alerts home shows them too.</summary>
+    public IReadOnlyList<DiveApprovalTile> Approvals => environment.IsHistorical ? [] : approvals;
+
     /// <summary>Recent CPU and network readings behind the sparklines: seeded from history, appended by each live refresh.</summary>
     public DiveTrendBuffer Trends { get; } = new();
 
@@ -297,6 +300,7 @@ public sealed partial class DiveViewModel : ObservableObject
 
         approvals = found;
         RebuildHome();
+        OnPropertyChanged(nameof(Approvals));
     }
 
     /// <summary>
@@ -521,7 +525,8 @@ public sealed partial class DiveViewModel : ObservableObject
             : new DiveBadge("Online", SceneHealth.Healthy);
     }
 
-    private static DiveGauge Gauge(SceneNode node, SceneLayer layer, DiveTrendBuffer? trends)
+    /// <summary>A layer as a gauge (ring when it has a proportion), with its sparkline when <paramref name="trends"/> has one. Shared with Alerts.</summary>
+    internal static DiveGauge Gauge(SceneNode node, SceneLayer layer, DiveTrendBuffer? trends)
     {
         var trend = trends is null || node.Health is SceneHealth.Offline or SceneHealth.Stale
             ? null
@@ -660,6 +665,7 @@ public sealed partial class DiveViewModel : ObservableObject
                 }
 
                 Rebuild();
+                OnPropertyChanged(nameof(Approvals));
                 break;
         }
     }

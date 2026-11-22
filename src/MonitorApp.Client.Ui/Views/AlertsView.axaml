@@ -1,31 +1,414 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:alerts="using:MonitorApp.Client.Core.ViewModels.Alerts"
+             xmlns:dive="using:MonitorApp.Client.Core.ViewModels.Dive"
+             xmlns:views="using:MonitorApp.Client.Ui.Views"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
              x:Class="MonitorApp.Client.Ui.Views.AlertsView" x:DataType="vm:AlertsViewModel">
-  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
-    <TextBlock Text="Alerts" Classes="heading" />
-    <WrapPanel>
-      <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,12,0" />
-      <TextBlock Text="{Binding UpdateMode, StringFormat='Updates: {0}'}" VerticalAlignment="Center" />
-    </WrapPanel>
-    <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
-    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-    <ItemsControl ItemsSource="{Binding Alerts}" AutomationProperties.Name="Alerts">
-      <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="vm:AlertRow">
-          <Border Classes="card">
+  <!--
+    Alerts in the Dive's language (UI_DESIGN.md "Decision: Dive with the grid overview"): a home of row-cards grouped by state with pending
+    approvals on top, and a page per alert you dive into (same zoom as the Dive). Severity is a shape plus a word; colours come from
+    Theme/Tokens. One centred column (at most 960 px) wide; a single column with 44 px targets on a phone (the shell's back chip climbs out).
+  -->
+  <UserControl.Styles>
+    <Style Selector="Border.tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="18,14" />
+    </Style>
+    <Style Selector="Border.tile.alarm">
+      <Setter Property="BorderBrush" Value="#7a2f2c" />
+      <Setter Property="Background" Value="#1a1314" />
+    </Style>
+    <Style Selector="Border.tile.approval">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Planned}" />
+      <Setter Property="Background" Value="#1a1726" />
+    </Style>
+    <Style Selector="Border.tile.resolved">
+      <Setter Property="Background" Value="{DynamicResource Brush.Ink}" />
+    </Style>
+    <Style Selector="Button.tile">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.tile:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.tile:pointerover Border.tile">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+    </Style>
+    <Style Selector="Button.tile:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+    <Style Selector="Border.panelbox">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="20" />
+    </Style>
+    <Style Selector="Border.panelbox.critical">
+      <Setter Property="BorderBrush" Value="#7a2f2c" />
+      <Setter Property="Background" Value="#191314" />
+    </Style>
+    <Style Selector="Border.badge">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Pill}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="9,3" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.tiletitle">
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.pagetitle">
+      <Setter Property="FontSize" Value="28" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.headline">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.gaugevalue">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.cardvaluetext">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.Mono}" />
+      <Setter Property="FontSize" Value="{DynamicResource Size.Small}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.action">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="16,8" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.cta">
+      <Setter Property="Background" Value="{DynamicResource Brush.Warning}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="18,8" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.cta:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#f0b955" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Ink}" />
+    </Style>
+    <Style Selector="StackPanel.page">
+      <Setter Property="Margin" Value="32,24,32,32" />
+      <Setter Property="MaxWidth" Value="960" />
+      <Setter Property="Spacing" Value="16" />
+    </Style>
+    <Style Selector="StackPanel.actionitem">
+      <Setter Property="Spacing" Value="4" />
+    </Style>
+    <!-- Card value: beside the text when wide, under it on a phone. -->
+    <Style Selector="StackPanel.cardvalue">
+      <Setter Property="Grid.Column" Value="1" />
+      <Setter Property="Margin" Value="16,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.cardvalue">
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Margin" Value="0,8,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <!-- Affected device: ring beside the facts when wide, above them on a phone. -->
+    <Style Selector="StackPanel.devicedetail">
+      <Setter Property="Grid.Column" Value="1" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.devicering">
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.devicedetail">
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="Grid.Row" Value="1" />
+    </Style>
+    <Style Selector="Panel.narrow StackPanel.page">
+      <Setter Property="Margin" Value="16,12,16,16" />
+    </Style>
+    <Style Selector="Panel.narrow TextBlock.pagetitle">
+      <Setter Property="FontSize" Value="22" />
+    </Style>
+    <Style Selector="Panel.narrow TextBlock.headline">
+      <Setter Property="FontSize" Value="24" />
+    </Style>
+    <Style Selector="Panel.narrow Border.panelbox">
+      <Setter Property="Padding" Value="14" />
+    </Style>
+    <Style Selector="Panel.narrow Border.tile">
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Panel.narrow Button.cta">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <UserControl.DataTemplates>
+    <!-- Status: a shape and words in the same semantic colour, inside an outlined pill (as in the Dive). -->
+    <DataTemplate DataType="dive:DiveBadge">
+      <Border Classes="badge" BorderBrush="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" ToolTip.Tip="{Binding Text}">
+        <DockPanel>
+          <Path DockPanel.Dock="Left" Classes="marker" Width="9" Height="9" Margin="0,0,6,0"
+                Data="{Binding Converter={x:Static ctl:DiveConverters.BadgeShape}}"
+                Fill="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" />
+          <TextBlock Text="{Binding Text}" FontSize="{DynamicResource Size.Small}" FontWeight="SemiBold" VerticalAlignment="Center"
+                     Foreground="{Binding Converter={x:Static ctl:DiveConverters.BadgeBrush}}" TextTrimming="CharacterEllipsis" />
+        </DockPanel>
+      </Border>
+    </DataTemplate>
+
+    <!-- Home: approvals on top, then the alerts grouped by state. -->
+    <DataTemplate DataType="alerts:AlertsHomePage">
+      <ScrollViewer Name="AlertsScroll" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Classes="page">
+          <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="4">
-              <TextBlock FontWeight="SemiBold" TextWrapping="Wrap">
-                <Run Text="[" /><Run Text="{Binding State}" /><Run Text=" / " /><Run Text="{Binding Severity}" /><Run Text="] " /><Run Text="{Binding Title}" />
-              </TextBlock>
-              <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
-              <TextBlock Text="{Binding Origin, StringFormat='Device: {0}'}" Classes="muted" FontSize="13" />
-              <TextBlock Text="{Binding Subject, StringFormat='Subject: {0}'}" Classes="muted" FontSize="13" />
-              <TextBlock Text="{Binding Raised, StringFormat='Raised: {0}'}" Classes="muted" FontSize="13" />
-              <TextBlock Text="{Binding Resolved, StringFormat='Resolved: {0}'}" Classes="muted" FontSize="13" IsVisible="{Binding Resolved, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              <TextBlock Text="ALERTS" Classes="section" />
+              <TextBlock Name="AlertsHeadline" Text="{Binding Headline}" Classes="headline" Foreground="{DynamicResource Brush.Fault}"
+                         IsVisible="{Binding !IsAllClear}" AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Text="{Binding Headline}" Classes="headline" Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsAllClear}" />
+              <TextBlock Name="AlertsBreakdown" Text="{Binding Breakdown}" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top" Margin="12,0,0,0">
+              <Button Classes="action" Content="Refresh" Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).RefreshCommand}"
+                      AutomationProperties.Name="Refresh alerts" />
+              <TextBlock Text="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).UpdateMode}" Classes="meta" HorizontalAlignment="Center" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Text="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).ErrorMessage}" Classes="error" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Assertive"
+                     IsVisible="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+          <StackPanel Spacing="8" IsVisible="{Binding HasApprovals}">
+            <TextBlock Text="WAITING FOR YOUR DECISION" Classes="section" />
+            <ItemsControl Name="AlertApprovals" ItemsSource="{Binding Approvals}" AutomationProperties.Name="Waiting for your decision">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="3" MinColumnWidth="260" Gap="12" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="dive:DiveApprovalTile">
+                  <Button Classes="tile" Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).OpenApprovalCommand}"
+                          CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                    <Border Classes="tile approval">
+                      <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Path Classes="icon" Data="{StaticResource Icon.lock}" Stroke="{DynamicResource Brush.Planned}" Width="18" Height="18" />
+                          <TextBlock Text="{Binding KindText}" Classes="section" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding Title}" Classes="tiletitle" />
+                        <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding TierText}" Classes="meta" Foreground="{DynamicResource Brush.Planned}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+          <ItemsControl Name="AlertGroups" ItemsSource="{Binding Groups}" AutomationProperties.Name="Alerts by state">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="alerts:AlertGroup">
+                <StackPanel Spacing="8" Margin="0,0,0,16">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="{Binding Heading}" Classes="section" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Hint}" Classes="meta" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <ItemsControl ItemsSource="{Binding Items}" AutomationProperties.Name="{Binding Title}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="alerts:AlertCard">
+                        <Button Classes="tile" Margin="0,0,0,8" Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).OpenCommand}"
+                                CommandParameter="{Binding}" AutomationProperties.Name="{Binding AccessibleText}">
+                          <Border Classes="tile" Classes.alarm="{Binding IsAlarm}" Classes.resolved="{Binding IsResolved}">
+                            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
+                              <StackPanel Spacing="6">
+                                <WrapPanel>
+                                  <ContentControl Content="{Binding Severity}" Margin="0,0,10,2" />
+                                  <TextBlock Text="{Binding Title}" Classes="tiletitle" VerticalAlignment="Center" />
+                                </WrapPanel>
+                                <TextBlock Text="{Binding DeviceText}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding AgeText}" Classes="meta" TextWrapping="Wrap" />
+                              </StackPanel>
+                              <StackPanel Classes="cardvalue" Spacing="2" IsVisible="{Binding HasValue}">
+                                <ctl:Sparkline Width="140" Height="28" IsVisible="{Binding HasTrend}" Points="{Binding Trend.Points, FallbackValue={x:Null}}"
+                                               StrokeThickness="1.5" Stroke="{Binding Trend.Kind, FallbackValue=Cpu, Converter={x:Static ctl:DiveConverters.TrendBrush}}" />
+                                <TextBlock Text="{Binding ValueText, StringFormat='now {0}'}" Classes="cardvaluetext" />
+                              </StackPanel>
+                              <TextBlock Grid.Column="2" Grid.RowSpan="2" Text="›" FontSize="22" Margin="14,0,0,0" VerticalAlignment="Center"
+                                         Foreground="{DynamicResource Brush.TextSecondary}" AutomationProperties.AccessibilityView="Raw" />
+                            </Grid>
+                          </Border>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Text="Nothing was raised or resolved in the last 24 hours." Classes="muted" IsVisible="{Binding !HasGroups}" />
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+
+    <!-- One alert: what fired and why, what it concerns, when, and what you can do. -->
+    <DataTemplate DataType="alerts:AlertPage">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Classes="page">
+          <StackPanel Spacing="8">
+            <TextBlock Name="AlertTitle" Text="{Binding Title}" Classes="pagetitle" />
+            <WrapPanel>
+              <ContentControl Content="{Binding Severity}" Margin="0,0,10,4" />
+              <ContentControl Content="{Binding StateBadge}" Margin="0,0,10,4" />
+            </WrapPanel>
+            <TextBlock Name="AlertSummary" Text="{Binding Summary}" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Border Name="AlertWhy" Classes="panelbox" Classes.critical="{Binding IsActive}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="WHAT FIRED AND WHY" Classes="section" />
+              <TextBlock Text="{Binding RuleText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <WrapPanel IsVisible="{Binding HasMeasure}">
+                <StackPanel Spacing="2" Margin="0,0,40,6">
+                  <TextBlock Text="OBSERVED" Classes="label" />
+                  <TextBlock Name="AlertObserved" Text="{Binding ObservedText}" Classes="headline" Foreground="{DynamicResource Brush.Fault}" />
+                </StackPanel>
+                <StackPanel Spacing="2" Margin="0,0,0,6">
+                  <TextBlock Text="THRESHOLD" Classes="label" />
+                  <TextBlock Name="AlertThreshold" Text="{Binding ThresholdText}" Classes="headline" Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </WrapPanel>
+              <TextBlock Name="AlertDetail" Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}" />
             </StackPanel>
           </Border>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
-  </StackPanel></ScrollViewer>
+
+          <Border Classes="panelbox">
+            <StackPanel Spacing="10">
+              <TextBlock Text="AFFECTED" Classes="section" />
+              <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                <StackPanel Classes="devicering" Margin="0,0,20,0" IsVisible="{Binding HasGauge}" VerticalAlignment="Center">
+                  <Panel Width="96" Height="96">
+                    <ctl:DiveRing Value="{Binding Gauge.FillValue, FallbackValue=0}" Thickness="9" Track="{DynamicResource Brush.Surface3}"
+                                  IsVisible="{Binding Gauge.HasFill, FallbackValue=False}"
+                                  Stroke="{Binding Gauge.Level, FallbackValue=None, Converter={x:Static ctl:DiveConverters.LevelBrush}}" />
+                    <Ellipse Stroke="{DynamicResource Brush.Surface3}" StrokeThickness="9" IsVisible="{Binding !Gauge.HasFill, FallbackValue=False}" />
+                    <StackPanel VerticalAlignment="Center" Margin="10,0">
+                      <TextBlock Text="{Binding Gauge.Value, FallbackValue='--'}" Classes="gaugevalue" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Gauge.Label, FallbackValue=''}" Classes="meta" HorizontalAlignment="Center" />
+                    </StackPanel>
+                  </Panel>
+                </StackPanel>
+                <StackPanel Classes="devicedetail" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Name="AlertDevice" Text="{Binding DeviceTitle}" Classes="tiletitle" />
+                  <TextBlock Text="{Binding DeviceMeta}" Classes="muted" TextWrapping="Wrap" />
+                  <StackPanel Spacing="2" IsVisible="{Binding Gauge.HasTrend, FallbackValue=False}">
+                    <ctl:Sparkline Width="200" Height="30" HorizontalAlignment="Left" Points="{Binding Gauge.Trend.Points, FallbackValue={x:Null}}"
+                                   StrokeThickness="1.5" Stroke="{Binding Gauge.Trend.Kind, FallbackValue=Cpu, Converter={x:Static ctl:DiveConverters.TrendBrush}}" />
+                    <TextBlock Text="{Binding Gauge.Trend.Text, FallbackValue=''}" Classes="meta" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button Name="DiveInto" Classes="cta" Content="{Binding DiveIntoText, StringFormat='{}{0} ›'}" Margin="0,6,0,0" HorizontalAlignment="Left"
+                          IsVisible="{Binding CanDiveInto}" Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).DiveIntoCommand}"
+                          AutomationProperties.Name="{Binding DiveIntoText}" />
+                </StackPanel>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="panelbox">
+            <StackPanel Spacing="8">
+              <TextBlock Text="TIMELINE" Classes="section" />
+              <ItemsControl Name="AlertTimeline" ItemsSource="{Binding Timeline}" AutomationProperties.Name="Timeline">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="alerts:AlertMoment">
+                    <Grid ColumnDefinitions="18,100,*" Margin="0,4" AutomationProperties.Name="{Binding AccessibleText}">
+                      <Path Classes="marker" Width="10" Height="10" VerticalAlignment="Center"
+                            Data="{Binding Marker, Converter={x:Static ctl:DiveConverters.BadgeShape}}"
+                            Fill="{Binding Marker, Converter={x:Static ctl:DiveConverters.BadgeBrush}}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Time}" Classes="mono" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="2" Text="{Binding Text}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- Actions go through the shared controls to the computer that raised the alert; each says what it asks before you act. -->
+          <Border Name="AlertActions" Classes="panelbox" IsVisible="{Binding HasActions}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="ACTIONS" Classes="section" />
+              <ctl:DiveTileGrid Name="AlertActionGrid" MaxColumns="3" MinColumnWidth="220" Gap="12">
+                <StackPanel Classes="actionitem">
+                  <Button Name="AlertAcknowledge" Classes="action" Content="Acknowledge" IsEnabled="{Binding CanAcknowledge}"
+                          Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).AcknowledgeCommand}"
+                          AutomationProperties.Name="{Binding AcknowledgeTier, StringFormat='Acknowledge. {0}'}" />
+                  <TextBlock Text="{Binding AcknowledgeTier}" Classes="meta" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Classes="actionitem">
+                  <Button Name="AlertMuteHour" Classes="action" Content="Mute this rule 1 h" IsEnabled="{Binding CanMute}"
+                          Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).MuteHourCommand}"
+                          AutomationProperties.Name="{Binding MuteHourTier, StringFormat='Mute this rule for 1 hour. {0}'}" />
+                  <TextBlock Text="{Binding MuteHourTier}" Classes="meta" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Classes="actionitem">
+                  <Button Name="AlertMuteDay" Classes="action" Content="Mute this rule 24 h" IsEnabled="{Binding CanMute}"
+                          Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).MuteDayCommand}"
+                          AutomationProperties.Name="{Binding MuteDayTier, StringFormat='Mute this rule for 24 hours. {0}'}" />
+                  <TextBlock Text="{Binding MuteDayTier}" Classes="meta" TextWrapping="Wrap" />
+                </StackPanel>
+              </ctl:DiveTileGrid>
+              <TextBlock Name="AlertActionNotice" Text="{Binding ActionNotice}" Classes="meta" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap"
+                         IsVisible="{Binding HasActionNotice}" AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Name="AlertOutcome" Text="{Binding Controls.OutcomeText, FallbackValue=''}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                         IsVisible="{Binding Controls.OutcomeText, FallbackValue='', Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         Classes.error="{Binding Controls.OutcomeIsFailure, FallbackValue=False}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Grid RowDefinitions="Auto,*">
+    <!-- Recorded: the moment in words; actions are off (the list itself is the alerts held now). -->
+    <Border Name="AlertsRecordedBand" IsVisible="{Binding IsHistorical}" BorderBrush="{DynamicResource Brush.Warning}" BorderThickness="0,0,0,1"
+            Background="{DynamicResource Brush.Surface2}">
+      <StackPanel Orientation="Horizontal" Spacing="10" Margin="16,8">
+        <TextBlock Text="{Binding RecordedText}" FontFamily="{DynamicResource Font.Mono}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Warning}"
+                   VerticalAlignment="Center" />
+        <TextBlock Text="{x:Static dive:DiveViewModel.RecordedNotice}" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </Border>
+    <Panel Name="Stage" Grid.Row="1" ClipToBounds="True">
+      <ContentControl Name="PageHost" Content="{Binding Page}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+    </Panel>
+  </Grid>
 </UserControl>
