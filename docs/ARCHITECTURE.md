@@ -17,7 +17,8 @@ This is the target functional architecture after the user explicitly superseded 
 | Universal inventory with separate actual and design state | Implemented contract foundation | Versioned object/relationship schema validates named design revisions, provenance/validity, cross-plane references, and distinct product/offer/physical-instance identity; persistence and a plain local client remain |
 | Cable connector/length inventory | Implemented narrow contract slice | Two typed connector ends, directionality, and unit-bearing nominal/measured length are validated; manual templates, persistence, matching, query, and constraint tests remain |
 | Observed-device identity and collector ownership | Implemented persistence plus first adapter spike | Strong identity evidence, typed attachment history, adapter-local credential references, validated current ownership, and restart-stable reassignment history are covered by real SQLite tests; IP-only identity is never strong. A provisional read-only Yamaha AG06MK2 Windows adapter reports presence, driver/attachment evidence, freshness, and explicit failure states without operational controls |
-| Bounded history/as-of query and catalog | Implemented raw-resolution service and versioned local JSON API | Real-SQLite window, cursor, as-of, state-not-zero, and HTTP tests; rollup tiers not implemented |
+| Bounded history/as-of query and catalog | Implemented raw-resolution service and versioned local JSON API | Real-SQLite window, cursor, as-of, state-not-zero, and HTTP tests; hourly rollup resolution (`resolution` raw, hourly, or auto) implemented over schema v4 |
+| Tiered retention (raw 7d, hourly rollups 365d, transition records 5y, pinned incidents) | Implemented service and storage, not yet scheduled by the node | `PeerRetentionService.RunAsync`; real-SQLite tests for rollups, pruning rules, replication hold, and pruned-range replica outcome |
 | Historical scene reconstruction and living/exploded UI | Confirmed scope; not implemented | Snapshot/event reconstruction and functional client before advanced rendering |
 | Physical, audio, RF, electrical, and thermal design modules | Confirmed scope; not implemented | Bounded validated module per domain |
 | Product sourcing, offers, and price history | Confirmed scope; not implemented | Permitted source adapter and provenance/freshness tests |
@@ -51,7 +52,7 @@ Documentation examples are plans, not support claims.
 - Avalonia remains reserved for the later shared experience; the functional client may be plain.
 - Native Windows Service and `systemd` packages for desktop and Linux peers.
 - Android uses only platform-supported foreground/background mechanisms and reports when service continuity is unavailable.
-- Signed release manifests and platform-specific verified update application.
+- Signed release manifests and platform-specific verified update application: `MonitorApp.Update` stages verified artifacts and applies them through `IUpdateApplier` (Linux package, Windows side-by-side, Android offer) with a persisted state machine; the peer node/service calls it (wiring pending).
 
 ## Functional system shape
 
@@ -198,6 +199,12 @@ Breadth is bounded by truthfulness, privacy, collection cost, platform power, lo
 
 Secrets, message/file content, and unrelated content payloads remain excluded by default. Sensitive or high-cost modules are explicit opt-in and visible in collection and retention settings.
 
+### Tiered retention (working decision)
+
+Peer.Application `PeerRetentionService.RunAsync` is the single periodic pass: (1) roll up completed UTC hours per (origin, subject, signal) using the production envelope decoder; (2) prune raw records older than the hour-aligned raw cutoff; (3) prune rollups older than their retention. Rollups count availability states (valid, estimated, unavailable, permission denied, error) and keep numeric min/max/sum only over Valid/Estimated numeric samples; states are never averaged. Hours older than the raw cutoff are finalised once; hours still inside raw retention are recomputed when late arrivals change their record count.
+
+Raw pruning keeps: records inside user-pinned windows; "transition" records (first record of a series, or quality differs from the previous record of that series) while younger than event retention; and locally originated records that any active trusted peer has not acknowledged (replication cursor below the sequence) until the replication hard cap. Removed sequence runs are stored in `pruned_origin_ranges`; `OriginReplicationCoordinator.ReadAsync` throws `OriginRangePrunedException` (wire code `RANGE_PRUNED`) for a request starting in such a range and stops batches before one, so replicas never see a silent hole. History queries serve hourly points when the window starts before raw retention (or on request); pruned raw detail never reappears.
+
 ## Network boundaries
 
 ### Allowed ordinary monitoring
@@ -237,6 +244,10 @@ The user explicitly assigns a collector peer. Adapter credentials remain local a
 
 When multiple peers observe one device or topology, records reconcile around strong identity while preserving each source and evidence. Contradictions remain visible rather than being silently overwritten.
 
+### Physical LAN self-observation
+
+Physical LAN entities (peer, network interface, overlay interface, segment, VLAN, gateway, switch, port, peripheral, unknown upstream segment) and relationships (attached_to, member_of_segment, member_of_vlan, routes_via, uplink_to, connected_to_port, probable_same_segment) are typed in `MonitorApp.Contracts.LanTopology` with validation; overlay interfaces cannot join segments, VLANs, or gateways. Without a managed switch, each peer models only itself: its own interfaces, link attributes, own MAC (strong claim for physical interfaces only), own subnets and default-gateway IP (weak claims), and Linux VLAN sub-interfaces. Segments are per-observer entities; two peers with matching subnet (and gateway) claims get an inferred `probable_same_segment` edge (confidence 0.3 subnet only, 0.6 with gateway, never 1.0) rather than a merge. Switch and port entities are only filled by a future adapter; today each segment gets an inferred unknown-upstream placeholder. Collection code is `Peer.Collection.Lan`; the node registers `SelfLanCollector`.
+
 ## Persistence
 
 Every peer stores local identity, paired-peer directory, local origin records, retained replicas, per-origin cursors and gaps, capability/adaptor configuration, observed-device identity and collector assignments, physical and overlay relationships with evidence, security audit events, and local UI/retention policy.
@@ -248,6 +259,8 @@ SQLite WAL remains the personal-scale starting point. Schema migrations, backup,
 The local experience renders the same domain model available to replication and query. The living schematic summarizes relationships and state. Domain lenses expose power, audio, storage, network infrastructure, thermal, security, and other coherent subsets. Search reaches exact signals. The final scene remains a projection of the domain model, never the source of truth.
 
 The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.
+
+The shared client is `MonitorApp.Client.Core` (view models plus `IPeerDataSource`) with an Avalonia desktop head, `MonitorApp.Client.Desktop`. Desktop reads the peer's loopback API through the HTTP adapter; a future Android head implements `IPeerDataSource` over its in-process runtime and local store. The current-state view updates by push when the source supports it and polls otherwise. See T032.
 
 The client also keeps actual and design contexts visually and semantically distinct. The default current view shows actual state. A named plan or deliberate overlay may compare actual and design state, with separate costs, quantities, loads, cable availability, connections, freshness, and constraint findings. Historical time applies to recorded actual state; plan revisions use their own revision history and must not masquerade as observed history.
 
@@ -265,7 +278,7 @@ Canonical products/variants are separate from seller offers and actual instances
 
 Automation is a deterministic peer service independent of UI and AI. Versioned event-condition-action rules persist schedule/evaluation state, debounce/cooldown/deduplication, escalation, expiration, idempotency, and audit evidence. Rules declare whether inputs come from actual state, a named design, sourcing observations, or history. Historical simulation never dispatches live actions.
 
-Equal peers require explicit execution ownership so replicated events cannot produce duplicate notifications or actions. The exact lease, single-writer, reassignment, and rule-conflict design remains open. Notification delivery uses a durable outbox and adapters; Android, self-hosted, and optional third-party transports remain open pending privacy and reliability tests. Operational actions retain a separate permission domain.
+Equal peers require explicit execution ownership so replicated events cannot produce duplicate notifications or actions. Implemented first slice (T037): the origin peer that collected an observation is its single evaluation owner and replicated copies are never evaluated; built-in rules (peer not seen, observation Unavailable/Error, typed numeric thresholds) raise and resolve idempotent alert episodes into a durable store with a per-recipient outbox, delivered to trusted phones through additive `AlertPull`/`AlertBatch`/`AlertAck` messages on `PeerSession` and shown as Android notifications. The library is `MonitorApp.Peer.Alerts` with its own schema version table in `peer.db`. Lease/reassignment on collector failover, user-defined rules, debounce/escalation, and non-Android transports remain open; third-party and self-hosted push are not used. Operational actions retain a separate permission domain.
 
 ## Distributed local AI boundary
 
@@ -335,6 +348,10 @@ The first decentralized slice must prove:
 
 Only after this slice passes should controller code be removed or release artifacts be relabeled as peer packages.
 
+### Always-on service hosting
+
+Windows and Linux peers run as a system service. `Program.cs` parses `NodeOptions` and runs `NodeHost.Build` (Generic Host with `AddWindowsService` and `AddSystemd`); `PeerNodeHostedService` starts and disposes `PeerNodeRuntime`, and startup failures (identity, permission, platform) log critical and exit non-zero. In service mode the data directory defaults to `STATE_DIRECTORY` or `/var/lib/monitor-app` (Linux, owned by the `monitor-app` user, mode 0700) and `%ProgramData%\MonitorApp` (Windows). Configuration precedence is arguments, `MONITOR_APP_*` environment variables (the unit loads `/etc/monitor-app/node.conf`), defaults. The admin page is always loopback; the peer listener defaults to loopback and must be bound explicitly. Packaging lives in `eng/packaging/linux` (DEB script, RPM spec, hardened unit) and `eng/packaging/windows` (service scripts, virtual account `NT SERVICE\MonitorApp`, delayed auto-start, recovery actions). `WindowsDpapiIdentityProvider` uses DPAPI current-user scope, so the identity is bound to the service account and moving the service to another account makes it unreadable; this is untested on Windows. Status: see `TODO.md` and `docs/TESTING.md` for exactly what was run.
+
 ## Platform gates
 
 ### Windows
@@ -361,6 +378,7 @@ Only after this slice passes should controller code be removed or release artifa
 ### Android
 
 - Outbound-only peer (T031): no listener; the phone dials the desktop and both origin streams replicate over that session. `MonitorApp.Peer.Mobile` (plain net10.0) composes PeerStore, signed-origin ingestion of Android readings (`monitor.android.device`), explicit pairing from a `PeerPairingInvitation`, and a reconnecting sync loop; the identity is injected (`ILocalPeerIdentityProvider`).
+- Phone pairing (T033): `LocalApiHost` renders the "Add a phone" section (`PhonePairingService`, QR via QRCoder as inline SVG). `Peer.Core` holds `PairingShortCode`/`PairingShortCodeRegistry` (shared in-process by the admin page and the peer gRPC host); `Peer.Service` exposes `PeerPairingCodeService.Redeem`; `Peer.Transport.PeerPairingCodeClient` and `MobilePeerRuntime.PairWithCodeAsync` are the phone side, which then runs the normal bilateral pairing.
 - `src/MonitorApp.Android` (outside the solution) is a thin shell: a user-started foreground service hosts the runtime (`Start`/`StopAsync`); the activity shows health, pairing, and an empty alert list.
 - Android Keystore identity.
 - Emulator tests plus one physical-device smoke test before support is claimed.

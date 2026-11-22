@@ -240,5 +240,7 @@ public sealed class PeerLiveSession : IPeerLiveSession
         interestSubscription?.Dispose();
     }
 
+    public void Nudge() => Wake();
+
     private void Wake() => signal.Writer.TryWrite(0);
 }

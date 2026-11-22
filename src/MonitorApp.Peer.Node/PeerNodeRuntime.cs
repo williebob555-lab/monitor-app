@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MonitorApp.Agent.Core;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
 using MonitorApp.Peer.Core;
@@ -25,6 +26,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly NodeCollectionScheduler collection;
     private readonly PeerStore store;
     private readonly LiveInterestRegistry interests;
+    private readonly AlertEngine alertEngine;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
@@ -34,11 +36,13 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         NodeCollectionScheduler collection,
         PeerStore store,
         LiveInterestRegistry interests,
-        int peerPort)
+        int peerPort,
+        AlertEngine alertEngine)
     {
         PeerPort = peerPort;
         this.store = store;
         this.interests = interests;
+        this.alertEngine = alertEngine;
         this.peerApplication = peerApplication;
         this.localApi = localApi;
         this.identity = identity;
@@ -115,6 +119,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 TimeSpan.FromMinutes(2)));
         await pairing.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var replication = new OriginReplicationCoordinator(peerStore);
+        var alertStore = new AlertStore(AlertStoreOptions.Create(databasePath));
+        await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var alertRules = AlertRulesConfig.Default;
+        var alertEngine = new AlertEngine(new AlertEvaluator(peerStore, alertStore, alertRules), alertStore);
         var capabilityRegistry = new PeerCapabilityRegistry(peerStore);
         await capabilityRegistry.RegisterAsync(
             SystemCapabilityDeclaration.Create(),
@@ -138,6 +146,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             "--MonitorApp:Peer:Port", options.PeerPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--MonitorApp:Peer:AllowLoopback", System.Net.IPAddress.IsLoopback(options.PeerBindAddress).ToString(),
         };
+        var pairingCodes = new PairingShortCodeRegistry();
         var peerApplication = await PeerHostApplication.CreateAsync(
             peerArgs,
             services =>
@@ -150,9 +159,11 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton(pairing);
                 services.AddSingleton(replication);
                 services.AddSingleton(interests);
+                services.AddSingleton(new AlertDeliveryService(peerStore, alertStore, alertRules));
                 services.AddProductionPeerSessionCoordinator();
                 services.AddSingleton(new PeerPairingServiceOptions(Environment.MachineName));
                 services.AddProductionPeerPairingCoordinator();
+                services.AddSingleton(pairingCodes);
             }, cancellationToken).ConfigureAwait(false);
         var localApi = LocalApiHost.Create(
             new LocalApiOptions(
@@ -164,6 +175,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             pairing,
             clock,
             invitationService,
+            new PhonePairingOptions([options.PeerBindAddress], options.PeerPort, pairingCodes),
+            alertStore,
             interests);
         try
         {
@@ -171,10 +184,12 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             await localApi.StartAsync(cancellationToken).ConfigureAwait(false);
             await connections.StartAsync(cancellationToken).ConfigureAwait(false);
             collection.Start();
-            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort);
+            alertEngine.Start();
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine);
         }
         catch
         {
+            await alertEngine.DisposeAsync().ConfigureAwait(false);
             await collection.DisposeAsync().ConfigureAwait(false);
             await connections.DisposeAsync().ConfigureAwait(false);
             await localApi.DisposeAsync().ConfigureAwait(false);
@@ -186,6 +201,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await alertEngine.DisposeAsync().ConfigureAwait(false);
         await collection.DisposeAsync().ConfigureAwait(false);
         await connections.DisposeAsync().ConfigureAwait(false);
         await localApi.DisposeAsync().ConfigureAwait(false);

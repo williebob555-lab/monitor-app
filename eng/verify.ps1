@@ -58,6 +58,12 @@ try {
             --filter "Category=SQLite"
     }
 
+    Invoke-VerificationStep "Run peer LAN self-observation collector tests" {
+        dotnet test tests/MonitorApp.Peer.Collection.Tests/MonitorApp.Peer.Collection.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run peer pairing application tests" {
         dotnet test tests/MonitorApp.Peer.Application.Tests/MonitorApp.Peer.Application.Tests.csproj `
             -c Release `
@@ -88,8 +94,35 @@ try {
             --no-build
     }
 
+    if ($IsLinux) {
+        Invoke-VerificationStep "Run real dpkg update apply/rollback integration tests" {
+            dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category=Integration"
+        }
+    }
+
+    Invoke-VerificationStep "Run alert rule, outbox, and delivery tests" {
+        dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
     Invoke-VerificationStep "Run local peer administration API tests" {
         dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run desktop client core tests against the real local API" {
+        dotnet test tests/MonitorApp.Client.Core.Tests/MonitorApp.Client.Core.Tests.csproj `
+            -c Release `
+            --no-build
+    }
+
+    Invoke-VerificationStep "Run headless desktop client smoke test" {
+        dotnet test tests/MonitorApp.Client.Desktop.Tests/MonitorApp.Client.Desktop.Tests.csproj `
             -c Release `
             --no-build
     }

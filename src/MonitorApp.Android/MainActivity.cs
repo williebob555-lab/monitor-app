@@ -12,7 +12,7 @@ using MonitorApp.Peer.Transport;
 
 namespace MonitorApp.Android;
 
-/// <summary>Thin shell over the peer runtime: health summary, pairing, alert placeholder, service control.</summary>
+/// <summary>Thin shell over the peer runtime: health summary, pairing, received alert list, service control.</summary>
 [Activity(Label = "Monitor App", MainLauncher = true, Exported = true)]
 public sealed class MainActivity : Activity
 {
@@ -20,6 +20,7 @@ public sealed class MainActivity : Activity
     private TextView pairingStatus = null!;
     private EditText invitation = null!;
     private Button pairButton = null!;
+    private TextView alertList = null!;
     private Handler? ui;
     private Java.Lang.IRunnable? tick;
 
@@ -57,7 +58,8 @@ public sealed class MainActivity : Activity
         content.AddView(pairingStatus);
 
         content.AddView(Heading("Alerts"));
-        content.AddView(Text("No alerts. Alert rules are not implemented yet."));
+        alertList = Text("No alerts.");
+        content.AddView(alertList);
 
         var scroll = new ScrollView(this);
         scroll.AddView(content);
@@ -131,6 +133,14 @@ public sealed class MainActivity : Activity
             }
 
             health.Text = text.ToString();
+            var alerts = await runtime.ReadAlertsAsync(50).ConfigureAwait(true);
+            alertList.Text = alerts.Count == 0
+                ? "No alerts."
+                : string.Join(
+                    "\n",
+                    alerts.Select(item => string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"[{item.Alert.State}/{item.Alert.Severity}] {item.Alert.Title} - {item.Alert.Detail} ({item.Alert.RaisedAt:u})")));
             if (status.PendingPairingId is { } pending)
             {
                 pairingStatus.Text = $"Waiting for desktop approval (pairing {pending}).";

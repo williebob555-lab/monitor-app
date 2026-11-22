@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MonitorApp.Agent.Core\MonitorApp.Agent.Core.csproj" />
+    <ProjectReference Include="..\MonitorApp.Peer.Alerts\MonitorApp.Peer.Alerts.csproj" />
     <ProjectReference Include="..\MonitorApp.Android.Core\MonitorApp.Android.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />

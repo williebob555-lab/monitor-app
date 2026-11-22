@@ -92,7 +92,7 @@ Run against the actual selected persistence engine. Required cases include:
 - Duplicate rejection or idempotent acceptance.
 - Ordered time-window query.
 - Snapshot reconstruction.
-- Retention deletion boundaries.
+- Retention deletion boundaries (tiered retention: rollup aggregation with states kept as counts, idempotent re-run, pinned windows, transition/event retention, replication hold and hard cap, pruned-range replica outcome, hourly history auto-switch, schema v3 to v4 migration on a real file; `PeerRetentionTests`, `PeerStoreTests`).
 - Backup and restore before release support is claimed.
 
 The first production engine is file-backed SQLite in WAL mode. Persistence integration tests must use that provider and configuration. The EF Core in-memory provider does not satisfy this level, and SQLite's transient in-memory mode does not prove restart durability, file locking, WAL recovery, backup, or restore.
@@ -110,6 +110,18 @@ Start real controller and agent processes or their production network servers. R
 - Disconnect, bounded buffering, resume, and no duplicate history.
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
+
+### Phone pairing tests
+
+- `PairingShortCodeTests` (Core): normalization, single use, expiry, bounded live codes, global rate-limit lockout. `PeerPairingCodeClientTests` (Transport): a rogue listener without the code and replayed proofs are refused; public/wildcard addresses and malformed codes are rejected. `PeerContractTests`: unary additive lookup shape. `LocalApiPhonePairingTests`: the QR SVG is decoded with ZXing.Net (test project only) back to the exact payload, quiet zone, CSP/nonce with no inline script or style, expiry, loopback/wildcard message, configured-address enforcement, CSRF, pending phone name and fingerprint. `MobilePairingCodeTests`: real loopback gRPC address+code pairing, then desktop approval and persisted bilateral trust; single use; wrong/expired code refusal without leaking identity; rate limiting.
+
+### Alert tests
+
+`tests/MonitorApp.Peer.Alerts.Tests` runs rule evaluation against real SQLite files and the production ingestion bridge (determinism, idempotency across evaluator restart, episode start/resolve, sustained windows, peer-silent, single-owner rule on a replicated copy), outbox durability across store reopen, expiry, recipient isolation, and trust gating. `tests/MonitorApp.Peer.Mobile.Tests/MobileAlertTests.cs` covers desktop raise to phone persistence to acknowledgement over real loopback gRPC, restart re-notification, and revoked/other-recipient isolation. `tests/MonitorApp.Contracts.Tests/AlertContractTests.cs` covers field numbers, unknown-field tolerance, and validator limits. Android notification posting needs device or emulator evidence that does not exist yet.
+
+```text
+dotnet test tests/MonitorApp.Peer.Alerts.Tests/MonitorApp.Peer.Alerts.Tests.csproj -c Release
+```
 
 ### Superseded Headscale integration tests
 
@@ -146,6 +158,10 @@ Required target environments:
 
 The peer node tests (restart-stable identity, 0600/0700 key storage and unsafe-permission refusal tagged `Category=Linux`, two-node pairing, and offline convergence) run on Linux in an Ubuntu 24.04 container; that is Linux engineering-preview evidence, not Ubuntu or Fedora support. A Linux container can test portable Linux collection code but does not prove RPM installation, SELinux behavior, `systemd`, or a Fedora release claim. The same distinction applies to Ubuntu packaging and Windows services.
 
+### LAN self-observation tests
+
+`tests/MonitorApp.Peer.Collection.Tests` cover route/VLAN/MAC parsers, interface classification (overlay/virtual/bridge/loopback non-physical), a fixture sysfs tree, a run against this host's real `/sys/class/net` (Linux), a real-SQLite persistence round trip, and reconciliation that IP-only matches never hard-merge. Windows classification is unit-tested from enum/name inputs only; the real Windows collector is unverified on hardware. Contract rules are in `MonitorApp.Contracts.Tests`.
+
 ### Packaging tests
 
 Before platform support is claimed, test a clean install, upgrade, restart, and uninstall for:
@@ -157,6 +173,19 @@ Before platform support is claimed, test a clean install, upgrade, restart, and 
 - Peer service and local data package on every applicable platform.
 
 Installation tests must confirm that uninstall removes the application while preserving or removing data according to an explicit user choice.
+
+Current service-packaging evidence (Ubuntu 24.04 container, no systemd PID 1, no SELinux, no rpmbuild, no Windows):
+
+```bash
+eng/packaging/linux/build-packages.sh 0.1.0-preview     # about 1-1.5 min; builds artifacts/packages/*.deb, RPM only if rpmbuild exists
+dpkg-deb -I artifacts/packages/monitor-app_0.1.0-preview_amd64.deb && dpkg-deb -c artifacts/packages/monitor-app_0.1.0-preview_amd64.deb
+dpkg -i artifacts/packages/monitor-app_0.1.0-preview_amd64.deb   # creates monitor-app user and 0700 /var/lib/monitor-app
+runuser -u monitor-app -- env MONITOR_APP_DATA_DIR=/var/lib/monitor-app MONITOR_APP_PEER_PORT=45431 MONITOR_APP_ADMIN_PORT=45432 /opt/monitor-app/MonitorApp.Peer.Node
+dpkg -r monitor-app      # keeps /var/lib/monitor-app
+dpkg --purge monitor-app # removes data, /etc/monitor-app, and the user
+```
+
+`NodeServiceHostTests` (runs on Linux and Windows) covers service-mode option resolution and the real Generic Host: start, loopback admin answers, stop, restart keeps identity, startup failure surfaces. Not run: `systemctl` lifecycle and `Type=notify`, hardening effects, DEB upgrade, RPM, Fedora/SELinux, Windows service install, DPAPI under a virtual service account, ACLs, recovery actions. The DEB is not built in `eng/verify.ps1` (too slow); run the command above manually.
 
 ### End-to-end functional test
 
@@ -248,10 +277,10 @@ dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.
 dotnet test tests/MonitorApp.Peer.Node.Tests/MonitorApp.Peer.Node.Tests.csproj -c Release --no-build --filter "Category!=Windows"
 ```
 
-Signed update-manifest policy and artifact-integrity tests:
+Signed update-manifest policy, artifact-integrity, staging/state-machine, apply/rollback tests (includes the `Integration` dpkg sandbox test, which returns early when `/usr/bin/dpkg` and `dpkg-deb` are absent; Windows service control and rpm are not exercised):
 
 ```powershell
-dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj -c Release --no-build --filter "Category=Unit"
+dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj -c Release --no-build 
 dotnet build eng/release/MonitorApp.ReleaseTool/MonitorApp.ReleaseTool.csproj -c Release --no-restore -warnaserror
 ```
 
@@ -323,11 +352,17 @@ The agent-spool suite uses a real temporary SQLite WAL file and production seria
 
 The update suite signs real manifest bytes with an ephemeral P-256 test key and calls the production verifier and artifact reader. It covers trusted-signature acceptance, wrong-key rejection, downgrade and reinstall rejection, compatibility floors, platform and architecture mismatch, canonical version parsing, and file size and SHA-256 mismatch. The GitHub release workflow, protected environment, generated archives, platform installation, rollback, and Android signing are not verified by those unit tests.
 
+The update pipeline tests add real files and state, ephemeral-key signed manifests with fake network seams, `HttpClient` handler stubs for transport bounds, scripted process/health fakes for rollback orchestration, a real `dpkg-deb` build and `dpkg --root/--admindir` sandbox upgrade, unhealthy-upgrade rollback, and retained-package check, and real temp-directory Windows side-by-side swaps including a zip-slip entry. Windows `sc.exe` control is verified only for command shape.
+
 Self-contained release packaging performs runtime-specific restores into ignored staging lockfiles so the committed NuGet locks remain platform neutral. The release workflow runs `git diff --exit-code` after packaging and fails if any tracked file changes. Local packaging verification must likewise compare the tracked tree before and after archive creation; successful archive output alone is not sufficient evidence.
 
 The Android core suite calls the production URI policy, one-time enrollment parsing, proof-request builder, battery normalization, network/VPN summary, and DER-to-P1363 conversion. A real P-256 key signs the canonical enrollment payload and the generated Protobuf request is verified through the controller-compatible P1363 path. These tests do not exercise Android Keystore, lifecycle, network permissions, device APIs, or controller connectivity; those require emulator and physical-device evidence.
 
 Do not leave multiple undocumented ways to run the same suite. Package and platform jobs may wrap these commands, but the root verification script is authoritative.
+
+## Desktop client tests
+
+`tests/MonitorApp.Client.Core.Tests` starts the real `LocalApiHost` over a file-backed SQLite store seeded through the production `PeerStore`, and drives the typed client and view models against it (round trip, cursor paging and page cap, unavailable values, validation, antiforgery, revoke confirmation, unreachable node, polling and push updates). `tests/MonitorApp.Client.Desktop.Tests` is an Avalonia.Headless smoke test that binds every section to a real node. Neither verifies visual appearance; run `dotnet test` on each project (both are in `eng/verify.ps1`).
 
 ## Completion evidence
 

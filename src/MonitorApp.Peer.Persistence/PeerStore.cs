@@ -5,9 +5,9 @@ using Microsoft.Data.Sqlite;
 
 namespace MonitorApp.Peer.Persistence;
 
-public sealed class PeerStore
+public sealed partial class PeerStore
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private const int PublicKeyFingerprintSize = 32;
     private const int P256SignatureSize = 64;
     private readonly string connectionString;
@@ -193,6 +193,44 @@ public sealed class PeerStore
                 PRIMARY KEY(observed_entity_id, assigned_at),
                 FOREIGN KEY(observed_entity_id) REFERENCES observed_entities(entity_id),
                 FOREIGN KEY(adapter_instance_id) REFERENCES adapter_instances(adapter_instance_id)
+            );
+            CREATE TABLE IF NOT EXISTS observation_rollups_hourly (
+                origin_peer_id TEXT NOT NULL,
+                subject_entity_id TEXT NOT NULL,
+                signal_id TEXT NOT NULL,
+                hour_start TEXT NOT NULL,
+                sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+                numeric_count INTEGER NOT NULL CHECK (numeric_count >= 0),
+                min_value REAL NULL,
+                max_value REAL NULL,
+                sum_value REAL NULL,
+                unit TEXT NULL,
+                first_observed_at TEXT NOT NULL,
+                last_observed_at TEXT NOT NULL,
+                worst_quality TEXT NOT NULL,
+                valid_count INTEGER NOT NULL,
+                estimated_count INTEGER NOT NULL,
+                unavailable_count INTEGER NOT NULL,
+                denied_count INTEGER NOT NULL,
+                error_count INTEGER NOT NULL,
+                other_quality_count INTEGER NOT NULL,
+                PRIMARY KEY(origin_peer_id, subject_entity_id, signal_id, hour_start)
+            );
+            CREATE INDEX IF NOT EXISTS ix_rollups_hour ON observation_rollups_hourly(hour_start);
+            CREATE TABLE IF NOT EXISTS pinned_incidents (
+                incident_id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                from_at TEXT NOT NULL,
+                to_at TEXT NOT NULL CHECK (to_at > from_at),
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pruned_origin_ranges (
+                origin_peer_id TEXT NOT NULL,
+                origin_stream_id TEXT NOT NULL,
+                first_sequence INTEGER NOT NULL CHECK (first_sequence > 0),
+                last_sequence INTEGER NOT NULL CHECK (last_sequence >= first_sequence),
+                pruned_at TEXT NOT NULL,
+                PRIMARY KEY(origin_peer_id, origin_stream_id, first_sequence)
             );
             INSERT OR IGNORE INTO collector_assignment_history(
                 observed_entity_id, adapter_instance_id, collector_peer_id, assigned_at, released_at)

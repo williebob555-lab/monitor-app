@@ -14,6 +14,7 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - Bind proof to the intended peer/session and fresh challenge. Limit message sizes, rates, buffers, and parallel work.
 - Listen only on intentionally configured private/Tailscale interfaces, never public interfaces by default.
 - Store private keys in platform-protected storage where available. Never transmit private keys or log pairing secrets, challenges, signatures, or reusable credentials.
+- Service hosting: the Linux unit runs as the dedicated `monitor-app` user with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, an empty capability set, address families limited to AF_UNIX/AF_INET/AF_INET6/AF_NETLINK, and a 0700 state directory holding the 0600 identity file. The peer bind is loopback until `/etc/monitor-app/node.conf` sets an explicit address. Windows: DPAPI current-user scope binds the identity to `NT SERVICE\MonitorApp`, and the install script restricts the data directory ACL to that account, SYSTEM, and Administrators. Unverified: the unit under real systemd, SELinux policy, and all Windows behavior. ASP.NET data-protection keys land unencrypted under the state directory (`.aspnet`); they are not used for peer identity.
 - Protect each peer's SQLite history, trust database, offline replication state, and backups with OS access controls. Diagnostics must be inspectable and redactable.
 - Origin records retain immutable ids and sequence. Replication verifies origin identity, validates schemas/timestamps, is idempotent, and never grants control authority.
 
@@ -23,6 +24,16 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - A pairing invitation carries address, peer id, and fingerprint only (no secret). Decoding enforces the private/loopback endpoint policy, 32-byte fingerprint, version, and size; it grants no trust. The phone pins the invitation fingerprint and the desktop user must explicitly approve.
 - A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only by explicit user action and shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
 
+## Phone pairing (QR and typed code)
+
+- Threat model: the invitation (QR/payload) carries only reachability and the desktop identity to pin; it is not a secret and grants no trust. The desktop user must still approve the phone's request after seeing its display name and fingerprint, so a leaked QR or code cannot add a device by itself.
+- The advertised address is only the node's configured peer-listener address, never typed on the page or auto-bound; loopback/wildcard/public listeners are not advertised and the page explains the Tailscale/private-bind requirement.
+- Typed code: 10 Crockford base32 characters (50 bits), 10-minute life, single-use, at most 8 live codes. The phone sends only a PBKDF2-SHA256 (100k iterations) derived lookup id, never the code, and the desktop reply (peer id, fingerprint) carries an HMAC keyed from the code, so a listener at the typed address that does not hold the code cannot substitute its own identity, and a passive observer cannot replay the exchange. Residual risk: an observer of the lookup id could brute-force 50 bits offline at 100k PBKDF2 iterations per guess (infeasible within the 10-minute life; the link is Tailscale/WireGuard-protected).
+- Online guessing: every failed redemption counts against a global budget (8 per minute) after which all redemptions, including correct ones, are refused until the window passes. Unknown, expired, used, malformed, and rate-limited attempts return the identical status so the endpoint is not an oracle. This is a denial-of-service trade-off on a private, authenticated network.
+- The invitation payload and code are rendered only on the loopback admin page (CSRF-protected generation, `no-store`, nonce CSP, inline SVG without scripts or style attributes).
+
+- Alerts reach a phone only over its authenticated outbound PeerSession and only while its trust is Active; the outbox is keyed by recipient peer id, acknowledgements are bounded to issued revisions, and the phone accepts only alerts originated by the desktop it authenticated. Alert content is rule/subject identifiers and short operational text; a notification may be visible on the lock screen, so detail text must stay free of credentials and communication identities. Revocation during an already open session is not yet enforced for alert rows beyond the next request.
+
 ## Observed devices, adapters, and LAN infrastructure
 
 Observed devices cannot authenticate as peers. A provisioned peer acts as collection gateway through a reviewed adapter. Every observation identifies the observed entity, collecting peer, adapter/module, source time, evidence, and quality.
@@ -30,6 +41,8 @@ Observed devices cannot authenticate as peers. A provisioned peer acts as collec
 Adapter and managed-switch credentials stay in the provisioned collector peer's protected local store and do not replicate. Collector ownership is explicit. Another peer may take over only after separate provisioning; automatic credential transfer or failover is prohibited. Prefer least-privilege, read-only accounts and isolate privileged collection where practical.
 
 Topology evidence distinguishes reported facts from inference and carries source, time, quality, and confidence. Deduplicate switches with strong identity such as serial or chassis MAC, never IP alone.
+
+LAN self-observation reads only the local peer's own interfaces (sysfs/procfs or OS interface APIs). It never reads ARP/neighbor tables, never collects gateway or other hosts' MACs, and never records flows or DNS. IP-derived claims (subnet, gateway IP) are weak and cannot establish identity or merge entities.
 
 ## Collection breadth and privacy
 
@@ -54,6 +67,8 @@ No default payload interception, credential/decryption collection, exploit attem
 The functional foundation is read-only. Future actions use a distinct permission domain; playful gestures never dispatch actions, historical mode cannot target live systems, material actions require preview/confirmation, commands expire, and results are audited.
 
 Update manifests and artifacts remain signed and target/version/hash checked. Trusted release keys arrive through an authenticated installer or prior trusted release. Never introduce unsigned fallback, silent downgrade, or automatic overwrite as recovery.
+
+Update pipeline trust: sources must be HTTPS but authenticity comes only from the signed manifest; downloads are size-capped and hash-verified into an owner-only staging directory and re-verified immediately before apply; apply requires explicit approval; a failed verification is never staged or applied; the highest seen version is persisted and a downgrade needs an audited per-version authorization; last-known-good is kept until the new version reports healthy; update state corruption fails closed; a crash during apply is reported as Failed. Android never installs silently and relies on the system installer. The health marker is local and unauthenticated, so it proves liveness only on a host the operator already controls.
 
 ## Inventory, planning, and cable data
 

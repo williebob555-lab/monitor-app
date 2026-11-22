@@ -7,6 +7,9 @@ namespace MonitorApp.Contracts.Tests;
 
 public sealed class PeerContractTests
 {
+    private static readonly string[] RedeemRequestFields = ["protocol_version", "lookup_id"];
+    private static readonly string[] RedeemResponseFields = ["peer_id", "public_key_sha256", "proof"];
+
     private static readonly DateTimeOffset Now =
         new(2026, 11, 20, 18, 0, 0, TimeSpan.Zero);
 
@@ -23,6 +26,31 @@ public sealed class PeerContractTests
         Assert.Equal("PeerSession", session.Name);
         Assert.True(session.IsClientStreaming);
         Assert.True(session.IsServerStreaming);
+    }
+
+    [Fact]
+    [Trait("Category", "Contract")]
+    public void PairingCodeLookupIsAnAdditiveUnaryServiceThatNeverCarriesTheCode()
+    {
+        var redeem = Assert.Single(PeerPairingCodeService.Descriptor.Methods);
+
+        Assert.Equal("Redeem", redeem.Name);
+        Assert.False(redeem.IsClientStreaming);
+        Assert.False(redeem.IsServerStreaming);
+        Assert.Equal(RedeemPairingCodeRequest.Descriptor, redeem.InputType);
+        Assert.Equal(
+            RedeemRequestFields,
+            RedeemPairingCodeRequest.Descriptor.Fields.InFieldNumberOrder().Select(field => field.Name));
+        Assert.Equal(
+            RedeemResponseFields,
+            RedeemPairingCodeResponse.Descriptor.Fields.InFieldNumberOrder().Select(field => field.Name));
+        var roundTrip = RedeemPairingCodeResponse.Parser.ParseFrom(new RedeemPairingCodeResponse
+        {
+            PeerId = "peer",
+            PublicKeySha256 = ByteString.CopyFrom(new byte[32]),
+            Proof = ByteString.CopyFrom(new byte[32]),
+        }.ToByteArray());
+        Assert.Equal("peer", roundTrip.PeerId);
     }
 
     [Fact]

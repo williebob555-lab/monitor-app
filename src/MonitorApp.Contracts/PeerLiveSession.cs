@@ -27,6 +27,9 @@ public interface IPeerLiveSession : IDisposable
     /// <summary>Applies an interest declared by the authenticated remote peer.</summary>
     ValueTask<LiveInterestAck> AcceptRemoteInterestAsync(LiveInterest interest, CancellationToken cancellationToken);
 
+    /// <summary>Wakes the sender loop (for example when the receive side has follow-up work).</summary>
+    void Nudge();
+
     /// <summary>Completes when new local records, acknowledgements or interest changes may need attention, or after the timeout.</summary>
     Task WaitForActivityAsync(TimeSpan timeout, CancellationToken cancellationToken);
 }
