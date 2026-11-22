@@ -20,7 +20,7 @@ public sealed class CiscoSg250Tests
             new(Sg250Oids.IfName + ".9", "STRING: \"gi1/0/9\""),
             new(Sg250Oids.IfType + ".3", "INTEGER: ethernetCsmacd(6)"),
             new(Sg250Oids.IfType + ".9", "INTEGER: ethernetCsmacd(6)"),
-            new(Sg250Oids.IfName + ".100", "STRING: \\"vlan100\\""),
+            new(Sg250Oids.IfName + ".100", "STRING: \"vlan100\""),
             new(Sg250Oids.IfType + ".100", "INTEGER: l2vlan(135)"),
             new(Sg250Oids.IfAdminStatus + ".3", "INTEGER: up(1)"),
             new(Sg250Oids.IfOperStatus + ".3", "INTEGER: down(2)"),
