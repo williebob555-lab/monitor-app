@@ -120,6 +120,9 @@ public sealed partial class PairingsViewModel : SectionViewModel
     {
         var pending = await Client.GetPairingsAsync(cancellationToken);
         var peers = await Client.GetPeersAsync(cancellationToken);
+        var stored = Client is ISecuritySource security
+            ? (await security.GetControlGrantsAsync(cancellationToken)).ToDictionary(g => g.PeerId)
+            : [];
         Pending.Clear();
         foreach (var pairing in pending)
         {
@@ -135,10 +138,18 @@ public sealed partial class PairingsViewModel : SectionViewModel
             Peers.Add(row);
             if (CanGrant && row.CanRevoke)
             {
-                // Keep the person's unsaved toggles across a refresh; current grants cannot be read back.
-                Grants.Add(previous.TryGetValue(row.PeerId, out var kept)
-                    ? kept
-                    : new PeerGrantViewModel(row.PeerId, row.Name, () => Client as ISecuritySource));
+                // Keep the person's unsaved toggles across a refresh; otherwise show what is stored.
+                if (!previous.TryGetValue(row.PeerId, out var model))
+                {
+                    model = new PeerGrantViewModel(row.PeerId, row.Name, () => Client as ISecuritySource);
+                }
+
+                if (!model.IsDirty)
+                {
+                    model.Load(stored.GetValueOrDefault(row.PeerId));
+                }
+
+                Grants.Add(model);
             }
         }
 

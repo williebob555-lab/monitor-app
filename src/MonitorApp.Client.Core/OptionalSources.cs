@@ -165,4 +165,10 @@ public interface ISecuritySource
     Task SetControlGrantAsync(string peerId, bool monitoringControls, bool pairingApproval, bool updateApproval, CancellationToken ct = default);
 
     Task ApprovePhonePresenceEnrollmentAsync(string enrollmentId, CancellationToken ct = default);
+
+    /// <summary>The stored grants for phones that have one; a paired phone absent from the list has none (denied everything).</summary>
+    Task<IReadOnlyList<ControlGrantDto>> GetControlGrantsAsync(CancellationToken ct = default);
+
+    /// <summary>Phone fingerprint-key enrollments waiting for this computer's owner to approve.</summary>
+    Task<IReadOnlyList<PresenceEnrollmentDto>> ListPendingPresenceEnrollmentsAsync(CancellationToken ct = default);
 }

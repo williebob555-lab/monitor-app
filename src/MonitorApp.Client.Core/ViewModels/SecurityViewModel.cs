@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -35,6 +36,11 @@ public sealed partial class SecurityViewModel : SectionViewModel
 
     private ISecuritySource? Source => Client as ISecuritySource;
 
+    /// <summary>Phone fingerprint-key enrollments waiting for approval on this computer.</summary>
+    public ObservableCollection<PhoneEnrollmentRow> PendingEnrollments { get; } = [];
+
+    public bool HasPendingEnrollments => PendingEnrollments.Count > 0;
+
     public bool IsLoaded => Status is not null;
 
     public bool IsEnrolled => Status is { Enrolled: true };
@@ -71,7 +77,50 @@ public sealed partial class SecurityViewModel : SectionViewModel
             return;
         }
 
-        await RunAsync(async () => Status = await source.GetLocalPresenceStatusAsync(cancellationToken));
+        await RunAsync(async () =>
+        {
+            Status = await source.GetLocalPresenceStatusAsync(cancellationToken);
+            await ReloadEnrollmentsAsync(source, cancellationToken);
+        });
+    }
+
+    private async Task ReloadEnrollmentsAsync(ISecuritySource source, CancellationToken cancellationToken)
+    {
+        var pending = await source.ListPendingPresenceEnrollmentsAsync(cancellationToken);
+        PendingEnrollments.Clear();
+        foreach (var enrollment in pending)
+        {
+            PendingEnrollments.Add(PhoneEnrollmentRow.From(enrollment));
+        }
+
+        OnPropertyChanged(nameof(HasPendingEnrollments));
+    }
+
+    [RelayCommand]
+    private async Task ApproveEnrollmentAsync(PhoneEnrollmentRow? enrollment)
+    {
+        if (enrollment is null || Source is not { } source)
+        {
+            return;
+        }
+
+        StatusMessage = null;
+        IsBusy = true;
+        ErrorMessage = null;
+        try
+        {
+            await source.ApprovePhonePresenceEnrollmentAsync(enrollment.EnrollmentId);
+            StatusMessage = $"Approved {enrollment.Title}.";
+            await ReloadEnrollmentsAsync(source, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is LocalApiException)
+        {
+            ErrorMessage = SecurityMessages.For(exception);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -110,6 +159,23 @@ public sealed partial class SecurityViewModel : SectionViewModel
     }
 }
 
+/// <summary>A phone's pending fingerprint-key enrollment as shown for approval.</summary>
+public sealed record PhoneEnrollmentRow(string EnrollmentId, string Title, string Fingerprint, string Requested)
+{
+    public static PhoneEnrollmentRow From(PresenceEnrollmentDto dto)
+    {
+        var name = string.IsNullOrWhiteSpace(dto.DisplayName) ? "A phone" : dto.DisplayName.Trim();
+        var hex = dto.FingerprintSha256.Replace(" ", string.Empty);
+        var shown = hex.Length > 16 ? hex[..16] : hex;
+        var grouped = string.Join(' ', Enumerable.Range(0, (shown.Length + 3) / 4).Select(i => shown.Substring(i * 4, Math.Min(4, shown.Length - i * 4))));
+        return new PhoneEnrollmentRow(
+            dto.EnrollmentId,
+            $"{name}'s fingerprint key",
+            grouped,
+            $"Requested {dto.RequestedAt.ToLocalTime():g}");
+    }
+}
+
 /// <summary>One paired phone's permissions on this computer. Everything is denied unless switched on and saved.</summary>
 public sealed partial class PeerGrantViewModel : ObservableObject
 {
@@ -133,6 +199,11 @@ public sealed partial class PeerGrantViewModel : ObservableObject
     [ObservableProperty]
     private bool isBusy;
 
+    [ObservableProperty]
+    private string? lastChanged;
+
+    private bool loading;
+
     public PeerGrantViewModel(string peerId, string name, Func<ISecuritySource?> source)
     {
         PeerId = peerId;
@@ -142,13 +213,52 @@ public sealed partial class PeerGrantViewModel : ObservableObject
 
     public string PeerId { get; }
 
+    /// <summary>True when the toggles were edited since the last load or save, so a refresh must not overwrite them.</summary>
+    public bool IsDirty { get; private set; }
+
+    public bool HasLastChanged => LastChanged is not null;
+
+    partial void OnLastChangedChanged(string? value) => OnPropertyChanged(nameof(HasLastChanged));
+
+    partial void OnMonitoringControlsChanged(bool value) => MarkDirty();
+
+    partial void OnPairingApprovalChanged(bool value) => MarkDirty();
+
+    partial void OnUpdateApprovalChanged(bool value) => MarkDirty();
+
+    private void MarkDirty()
+    {
+        if (!loading)
+        {
+            IsDirty = true;
+        }
+    }
+
+    /// <summary>Shows a stored grant (null = none stored, everything off) and clears the dirty flag.</summary>
+    public void Load(ControlGrantDto? grant)
+    {
+        loading = true;
+        try
+        {
+            MonitoringControls = grant?.MonitoringControls ?? false;
+            PairingApproval = grant?.PairingApproval ?? false;
+            UpdateApproval = grant?.UpdateApproval ?? false;
+            LastChanged = grant?.UpdatedAt is { } at ? $"Last changed {at.ToLocalTime():g}" : null;
+        }
+        finally
+        {
+            loading = false;
+            IsDirty = false;
+        }
+    }
+
     public string Name { get; }
 
-    public static string MonitoringCopy => "Monitoring controls: lets this phone pause or resume collection, change sampling and mute or acknowledge alerts. Off by default.";
+    public static string MonitoringCopy => "Monitoring controls: lets this phone pause or resume collection, change sampling and mute or acknowledge alerts. Off unless you switch it on.";
 
-    public static string PairingCopy => "Approve pairings: lets this phone approve or reject other devices that want to pair. Off by default.";
+    public static string PairingCopy => "Approve pairings: lets this phone approve or reject other devices that want to pair. Off unless you switch it on.";
 
-    public static string UpdateCopy => "Approve updates: lets this phone approve installing a staged update. Off by default.";
+    public static string UpdateCopy => "Approve updates: lets this phone approve installing a staged update. Off unless you switch it on.";
 
     [RelayCommand]
     private async Task SaveAsync()
@@ -164,6 +274,8 @@ public sealed partial class PeerGrantViewModel : ObservableObject
         try
         {
             await api.SetControlGrantAsync(PeerId, MonitoringControls, PairingApproval, UpdateApproval);
+            IsDirty = false;
+            LastChanged = $"Last changed {DateTimeOffset.Now:g}";
             StatusMessage = $"Saved permissions for {Name}.";
         }
         catch (LocalApiException exception)

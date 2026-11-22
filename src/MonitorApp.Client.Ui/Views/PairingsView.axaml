@@ -57,7 +57,7 @@
     </ItemsControl>
     <TextBlock Text="Phone permissions" Classes="subheading" IsVisible="{Binding CanGrant}" />
     <TextBlock IsVisible="{Binding CanGrant}" TextWrapping="Wrap"
-               Text="A phone can do nothing on this computer until you allow it here. Current permissions aren't shown; Save sets them exactly as switched below. Saving a permission needs your fingerprint." />
+               Text="A phone can do nothing on this computer until you allow it here. The switches show what is currently stored; Save sets them exactly as switched below. Saving a permission needs your fingerprint." />
     <ItemsControl Name="GrantList" ItemsSource="{Binding Grants}" IsVisible="{Binding CanGrant}">
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:PeerGrantViewModel">
@@ -73,6 +73,7 @@
               <CheckBox Name="UpdateToggle" IsChecked="{Binding UpdateApproval}" AutomationProperties.Name="Approve updates">
                 <TextBlock Text="{x:Static vm:PeerGrantViewModel.UpdateCopy}" TextWrapping="Wrap" />
               </CheckBox>
+              <TextBlock Name="LastChangedText" Text="{Binding LastChanged}" IsVisible="{Binding HasLastChanged}" />
               <Button Name="SaveGrantButton" Content="Save permissions" Command="{Binding SaveCommand}" HorizontalAlignment="Left"
                       AutomationProperties.Name="{Binding Name, StringFormat='Save permissions for {0}'}" />
               <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
