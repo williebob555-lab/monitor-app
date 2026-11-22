@@ -1,199 +1,174 @@
+using System.Globalization;
+using System.Text;
+using Android;
 using Android.App;
+using Android.Content.PM;
 using Android.OS;
 using Android.Text;
 using Android.Views;
 using Android.Widget;
-using Grpc.Core;
-using MonitorApp.Android.Core;
+using MonitorApp.Peer.Mobile;
+using MonitorApp.Peer.Transport;
 
 namespace MonitorApp.Android;
 
+/// <summary>Thin shell over the peer runtime: health summary, pairing, alert placeholder, service control.</summary>
 [Activity(Label = "Monitor App", MainLauncher = true, Exported = true)]
 public sealed class MainActivity : Activity
 {
-    private EditText controllerAddress = null!;
-    private EditText enrollmentId = null!;
-    private EditText enrollmentSecret = null!;
-    private EditText proofChallenge = null!;
-    private EditText displayName = null!;
-    private TextView status = null!;
-    private Button refreshButton = null!;
-    private Button healthButton = null!;
+    private TextView health = null!;
+    private TextView pairingStatus = null!;
+    private EditText invitation = null!;
     private Button pairButton = null!;
+    private Handler? ui;
+    private Java.Lang.IRunnable? tick;
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
         Title = "Monitor App";
-
-        var content = new LinearLayout(this)
-        {
-            Orientation = Orientation.Vertical
-        };
+        var content = new LinearLayout(this) { Orientation = Orientation.Vertical };
         var padding = (int)(16 * Resources!.DisplayMetrics!.Density);
         content.SetPadding(padding, padding, padding, padding);
 
-        content.AddView(CreateHeading("Monitor App functional alpha"));
-        content.AddView(CreateDescription(
-            "Foreground Android status and secure application pairing. " +
-            "No background monitoring or live telemetry upload is active yet."));
+        content.AddView(Heading("Health"));
+        health = Text(string.Empty);
+        content.AddView(health);
+        var start = Button("Start monitoring service");
+        start.Click += (_, _) => StartService();
+        var stop = Button("Stop monitoring service");
+        stop.Click += (_, _) => PeerForegroundService.Stop(this);
+        content.AddView(start);
+        content.AddView(stop);
 
-        status = CreateDescription(string.Empty);
-        content.AddView(status);
-
-        refreshButton = CreateButton("Refresh device status");
-        refreshButton.Click += (_, _) => RefreshDeviceStatus();
-        content.AddView(refreshButton);
-
-        controllerAddress = CreateInput("Controller HTTPS address", InputTypes.ClassText | InputTypes.TextVariationUri);
-        content.AddView(controllerAddress);
-
-        healthButton = CreateButton("Check controller health");
-        healthButton.Click += async (_, _) => await CheckControllerHealthAsync().ConfigureAwait(true);
-        content.AddView(healthButton);
-
-        content.AddView(CreateHeading("Pair this Android device"));
-        content.AddView(CreateDescription(
-            "Enter the short-lived values produced by an authorized controller owner. " +
-            "The secret and challenge are cleared after every attempt and are never saved."));
-
-        displayName = CreateInput("Display name", InputTypes.ClassText | InputTypes.TextFlagCapSentences);
-        enrollmentId = CreateInput("Enrollment ID", InputTypes.ClassText | InputTypes.TextVariationVisiblePassword);
-        enrollmentSecret = CreateInput("Enrollment secret (base64)", InputTypes.ClassText | InputTypes.TextVariationPassword);
-        proofChallenge = CreateInput("Proof challenge (base64)", InputTypes.ClassText | InputTypes.TextVariationPassword);
-        content.AddView(displayName);
-        content.AddView(enrollmentId);
-        content.AddView(enrollmentSecret);
-        content.AddView(proofChallenge);
-
-        pairButton = CreateButton("Complete secure pairing");
+        content.AddView(Heading("Pair with a desktop"));
+        content.AddView(Text("Paste the pairing invitation shown by the desktop. The desktop user must approve this phone."));
+        invitation = new EditText(this)
+        {
+            Hint = "Pairing invitation (monitor-pair1.…)",
+            ContentDescription = "Pairing invitation",
+            InputType = InputTypes.ClassText | InputTypes.TextVariationUri,
+        };
+        content.AddView(invitation);
+        pairButton = Button("Pair with desktop");
         pairButton.Click += async (_, _) => await PairAsync().ConfigureAwait(true);
         content.AddView(pairButton);
+        pairingStatus = Text(string.Empty);
+        content.AddView(pairingStatus);
+
+        content.AddView(Heading("Alerts"));
+        content.AddView(Text("No alerts. Alert rules are not implemented yet."));
 
         var scroll = new ScrollView(this);
         scroll.AddView(content);
         SetContentView(scroll);
-        RefreshDeviceStatus();
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
+            CheckSelfPermission(Manifest.Permission.PostNotifications) != Permission.Granted)
+        {
+            RequestPermissions([Manifest.Permission.PostNotifications], 1);
+        }
     }
 
-    private void RefreshDeviceStatus()
+    protected override void OnResume()
+    {
+        base.OnResume();
+        ui = new Handler(Looper.MainLooper!);
+        tick = new Java.Lang.Runnable(() =>
+        {
+            _ = RefreshAsync();
+            ui?.PostDelayed(tick, 2000);
+        });
+        ui.Post(tick);
+    }
+
+    protected override void OnPause()
+    {
+        ui?.RemoveCallbacksAndMessages(null);
+        ui = null;
+        base.OnPause();
+    }
+
+    private void StartService() => PeerForegroundService.Start(this);
+
+    private async Task RefreshAsync()
     {
         try
         {
-            var snapshot = AndroidDeviceSnapshot.Capture(this);
-            var battery = snapshot.BatteryPercent.IsAvailable
-                ? $"{snapshot.BatteryPercent.Value}%"
-                : "Unavailable";
-            var receipt = new PairingReceiptStore(this).Load();
-            var identity = receipt is null
-                ? "Not paired"
-                : $"Paired as {receipt.AgentId} / {receipt.NodeId}";
-            status.Text =
-                $"Device: {snapshot.DeviceIdentity}\n" +
-                $"Platform: {snapshot.Platform}\n" +
-                $"Battery: {battery} ({snapshot.ChargingState})\n" +
-                $"Network: {snapshot.Network.DisplayText}\n" +
-                $"VPN detected: {(snapshot.Network.IsVpn ? "Yes" : "No")}\n" +
-                $"Identity: {identity}\n" +
-                $"Freshness: foreground snapshot at {snapshot.SourceTime:O}";
+            var runtime = await MobileRuntimeHost.GetAsync(this).ConfigureAwait(true);
+            var status = runtime.GetStatus();
+            var text = new StringBuilder()
+                .AppendLine(CultureInfo.InvariantCulture, $"Peer id: {status.PeerId}")
+                .AppendLine(CultureInfo.InvariantCulture, $"Fingerprint (SHA-256): {status.FingerprintHex}")
+                .AppendLine(CultureInfo.InvariantCulture, $"Service: {(status.Running ? "running" : "stopped")}")
+                .AppendLine(CultureInfo.InvariantCulture,
+                    $"Last collection: {status.Collection.LastObservedAt?.ToString("O", CultureInfo.InvariantCulture) ?? "none"}" +
+                    $" ({status.Collection.LastAppendedRecords} records)" +
+                    (status.Collection.LastError is null ? string.Empty : $", error {status.Collection.LastError}"));
+            foreach (var peer in status.Peers)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture,
+                    $"Desktop {peer.PeerId}: {peer.State}" +
+                    $"{(peer.LastSuccess is { } at ? $", last sync {at:O}" : string.Empty)}" +
+                    $"{(peer.LastError is null ? string.Empty : $" ({peer.LastError})")}");
+            }
+
+            if (status.Peers.Count == 0)
+            {
+                text.AppendLine("Not paired with any desktop.");
+            }
+
+            health.Text = text.ToString();
+            if (status.PendingPairingId is { } pending)
+            {
+                pairingStatus.Text = $"Waiting for desktop approval (pairing {pending}).";
+            }
         }
         catch (Exception exception)
         {
-            status.Text = $"Device status unavailable: {exception.Message}";
-        }
-    }
-
-    private async Task CheckControllerHealthAsync()
-    {
-        SetBusy(true);
-        try
-        {
-            var controller = ControllerUriPolicy.ParseHttps(controllerAddress.Text ?? string.Empty);
-            _ = await ControllerClient.CheckHealthAsync(controller, CancellationToken.None).ConfigureAwait(true);
-            status.Text = $"Controller healthy at {controller} ({DateTimeOffset.UtcNow:O}).";
-        }
-        catch (Exception exception) when (exception is ArgumentException or HttpRequestException or TaskCanceledException)
-        {
-            status.Text = $"Controller health check failed: {exception.Message}";
-        }
-        finally
-        {
-            SetBusy(false);
+            health.Text = $"Peer runtime unavailable: {exception.Message}";
         }
     }
 
     private async Task PairAsync()
     {
-        SetBusy(true);
+        pairButton.Enabled = false;
         try
         {
-            var controller = ControllerUriPolicy.ParseHttps(controllerAddress.Text ?? string.Empty);
-            var material = EnrollmentMaterial.Parse(
-                enrollmentId.Text ?? string.Empty,
-                enrollmentSecret.Text ?? string.Empty,
-                proofChallenge.Text ?? string.Empty,
-                displayName.Text ?? string.Empty);
-            var signer = new AndroidKeystoreDeviceKeySigner("monitor-app-device-v1");
-            var receipt = await ControllerClient.CompleteEnrollmentAsync(
-                controller,
-                material,
-                signer,
-                CancellationToken.None).ConfigureAwait(true);
-            new PairingReceiptStore(this).Save(receipt);
-            status.Text =
-                $"Pairing complete. Agent {receipt.AgentId}, node {receipt.NodeId}, " +
-                $"completed {receipt.CompletedAt:O}.";
+            var parsed = PeerPairingInvitation.Decode(invitation.Text ?? string.Empty);
+            var runtime = await MobileRuntimeHost.GetAsync(this).ConfigureAwait(true);
+            pairingStatus.Text = "Contacting desktop. Approve this phone on the desktop.";
+            var desktop = await runtime.PairAsync(parsed).ConfigureAwait(true);
+            pairingStatus.Text = $"Paired with {desktop}.";
+            invitation.Text = string.Empty;
         }
-        catch (RpcException exception)
+        catch (Exception exception) when (exception is FormatException or MobilePairingFailedException)
         {
-            status.Text = $"Pairing rejected: {exception.StatusCode} — {exception.Status.Detail}";
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException)
-        {
-            status.Text = $"Pairing failed: {exception.Message}";
+            pairingStatus.Text = exception.Message;
         }
         finally
         {
-            enrollmentSecret.Text = string.Empty;
-            proofChallenge.Text = string.Empty;
-            SetBusy(false);
+            pairButton.Enabled = true;
         }
     }
 
-    private void SetBusy(bool busy)
-    {
-        refreshButton.Enabled = !busy;
-        healthButton.Enabled = !busy;
-        pairButton.Enabled = !busy;
-    }
-
-    private TextView CreateHeading(string text) => new(this)
+    private TextView Heading(string text) => new(this)
     {
         Text = text,
         TextSize = 22,
-        ImportantForAccessibility = ImportantForAccessibility.Yes
+        ImportantForAccessibility = ImportantForAccessibility.Yes,
     };
 
-    private TextView CreateDescription(string text) => new(this)
+    private TextView Text(string text) => new(this)
     {
         Text = text,
         TextSize = 16,
-        ImportantForAccessibility = ImportantForAccessibility.Yes
+        ImportantForAccessibility = ImportantForAccessibility.Yes,
     };
 
-    private EditText CreateInput(string hint, InputTypes inputType) => new(this)
-    {
-        Hint = hint,
-        ContentDescription = hint,
-        InputType = inputType,
-        ImportantForAccessibility = ImportantForAccessibility.Yes
-    };
-
-    private Button CreateButton(string text) => new(this)
+    private Button Button(string text) => new(this)
     {
         Text = text,
         ContentDescription = text,
-        ImportantForAccessibility = ImportantForAccessibility.Yes
+        ImportantForAccessibility = ImportantForAccessibility.Yes,
     };
 }

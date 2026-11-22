@@ -6,6 +6,8 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Changed
 
+- Moved `IPeerAdvertisementProvider` and `PeerCapabilityRegistry` from Peer.Service to Peer.Replication (namespace unchanged) so Peer.Sync no longer references ASP.NET Core.
+
 - Replaced the mandatory full-document preflight and default full-suite verification for every edit with a risk-based workflow: always inspect the index, todo, working tree, and governing decisions; read complete documents and run broad tests only when the change scope requires them.
 - Expanded the documented product scope to a universal monitoring, inventory, and design model with an explicit boundary between actual/owned/running state and named plans. Added connector-and-length-centered cable management, physical/audio/RF/electrical/thermal constraints, sourcing and price history, deterministic automation and notifications, optional distributed local AI, and a dependency-ordered roadmap. These are documented plans, not implemented features.
 - Replaced the controller/agent and automatic self-hosted Headscale direction with a confirmed decentralized equal-peer mesh. Tailscale now supplies user-managed reachability only; bilateral application pairing establishes trust.
@@ -16,6 +18,9 @@ This file records completed user-visible, operational, architectural, packaging,
 - Reframed the current controller alpha as reusable migration evidence rather than the target deployment.
 
 ### Added
+
+- `MonitorApp.Peer.Mobile`: portable, lifecycle-agnostic Android peer runtime (outbound-only, injected identity, Android battery/network readings through the shared signed-origin ingestion path with an `monitor.android.device` capability declaration, explicit pairing, reconnecting phone-initiated bidirectional sync) with real loopback gRPC/SQLite integration tests; `PeerPairingInvitation` versioned pairing payload; `PeerGrpcConnector.SyncOnceAsync`.
+- Android app is now a foreground-service peer shell (health summary, pairing by pasted invitation, empty alert list); the controller enrollment path and receipt store were removed from the app. Build and device behavior are unverified (no Android SDK available in the verification environment).
 
 - Comprehensive product and architecture specification in `Monitor App Design Specification.txt`.
 - Repository-wide preflight and documentation rules in `AGENTS.md`.

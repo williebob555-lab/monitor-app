@@ -283,6 +283,15 @@ dotnet build src/MonitorApp.Android/MonitorApp.Android.csproj -c Release --no-re
 
 The Android build requires the .NET Android workload, Android API 36, and a supported JDK 21. The platform-independent Android core and its tests are in `MonitorApp.sln`; the workload-specific application project is intentionally outside the root solution so ordinary Windows and Ubuntu CI do not silently acquire mobile toolchains. The current Release APK was compiled on Windows with .NET SDK 10.0.400, .NET Android workload 36.1.69, Android API 36, and Temurin JDK 21.0.13. It is development-signed build evidence, not a production-signed release.
 
+Android peer runtime (portable, Linux/Windows CI; real loopback HTTP/2 gRPC, two file-backed SQLite stores, production desktop host):
+
+```powershell
+dotnet test tests/MonitorApp.Peer.Mobile.Tests/MonitorApp.Peer.Mobile.Tests.csproj -c Release
+dotnet test tests/MonitorApp.Peer.Transport.Tests/MonitorApp.Peer.Transport.Tests.csproj -c Release
+```
+
+These cover phone-initiated pairing with desktop approval, offline collection, reconnect convergence without duplicates, revocation refusal, wrong-pinned-fingerprint rejection, Android reading units/quality/source time and explicit unavailable state, and the pairing-invitation codec/policy. The phone's Keystore identity, foreground service, and APK are not covered by these tests. The Android app was restructured after the last verified APK build and has not been rebuilt.
+
 No emulator/AVD or Android instrumentation project is currently available. The future emulator command remains:
 
 ```powershell

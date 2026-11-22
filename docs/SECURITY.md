@@ -17,6 +17,12 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - Protect each peer's SQLite history, trust database, offline replication state, and backups with OS access controls. Diagnostics must be inspectable and redactable.
 - Origin records retain immutable ids and sequence. Replication verifies origin identity, validates schemas/timestamps, is idempotent, and never grants control authority.
 
+## Android peer
+
+- The phone is outbound-only and opens no listener. Its P-256 identity key stays in Android Keystore and signs session and pairing proofs; the portable runtime only sees the `IPeerIdentityKey` abstraction.
+- A pairing invitation carries address, peer id, and fingerprint only (no secret). Decoding enforces the private/loopback endpoint policy, 32-byte fingerprint, version, and size; it grants no trust. The phone pins the invitation fingerprint and the desktop user must explicitly approve.
+- A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only by explicit user action and shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
+
 ## Observed devices, adapters, and LAN infrastructure
 
 Observed devices cannot authenticate as peers. A provisioned peer acts as collection gateway through a reviewed adapter. Every observation identifies the observed entity, collecting peer, adapter/module, source time, evidence, and quality.
