@@ -389,6 +389,64 @@ public sealed class AlertStore
         return result;
     }
 
+    /// <summary>Delivery bookkeeping for the given alerts across all recipients (empty when none were queued or all were purged).</summary>
+    public async Task<IReadOnlyList<OutboxEntry>> ReadOutboxForAlertsAsync(
+        IReadOnlyCollection<string> alertIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alertIds);
+        if (alertIds.Count == 0)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        var names = alertIds.Select((_, index) => "$a" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
+        command.CommandText = $"""
+            SELECT recipient_peer_id, alert_id, revision, enqueued_at, expires_at, attempts, last_attempt_at, acked_at
+            FROM alert_outbox WHERE alert_id IN ({string.Join(',', names)}) ORDER BY alert_id, recipient_peer_id, revision;
+            """;
+        var position = 0;
+        foreach (var id in alertIds)
+        {
+            command.Parameters.AddWithValue(names[position++], id);
+        }
+
+        var result = new List<OutboxEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new OutboxEntry(
+                reader.GetString(0), reader.GetString(1), checked((uint)reader.GetInt64(2)), Parse(reader.GetString(3)),
+                Parse(reader.GetString(4)), reader.GetInt32(5),
+                reader.IsDBNull(6) ? null : Parse(reader.GetString(6)),
+                reader.IsDBNull(7) ? null : Parse(reader.GetString(7))));
+        }
+
+        return result;
+    }
+
+    /// <summary>When the owner's most recent episode for the rule and subject resolved, or null if none has.</summary>
+    public async Task<DateTimeOffset?> ReadLastResolvedAtAsync(
+        string originPeerId,
+        string ruleId,
+        string subjectId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT MAX(resolved_at) FROM alerts
+            WHERE origin_peer_id = $origin AND rule_id = $rule AND subject_id = $subject AND state = 2;
+            """;
+        command.Parameters.AddWithValue("$origin", originPeerId);
+        command.Parameters.AddWithValue("$rule", ruleId);
+        command.Parameters.AddWithValue("$subject", subjectId);
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is string text ? Parse(text) : null;
+    }
+
     /// <summary>Deletes delivery bookkeeping only (acknowledged or expired before the cutoff); alert events are kept.</summary>
     public async Task<int> PurgeOutboxAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
     {

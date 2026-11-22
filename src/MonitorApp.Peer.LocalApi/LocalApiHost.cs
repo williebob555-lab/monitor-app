@@ -172,6 +172,8 @@ public sealed class LocalApiHost : IAsyncDisposable
 
             var found = await store.ReadActiveAndRecentAsync(clock.UtcNow - TimeSpan.FromDays(7), take, token)
                 .ConfigureAwait(false);
+            var deliveries = (await store.ReadOutboxForAlertsAsync(found.Select(alert => alert.AlertId).ToArray(), token)
+                .ConfigureAwait(false)).ToLookup(entry => entry.AlertId, StringComparer.Ordinal);
             return Results.Json(new
             {
                 alerts = found.Select(alert => new
@@ -187,6 +189,18 @@ public sealed class LocalApiHost : IAsyncDisposable
                     alert.Detail,
                     alert.RaisedAt,
                     alert.ResolvedAt,
+
+                    // Per-recipient delivery of each revision: deliveredAt is when the recipient's durable-write
+                    // acknowledgement arrived (null while pending). There is no user acknowledge or mute state yet.
+                    deliveries = deliveries[alert.AlertId].Select(entry => new
+                    {
+                        entry.RecipientPeerId,
+                        entry.Revision,
+                        entry.EnqueuedAt,
+                        entry.Attempts,
+                        entry.LastAttemptAt,
+                        DeliveredAt = entry.AckedAt,
+                    }),
                 }),
             });
         });

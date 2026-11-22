@@ -155,8 +155,11 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
 
     private const int MaximumAlertPages = 16;
 
-    /// <summary>How often a live phone session asks for alerts addressed to it (alerts are pulled, acknowledged after a durable write).</summary>
-    private static readonly TimeSpan LiveAlertPullInterval = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// Safety-net pull on a live phone session. The desktop pushes new alerts the moment they are queued, so this only
+    /// covers a missed wakeup (and a desktop that cannot push); acknowledgement still follows a durable write.
+    /// </summary>
+    private static readonly TimeSpan LiveAlertPullInterval = TimeSpan.FromSeconds(30);
 
     private async Task PullAlertsAsync(AsyncDuplexStreamingCall<PeerSessionRequest, PeerSessionResponse> call,
         string remotePeerId, CancellationToken cancellationToken)
@@ -254,7 +257,8 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
                     case PeerSessionResponse.MessageOneofCase.Heartbeat:
                         break;
                     case PeerSessionResponse.MessageOneofCase.AlertBatch:
-                        Volatile.Write(ref alertPullOutstanding, 0);
+                        // An unsolicited push (empty request id) does not answer the outstanding pull.
+                        if (response.AlertBatch.RequestId.Length > 0) Volatile.Write(ref alertPullOutstanding, 0);
                         RequireValid(PeerContractValidator.Validate(response.AlertBatch), "Peer alert batch is invalid.");
                         var alertAck = await application.AcceptAlertBatchAsync(remotePeerId, response.AlertBatch, token).ConfigureAwait(false);
                         if (alertAck is not null)

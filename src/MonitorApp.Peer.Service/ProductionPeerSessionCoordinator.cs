@@ -389,6 +389,23 @@ public sealed class ProductionPeerSessionCoordinator(
         }
     }
 
+    public async ValueTask<AlertBatch?> WaitForAlertPushAsync(
+        string remotePeerId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var service = alerts ?? throw new PeerSessionOperationException(
+            ProtocolErrorCode.InvalidMessage, "Alerts are not supported by this peer.");
+        try
+        {
+            return await service.WaitForPushAsync(remotePeerId, timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AlertDeliveryUnauthorizedException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "Peer trust is not active.");
+        }
+    }
+
     public async ValueTask AcceptAlertAckAsync(
         string remotePeerId,
         AlertAck acknowledgement,
