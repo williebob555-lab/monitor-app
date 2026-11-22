@@ -23,7 +23,9 @@ Ownership means "ask before changing", not "the other agent can never touch it".
 | --- | --- | --- |
 | Peer trust, pairing, replication, sync, transport (`MonitorApp.Peer.Core`, `.Sync`, `.Replication`, `.Transport`, `.Service`, `contracts/`) | Claude | Security- and sync-critical. Changes from ChatGPT come as a PR that Claude reviews before merge. |
 | Control channel, user presence / fingerprint, update pipeline (`MonitorApp.Peer.Control`, `MonitorApp.Client.Presence*`, `MonitorApp.Update`, `eng/`, `.github/workflows/`) | Claude | Same review rule. Signing keys stay with Wilson; no agent ever handles them. |
-| Alerts, history, local API (`MonitorApp.Peer.Alerts`, `.LocalApi`, `.Persistence`) | Claude | Built in PR #5 (merged). |
+| Alerts, history (`MonitorApp.Peer.Alerts`, `.Persistence`) | Claude | Built in PR #5 (merged). |
+| Web API: local HTTP API and admin page (`MonitorApp.Peer.LocalApi`, `LocalApiClient`) | ChatGPT | Assigned by Wilson 2026-11-22. Claude keeps `api/machines*` for T058. Changes to antiforgery, presence-gated or control endpoints get Claude review before merge. |
+| Rack-mount organization: racks, rack units, mounted equipment, spaces (universal object model in `MonitorApp.Contracts` and its persistence) | ChatGPT | Assigned by Wilson 2026-11-22. Additive contract changes only; claim any `.proto` field or schema version first. |
 | UI: Dive interface and device grid (`MonitorApp.Client.Ui`, `.Client.Core/Scene`, `docs/UI_DESIGN.md`) | Claude | In flight in PR #4. |
 | Dual-boot host identity and OS switching (`Peer.Collection/Host/`, `contracts/monitor/v1/host.proto`) | Claude | T058/T059. |
 | Everything else, including items in `TODO.md` with no claim row | Open | Claim it in section 6 first. |
