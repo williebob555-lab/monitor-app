@@ -313,6 +313,53 @@ public sealed class LocalApiHost : IAsyncDisposable
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
         MapControlEndpoints(application);
+        application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>
+            Results.Json((await store.ReadPinnedIncidentsAsync(token).ConfigureAwait(false)).Select(PinnedIncidentView.Of)));
+        application.MapPost("/api/v1/incidents/pin", async (
+            PinIncidentRequest? body,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            PeerStore store,
+            IPeerClock clock,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (body is null ||
+                string.IsNullOrWhiteSpace(body.Label) || body.Label.Length > 200 ||
+                !TryParseUtc(body.From, out var from) || !TryParseUtc(body.To, out var to) || to <= from ||
+                to - from > TimeSpan.FromDays(31))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "Pinning needs a label (up to 200 characters) and an ISO-8601 UTC from/to window of at most 31 days.",
+                });
+            }
+
+            var incident = new PinnedIncident(Guid.NewGuid().ToString("N"), body.Label.Trim(), from, to, clock.UtcNow.ToUniversalTime());
+            await store.PinIncidentAsync(incident, token).ConfigureAwait(false);
+            return MutationResult(context, PinnedIncidentView.Of(incident));
+        });
+        application.MapPost("/api/v1/incidents/{incidentId}/unpin", async (
+            string incidentId,
+            HttpContext context,
+            IAntiforgery antiforgery,
+            PeerStore store,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            // Unpinning only makes the window prunable on the next retention pass; pruned data is never restored.
+            return await store.UnpinIncidentAsync(incidentId, token).ConfigureAwait(false)
+                ? MutationResult(context, new { incidentId, pinned = false })
+                : Results.NotFound(new { error = "No such pinned incident." });
+        });
         application.MapPost("/api/invitations", HandleInvitationAsync);
         application.MapPost("/api/phone-invitations", HandlePhoneInvitationAsync);
         application.MapGet("/", RenderPageAsync);
@@ -637,8 +684,37 @@ public sealed class LocalApiHost : IAsyncDisposable
         }
     }
 
+    private static bool TryParseUtc(string? text, out DateTimeOffset value)
+    {
+        value = default;
+        if (!DateTimeOffset.TryParse(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return false;
+        }
+
+        value = parsed.ToUniversalTime();
+        return true;
+    }
+
     private static IResult MutationResult(HttpContext context, object value) =>
         context.Request.HasFormContentType
             ? Results.Redirect("/", permanent: false, preserveMethod: false)
             : Results.Json(value);
+}
+
+/// <summary>Pin a time window of raw observations against retention pruning.</summary>
+internal sealed record PinIncidentRequest(string? Label, string? From, string? To);
+
+internal sealed record PinnedIncidentView(string IncidentId, string Label, string From, string To, string CreatedAt)
+{
+    public static PinnedIncidentView Of(PinnedIncident incident) => new(
+        incident.IncidentId,
+        incident.Label,
+        incident.From.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        incident.To.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        incident.CreatedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
 }

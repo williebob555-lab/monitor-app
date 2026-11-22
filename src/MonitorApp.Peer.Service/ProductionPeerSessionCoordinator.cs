@@ -144,8 +144,12 @@ public sealed class PeerStoreAdvertisementProvider(
 public sealed class PeerSessionOperationException(
     ProtocolErrorCode code,
     string safeMessage,
-    bool retryable = false) : Exception(safeMessage)
+    bool retryable = false,
+    PrunedRange? prunedRange = null) : Exception(safeMessage)
 {
+    /// <summary>Set with <see cref="ProtocolErrorCode.RangePruned"/>: the range the origin removed.</summary>
+    public PrunedRange? PrunedRange { get; } = prunedRange;
+
     public ProtocolErrorCode Code { get; } = code;
 
     public string SafeMessage { get; } = safeMessage;
@@ -166,7 +170,7 @@ public sealed class ProductionPeerSessionCoordinator(
     public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
         store,
         remotePeerId,
-        (request, token) => ReadOriginRangeAsync(remotePeerId, request, token),
+        (request, token) => ReadOriginRangeForPushAsync(remotePeerId, request, token),
         async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
         interests,
         RequestRemotePush: false));
@@ -269,6 +273,33 @@ public sealed class ProductionPeerSessionCoordinator(
         return response;
     }
 
+    private async ValueTask<OriginRecordBatch> ReadOriginRangeForPushAsync(
+        string remotePeerId,
+        OriginRangeRequest request,
+        CancellationToken cancellationToken)
+    {
+        await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(request.OriginPeerId, localIdentity.PublicIdentity.PeerId, StringComparison.Ordinal))
+        {
+            throw new PeerSessionOperationException(
+                ProtocolErrorCode.Unauthorized,
+                "Relayed origin range requests are not supported.");
+        }
+
+        try
+        {
+            return await replication.ReadForPushAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OriginReplicationLimitException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.MessageTooLarge, "Origin range exceeds configured limits.");
+        }
+        catch (OriginReplicationValidationException)
+        {
+            throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Origin range is invalid.");
+        }
+    }
+
     public async ValueTask<OriginRecordBatch> ReadOriginRangeAsync(
         string remotePeerId,
         OriginRangeRequest request,
@@ -288,7 +319,19 @@ public sealed class ProductionPeerSessionCoordinator(
         }
         catch (OriginRangePrunedException pruned)
         {
-            throw new PeerSessionOperationException(ProtocolErrorCode.RangePruned, pruned.Message);
+            throw new PeerSessionOperationException(
+                ProtocolErrorCode.RangePruned,
+                pruned.Message,
+                false,
+                pruned.Range is null
+                    ? null
+                    : new PrunedRange
+                    {
+                        OriginPeerId = pruned.Range.OriginPeerId,
+                        OriginStreamId = pruned.Range.OriginStreamId,
+                        FirstSequence = pruned.Range.FirstSequence,
+                        LastSequence = pruned.Range.LastSequence,
+                    });
         }
         catch (OriginReplicationLimitException)
         {

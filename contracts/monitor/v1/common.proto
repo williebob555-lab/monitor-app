@@ -51,6 +51,7 @@ enum MetricUnit {
   METRIC_UNIT_SECONDS = 5;
   METRIC_UNIT_CELSIUS = 6;
   METRIC_UNIT_BOOLEAN = 7;
+  METRIC_UNIT_MEGABITS_PER_SECOND = 8;
 }
 
 message Capability {
@@ -68,7 +69,7 @@ enum ProtocolErrorCode {
   PROTOCOL_ERROR_CODE_MESSAGE_TOO_LARGE = 5;
   PROTOCOL_ERROR_CODE_UNAUTHORIZED = 6;
   PROTOCOL_ERROR_CODE_INTERNAL = 7;
-  // The requested origin range was removed by retention; resume from the sequence in safe_message.
+  // The requested origin range was removed by retention; resume from pruned_range.last_sequence + 1.
   PROTOCOL_ERROR_CODE_RANGE_PRUNED = 8;
 }
 
@@ -76,4 +77,14 @@ message ProtocolError {
   ProtocolErrorCode code = 1;
   string safe_message = 2;
   bool retryable = 3;
+  // Set with RANGE_PRUNED: the exact origin sequence range the origin removed by retention.
+  PrunedRange pruned_range = 4;
+}
+
+// An origin sequence range (inclusive) intentionally absent at the origin; replicas resume after last_sequence.
+message PrunedRange {
+  string origin_peer_id = 1;
+  string origin_stream_id = 2;
+  uint64 first_sequence = 3;
+  uint64 last_sequence = 4;
 }

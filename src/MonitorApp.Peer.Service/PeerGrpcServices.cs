@@ -120,11 +120,13 @@ public sealed class PeerPairingGrpcService(
     internal static ProtocolError Error(
         ProtocolErrorCode code,
         string message,
-        bool retryable) => new()
+        bool retryable,
+        PrunedRange? prunedRange = null) => new()
         {
             Code = code,
             SafeMessage = message,
             Retryable = retryable,
+            PrunedRange = prunedRange?.Clone(),
         };
 
     internal static CompatibilityFailure Incompatibility(ProtocolVersion received) => new()
@@ -691,7 +693,8 @@ public sealed class PeerSessionGrpcService(
                 responseStream,
                 exception.Code,
                 exception.SafeMessage,
-                exception.Retryable).ConfigureAwait(false);
+                exception.Retryable,
+                exception.PrunedRange).ConfigureAwait(false);
         }
     }
 
@@ -910,7 +913,7 @@ public sealed class PeerSessionGrpcService(
             {
                 await writer.WriteAsync(new PeerSessionResponse
                 {
-                    Error = PeerPairingGrpcService.Error(exception.Code, exception.SafeMessage, exception.Retryable),
+                    Error = PeerPairingGrpcService.Error(exception.Code, exception.SafeMessage, exception.Retryable, exception.PrunedRange),
                 }).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is IOException or InvalidOperationException or OperationCanceledException)
@@ -949,9 +952,10 @@ public sealed class PeerSessionGrpcService(
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ProtocolErrorCode code,
         string message,
-        bool retryable) => responseStream.WriteAsync(new PeerSessionResponse
+        bool retryable,
+        PrunedRange? prunedRange = null) => responseStream.WriteAsync(new PeerSessionResponse
         {
-            Error = PeerPairingGrpcService.Error(code, message, retryable),
+            Error = PeerPairingGrpcService.Error(code, message, retryable, prunedRange),
         });
 
     private static Task WriteTimeoutAsync(IServerStreamWriter<PeerSessionResponse> responseStream) =>

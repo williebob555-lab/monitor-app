@@ -148,7 +148,7 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             var accepted = remoteAck.Cursor?.AcceptedThrough ?? 0;
             if (accepted >= localHead) break;
             EnsureOperationBound(++operations);
-            var batch = await replication.ReadAsync(new OriginRangeRequest
+            var batch = await replication.ReadForPushAsync(new OriginRangeRequest
             {
                 RequestId = Guid.NewGuid().ToString("N"),
                 OriginPeerId = local.PeerId,
@@ -158,15 +158,21 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
                 MaximumRecordCount = (uint)options.MaximumBatchRecords,
                 MaximumBatchBytes = (uint)options.MaximumBatchBytes,
             }, cancellationToken).ConfigureAwait(false);
-            if (batch.Records.Count == 0) throw new PeerSyncException("Local origin availability contains an unexpected gap.");
+            if (batch.Records.Count == 0 && batch.PrunedRange is null) throw new PeerSyncException("Local origin availability contains an unexpected gap.");
             yield return new PeerSessionRequest { OriginBatch = batch };
         }
     }
 
     public async ValueTask<OriginAck> AcceptOriginBatchAsync(string remotePeerId, OriginRecordBatch batch, CancellationToken cancellationToken)
     {
-        if (batch.Records.Count == 0) throw new PeerSyncException("Remote advertised records but returned an empty batch.");
+        if (batch.Records.Count == 0 && batch.PrunedRange is null) throw new PeerSyncException("Remote advertised records but returned an empty batch.");
         return (await replication.ApplyAsync(remotePeerId, batch, cancellationToken).ConfigureAwait(false)).Acknowledgement;
+    }
+
+    public async ValueTask<OriginAck?> AcceptRangePrunedAsync(string remotePeerId, PrunedRange range, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        return await replication.ApplyPrunedRangeAsync(remotePeerId, range, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AcceptOriginAckAsync(string remotePeerId, OriginAck acknowledgement, CancellationToken cancellationToken)
@@ -191,7 +197,7 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         return new PeerLiveSession(new PeerLiveSessionOptions(
             store,
             remotePeerId,
-            (request, token) => new ValueTask<OriginRecordBatch>(replication.ReadAsync(request, token)),
+            (request, token) => new ValueTask<OriginRecordBatch>(replication.ReadForPushAsync(request, token)),
             async token =>
             {
                 var trusted = await store.ReadTrustedPeerAsync(remotePeerId, token).ConfigureAwait(false);

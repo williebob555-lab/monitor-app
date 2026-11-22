@@ -42,9 +42,15 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             throw new OriginReplicationValidationException(string.Join(" ", validation.Errors));
         }
 
-        if (batch.Records.Count == 0)
+        if (batch.Records.Count == 0 && batch.PrunedRange is null)
         {
             throw new OriginReplicationValidationException("An incoming origin batch must contain at least one record.");
+        }
+
+        if (batch.Records.Count == 0)
+        {
+            // Nothing but the sender's statement that a range is gone.
+            return new OriginBatchApplyResult(await ApplyPrunedRangeAsync(sourcePeerId, batch.PrunedRange!, cancellationToken).ConfigureAwait(false), [], 0, 0);
         }
 
         if (batch.Records.Count > options.MaximumBatchRecords)
@@ -77,6 +83,16 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             {
                 throw new OriginReplicationValidationException("An origin record signature is invalid.");
             }
+        }
+
+        if (batch.PrunedRange is { } pruned)
+        {
+            if (pruned.OriginStreamId != first.OriginStreamId || pruned.LastSequence >= first.Sequence)
+            {
+                throw new OriginReplicationValidationException("The pruned range does not precede the batch on the same stream.");
+            }
+
+            await ApplyPrunedRangeAsync(sourcePeerId, pruned, cancellationToken).ConfigureAwait(false);
         }
 
         var existingRecords = await store.ReadOriginRangeAsync(
@@ -133,6 +149,39 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         return new OriginBatchApplyResult(ack, cursorState.Gaps, inserted, retried);
     }
 
+    /// <summary>
+    /// Reads a range to push to a replica. Unlike <see cref="ReadAsync"/>, a range the local retention pruned is not
+    /// an error: the batch starts after it and carries the pruned range, so the replica records it as intentionally
+    /// absent instead of waiting for records that no longer exist.
+    /// </summary>
+    public async Task<OriginRecordBatch> ReadForPushAsync(OriginRangeRequest request, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await ReadAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OriginRangePrunedException pruned) when (pruned.Range is { } range)
+        {
+            var resume = request.Clone();
+            resume.FirstSequence = checked(range.LastSequence + 1);
+            var contractRange = new PrunedRange
+            {
+                OriginPeerId = range.OriginPeerId,
+                OriginStreamId = range.OriginStreamId,
+                FirstSequence = range.FirstSequence,
+                LastSequence = range.LastSequence,
+            };
+            if (resume.LastSequence != 0 && resume.FirstSequence > resume.LastSequence)
+            {
+                return new OriginRecordBatch { RequestId = request.RequestId, PrunedRange = contractRange };
+            }
+
+            var batch = await ReadAsync(resume, cancellationToken).ConfigureAwait(false);
+            batch.PrunedRange = contractRange;
+            return batch;
+        }
+    }
+
     public async Task<OriginRecordBatch> ReadAsync(OriginRangeRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -145,7 +194,7 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         var pruned = await store.ReadPrunedRangeContainingAsync(request.OriginPeerId, request.OriginStreamId, request.FirstSequence, cancellationToken).ConfigureAwait(false);
         if (pruned is not null)
         {
-            throw new OriginRangePrunedException(request.FirstSequence, pruned.LastSequence);
+            throw new OriginRangePrunedException(request.FirstSequence, pruned);
         }
 
         // A batch never spans a pruned range: it stops before it so the next request lands on the explicit outcome.
@@ -180,6 +229,57 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         return response;
     }
 
+    /// <summary>
+    /// The origin reported that a range was removed by its retention. Records the range durably as intentionally
+    /// absent, so the cursor advances past it instead of leaving a perpetual gap, and returns the new acknowledgement.
+    /// Only an actively trusted origin may declare its own stream pruned, and the range must cover the sequence this
+    /// replica asked for next (anything else is a protocol violation, not a prune).
+    /// </summary>
+    public async Task<OriginAck> ApplyPrunedRangeAsync(string sourcePeerId, PrunedRange range, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePeerId);
+        ArgumentNullException.ThrowIfNull(range);
+        if (!string.Equals(sourcePeerId, range.OriginPeerId, StringComparison.Ordinal))
+        {
+            throw new OriginReplicationTrustException("Relayed pruned ranges are not supported; the source must own the origin stream.");
+        }
+
+        if (string.IsNullOrWhiteSpace(range.OriginStreamId) || range.FirstSequence == 0 || range.LastSequence < range.FirstSequence)
+        {
+            throw new OriginReplicationValidationException("The pruned range is invalid.");
+        }
+
+        var trusted = await store.ReadTrustedPeerAsync(sourcePeerId, cancellationToken).ConfigureAwait(false);
+        if (trusted is null || trusted.TrustState != PeerTrustState.Active)
+        {
+            throw new OriginReplicationTrustException("The source peer is not actively trusted.");
+        }
+
+        var prior = await store.ReadReplicationCursorAsync(sourcePeerId, range.OriginPeerId, range.OriginStreamId, cancellationToken).ConfigureAwait(false);
+        var next = checked((prior.Cursor?.AcceptedThrough ?? 0) + 1);
+        if (range.FirstSequence > next)
+        {
+            throw new OriginReplicationValidationException("The pruned range does not start at the next expected sequence.");
+        }
+
+        var receivedAt = RequireUtc(utcNow());
+        await store.RecordPrunedRangeAsync(
+            new PrunedOriginRange(range.OriginPeerId, range.OriginStreamId, range.FirstSequence, range.LastSequence, receivedAt),
+            cancellationToken).ConfigureAwait(false);
+        var cursorState = await RecalculateCursorAsync(sourcePeerId, range.OriginPeerId, range.OriginStreamId, receivedAt, cancellationToken).ConfigureAwait(false);
+        return new OriginAck
+        {
+            Cursor = new OriginCursor
+            {
+                OriginPeerId = range.OriginPeerId,
+                OriginStreamId = range.OriginStreamId,
+                AcceptedThroughSequence = cursorState.Cursor.AcceptedThrough,
+                UpdatedAt = Timestamp.FromDateTimeOffset(receivedAt),
+            },
+        };
+    }
+
+    // Sequences inside a pruned (intentionally absent) range count as present for cursor purposes.
     private async Task<(ReplicationCursor Cursor, IReadOnlyList<ReplicationGap> Gaps)> RecalculateCursorAsync(
         string sourcePeerId, string originPeerId, string originStreamId, DateTimeOffset updatedAt, CancellationToken cancellationToken)
     {
@@ -187,24 +287,58 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         var accepted = prior.Cursor?.AcceptedThrough ?? 0;
         var firstSequence = checked(accepted + 1);
         var records = await store.ReadOriginRangeAsync(originPeerId, originStreamId, firstSequence, options.CursorScanLimit, cancellationToken).ConfigureAwait(false);
+        var absent = await store.ReadPrunedRangesFromAsync(originPeerId, originStreamId, firstSequence, cancellationToken).ConfigureAwait(false);
         var gaps = new List<ReplicationGap>();
-        var expected = firstSequence;
+        var expected = SkipAbsent(firstSequence, absent);
         var foundGap = false;
+        if (expected > firstSequence) accepted = expected - 1;
         foreach (var record in records)
         {
+            if (record.Sequence < expected) continue; // stored inside an absent range (or already accepted)
             if (record.Sequence > expected)
             {
-                gaps.Add(new ReplicationGap(expected, record.Sequence - 1));
-                foundGap = true;
+                foreach (var gap in SubtractAbsent(expected, record.Sequence - 1, absent))
+                {
+                    gaps.Add(gap);
+                    foundGap = true;
+                }
             }
 
-            if (!foundGap && record.Sequence == expected) accepted = record.Sequence;
+            if (!foundGap) accepted = record.Sequence;
             expected = checked(record.Sequence + 1);
+            var skipped = SkipAbsent(expected, absent);
+            if (skipped > expected && !foundGap) accepted = skipped - 1;
+            expected = skipped;
         }
 
         var cursor = new ReplicationCursor(sourcePeerId, originPeerId, originStreamId, accepted, "raw", updatedAt);
         await store.UpdateReplicationCursorAsync(cursor, gaps, cancellationToken).ConfigureAwait(false);
         return (cursor, gaps);
+    }
+
+    private static ulong SkipAbsent(ulong sequence, IReadOnlyList<PrunedOriginRange> absent)
+    {
+        foreach (var range in absent)
+        {
+            if (range.FirstSequence <= sequence && range.LastSequence >= sequence) sequence = checked(range.LastSequence + 1);
+        }
+
+        return sequence;
+    }
+
+    private static IEnumerable<ReplicationGap> SubtractAbsent(ulong first, ulong last, IReadOnlyList<PrunedOriginRange> absent)
+    {
+        var cursor = first;
+        foreach (var range in absent)
+        {
+            if (range.LastSequence < cursor) continue;
+            if (range.FirstSequence > last) break;
+            if (range.FirstSequence > cursor) yield return new ReplicationGap(cursor, range.FirstSequence - 1);
+            cursor = checked(range.LastSequence + 1);
+            if (cursor > last) yield break;
+        }
+
+        if (cursor <= last) yield return new ReplicationGap(cursor, last);
     }
 
     private static OriginRecord ToContract(StoredOriginRecord item)
