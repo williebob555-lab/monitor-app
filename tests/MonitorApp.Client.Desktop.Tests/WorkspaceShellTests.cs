@@ -204,6 +204,32 @@ public sealed class WorkspaceShellTests
             [$"update:{FakeEnvironmentSource.ServerId}:1.1.0:{Digest}", $"pairing:{FakeEnvironmentSource.ServerId}:approve:pair-1:FEEDBEEF"],
             source.Sent);
 
+        // Alerts on this device: a Settings section offered because the source can send controls.
+        source.Sent.Clear();
+        source.Outcome = new ControlOutcomeDto("Applied", "applied", "Preferences saved", false);
+        model.Shell.GoTo(ShellMode.Settings);
+        Pump();
+        var prefs = model.Shell.SubSections.OfType<AlertPreferencesViewModel>().SingleOrDefault();
+        Assert.True(prefs is not null, "a control source offers the 'Alerts on this device' Settings section");
+        Find<TabStrip>(shell, "SubTabs").SelectedItem = prefs;
+        Pump();
+        Assert.Contains(shell.GetVisualDescendants(), v => v is AlertPreferencesView);
+        Assert.Equal(["All", "Info", "Warning", "Critical"], AlertPreferencesViewModel.SeverityChoices);
+        Assert.True(prefs!.RuleKinds.Count >= 4 && prefs.RuleKinds.All(r => !r.IsMuted), "known rule kinds listed, none muted by default");
+        prefs.MinSeverity = "Warning";
+        prefs.RuleKinds.Single(r => r.RuleId == "peer.silent").IsMuted = true;
+        await prefs.SaveCommand.ExecuteAsync(null);
+        Pump();
+        Assert.Equal([$"alert-prefs:{FakeEnvironmentSource.ServerId}:Warning:peer.silent"], source.Sent);
+        Assert.Equal("Done: Preferences saved", prefs.StatusMessage);
+        Assert.False(prefs.StatusIsFailure, "an applied save is not shown as a failure");
+        source.Outcome = new ControlOutcomeDto("Refused", "not_permitted", "denied", false);
+        await prefs.SaveCommand.ExecuteAsync(null);
+        Assert.Equal("Not allowed yet: grant this device on Home server", prefs.StatusMessage);
+        Assert.True(prefs.StatusIsFailure, "not_permitted is shown as a failure");
+        model.Shell.GoTo(ShellMode.Ecosystem);
+        Pump();
+
         // Relationships are links: following one moves the selection and the breadcrumbs.
         var link = inspector.GetVisualDescendants().OfType<Button>().Single(b => b.IsVisible && b.Command == model.Shell.Inspector.SelectRelatedCommand);
         link.Command!.Execute(link.CommandParameter);

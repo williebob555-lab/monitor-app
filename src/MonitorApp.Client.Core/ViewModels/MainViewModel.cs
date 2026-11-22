@@ -55,6 +55,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             sections.Add(Security);
         }
 
+        // Only sources that can send controls (the phone) can set this device's alert preferences.
+        if (connection.Source is IControlSource)
+        {
+            sections.Add(new AlertPreferencesViewModel(connection));
+        }
+
         // Only sources that can initiate pairing (the phone) get the pairing-entry screen.
         if (connection.Source is IPairingInitiator)
         {

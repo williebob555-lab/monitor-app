@@ -274,8 +274,8 @@ public sealed partial class ShellViewModel : ObservableObject
                 return main.Sections.Where(s => s is StateViewModel or HistoryViewModel or AsOfViewModel)
                     .OrderBy(s => s is StateViewModel ? 0 : s is HistoryViewModel ? 1 : 2);
             case ShellMode.Settings:
-                return main.Sections.Where(s => s is DevicesViewModel or PairingsViewModel or SecurityViewModel or PairDeviceViewModel or OverviewViewModel)
-                    .OrderBy(s => s switch { DevicesViewModel => 0, PairingsViewModel => 1, SecurityViewModel => 2, PairDeviceViewModel => 3, _ => 4 });
+                return main.Sections.Where(s => s is DevicesViewModel or PairingsViewModel or SecurityViewModel or AlertPreferencesViewModel or PairDeviceViewModel or OverviewViewModel)
+                    .OrderBy(s => s switch { DevicesViewModel => 0, PairingsViewModel => 1, SecurityViewModel => 2, AlertPreferencesViewModel => 3, PairDeviceViewModel => 4, _ => 5 });
             default:
                 return [];
         }
