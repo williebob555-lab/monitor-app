@@ -474,6 +474,104 @@ public sealed class PeerNodeRuntimeTests
         }
     }
 
+    /// <summary>
+    /// Chain phone-like C - relay A - B - D. C is paired only with A and views B and D. A relays C's interest for B over
+    /// A's own session with B (B samples fast, narrowed to the named signal, and A receives B's fast records),
+    /// but cannot relay C's interest for D: A has no session with D, and a forwarded interest carries no hops, so B never
+    /// passes anything on to D. Ending C's viewing returns B to its normal interval.
+    /// </summary>
+    [Fact]
+    public async Task RelayForwardsInterestToTheSubjectOnlyWhileTheLeaseLivesAndNeverFurther()
+    {
+        var roots = Enumerable.Range(0, 4).Select(_ => CreateTemporaryDirectory()).ToArray();
+        try
+        {
+            var ports = Enumerable.Range(0, 4).Select(_ => FreePort()).ToArray();
+            var hour = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false);
+            await using var viewer = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, ports[0], 0), hour);
+            await using var relay = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[1], IPAddress.Loopback, ports[1], 0), hour);
+            await using var subject = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[2], IPAddress.Loopback, ports[2], 0), hour);
+            await using var far = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[3], IPAddress.Loopback, ports[3], 0), hour);
+            await PairAsync(viewer, relay, ports[1]);
+            await PairAsync(relay, subject, ports[2]);
+            await PairAsync(subject, far, ports[3]);
+            var subjectStream = (await subject.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+
+            string State() =>
+                $"relay holds {relay.RelayedLiveInterestCount} relayed/{relay.ActiveLiveInterestCount} own; " +
+                $"subject(B) interval {subject.CurrentCollectionInterval}, {subject.ActiveLiveInterestCount} granted/" +
+                $"{subject.RelayedLiveInterestCount} relayed; far(D) interval {far.CurrentCollectionInterval}, " +
+                $"{far.ActiveLiveInterestCount} granted/{far.RelayedLiveInterestCount} relayed; viewer holds " +
+                $"{viewer.ActiveLiveInterestCount}";
+
+            Assert.True((await subject.CollectOnceAsync()).AppendedRecords > 1);
+            var all = await subject.Store.ReadOriginRangeAsync(subject.Identity.PeerId, subjectStream, 1, 10_000);
+            var signal = all.Select(record => record.SignalId).Distinct().OrderBy(id => id, StringComparer.Ordinal).First();
+            Assert.True(all.Select(record => record.SignalId).Distinct().Count() > 1, "The test needs several signals.");
+            var baseline = all[^1].Sequence;
+            await WaitUntilAsync(
+                async () => (await relay.Store.ReadOriginRangeAsync(subject.Identity.PeerId, subjectStream, baseline, 1)).Count == 1,
+                TimeSpan.FromSeconds(30));
+
+            // D is two hops behind the relay: the interest is held by A but A has no session with D to pass it to.
+            using var viewingFar = viewer.BeginViewing(far.Identity.PeerId);
+            await WaitUntilAsync(() => Task.FromResult(relay.RelayedLiveInterestCount == 1), TimeSpan.FromSeconds(30));
+            await Task.Delay(2500);
+            Assert.True(
+                far.CurrentCollectionInterval == TimeSpan.FromHours(1) && far.ActiveLiveInterestCount == 0 &&
+                subject.ActiveLiveInterestCount == 0 && subject.RelayedLiveInterestCount == 0 &&
+                subject.CurrentCollectionInterval == TimeSpan.FromHours(1),
+                "Interest for a peer the relay has no session with must not reach anyone: " + State());
+
+            // B is held by the relay: the interest is passed on, narrowed, and B (not the relay) samples fast.
+            var viewingSubject = viewer.BeginViewing(subject.Identity.PeerId, [signal]);
+            try
+            {
+                await WaitUntilAsync(
+                    () => Task.FromResult(subject.CurrentCollectionInterval == TimeSpan.FromSeconds(1)),
+                    TimeSpan.FromSeconds(30));
+                Assert.True(subject.ActiveLiveInterestCount == 1 && subject.RelayedLiveInterestCount == 0, State());
+                await WaitUntilAsync(
+                    async () => (await relay.Store.ReadOriginRangeAsync(
+                        subject.Identity.PeerId, subjectStream, baseline + 3, 1)).Count == 1,
+                    TimeSpan.FromSeconds(30));
+                var fresh = (await subject.Store.ReadOriginRangeAsync(subject.Identity.PeerId, subjectStream, baseline + 1, 10_000))
+                    .Where(record => record.Sequence > baseline).ToList();
+                var received = await relay.Store.ReadOriginRangeAsync(subject.Identity.PeerId, subjectStream, baseline + 1, 3);
+                Assert.True(
+                    fresh.Count >= 3 && fresh.All(record => record.SignalId == signal) && received.Count == 3,
+                    $"B stored {fresh.Count} fast records ({string.Join(",", fresh.Select(r => r.SignalId).Distinct())}), " +
+                    $"expected only '{signal}'; relay received {received.Count}; " + State());
+                Assert.True(
+                    relay.CurrentCollectionInterval == TimeSpan.FromHours(1) && far.CurrentCollectionInterval == TimeSpan.FromHours(1) &&
+                    far.ActiveLiveInterestCount == 0 && far.RelayedLiveInterestCount == 0,
+                    "Only the subject may sample fast, and nothing is forwarded again: " + State());
+            }
+            finally
+            {
+                viewingSubject.Dispose();
+            }
+
+            // The originating lease ended: the relay withdraws and B returns to its normal interval.
+            await WaitUntilAsync(
+                () => Task.FromResult(
+                    subject.CurrentCollectionInterval == TimeSpan.FromHours(1) && subject.ActiveLiveInterestCount == 0 &&
+                    relay.RelayedLiveInterestCount == 1),
+                TimeSpan.FromSeconds(30)).ContinueWith(task =>
+                    task.IsCompletedSuccessfully ? task : throw new Xunit.Sdk.XunitException(
+                        "B did not return to normal after the lease ended: " + State()), TaskScheduler.Default).Unwrap();
+            viewingFar.Dispose();
+            await WaitUntilAsync(() => Task.FromResult(relay.RelayedLiveInterestCount == 0), TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                DeleteDirectory(root, recursive: true);
+            }
+        }
+    }
+
     private static async Task<TimeSpan> CollectAndMeasureAsync(PeerNodeRuntime origin, PeerNodeRuntime receiver)
     {
         var originId = origin.Identity.PeerId;

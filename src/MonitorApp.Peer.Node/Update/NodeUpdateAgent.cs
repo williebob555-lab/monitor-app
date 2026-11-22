@@ -14,7 +14,7 @@ namespace MonitorApp.Peer.Node.Update;
 /// failures are recorded and never staged or applied. The agent also writes the health marker that the
 /// installer-side health check waits for after a restart.
 /// </summary>
-public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateController
+public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateController, ILocalUpdateHistory
 {
     private readonly NodeUpdateOptions _options;
     private readonly UpdateService? _service;
@@ -65,6 +65,7 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
     public override void Dispose()
     {
         _service?.Dispose();
+        _stateGate.Dispose();
         base.Dispose();
     }
 
@@ -99,6 +100,59 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 state is { Stage: UpdateStage.Staged } && CanApplyHere,
                 state?.ArtifactSha256);
         }
+    }
+
+    /// <summary>Applied/RolledBack/Failed outcomes from the append-only audit log, oldest first.</summary>
+    public IReadOnlyList<LocalUpdateEvent> GetUpdateHistory(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+    {
+        var result = new List<LocalUpdateEvent>();
+        IReadOnlyList<string> lines;
+        try
+        {
+            lines = new UpdateStateStore(_options.UpdateDirectory).ReadAudit();
+        }
+        catch (IOException)
+        {
+            return result;
+        }
+
+        foreach (var line in lines)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                var at = root.GetProperty("at").GetDateTimeOffset();
+                var name = root.GetProperty("event").GetString() ?? string.Empty;
+                var detail = root.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+                var version = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                if (name == "reconciled" && detail is not null)
+                {
+                    // "<Stage>: <detail>" written when a restart settles an interrupted apply.
+                    var split = detail.IndexOf(':', StringComparison.Ordinal);
+                    name = split > 0 ? detail[..split].ToLowerInvariant() : name;
+                    detail = split > 0 ? detail[(split + 1)..].Trim() : detail;
+                }
+
+                var outcome = name switch
+                {
+                    "applied" => "Applied",
+                    "rolledback" => "RolledBack",
+                    "failed" => "Failed",
+                    _ => null,
+                };
+                if (outcome is not null && at >= fromUtc && at <= toUtc)
+                {
+                    result.Add(new LocalUpdateEvent(version ?? "unknown", outcome, at, detail));
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+            {
+                // A damaged audit line is skipped; the log stays append-only and is never rewritten here.
+            }
+        }
+
+        return result.OrderBy(item => item.At).ToArray();
     }
 
     public Task<bool> ApproveAsync(CancellationToken cancellationToken) => ApproveCoreAsync(null, null, "local-api");
@@ -137,9 +191,23 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
             return;
         }
 
+        // A cycle briefly replaces the state with a transient check record; the helper-result watcher must not fold in between.
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_service.Current is { Stage: UpdateStage.Staged or UpdateStage.Applying })
+            await RunCycleCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    private async Task RunCycleCoreAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_service!.Current is { Stage: UpdateStage.Staged or UpdateStage.Applying })
             {
                 return;
             }
@@ -249,20 +317,82 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
         try
         {
             var current = await _service!.ReconcileAsync(_options.InstalledVersion, cancellationToken).ConfigureAwait(false);
-            if (current is { Stage: UpdateStage.Failed or UpdateStage.Applied } && ApplyHelper.TryReadResult(_options.ResultPath) is { } outcome
-                && outcome.TargetVersion == current.TargetVersion)
+            if (!TryFoldHelperResult() && current is { Stage: UpdateStage.Failed } failed && failed.TargetVersion != _options.InstalledVersion.ToString())
             {
-                var store = new UpdateStateStore(_options.UpdateDirectory);
-                var snapshot = store.Read();
-                if (snapshot.Active is { } active && outcome.Kind != ApplyOutcomeKind.Applied)
+                // A rollback restarts this (restored) version before the helper has confirmed it healthy and written its
+                // result, so the outcome usually arrives after startup: keep watching for it for a bounded time.
+                _resultWatch = WatchHelperResultAsync(cancellationToken);
+            }
+            else
+            {
+                File.Delete(_options.ResultPath);
+            }
+        }
+        catch (Exception exception) when (exception is UpdateStateCorruptException or IOException or UpdateStateException)
+        {
+            lock (_statusLock)
+            {
+                _lastError = $"{exception.GetType().Name}: {exception.Message}";
+            }
+        }
+    }
+
+    private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private Task? _resultWatch;
+
+    /// <summary>Folds a recorded RolledBack/Failed helper outcome for the current target into the state; true once consumed.</summary>
+    private bool TryFoldHelperResult()
+    {
+        var current = _service!.Current;
+        if (current is not { Stage: UpdateStage.Failed or UpdateStage.Applied } ||
+            ApplyHelper.TryReadResult(_options.ResultPath) is not { } outcome ||
+            outcome.TargetVersion != current.TargetVersion)
+        {
+            return false;
+        }
+
+        var store = new UpdateStateStore(_options.UpdateDirectory);
+        var snapshot = store.Read();
+        if (snapshot.Active is { } active && outcome.Kind != ApplyOutcomeKind.Applied)
+        {
+            var stage = outcome.Kind == ApplyOutcomeKind.RolledBack ? UpdateStage.RolledBack : UpdateStage.Failed;
+            store.Write(snapshot with { Active = active with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() } });
+            store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail, active.TargetVersion);
+        }
+
+        File.Delete(_options.ResultPath);
+        return true;
+    }
+
+    private async Task WatchHelperResultAsync(CancellationToken cancellationToken)
+    {
+        // The helper confirms the restored version within its health timeout; allow that twice over plus a margin.
+        var deadline = _time.GetUtcNow() + (_options.HealthTimeout * 2) + TimeSpan.FromMinutes(1);
+        try
+        {
+            while (_time.GetUtcNow() < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), _time, cancellationToken).ConfigureAwait(false);
+                if (!await _stateGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 {
-                    var stage = outcome.Kind == ApplyOutcomeKind.RolledBack ? UpdateStage.RolledBack : UpdateStage.Failed;
-                    store.Write(snapshot with { Active = active with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() } });
-                    store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail);
+                    continue;
+                }
+
+                try
+                {
+                    if (TryFoldHelperResult())
+                    {
+                        return;
+                    }
+                }
+                finally
+                {
+                    _stateGate.Release();
                 }
             }
-
-            File.Delete(_options.ResultPath);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception exception) when (exception is UpdateStateCorruptException or IOException or UpdateStateException)
         {

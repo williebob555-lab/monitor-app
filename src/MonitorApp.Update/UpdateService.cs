@@ -239,7 +239,7 @@ public sealed class UpdateService : IDisposable
             };
             var finished = applying with { Stage = stage, Detail = outcome.Detail, UpdatedAtUtc = _time.GetUtcNow() };
             _store.Write(snapshot with { Active = finished });
-            _store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail);
+            _store.Audit(_time.GetUtcNow(), stage.ToString().ToLowerInvariant(), outcome.Detail, finished.TargetVersion);
             return finished;
         }
         finally
@@ -280,7 +280,7 @@ public sealed class UpdateService : IDisposable
             }
 
             _store.Write(snapshot with { Active = next });
-            _store.Audit(_time.GetUtcNow(), "reconciled", $"{next.Stage}: {next.Detail}");
+            _store.Audit(_time.GetUtcNow(), "reconciled", $"{next.Stage}: {next.Detail}", next.TargetVersion);
             return next;
         }
         finally

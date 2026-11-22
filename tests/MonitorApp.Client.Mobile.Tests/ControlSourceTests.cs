@@ -1,5 +1,6 @@
 using MonitorApp.Client.Core;
 using MonitorApp.Client.Mobile;
+using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
 using MonitorApp.Peer.Mobile.Tests;
@@ -148,6 +149,111 @@ public sealed class ControlSourceTests
 
             var badFingerprint = await source.ResolvePairingAsync(desktop.Identity.PeerId, "p", "not-hex", approve: true);
             Assert.Equal("invalid_payload", badFingerprint.ReasonCode);
+        }
+        finally
+        {
+            Cleanup(desktopRoot, phoneRoot);
+        }
+    }
+
+    [Fact]
+    public async Task RemoteAlertRuleEditsAreDeniedByDefaultElevatedValidatedAndAuditedThroughTheControlSource()
+    {
+        var desktopRoot = TestDirectories.Create();
+        var phoneRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            using var identity = new SoftwareIdentity();
+            using var presence = new SoftwarePresenceSigner();
+            await using var phone = await MobilePeerRuntime.CreateAsync(Options(phoneRoot), identity, new ScriptedDeviceReader(), presence);
+            using var source = new InProcessPeerDataSource(phone);
+            var control = Assert.IsAssignableFrom<IControlSource>(source);
+            await PairAsync(phone, desktop, "ctl-rules");
+            var desktopId = desktop.Identity.PeerId;
+            var phoneId = phone.Identity.PeerId;
+            AlertRuleOverrideDto[] tight = [new("threshold.cpu_high", true, 70), new("threshold.memory_high", false, null)];
+
+            async Task<string> DiagnosticsAsync()
+            {
+                var audit = await desktop.ControlStore.ReadAuditAsync(50);
+                var stored = await desktop.Alerts.ReadRuleOverridesAsync();
+                return "stored overrides: [" + string.Join("; ", stored.Select(item => $"{item.PeerId}:{item.RuleId}:{item.Enabled}:{item.Threshold}")) +
+                    "] audit: [" + string.Join("; ", audit.Where(item => item.Action.Contains("rule", StringComparison.Ordinal))
+                        .Select(item => $"{item.Action}/{item.Outcome}/{item.ReasonCode}/presence={item.PresenceVerified}")) + "]";
+            }
+
+            // Default is deny: no grant means no write and no read, and nothing is stored.
+            var denied = await control.SetAlertRulesAsync(desktopId, null, tight);
+            Assert.True(denied is { Status: "Refused", ReasonCode: "not_permitted" }, $"ungranted set: {denied.Status}/{denied.ReasonCode}. {await DiagnosticsAsync()}");
+            Assert.Null(await control.ReadAlertRulesAsync(desktopId));
+            Assert.Empty(await desktop.Alerts.ReadRuleOverridesAsync());
+
+            await desktop.ControlStore.SetGrantAsync(new ControlGrant(phoneId, MonitoringControls: true, PairingApproval: false, null), DateTimeOffset.UtcNow);
+
+            // Granted is still not enough for an action that changes what fires for every recipient: it is elevated and needs the enrolled biometric key.
+            Assert.True(control.DescribeTier(ControlActionKind.SetAlertRules).RequiresPresence);
+            var unenrolled = await control.SetAlertRulesAsync(desktopId, null, tight);
+            Assert.True(unenrolled is { Status: "Refused", ReasonCode: "presence_not_enrolled" }, $"unenrolled set: {unenrolled.Status}/{unenrolled.ReasonCode}. {await DiagnosticsAsync()}");
+            Assert.Empty(await desktop.Alerts.ReadRuleOverridesAsync());
+
+            Assert.Equal("PendingLocalApproval", (await control.EnrollPresenceKeyAsync(desktopId)).Status);
+            var enrollment = Assert.Single(await desktop.ControlStore.ReadEnrollmentsAsync(), item => item.PeerId == phoneId && item.State == PresenceEnrollmentState.Pending);
+            await desktop.Control.DecideEnrollmentAsync(enrollment.EnrollmentId, approve: true, default);
+
+            // The read shows the built-in defaults before any edit.
+            var before = await control.ReadAlertRulesAsync(desktopId);
+            Assert.NotNull(before);
+            Assert.Contains(before, rule => rule.SubjectPeerId == desktopId && rule.RuleId == "threshold.cpu_high" && rule.Threshold == 90 && !rule.Overridden);
+            Assert.Contains(before, rule => rule.SubjectPeerId == phoneId && rule.RuleId == "peer.silent" && rule.Threshold == 10 && rule.Maximum == 10080);
+
+            // Invalid ranges: refused before any prompt on the phone, and refused by the desktop when a modified client sends them anyway.
+            var promptsBefore = presence.Prompts;
+            var tooHigh = await control.SetAlertRulesAsync(desktopId, null, [new("threshold.cpu_high", true, 100)]);
+            Assert.True(tooHigh is { Status: "Refused", ReasonCode: "invalid_payload" }, $"client range check: {tooHigh.Status}/{tooHigh.ReasonCode}");
+            Assert.Equal(promptsBefore, presence.Prompts);
+            var forced = await phone.SendControlAsync(desktopId, ControlRequest.SetAlertRuleOverrides(null, [new AlertRuleOverrideInput("threshold.cpu_high", true, 100)]));
+            Assert.True(forced.ReasonCode == "invalid_payload", $"server range check: {forced.Status}/{forced.ReasonCode}. {await DiagnosticsAsync()}");
+            var tooSoon = await phone.SendControlAsync(desktopId, ControlRequest.SetAlertRuleOverrides(phoneId, [new AlertRuleOverrideInput("peer.silent", true, 0.5)]));
+            Assert.Equal("invalid_payload", tooSoon.ReasonCode);
+            // A signal rule cannot be set for another peer (its owner evaluates it), and peer-not-seen needs an active trusted peer.
+            var foreign = await control.SetAlertRulesAsync(desktopId, phoneId, [new("threshold.cpu_high", true, 70)]);
+            Assert.True(foreign is { Status: "Refused", ReasonCode: "invalid_payload" }, $"foreign subject: {foreign.Status}/{foreign.ReasonCode}. {await DiagnosticsAsync()}");
+            var stranger = await control.SetAlertRulesAsync(desktopId, "peer-stranger", [new("peer.silent", true, 5)]);
+            Assert.Equal("invalid_payload", stranger.ReasonCode);
+            Assert.Empty(await desktop.Alerts.ReadRuleOverridesAsync());
+
+            // A valid edit is applied with a verified biometric, stored durably per peer, and audited as elevated.
+            var applied = await control.SetAlertRulesAsync(desktopId, null, tight);
+            Assert.True(applied.IsApplied && applied.RequiresPresence, $"valid set: {applied.Status}/{applied.ReasonCode}. {await DiagnosticsAsync()}");
+            var silent = await control.SetAlertRulesAsync(desktopId, phoneId, [new("peer.silent", true, 3)]);
+            Assert.True(silent.IsApplied, $"peer.silent set: {silent.Status}/{silent.ReasonCode}. {await DiagnosticsAsync()}");
+            var stored = await desktop.Alerts.ReadRuleOverridesAsync();
+            Assert.Contains(stored, item => item.PeerId == desktopId && item.RuleId == "threshold.cpu_high" && item.Enabled && item.Threshold == 70);
+            Assert.Contains(stored, item => item.PeerId == desktopId && item.RuleId == "threshold.memory_high" && !item.Enabled && item.Threshold is null);
+            Assert.Contains(stored, item => item.PeerId == phoneId && item.RuleId == "peer.silent" && item.Threshold == 3);
+
+            var after = await control.ReadAlertRulesAsync(desktopId);
+            Assert.NotNull(after);
+            Assert.Contains(after, rule => rule.RuleId == "threshold.cpu_high" && rule.Threshold == 70 && rule.Overridden && rule.Enabled);
+            Assert.Contains(after, rule => rule.RuleId == "threshold.memory_high" && !rule.Enabled && rule.Overridden);
+            Assert.Contains(after, rule => rule.SubjectPeerId == phoneId && rule.RuleId == "peer.silent" && rule.Threshold == 3);
+
+            var audit = await desktop.ControlStore.ReadAuditAsync(100);
+            Assert.Contains(audit, item => item.Action == "set_alert_rule_overrides" && item.Outcome == "applied" && item.PresenceVerified && item.Tier == "Elevated");
+            Assert.Contains(audit, item => item.Action == "set_alert_rule_overrides" && item.Outcome == "refused" && item.ReasonCode == "not_permitted");
+            Assert.Contains(audit, item => item.Action == "set_alert_rule_overrides" && item.Outcome == "refused" && item.ReasonCode == "presence_not_enrolled");
+
+            // An empty list restores the defaults for that peer.
+            Assert.True((await control.SetAlertRulesAsync(desktopId, null, [])).IsApplied);
+            Assert.DoesNotContain(await desktop.Alerts.ReadRuleOverridesAsync(), item => item.PeerId == desktopId);
+
+            // The grant is revocable: after it is withdrawn the same call is refused again and the stored overrides stay as they were.
+            await desktop.ControlStore.SetGrantAsync(new ControlGrant(phoneId, MonitoringControls: false, PairingApproval: false, null), DateTimeOffset.UtcNow);
+            var revoked = await control.SetAlertRulesAsync(desktopId, phoneId, [new("peer.silent", true, 9)]);
+            Assert.Equal("not_permitted", revoked.ReasonCode);
+            Assert.Null(await control.ReadAlertRulesAsync(desktopId));
+            Assert.Equal(3, Assert.Single(await desktop.Alerts.ReadRuleOverridesAsync()).Threshold);
         }
         finally
         {

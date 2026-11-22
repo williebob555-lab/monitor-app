@@ -774,6 +774,109 @@ public sealed class ControlTests
         }
     }
 
+    /// <summary>
+    /// T051 end to end over the real PeerSession and loopback API: an unacknowledged Critical alert is escalated once to every
+    /// phone; one acknowledged by phone A (and one acknowledged on the desktop) is not, and the desktop API says who acknowledged.
+    /// The escalation clock is the evaluator's TimeProvider (real time shifted 20 minutes), as the T042 cooldown tests do.
+    /// </summary>
+    [Fact]
+    public async Task UnacknowledgedCriticalAlertEscalatesOnceWhileAcknowledgedOnesDoNot()
+    {
+        var desktopRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            await using var phoneA = await PairPhoneAsync(desktop, "esc-a");
+            await using var phoneB = await PairPhoneAsync(desktop, "esc-b");
+            var desktopId = desktop.Identity.PeerId;
+            await phoneA.Runtime.SyncOnceAsync();
+            await phoneB.Runtime.SyncOnceAsync();
+
+            var now = DateTimeOffset.UtcNow;
+            Alert Critical(string rule) => new(
+                Alert.CreateId(desktopId, rule, "peer:disk", now), 1, rule, "peer:disk", desktopId,
+                AlertSeverity.Critical, AlertState.Raised, "Low free disk space " + rule, "5.0% free", now, null);
+            var silent = Critical("rule.nobody-acks");
+            var ackedByPhone = Critical("rule.phone-acks");
+            var ackedLocally = Critical("rule.desktop-acks");
+            foreach (var alert in new[] { silent, ackedByPhone, ackedLocally })
+            {
+                Assert.True(await desktop.Alerts.RaiseAsync(alert, [phoneA.PeerId, phoneB.PeerId], TimeSpan.FromDays(1), now));
+            }
+
+            foreach (var phone in new[] { phoneA, phoneB })
+            {
+                await phone.Runtime.SyncOnceAsync();
+                foreach (var stored in await phone.Runtime.ReadAlertsAsync())
+                {
+                    Assert.False(stored.Alert.Escalated);
+                    await phone.Runtime.MarkAlertNotifiedAsync(stored);
+                }
+
+                Assert.Empty(await phone.Runtime.ReadPendingNotificationsAsync());
+            }
+
+            Assert.Equal(ControlStatus.Applied,
+                (await phoneA.Runtime.SendControlAsync(desktopId, ControlRequest.AcknowledgeAlert(ackedByPhone.AlertId))).Status);
+            await using var host = LocalApiHost.Create(
+                LocalApiOptions.Loopback(desktop.DatabasePath), desktop.Store, desktop.PairingStore, desktop.Pairing,
+                new SystemPeerClock(), alertStore: desktop.Alerts, control: desktop.Control, monitoring: desktop.Monitoring);
+            await host.StartAsync();
+            using var client = new HttpClient(new HttpClientHandler { CookieContainer = new System.Net.CookieContainer() })
+            {
+                BaseAddress = host.Address,
+            };
+            var locallyDenied = await client.PostAsync($"api/v1/alerts/{ackedLocally.AlertId}/acknowledge", null);
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, locallyDenied.StatusCode);
+            var token = (await client.GetFromJsonAsync<JsonElement>("api/csrf")).GetProperty("requestToken").GetString();
+            using var acknowledge = new HttpRequestMessage(HttpMethod.Post, $"api/v1/alerts/{ackedLocally.AlertId}/acknowledge");
+            acknowledge.Headers.Add("X-CSRF-TOKEN", token);
+            Assert.True((await client.SendAsync(acknowledge)).IsSuccessStatusCode);
+
+            // Fourteen minutes in: nothing escalates; twenty minutes in: exactly the silent alert, once.
+            var config = AlertRulesConfig.Default with { PeerSilentAfter = TimeSpan.FromHours(2), EscalationAfter = TimeSpan.FromMinutes(15) };
+            Assert.Equal(0, (await new AlertEvaluator(desktop.Store, desktop.Alerts, config, new OffsetTimeProvider(TimeSpan.FromMinutes(14)))
+                .EvaluateOnceAsync()).Escalated);
+            var late = new AlertEvaluator(desktop.Store, desktop.Alerts, config, new OffsetTimeProvider(TimeSpan.FromMinutes(20)));
+            Assert.Equal(1, (await late.EvaluateOnceAsync()).Escalated);
+
+            foreach (var phone in new[] { phoneA, phoneB })
+            {
+                await phone.Runtime.SyncOnceAsync();
+                var needing = Assert.Single(await phone.Runtime.ReadPendingNotificationsAsync());
+                Assert.Equal(silent.AlertId, needing.Alert.AlertId);
+                Assert.True(needing.Alert.Escalated);
+                await phone.Runtime.MarkAlertNotifiedAsync(needing);
+                await phone.Runtime.SyncOnceAsync();
+                Assert.Empty(await phone.Runtime.ReadPendingNotificationsAsync());
+            }
+
+            // A later evaluation, even from a fresh evaluator (a node restart), does not escalate again.
+            Assert.Equal(0, (await new AlertEvaluator(desktop.Store, desktop.Alerts, config, new OffsetTimeProvider(TimeSpan.FromMinutes(45)))
+                .EvaluateOnceAsync()).Escalated);
+            Assert.Empty(await phoneA.Runtime.ReadPendingNotificationsAsync());
+
+            var listed = await client.GetFromJsonAsync<JsonElement>("api/v1/alerts");
+            var byId = listed.GetProperty("alerts").EnumerateArray().ToDictionary(item => item.GetProperty("alertId").GetString()!);
+            Assert.True(byId[ackedByPhone.AlertId].GetProperty("acknowledged").GetBoolean());
+            Assert.Equal(phoneA.PeerId, byId[ackedByPhone.AlertId].GetProperty("acknowledgedBy").GetString());
+            Assert.Equal(JsonValueKind.String, byId[ackedByPhone.AlertId].GetProperty("acknowledgedAt").ValueKind);
+            Assert.False(byId[ackedByPhone.AlertId].GetProperty("escalated").GetBoolean());
+            Assert.Equal(LocalApiHost.LocalAcknowledger, byId[ackedLocally.AlertId].GetProperty("acknowledgedBy").GetString());
+            Assert.False(byId[ackedLocally.AlertId].GetProperty("escalated").GetBoolean());
+            Assert.False(byId[silent.AlertId].GetProperty("acknowledged").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, byId[silent.AlertId].GetProperty("acknowledgedBy").ValueKind);
+            Assert.True(byId[silent.AlertId].GetProperty("escalated").GetBoolean());
+            var silentDeliveries = byId[silent.AlertId].GetProperty("deliveries").EnumerateArray().Where(item => item.GetProperty("escalation").GetBoolean()).ToArray();
+            Assert.Equal(2, silentDeliveries.Length);
+            Assert.All(silentDeliveries, item => Assert.Equal(JsonValueKind.String, item.GetProperty("deliveredAt").ValueKind));
+        }
+        finally
+        {
+            Cleanup(desktopRoot);
+        }
+    }
+
     [Fact]
     public async Task AuditTrailIsAppendOnlyAtTheDatabaseLevel()
     {
