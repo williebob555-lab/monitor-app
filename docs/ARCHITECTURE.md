@@ -335,6 +335,10 @@ The first decentralized slice must prove:
 
 Only after this slice passes should controller code be removed or release artifacts be relabeled as peer packages.
 
+### Always-on service hosting
+
+Windows and Linux peers run as a system service. `Program.cs` parses `NodeOptions` and runs `NodeHost.Build` (Generic Host with `AddWindowsService` and `AddSystemd`); `PeerNodeHostedService` starts and disposes `PeerNodeRuntime`, and startup failures (identity, permission, platform) log critical and exit non-zero. In service mode the data directory defaults to `STATE_DIRECTORY` or `/var/lib/monitor-app` (Linux, owned by the `monitor-app` user, mode 0700) and `%ProgramData%\MonitorApp` (Windows). Configuration precedence is arguments, `MONITOR_APP_*` environment variables (the unit loads `/etc/monitor-app/node.conf`), defaults. The admin page is always loopback; the peer listener defaults to loopback and must be bound explicitly. Packaging lives in `eng/packaging/linux` (DEB script, RPM spec, hardened unit) and `eng/packaging/windows` (service scripts, virtual account `NT SERVICE\MonitorApp`, delayed auto-start, recovery actions). `WindowsDpapiIdentityProvider` uses DPAPI current-user scope, so the identity is bound to the service account and moving the service to another account makes it unreadable; this is untested on Windows. Status: see `TODO.md` and `docs/TESTING.md` for exactly what was run.
+
 ## Platform gates
 
 ### Windows

@@ -1,24 +1,27 @@
 using MonitorApp.Peer.Node;
 
-var options = NodeOptions.Parse(args);
-using var shutdown = new CancellationTokenSource();
-Console.CancelKeyPress += (_, eventArgs) =>
-{
-    eventArgs.Cancel = true;
-    shutdown.Cancel();
-};
-await using var runtime = await PeerNodeRuntime.StartAsync(options, shutdown.Token).ConfigureAwait(false);
-Console.WriteLine($"Monitor App peer: {runtime.Identity.PeerId}");
-Console.WriteLine($"Fingerprint: {Convert.ToHexString(runtime.Identity.PublicKeyFingerprint).ToLowerInvariant()}");
-Console.WriteLine($"Local administration: {runtime.AdminAddress}");
-Console.WriteLine("Implemented preview: bilateral pairing, local collection/query, automatic reconnect, and origin-history synchronization.");
+NodeOptions options;
 try
 {
-    await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token).ConfigureAwait(false);
+    options = NodeOptions.Parse(args, NodeHost.IsServiceMode());
 }
-catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+catch (ArgumentException exception)
 {
-    // Normal Ctrl+C shutdown.
+    await Console.Error.WriteLineAsync($"monitor-app: invalid configuration: {exception.Message}").ConfigureAwait(false);
+    return 2;
+}
+
+try
+{
+    using var host = NodeHost.Build(options);
+    await host.RunAsync().ConfigureAwait(false);
+    return 0;
+}
+catch (Exception exception) when (exception is not OperationCanceledException)
+{
+    // Already logged critically by the hosted service; ensure a non-zero exit for SCM/systemd.
+    await Console.Error.WriteLineAsync($"monitor-app: fatal: {exception.Message}").ConfigureAwait(false);
+    return 1;
 }
 
 public partial class Program;

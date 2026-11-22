@@ -158,6 +158,19 @@ Before platform support is claimed, test a clean install, upgrade, restart, and 
 
 Installation tests must confirm that uninstall removes the application while preserving or removing data according to an explicit user choice.
 
+Current service-packaging evidence (Ubuntu 24.04 container, no systemd PID 1, no SELinux, no rpmbuild, no Windows):
+
+```bash
+eng/packaging/linux/build-packages.sh 0.1.0-preview     # about 1-1.5 min; builds artifacts/packages/*.deb, RPM only if rpmbuild exists
+dpkg-deb -I artifacts/packages/monitor-app_0.1.0-preview_amd64.deb && dpkg-deb -c artifacts/packages/monitor-app_0.1.0-preview_amd64.deb
+dpkg -i artifacts/packages/monitor-app_0.1.0-preview_amd64.deb   # creates monitor-app user and 0700 /var/lib/monitor-app
+runuser -u monitor-app -- env MONITOR_APP_DATA_DIR=/var/lib/monitor-app MONITOR_APP_PEER_PORT=45431 MONITOR_APP_ADMIN_PORT=45432 /opt/monitor-app/MonitorApp.Peer.Node
+dpkg -r monitor-app      # keeps /var/lib/monitor-app
+dpkg --purge monitor-app # removes data, /etc/monitor-app, and the user
+```
+
+`NodeServiceHostTests` (runs on Linux and Windows) covers service-mode option resolution and the real Generic Host: start, loopback admin answers, stop, restart keeps identity, startup failure surfaces. Not run: `systemctl` lifecycle and `Type=notify`, hardening effects, DEB upgrade, RPM, Fedora/SELinux, Windows service install, DPAPI under a virtual service account, ACLs, recovery actions. The DEB is not built in `eng/verify.ps1` (too slow); run the command above manually.
+
 ### End-to-end functional test
 
 The first required target end-to-end test is the real two-peer scenario in **Decentralized peer migration gates**: bilateral pairing, local collection/query, offline collection, restart, direct reconnect, and duplicate-safe convergence using separate production SQLite stores. Controller/agent end-to-end tests are legacy component evidence only.
