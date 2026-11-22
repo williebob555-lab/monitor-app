@@ -88,6 +88,15 @@ try {
             --no-build
     }
 
+    if ($IsLinux) {
+        Invoke-VerificationStep "Run real dpkg update apply/rollback integration tests" {
+            dotnet test tests/MonitorApp.Update.Tests/MonitorApp.Update.Tests.csproj `
+                -c Release `
+                --no-build `
+                --filter "Category=Integration"
+        }
+    }
+
     Invoke-VerificationStep "Run local peer administration API tests" {
         dotnet test tests/MonitorApp.Peer.LocalApi.Tests/MonitorApp.Peer.LocalApi.Tests.csproj `
             -c Release `
