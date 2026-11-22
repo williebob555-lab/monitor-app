@@ -23,7 +23,7 @@ Ownership means "ask before changing", not "the other agent can never touch it".
 | --- | --- | --- |
 | Peer trust, pairing, replication, sync, transport (`MonitorApp.Peer.Core`, `.Sync`, `.Replication`, `.Transport`, `.Service`, `contracts/`) | Claude | Security- and sync-critical. Changes from ChatGPT come as a PR that Claude reviews before merge. |
 | Control channel, user presence / fingerprint, update pipeline (`MonitorApp.Peer.Control`, `MonitorApp.Client.Presence*`, `MonitorApp.Update`, `eng/`, `.github/workflows/`) | Claude | Same review rule. Signing keys stay with Wilson; no agent ever handles them. |
-| Alerts, history, local API (`MonitorApp.Peer.Alerts`, `.LocalApi`, `.Persistence`) | Claude | In flight in PR #5. |
+| Alerts, history, local API (`MonitorApp.Peer.Alerts`, `.LocalApi`, `.Persistence`) | Claude | Built in PR #5 (merged). |
 | UI: Dive interface and device grid (`MonitorApp.Client.Ui`, `.Client.Core/Scene`, `docs/UI_DESIGN.md`) | Claude | In flight in PR #4. |
 | Dual-boot host identity and OS switching (`Peer.Collection/Host/`, `contracts/monitor/v1/host.proto`) | Claude | T058/T059. |
 | Everything else, including items in `TODO.md` with no claim row | Open | Claim it in section 6 first. |
@@ -75,9 +75,8 @@ Add a row before starting. Remove it (move it to section 7) when the PR merges o
 
 | Task | Scope | Agent | Branch | PR | Areas / files touched | Shared bumps | Claimed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| T051-T057 | Alert ack/escalation, rule editor, history feed, phone signal narrowing, relayed interest, admin page, `MonitorApp.Domain` deletion, update rollback and systemd startup fixes | Claude | `claude/project-thread-oj0l2p` | #5 | `src/MonitorApp.Peer.*` (Alerts, Application, Control, LocalApi, Node, Service, Persistence), `tests/`, `eng/smoke/`, `docs/` | Alert schema v5, v6 | 2026-11-22 |
 | UI | Dive interface plus device-grid home; scene projection; workspace shell | Claude | `claude/project-thread-errw46` | #4 | `Client.Ui`, `Client.Core/Scene`, `Client.Desktop`, `docs/UI_DESIGN.md`, `docs/ui-concepts/` | none | 2026-11-22 |
-| T058 | Dual-boot machines: one peer per OS install, grouped into a machine by a presence-confirmed link and a signed `host.descriptor` record; shows "booted into other OS" instead of offline | Claude | next Claude branch, after #5 merges | | `contracts/monitor/v1/host.proto` (new), `Peer.Collection/Host/` (new), `Peer.Node`, `Peer.Persistence` (`machine_links` table), `Peer.LocalApi` (`api/machines*`), `Client.Core` (`MachineDto`, `IPeerDataSource`), `Client.Mobile/InProcessPeerDataSource` | Peer persistence schema bump | 2026-11-22 |
+| T058 | Dual-boot machines: one peer per OS install, grouped into a machine by a presence-confirmed link and a signed `host.descriptor` record; shows "booted into other OS" instead of offline | Claude | next Claude branch | | `contracts/monitor/v1/host.proto` (new), `Peer.Collection/Host/` (new), `Peer.Node`, `Peer.Persistence` (`machine_links` table), `Peer.LocalApi` (`api/machines*`), `Client.Core` (`MachineDto`, `IPeerDataSource`), `Client.Mobile/InProcessPeerDataSource` | Peer persistence schema bump | 2026-11-22 |
 | T059 | Remote OS switching: GRUB one-time next boot through a root helper, `SwitchBootTarget` control command with a `power_control` grant and fingerprint presence, Wake-on-LAN | Claude | same branch as T058 | | `contracts/monitor/v1/peer.proto` (field 23), `Peer.Control`, `Peer.Node` (helper), `eng/packaging` (systemd path unit, maintainer scripts), `Peer.Collection/Host` | `peer.proto` field 23 | 2026-11-22 |
 | T060 (reserved) | Retire controller-era code per the T057 plan: stop publishing the controller and agent archives, then delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core` | Claude | not started | | those projects, `MonitorApp.sln`, `.github/workflows/`, `eng/` | none | 2026-11-22 |
 | T300 | Read-only managed-switch adapter spike for the existing Cisco SG250: configured switch identity, local credentials, reported vs inferred evidence, explicit unavailable/permission/error states; no edits to Claude-owned peer/proto/schema modules | ChatGPT | `chatgpt/T300-sg250-adapter` | | new `Peer.Collection/Switches` adapter, its isolated tests, scoped docs | none | 2026-11-22 |
@@ -88,6 +87,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T051-T057 | Claude | #5 | 2026-11-22 |
 | T039-T050 | Claude | #3 | 2026-11-22 |
 | T031-T038 peer foundation | Claude | #2 | 2026-11-21 |
 

@@ -42,6 +42,23 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateHistoryListsOnlyInstallOutcomesWithVersionOldestFirstWithinTheRange()
+    {
+        var applier = new RecordingApplier(ApplyOutcomeKind.RolledBack);
+        using var agent = Create(NodeUpdatePolicy.Auto, Envelope("0.1.2", Package), Package, applier);
+        await agent.RunCycleAsync(default);
+        Assert.Equal("RolledBack", agent.GetStatus().Stage);
+
+        var all = ((MonitorApp.Peer.LocalApi.ILocalUpdateHistory)agent)
+            .GetUpdateHistory(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var outcome = Assert.Single(all);
+        Assert.Equal("RolledBack", outcome.Outcome);
+        Assert.Equal("0.1.2", outcome.Version);
+        Assert.Empty(((MonitorApp.Peer.LocalApi.ILocalUpdateHistory)agent)
+            .GetUpdateHistory(DateTimeOffset.UtcNow.AddDays(-3), DateTimeOffset.UtcNow.AddDays(-2)));
+    }
+
+    [Fact]
     public async Task BoundApprovalRequiresTheExactStagedVersionAndDigest()
     {
         var applier = new RecordingApplier();
@@ -127,6 +144,47 @@ public sealed class NodeUpdateAgentTests : IDisposable
         {
             Assert.NotNull(status.LastError);
         }
+    }
+
+    [Fact]
+    public async Task RestoredVersionReportsRolledBackWhenTheHelperResultArrivesAfterStartup()
+    {
+        // The helper restarts the restored 0.1.1 before it has confirmed it healthy, so the result file appears only
+        // after this node has started and settled the interrupted apply as Failed.
+        var update = Path.Combine(directory, "update");
+        Directory.CreateDirectory(update);
+        new UpdateStateStore(update).Write(new UpdateStateSnapshot("0.1.2", new UpdateState(
+            UpdateStage.Applying, "node", "ubuntu", "x64", "0.1.2", "0.1.1",
+            new Uri("https://github.com/o/r/releases/download/preview-0.1.2/monitorapp-node-ubuntu-x64-0.1.2.deb"),
+            Package.Length, Convert.ToHexStringLower(SHA256.HashData(Package)), null, null, DateTimeOffset.UtcNow)));
+        using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, new RecordingApplier(), interval: TimeSpan.FromHours(1));
+
+        await agent.StartAsync(default);
+        var settled = DateTime.UtcNow.AddSeconds(10);
+        while (agent.GetStatus().Stage != "Failed" && DateTime.UtcNow < settled)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.Equal("Failed", agent.GetStatus().Stage);
+        await File.WriteAllTextAsync(
+            Path.Combine(update, "apply-result.json"),
+            """{"TargetVersion":"0.1.2","Kind":"RolledBack","Detail":"Version 0.1.2 did not report healthy. Restored 0.1.1."}""");
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (agent.GetStatus().Stage != "RolledBack" && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+        }
+
+        await agent.StopAsync(default);
+        var status = agent.GetStatus();
+        Assert.True(status.Stage == "RolledBack", $"stage {status.Stage}, detail {status.Detail}, error {status.LastError}");
+        Assert.Equal("0.1.2", status.TargetVersion);
+        Assert.False(File.Exists(Path.Combine(update, "apply-result.json")));
+        var outcome = Assert.Single(((MonitorApp.Peer.LocalApi.ILocalUpdateHistory)agent)
+            .GetUpdateHistory(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1)), entry => entry.Outcome == "RolledBack");
+        Assert.Equal("0.1.2", outcome.Version);
     }
 
     [Fact]

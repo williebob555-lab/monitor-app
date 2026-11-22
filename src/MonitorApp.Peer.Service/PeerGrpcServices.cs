@@ -674,6 +674,15 @@ public sealed class PeerSessionGrpcService(
                             .ConfigureAwait(false);
                         break;
                     }
+                case PeerSessionRequest.MessageOneofCase.AlertRulesRequest:
+                    {
+                        var response = await BoundedAsync(
+                            token => coordinator.ReadAlertRulesAsync(remotePeerId, request.AlertRulesRequest, token),
+                            cancellationToken).ConfigureAwait(false);
+                        await responseStream.WriteAsync(new PeerSessionResponse { AlertRulesResponse = response }, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    }
                 case PeerSessionRequest.MessageOneofCase.Heartbeat:
                     {
                         if (!PeerPairingGrpcService.IsTimestamp(request.Heartbeat.SentAt))

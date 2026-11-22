@@ -244,6 +244,8 @@ public sealed partial class PeerStore
             FROM collector_assignments;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        command.CommandText = PeerStateHistorySchema;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var migration = connection.CreateCommand();
         migration.CommandText = "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES ($version, $now);";

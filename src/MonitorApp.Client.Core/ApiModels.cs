@@ -98,6 +98,12 @@ public sealed record CatalogSubjectDto(string SubjectEntityId, IReadOnlyList<Cat
 
 public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IReadOnlyList<string> OriginPeers);
 
+/// <summary>One change of a peer's connectivity state (Paired, Online, Stale, Offline, Revoked) for the history timeline.</summary>
+public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
+
+/// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+public sealed record UpdateEventDto(string Version, string Outcome, DateTimeOffset At, string? Detail = null);
+
 public sealed record AlertDto(
     string AlertId,
     uint Revision,
@@ -109,7 +115,11 @@ public sealed record AlertDto(
     string Title,
     string Detail,
     DateTimeOffset RaisedAt,
-    DateTimeOffset? ResolvedAt);
+    DateTimeOffset? ResolvedAt,
+    bool Acknowledged = false,
+    string? AcknowledgedBy = null,
+    DateTimeOffset? AcknowledgedAt = null,
+    bool Escalated = false);
 
 /// <summary>
 /// A recipient's alert preferences on this desktop (T049). <see cref="MinSeverity"/> is "All", "Info", "Warning" or "Critical";
@@ -120,6 +130,27 @@ public sealed record AlertPreferencesDto(
     string MinSeverity,
     IReadOnlyList<string> MutedRuleKinds,
     DateTimeOffset? UpdatedAt);
+
+/// <summary>
+/// One alert rule as the user can edit it (T054). <see cref="Unit"/> is "percent" (CPU, memory, disk) or "minutes" (peer not seen);
+/// <see cref="Minimum"/> and <see cref="Maximum"/> are the range the server accepts. <see cref="SubjectPeerId"/> is the peer the rule
+/// applies to (the owning peer for CPU, memory and disk; a watched peer for peer not seen).
+/// </summary>
+public sealed record AlertRuleDto(
+    string SubjectPeerId,
+    string RuleId,
+    string Title,
+    string Unit,
+    double DefaultThreshold,
+    double Threshold,
+    bool Enabled,
+    bool Overridden,
+    double Minimum,
+    double Maximum,
+    DateTimeOffset? UpdatedAt);
+
+/// <summary>A requested rule override: <see cref="Threshold"/> null keeps the built-in default.</summary>
+public sealed record AlertRuleOverrideDto(string RuleId, bool Enabled, double? Threshold);
 
 /// <summary>Query for a bounded history window. Paging is handled by the client.</summary>
 public sealed record HistoryQuery(
