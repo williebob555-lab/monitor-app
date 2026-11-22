@@ -36,7 +36,7 @@ stop_node() {
     fi
 }
 
-dnf install -y jq libicu openssl-libs util-linux >/dev/null
+dnf install -y jq libicu openssl-libs util-linux systemd shadow-utils >/dev/null
 
 log "rpm -i old package"
 rpm -i "$old_rpm"

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -15,6 +15,7 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpClient http;
     private readonly bool ownsHttp;
+    private readonly List<ViewingLease> viewings = [];
 
     public LocalApiClient(HttpClient http, bool ownsHttp = false, ILocalPresenceProvider? presence = null)
     {
@@ -236,8 +237,72 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     public Task RevokePeerAsync(string peerId, CancellationToken ct = default) =>
         PostAsync($"api/peers/{Uri.EscapeDataString(peerId)}/revoke", ct);
 
+    /// <summary>Asks the node for live (fast) sampling of <paramref name="peerId"/> (null = the node's own data). Renew before the lease lapses.</summary>
+    public async Task<LiveInterestLeaseDto> StartLiveInterestAsync(
+        string? peerId = null, IReadOnlyCollection<string>? signalIds = null, CancellationToken ct = default)
+    {
+        using var response = await SendMutationAsync(
+            HttpMethod.Post, "api/v1/live/interest", new { peerId, signalIds }, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        return await ReadLeaseAsync(response, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Extends a lease. Null when the node no longer knows it (lapsed or the node restarted).</summary>
+    public async Task<LiveInterestLeaseDto?> RenewLiveInterestAsync(string leaseId, CancellationToken ct = default)
+    {
+        using var response = await SendMutationAsync(
+            HttpMethod.Post, $"api/v1/live/interest/{Uri.EscapeDataString(leaseId)}/renew", null, ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        return await ReadLeaseAsync(response, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Ends a lease early; an unknown lease is not an error.</summary>
+    public async Task EndLiveInterestAsync(string leaseId, CancellationToken ct = default)
+    {
+        using var response = await SendMutationAsync(
+            HttpMethod.Delete, $"api/v1/live/interest/{Uri.EscapeDataString(leaseId)}", null, ct).ConfigureAwait(false);
+        if (response.StatusCode != HttpStatusCode.NotFound)
+        {
+            await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Asks the node to sample fast while the UI is looking at <paramref name="peerId"/> (null = this node). Never
+    /// throws: the lease is created and renewed in the background (and re-created if the node restarts), and ended on
+    /// dispose; if the node is unreachable the lease simply lapses on its own.
+    /// </summary>
+    public IDisposable BeginViewing(string? peerId, IReadOnlyCollection<string>? signalIds = null)
+    {
+        var viewing = new ViewingLease(this, peerId, signalIds?.ToArray());
+        lock (viewings)
+        {
+            viewings.Add(viewing);
+        }
+
+        viewing.Start();
+        return viewing;
+    }
+
     public void Dispose()
     {
+        ViewingLease[] open;
+        lock (viewings)
+        {
+            open = [.. viewings];
+            viewings.Clear();
+        }
+
+        foreach (var viewing in open)
+        {
+            viewing.Abandon();
+        }
+
         if (ownsHttp)
         {
             http.Dispose();
@@ -329,6 +394,46 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
 
             await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
             return;
+        }
+    }
+
+    /// <summary>Sends a mutation with a fresh antiforgery pair, retrying once on 403 (a restarted node rotates its keys).</summary>
+    private async Task<HttpResponseMessage> SendMutationAsync(HttpMethod method, string url, object? body, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var token = await GetCsrfTokenAsync(ct).ConfigureAwait(false);
+            var response = await SendAsync(() =>
+            {
+                var request = new HttpRequestMessage(method, url);
+                request.Headers.Add("X-CSRF-TOKEN", token);
+                if (body is not null)
+                {
+                    request.Content = JsonContent.Create(body, options: Json);
+                }
+
+                return request;
+            }, ct).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Forbidden && attempt == 0)
+            {
+                response.Dispose();
+                continue;
+            }
+
+            return response;
+        }
+    }
+
+    private static async Task<LiveInterestLeaseDto> ReadLeaseAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<LiveInterestLeaseDto>(Json, ct).ConfigureAwait(false)
+                ?? throw new IncompatibleApiException("The node returned an empty response.");
+        }
+        catch (JsonException exception)
+        {
+            throw new IncompatibleApiException("The node returned a response this client cannot read.", exception);
         }
     }
 
@@ -479,6 +584,103 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
         }
 
         return "The node rejected the request as invalid.";
+    }
+
+    /// <summary>One background-maintained live-interest lease: create, renew on the node's schedule, end on dispose.</summary>
+    private sealed class ViewingLease(LocalApiClient owner, string? peerId, string[]? signalIds) : IDisposable
+    {
+        private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
+        private readonly CancellationTokenSource stop = new();
+        private volatile bool abandoned;
+
+        public void Start() => _ = Task.Run(RunAsync);
+
+        public void Dispose()
+        {
+            try
+            {
+                stop.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        /// <summary>The client is going away: stop without a DELETE (the node's lease lapses on its own).</summary>
+        public void Abandon()
+        {
+            abandoned = true;
+            Dispose();
+        }
+
+        private async Task RunAsync()
+        {
+            var ct = stop.Token;
+            string? leaseId = null;
+            var delay = TimeSpan.Zero;
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    if (delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(delay, ct).ConfigureAwait(false);
+                    }
+
+                    try
+                    {
+                        if (leaseId is null)
+                        {
+                            var lease = await owner.StartLiveInterestAsync(peerId, signalIds, ct).ConfigureAwait(false);
+                            leaseId = lease.LeaseId;
+                            delay = RenewDelay(lease);
+                        }
+                        else if (await owner.RenewLiveInterestAsync(leaseId, ct).ConfigureAwait(false) is { } renewed)
+                        {
+                            delay = RenewDelay(renewed);
+                        }
+                        else
+                        {
+                            // The node lost the lease (it lapsed or the node restarted): create a new one now.
+                            leaseId = null;
+                            delay = TimeSpan.Zero;
+                        }
+                    }
+                    catch (Exception) when (!ct.IsCancellationRequested)
+                    {
+                        // Node unreachable or refusing: never surface into the UI; keep the lease id and try again.
+                        delay = RetryDelay;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                lock (owner.viewings)
+                {
+                    owner.viewings.Remove(this);
+                }
+
+                if (leaseId is not null && !abandoned)
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    try
+                    {
+                        await owner.EndLiveInterestAsync(leaseId, timeout.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception)
+                    {
+                        // Best effort: the lease lapses on its own.
+                    }
+                }
+
+                stop.Dispose();
+            }
+        }
+
+        private static TimeSpan RenewDelay(LiveInterestLeaseDto lease) => TimeSpan.FromSeconds(Math.Clamp(lease.RenewAfterSeconds, 1, 60));
     }
 
     private sealed record AlertsEnvelope(IReadOnlyList<AlertDto> Alerts);

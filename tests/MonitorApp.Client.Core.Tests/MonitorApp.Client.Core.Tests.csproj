@@ -14,5 +14,6 @@
     <ProjectReference Include="..\..\src\MonitorApp.Client.Presence\MonitorApp.Client.Presence.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.LocalApi\MonitorApp.Peer.LocalApi.csproj" />
     <ProjectReference Include="..\..\src\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
+    <ProjectReference Include="..\..\src\MonitorApp.Peer.Node\MonitorApp.Peer.Node.csproj" />
   </ItemGroup>
 </Project>
