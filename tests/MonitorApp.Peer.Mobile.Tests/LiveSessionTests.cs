@@ -184,6 +184,8 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             var target = await CollectPhoneAsync(phone);
             var latency = await MeasureAsync(phoneLocalProbe, desktopSeesPhone, target);
             output.WriteLine($"phone -> desktop latency after reconnect: {latency.TotalMilliseconds:F1} ms");
+            // The collection tick also appends the phone's LAN link records after the measured sequence; let them land.
+            await WaitAsync(async () => await Converged(phone, desktop));
             await AssertSameHistoryAsync(phone.Store, desktop.Store, phone.Identity.PeerId);
         }
         finally

@@ -4,7 +4,10 @@ public sealed record NetworkTransportSummary(
     bool IsConnected,
     bool IsVpn,
     IReadOnlyList<string> Transports,
-    DateTimeOffset SourceTime)
+    DateTimeOffset SourceTime,
+    bool? IsMetered = null,
+    long? DownstreamKbps = null,
+    long? UpstreamKbps = null)
 {
     public static NetworkTransportSummary Create(
         bool isConnected,
@@ -12,7 +15,10 @@ public sealed record NetworkTransportSummary(
         bool isWifi,
         bool isCellular,
         bool isEthernet,
-        DateTimeOffset sourceTime)
+        DateTimeOffset sourceTime,
+        bool? isMetered = null,
+        long? downstreamKbps = null,
+        long? upstreamKbps = null)
     {
         var transports = new List<string>();
         if (isWifi)
@@ -44,7 +50,10 @@ public sealed record NetworkTransportSummary(
             isConnected,
             isVpn,
             transports.AsReadOnly(),
-            sourceTime);
+            sourceTime,
+            isMetered,
+            downstreamKbps is > 0 ? downstreamKbps : null,
+            upstreamKbps is > 0 ? upstreamKbps : null);
     }
 
     public string DisplayText =>

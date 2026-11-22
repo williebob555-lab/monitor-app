@@ -13,6 +13,7 @@ public enum InterfaceMedium
     Virtual = 6,
     Vlan = 7,
     Other = 8,
+    Cellular = 9,
 }
 
 /// <summary>An interface of the local peer's own host. Never describes other hosts.</summary>

@@ -555,3 +555,12 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: `PeerNodeRuntimeTests.TwoNodesDialingEachOtherReceiveEveryLiveObservationOnce` and `ViewerAskingForOneSignalReceivesOnlyThatSignalAtTheFastRate` (real loopback gRPC and SQLite).
 - Consequences: Several viewers with different signals share the union, and every viewer receives the union's records. The phone's own collection is not yet narrowed by `signal_ids`. Duplicates remain possible briefly around a channel switch (idempotent).
 - Revisit condition: Per-viewer push filtering, or measured cost of the union approach.
+
+### T050 Phone transport in the LAN model
+
+- Status: Accepted.
+- Decision: The phone maps Android's coarse `NetworkTransportSummary` into the desktop's self-interface model (`PhoneTransportMapper`) and runs the unchanged `SelfLanCollector` (entities, claims, relationships, ValidTo) and `LanLinkObservations` on its own collection tick, right after the ordinary reading and from that same platform read. Each transport is one synthetic interface (`wifi`, `cellular`, `ethernet`, `vpn` as overlay, `other`); it is up only when the network is validated, and a transport that disappears is absent so its `AttachedTo` relationship gets a ValidTo. `NetworkTransportSummary` gained optional `IsMetered` and down/up bandwidth estimates (additive, defaults null); they become `lan.link.{if}.metered` and `.bandwidth_down_mbps`/`.bandwidth_up_mbps`, attributed only when exactly one non-VPN transport exists, otherwise Unavailable. `InterfaceMedium.Cellular` was added.
+- Reason: One LAN model and one persistence/ValidTo path for desktop and phone, with no forked logic and no invented identity.
+- Evidence: `PhoneTransportLanTests` (wifi, wifi+vpn, cellular, none sequence through `MobilePeerRuntime`).
+- Consequences: Android hides interface names, MACs, subnets and gateways, so no segment, gateway or VLAN edges and no MAC claims exist for the phone; speed, duplex and MTU are Unavailable. Bandwidth values are platform estimates, not measured link speed. LAN failures are recorded in `LastLanError` and never fail ordinary collection. Each tick adds LAN records to the phone's origin stream.
+- Revisit condition: Reading metered/bandwidth in `AndroidDeviceReader` on a device, or a need for per-network identity (SSID is deliberately not collected).

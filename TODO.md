@@ -32,7 +32,9 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Implement a provisional read-only Yamaha AG06MK2 Windows adapter spike from connected hardware; preserve configured identity/collector, driver and attachment evidence, freshness, explicit unavailable/permission/error states, and the tested host-reassignment boundary.
 - [x] Define physical LAN entities for switches, ports, VLANs, uplinks, peers, and peripherals separately from the Tailscale overlay. (Contracts `LanTopology`; self-observed only, switch/port are types plus unknown-upstream placeholders.)
 - [x] Register `SelfLanCollector` in the Peer.Node on a schedule (startup plus every 60 s): link up/speed/duplex/MTU as signed observations through the ingestion bridge (`lan.link.{if}.*`), self-observed entities/relationships persisted, `ValidTo` set for vanished interfaces (T041).
-- [ ] Add Android coarse transport mapping from `NetworkTransportSummary` into the LAN model; validate the LAN collector on a real Windows host.
+- [x] Add Android coarse transport mapping from `NetworkTransportSummary` into the LAN model (T050).
+- [ ] Validate the LAN collector on a real Windows host.
+- [ ] On a real Android device: read `NetCapability.NotMetered` and `LinkDownstreamBandwidthKbps`/`LinkUpstreamBandwidthKbps` in `AndroidDeviceReader` and pass them to `NetworkTransportSummary.Create` (not wired: no Android SDK to compile against), and verify transport changes (Wi-Fi to cellular, VPN, airplane mode) end ValidTo as the tests expect.
 - [ ] Implement one bounded managed-switch adapter spike selected from available equipment; preserve reported/inferred evidence and reconcile multi-peer reports by strong identity, not IP.
 - [ ] Keep collector ownership explicit, credentials local, and failover disabled until another peer is separately provisioned; test these boundaries.
 
