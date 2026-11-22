@@ -6,6 +6,8 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- T300 (ChatGPT): isolated Cisco SG250 read-only collection adapter with a private-target Net-SNMPv3 authPriv CLI reader, bounded output/timeouts, IF-MIB link facts, bridge-port/PVID mapping, bridge-MAC identity evidence and explicit failures. Added deterministic parser/projection tests. Not yet scheduled, persisted, or verified on SG250 hardware; see `docs/SWITCH_ADAPTER.md`.
+
 - Shared Claude/ChatGPT work board (`docs/COLLABORATION.md`) and a multi-agent section in `AGENTS.md`: claim-before-code table, area ownership, per-agent branch names and task-ID ranges, rules for conflict-prone shared files and version counters, and handoff notes.
 - Phone transport in the LAN model (T050): the phone's coarse Wi-Fi/cellular/Ethernet/VPN state is mapped into the shared self-LAN entities, relationships (with ValidTo when a transport vanishes) and link observations on the collection tick; metered and bandwidth estimates as Unavailable-by-default signals; `NetworkTransportSummary` gained optional metered/bandwidth fields. Scenario test `PhoneTransportLanTests`.
 - Phones can read their own alert preferences (T049 follow-up): additive `AlertPreferencesRequest`/`AlertPreferencesResponse` on the peer session (field 33, read-only, answered with the authenticated caller's own preferences only, same monitoring-controls grant as setting them, audited), `MobilePeerRuntime.ReadAlertPreferencesAsync` and `IControlSource.ReadAlertPreferencesAsync` (null when unreachable or not permitted). Covered in `ControlTests` and `ControlSourceTests`.
