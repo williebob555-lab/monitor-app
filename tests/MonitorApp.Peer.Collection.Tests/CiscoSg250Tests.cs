@@ -24,17 +24,17 @@ public sealed class CiscoSg250Tests
             new(Sg250Oids.IfHighSpeed + ".9", "Gauge32: 0"),
             new(Sg250Oids.BridgePortIfIndex + ".9", "INTEGER: 3"),
             new(Sg250Oids.BridgePortPvid + ".9", "INTEGER: 23"),
-            new(Sg250Oids.BridgeAddress, "Hex-STRING: AA BB CC 00 11 22"));
+            new(Sg250Oids.BridgeAddress, "Hex-STRING: 00 11 22 33 44 55"));
 
         Assert.Equal(Sg250CollectionStatus.Available, snapshot.Status);
         Assert.Equal(SwitchId, snapshot.SwitchEntityId);
         Assert.Equal(Owner, snapshot.CollectorPeerId);
-        Assert.Equal("aa:bb:cc:00:11:22", snapshot.ChassisMac);
+        Assert.Equal("00:11:22:33:44:55", snapshot.BridgeMac);
 
         var port3 = Assert.Single(snapshot.Ports, p => p.IfIndex == 3);
         Assert.Equal("gi1/0/3", port3.Name);
-        Assert.True(port3.AdminUp);
-        Assert.False(port3.OperUp);
+        Assert.True(port3.AdminUp is true);
+        Assert.True(port3.OperUp is false);
         Assert.Equal(1000L, port3.SpeedMbps);
         Assert.Equal(23, port3.Pvid);
 
@@ -44,8 +44,8 @@ public sealed class CiscoSg250Tests
 
         var strong = Assert.Single(snapshot.Topology.Claims, c => c.Strength == IdentityStrength.Strong);
         Assert.Equal(SwitchId, strong.EntityId);
-        Assert.Equal("lan.switch.chassis_mac", strong.ClaimType);
-        Assert.Equal("aa:bb:cc:00:11:22", strong.NormalizedValue);
+        Assert.Equal("lan.switch.bridge_mac", strong.ClaimType);
+        Assert.Equal("00:11:22:33:44:55", strong.NormalizedValue);
         Assert.Equal(Owner, strong.ObserverPeerId);
 
         Assert.Equal(3, snapshot.Topology.Entities.Count);
@@ -70,7 +70,7 @@ public sealed class CiscoSg250Tests
             new(Sg250Oids.BridgePortPvid + ".1", "INTEGER: 40"),
             new(Sg250Oids.BridgeAddress, "Hex-STRING: 00 00 00 00 00 00"));
         Assert.Equal(Sg250CollectionStatus.Available, snapshot.Status);
-        Assert.Null(snapshot.ChassisMac);
+        Assert.Null(snapshot.BridgeMac);
         Assert.DoesNotContain(snapshot.Topology.Claims, x => x.Strength == IdentityStrength.Strong);
         var port = Assert.Single(snapshot.Ports);
         Assert.Null(port.OperUp); // dormant is not necessarily link-down
