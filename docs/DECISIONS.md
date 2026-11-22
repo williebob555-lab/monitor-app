@@ -453,3 +453,12 @@ This log separates confirmed product constraints from working technical decision
 - Evidence: Core tests run the real `LocalApiHost` with seeded SQLite records and exercise paging, unavailable values (never shown as 0), validation errors, antiforgery approval, revoke confirmation, unreachable node, polling and push update paths. A headless Avalonia test binds all sections.
 - Consequences: Unavailable, denied, or stale readings are shown as states. Approved pairings stay listed as Approved until the peer completes pairing. Alerts will be a new `SectionViewModel` plus one DataTemplate. Desktop GUI and any Android head are not visually or device verified. Live push has only a test adapter; no production source raises it yet.
 - Revisit condition: If Avalonia fails on Android or a target platform, or a push-capable source needs a different contract than `StateChanged`.
+
+### T038 Live held-open sessions and adaptive sampling interest
+
+- Status: Accepted (user direction: phone as mobile command center; about 1 s sampling while viewed, about 30 s otherwise).
+- Decision: Held-open `PeerSession`s stream newly committed origin records both ways (wake on an in-process `PeerStore.Live` signal, bounded in-flight batches, gap acknowledgement rewinds). The phone keeps one long-lived session per paired desktop; the dialer always asks the remote to push its own origin because the remote may be unable to dial back. A peer declares `LiveInterest` leases; the receiving origin samples at 1 s while any unexpired interest exists. Interest is honoured only for the receiver's own data, only from trusted authenticated peers, and is bounded. UIs consume `PeerStore.Live` or loopback SSE `/api/v1/live`.
+- Reason: The old connect-drain-close cycle advertised origin availability only at session start, so a held-open session could not deliver new data and the phone could only poll.
+- Evidence: Real loopback gRPC and SQLite tests in `MonitorApp.Peer.Mobile.Tests`, `MonitorApp.Peer.Node.Tests`, `MonitorApp.Peer.LocalApi.Tests`, `MonitorApp.Peer.Application.Tests`, `MonitorApp.Peer.Persistence.Tests`.
+- Consequences: Two desktops that dial each other push the same records twice (idempotent; stale acknowledgements are tolerated instead of failing the session). Interest is not relayed across hops. Alerts are still pulled (every 5 s on a live session). Android behavior under Doze and mobile network changes is unverified.
+- Revisit condition: Measured battery cost on a device, a need for per-signal sampling, or relayed multi-hop viewing.

@@ -18,6 +18,12 @@ The first mesh is pairwise trust for personal scale. Transitive trust and global
 - Protect each peer's SQLite history, trust database, offline replication state, and backups with OS access controls. Diagnostics must be inspectable and redactable.
 - Origin records retain immutable ids and sequence. Replication verifies origin identity, validates schemas/timestamps, is idempotent, and never grants control authority.
 
+## Live sessions and interest
+
+- Live push uses the existing signed per-origin records and authenticated session; there is no unsigned side channel. Every push re-checks active trust, and a revoked peer receives an error and the session ends.
+- Live interest can only slow-to-fast the receiver's own sampling, only from an authenticated actively trusted peer, only for the receiver's own data, with a maximum lease, concurrent-interest and signal bounds (a peer cannot hold collection at 1 s indefinitely or flood it). Revoking trust withdraws that peer's interest. Fast sampling is a cost, not an authority grant.
+- Held-open sessions are bounded by message rate, bounded in-flight batches, an idle timeout and heartbeat dead-peer detection. `GET /api/v1/live` is loopback-only with the same CSP/nosniff/no-store headers and read-only.
+
 ## Android peer
 
 - The phone is outbound-only and opens no listener. Its P-256 identity key stays in Android Keystore and signs session and pairing proofs; the portable runtime only sees the `IPeerIdentityKey` abstraction.

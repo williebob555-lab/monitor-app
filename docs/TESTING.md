@@ -111,6 +111,10 @@ Start real controller and agent processes or their production network servers. R
 - Controller restart and agent reconnect.
 - Explicit incompatibility error for unsupported protocol versions.
 
+### Live session tests
+
+Run on real loopback HTTP/2 gRPC and file-backed SQLite with generous (30 s) condition waits, never fixed sleeps: two nodes and phone-desktop streaming records both ways over a held-open session (live latency is measured and printed; about 25-170 ms on loopback), killing the server mid-session then convergence without duplicates and live delivery after reconnect, interest switching the real `NodeCollectionScheduler` between 10 s and 1 s with withdrawal, lease-expiry and revocation reverting it, unknown and revoked peers refused by the production coordinator, SSE `/api/v1/live` emission and headers, `PeerLiveFeed` publishing only new commits, `LiveInterestRegistry` bounds, and the in-flight window and gap rewind of `PeerLiveSession`. Not covered: real Android devices, mobile network changes, Doze, and real Tailscale links.
+
 ### Phone pairing tests
 
 - `PairingShortCodeTests` (Core): normalization, single use, expiry, bounded live codes, global rate-limit lockout. `PeerPairingCodeClientTests` (Transport): a rogue listener without the code and replayed proofs are refused; public/wildcard addresses and malformed codes are rejected. `PeerContractTests`: unary additive lookup shape. `LocalApiPhonePairingTests`: the QR SVG is decoded with ZXing.Net (test project only) back to the exact payload, quiet zone, CSP/nonce with no inline script or style, expiry, loopback/wildcard message, configured-address enforcement, CSRF, pending phone name and fingerprint. `MobilePairingCodeTests`: real loopback gRPC address+code pairing, then desktop approval and persisted bilateral trust; single use; wrong/expired code refusal without leaking identity; rate limiting.
