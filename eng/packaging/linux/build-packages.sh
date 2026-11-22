@@ -64,7 +64,7 @@ Section: admin
 Priority: optional
 Architecture: amd64
 Installed-Size: $size_kb
-Depends: libc6, libicu | libicu74 | libicu72 | libicu70, libssl3 | libssl3t64, ca-certificates
+Depends: libc6, libicu | libicu80 | libicu78 | libicu77 | libicu76 | libicu74 | libicu72 | libicu70, libssl3 | libssl3t64, ca-certificates
 Maintainer: Monitor App maintainers <noreply@invalid>
 Description: Monitor App peer node (always-on service)
  Runs as the unprivileged monitor-app system user under systemd with state
