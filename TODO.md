@@ -28,6 +28,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - [x] Add separately enabled defensive-security capability policy with evidence/confidence, permissions, local processing, and bounded retention.
 - [x] Define and validate the smallest universal object envelope and typed relationship contract needed to keep actual state and named design scenarios separate; include distinct product/offer/instance identity and the connector-length cable slice without starting sourcing, automation, or AI services.
 - [x] Add the standalone T301 design-planning foundation: named project revisions, multi-standard racks and nested subracks, pedalboards, audio/MIDI/CV and pedal DC planning, evidence-aware physical constraints, broad connector knowledge, and a design-only interaction prototype. Persistence, authoritative client integration, actual-inventory promotion, complete RF coordination, and hardware validation remain separate work.
+- [ ] Integrate the planning foundation with the shared model: use model objects, ports, placements, and identifiers for planned equipment, rack layouts, project parts, and connector compatibility; keep the model store as the only persistence layer.
 
 ## Observed devices and LAN topology
 
