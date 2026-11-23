@@ -15,12 +15,13 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
 
     private readonly MobilePeerRuntime runtime;
+    private readonly MobileUpdater? updater;
     private readonly Action? startHost;
     private readonly Action? stopHost;
     private readonly IQrScanner? qrScanner;
@@ -32,10 +33,11 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
 
     public InProcessPeerDataSource(
         MobilePeerRuntime runtime, TimeSpan? staleAfter = null, Action? startHost = null, Action? stopHost = null,
-        IQrScanner? qrScanner = null)
+        IQrScanner? qrScanner = null, MobileUpdater? updater = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         this.runtime = runtime;
+        this.updater = updater;
         this.startHost = startHost;
         this.stopHost = stopHost;
         this.qrScanner = qrScanner;
@@ -46,6 +48,45 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     }
 
     public string Description => "this phone";
+
+    public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
+
+    public async Task<LocalUpdateStatusDto> CheckForUpdatesAsync(CancellationToken ct = default)
+    {
+        if (updater is not null)
+        {
+            await updater.CheckNowAsync(ct).ConfigureAwait(false);
+        }
+
+        return UpdateStatus();
+    }
+
+    /// <summary>Hands the verified APK to Android's installer, which asks the person to confirm. Refusals surface as messages.</summary>
+    public async Task ApproveUpdateAsync(string targetVersion, CancellationToken ct = default)
+    {
+        if (updater is null)
+        {
+            throw new ApiValidationException("Updates are not available in this build.");
+        }
+
+        if (await updater.InstallAsync(targetVersion, ct).ConfigureAwait(false) is { } refusal)
+        {
+            throw new ApiValidationException(refusal);
+        }
+    }
+
+    private LocalUpdateStatusDto UpdateStatus()
+    {
+        if (updater is null)
+        {
+            return new LocalUpdateStatusDto("approve", "unknown", "Disabled", null, "this build has no updater.", null, null, false);
+        }
+
+        var status = updater.GetStatus();
+        return new LocalUpdateStatusDto(
+            "approve", status.InstalledVersion, status.Stage, status.TargetVersion, status.Detail, status.LastCheckedUtc, status.LastError,
+            status.ApprovalPending, status.TargetDigest);
+    }
 
     public bool SupportsLiveUpdates => true;
 

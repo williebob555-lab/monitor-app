@@ -27,6 +27,11 @@
     <PackageReference Include="Avalonia.Android" />
   </ItemGroup>
 
+  <!-- Release builds pass -p:MonitorUpdateKeyJson=<file>: the public update key the phone verifies manifests against. -->
+  <ItemGroup Condition="'$(MonitorUpdateKeyJson)' != '' And Exists('$(MonitorUpdateKeyJson)')">
+    <AndroidAsset Include="$(MonitorUpdateKeyJson)" Link="Assets\update-key.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\MonitorApp.Android.Core\MonitorApp.Android.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Client.Mobile\MonitorApp.Client.Mobile.csproj" />

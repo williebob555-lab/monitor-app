@@ -223,6 +223,19 @@ jobs:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      - name: Write the trusted update key
+        env:
+          KEY_ID: ${{ needs.prepare.outputs.signing_key_id }}
+          PUBLIC_KEY: ${{ needs.prepare.outputs.signing_public_key }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY_ID}" ] || [ -z "${PUBLIC_KEY}" ]; then
+            echo "::error::Missing trusted signing-key outputs from prepare. See docs/RELEASES.md."
+            exit 1
+          fi
+          # Packaged into the APK as an asset: the phone's updater verifies every manifest against this public key.
+          printf '{"keyId":"%s","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$KEY_ID" "$PUBLIC_KEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
+
       - name: Require Android signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -268,7 +281,8 @@ jobs:
             -c Release -f net10.0-android36.0 --no-restore \
             -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" -p:JavaSdkDirectory="$JAVA_HOME_21_X64" \
             -p:AcceptAndroidSDKLicenses=true -p:AndroidPackageFormat=apk \
-            -p:ApplicationVersion="$GITHUB_RUN_NUMBER" -p:ApplicationDisplayVersion="$VERSION" \
+            -p:ApplicationVersion="$GITHUB_RUN_NUMBER" -p:ApplicationDisplayVersion="$VERSION" -p:Version="$VERSION" \
+            -p:MonitorUpdateKeyJson="$RUNNER_TEMP/update-key.json" \
             -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$keystore" \
             -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS" \
             -p:AndroidSigningKeyPass=env:ANDROID_KEY_PASSWORD \

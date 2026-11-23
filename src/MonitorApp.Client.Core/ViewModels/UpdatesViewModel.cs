@@ -100,7 +100,7 @@ public sealed partial class UpdatesViewModel : SectionViewModel
                 Status = await source.GetLocalUpdateStatusAsync();
             }))
         {
-            StatusMessage = $"Installing {version}. Monitor App restarts when it is done.";
+            StatusMessage = $"Installing {version}. Confirm if asked; Monitor App restarts when it is done.";
         }
         else
         {

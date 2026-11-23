@@ -52,7 +52,8 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
                 runtime,
                 startHost: () => PeerForegroundService.Start(context),
                 stopHost: () => PeerForegroundService.Stop(context),
-                qrScanner: new AndroidQrScanner(context));
+                qrScanner: new AndroidQrScanner(context),
+                updater: MobileRuntimeHost.GetUpdater(context));
             model = new MainViewModel(source);
             view.DataContext = model;
             await model.ConnectAsync().ConfigureAwait(true);
