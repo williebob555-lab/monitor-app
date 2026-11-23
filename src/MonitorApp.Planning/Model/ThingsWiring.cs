@@ -18,6 +18,9 @@ public sealed record MissingNeed(string Code, string Need, string Explanation, s
 /// <summary>A rack from <see cref="RackLayouts"/>, with findings in the Things screen's words.</summary>
 public sealed record RackDrawing(string RackId, int Units, bool UnitsKnown, IReadOnlyList<RackBlock> Blocks, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFinding> Findings);
 
+/// <summary>A pedalboard or desk from <see cref="SurfaceLayouts"/>, with findings in the Things screen's words.</summary>
+public sealed record SurfaceDrawing(string SurfaceId, double Width, double Depth, bool SizeKnown, IReadOnlyList<SurfaceItem> Items, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFinding> Findings);
+
 /// <summary>What the Things screen needs from the connection engine, for any head (local API or the phone).</summary>
 public static class ThingsWiring
 {
@@ -34,6 +37,10 @@ public static class ThingsWiring
     public static IReadOnlyList<RackDrawing> Racks(SystemModel model) =>
         RackLayouts.All(model).Select(r => new RackDrawing(r.RackId, r.Units, r.UnitsKnown, r.Blocks, r.Unplaced,
             r.Findings.OrderBy(f => f.Certainty).Select(f => new WiringFinding(f.Code, f.Certainty.ToString(), f.Explanation)).ToArray())).ToArray();
+
+    public static IReadOnlyList<SurfaceDrawing> Surfaces(SystemModel model) =>
+        SurfaceLayouts.All(model).Select(s => new SurfaceDrawing(s.SurfaceId, s.Width, s.Depth, s.SizeKnown, s.Items, s.Unplaced,
+            s.Findings.OrderBy(f => f.Certainty).Select(f => new WiringFinding(f.Code, f.Certainty.ToString(), f.Explanation)).ToArray())).ToArray();
 
     public static bool IsKnownConnector(string id) => ConnectorCatalog.BuiltIn.TryGet(id, out _);
 

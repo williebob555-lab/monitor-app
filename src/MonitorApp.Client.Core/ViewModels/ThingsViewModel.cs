@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MonitorApp.Client.Core.Scene;
@@ -152,6 +153,26 @@ public sealed record ThingRack(string SizeText, IReadOnlyList<ThingRackRow> Rows
     internal string Signature => string.Join(';', [SizeText, .. Rows.Select(r => $"{r.UnitText}:{r.Label}:{r.Units}:{r.IsProblem}"), .. Notes]);
 }
 
+/// <summary>
+/// A thing on a pedalboard or desk as drawn from above, in mm. The front edge (where you stand) is at the bottom, so
+/// <see cref="Top"/> is measured from the back.
+/// </summary>
+public sealed record ThingBoardItem(string Label, double Left, double Top, double Width, double Height, bool IsProblem)
+{
+    public bool IsOk => !IsProblem;
+}
+
+/// <summary>A pedalboard or desk on its card: its size, the drawing (in mm, scaled to fit) and fit notes.</summary>
+public sealed record ThingBoard(string SizeText, double Width, double Depth, IReadOnlyList<ThingBoardItem> Items, IReadOnlyList<string> Notes)
+{
+    public bool HasNotes => Notes.Count > 0;
+
+    /// <summary>The drawing is in mm and scaled to the card, so labels are sized in mm too: readable at any board size.</summary>
+    public double LabelSize => Math.Max(Width, Depth * 2) / 24;
+
+    internal string Signature => string.Join(';', [SizeText, .. Items.Select(i => $"{i.Label}:{i.Left}:{i.Top}:{i.Width}:{i.Height}:{i.IsProblem}"), .. Notes]);
+}
+
 /// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
 public sealed record ThingPlace(string? Id, string Name);
 
@@ -171,8 +192,11 @@ public sealed record ThingCard(
     IReadOnlyList<string>? Links = null,
     IReadOnlyList<string>? Ports = null,
     IReadOnlyList<ThingWiringRow>? Wiring = null,
-    ThingRack? Rack = null)
+    ThingRack? Rack = null,
+    ThingBoard? Board = null)
 {
+    public bool HasBoard => Board is not null;
+
     public bool HasRack => Rack is not null;
 
     /// <summary>Its ports in words ("DC out · DC barrel 5.5/2.1 mm plug · output · 9 V → Delay DC in").</summary>
@@ -216,7 +240,7 @@ public sealed record ThingCard(
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
         Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText, .. LinkTexts, .. PortTexts,
-        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"), Rack?.Signature ?? string.Empty,
+        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"), Rack?.Signature ?? string.Empty, Board?.Signature ?? string.Empty,
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
@@ -502,7 +526,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
             }
 
-            all = Build(things.Things, readings, wiring, Connectors, things.Racks);
+            all = Build(things.Things, readings, wiring, Connectors, things.Racks, things.Surfaces);
             SyncMissing(things.Missing ?? []);
             SyncKinds(things.Kinds);
             if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
@@ -953,8 +977,9 @@ public sealed partial class ThingsViewModel : SectionViewModel
     /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>
     public static IReadOnlyList<ThingCard> Build(
         IReadOnlyList<ThingDto> things, IReadOnlyList<HistoryPointDto> readings,
-        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null, IReadOnlyList<RackLayoutDto>? racks = null)
+        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null, IReadOnlyList<RackLayoutDto>? racks = null, IReadOnlyList<SurfaceLayoutDto>? surfaces = null)
     {
+        var boardOf = (surfaces ?? []).ToDictionary(b => b.SurfaceId, StringComparer.Ordinal);
         var rackOf = (racks ?? []).ToDictionary(r => r.RackId, StringComparer.Ordinal);
         wiring ??= Array.Empty<ThingWiringDto>().ToLookup(w => w.ThingId, StringComparer.Ordinal);
         var labels = (connectors ?? []).ToDictionary(c => c.Id, c => c.Label, StringComparer.OrdinalIgnoreCase);
@@ -984,10 +1009,20 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     t.Links?.Select(l => $"{l.Phrase} {l.OtherName}").ToArray(),
                     t.Ports?.Select(p => PortText(p, labels)).ToArray(),
                     wiring[t.Id].Select(WiringRow).ToArray(),
-                    rackOf.TryGetValue(t.Id, out var rack) ? RackOf(rack) : null);
+                    rackOf.TryGetValue(t.Id, out var rack) ? RackOf(rack) : null,
+                    boardOf.TryGetValue(t.Id, out var board) ? BoardOf(board) : null);
             })
             .ToArray();
     }
+
+    private static ThingBoard BoardOf(SurfaceLayoutDto board) => new(
+        board.SizeKnown
+            ? string.Create(CultureInfo.InvariantCulture, $"{board.Width:0} × {board.Depth:0} mm, seen from above (front at the bottom)")
+            : string.Create(CultureInfo.InvariantCulture, $"Size unknown, drawn {board.Width:0} × {board.Depth:0} mm"),
+        board.Width,
+        board.Depth,
+        board.Items.Select(i => new ThingBoardItem(i.Name, i.X, board.Depth - i.Y - i.Depth, i.Width, i.Depth, i.Problem)).ToArray(),
+        board.Findings.Where(f => f.Code != "surface-size-unknown").Select(f => f.Explanation).ToArray());
 
     private static ThingRack RackOf(RackLayoutDto rack) => new(
         rack.UnitsKnown ? $"{rack.Units}U rack" : $"Size unknown, drawn {rack.Units}U",
