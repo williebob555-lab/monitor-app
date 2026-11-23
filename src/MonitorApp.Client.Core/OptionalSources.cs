@@ -256,3 +256,35 @@ public interface IThingsSource
     /// </summary>
     Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default);
 }
+
+/// <summary>A code this device shows as a QR: its text, the QR modules ('1' dark, '0' light) and this device's short check code.</summary>
+public sealed record MeshCodeDto(string Code, IReadOnlyList<string> QrRows, string VerificationCode);
+
+/// <summary>What a scanned device code is: a request to join (from a new device) or a welcome (the reply to this device's request).</summary>
+public sealed record MeshCodePreviewDto(bool IsJoinRequest, string DeviceName, string VerificationCode);
+
+/// <summary>
+/// Face-to-face mesh join (T085) between two phones or tablets, which cannot dial each other: the new device shows a join
+/// code, a member scans it and shows a welcome code, the new device scans that. Both steps need the owner's fingerprint.
+/// Errors are thrown as <see cref="ApiValidationException"/> with a user-safe message.
+/// </summary>
+public interface IMeshJoinSource
+{
+    /// <summary>The short code the other device shows for this one, so the owner can check they are the two in hand.</summary>
+    string ThisDeviceVerificationCode { get; }
+
+    /// <summary>Creates this device's join code (valid ten minutes; a new one replaces the old).</summary>
+    MeshCodeDto CreateJoinCode();
+
+    /// <summary>Opens the camera and returns a scanned device code, or null when the person closed the scanner.</summary>
+    Task<string?> ScanMeshCodeAsync(CancellationToken ct = default);
+
+    /// <summary>Checks a scanned code and says what it is, without acting on it.</summary>
+    MeshCodePreviewDto PreviewMeshCode(string code);
+
+    /// <summary>After the fingerprint, adds the device that showed <paramref name="joinCode"/> and returns the welcome code to show it.</summary>
+    Task<MeshCodeDto> AdmitDeviceAsync(string joinCode, CancellationToken ct = default);
+
+    /// <summary>After the fingerprint, completes joining with a scanned welcome. Returns the other device's name.</summary>
+    Task<string> JoinWithWelcomeAsync(string welcomeCode, CancellationToken ct = default);
+}

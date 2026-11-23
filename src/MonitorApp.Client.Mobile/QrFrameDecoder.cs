@@ -51,7 +51,7 @@ public static class QrFrameDecoder
         return null;
     }
 
-    /// <summary>True for text that claims to be a Monitor App pairing invitation.</summary>
+    /// <summary>True for text that claims to be a Monitor App pairing invitation or a phone/tablet device code (T085).</summary>
     public static bool IsInvitationText(string text) =>
-        text.StartsWith(PeerPairingInvitation.Prefix, StringComparison.Ordinal);
+        text.StartsWith(PeerPairingInvitation.Prefix, StringComparison.Ordinal) || MonitorApp.Peer.Replication.MeshFaceToFace.IsMeshCode(text);
 }

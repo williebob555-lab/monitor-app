@@ -7,6 +7,7 @@ using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
 using MonitorApp.Peer.Persistence;
+using MonitorApp.Peer.Replication;
 using MonitorApp.Peer.Transport;
 
 namespace MonitorApp.Client.Mobile;
@@ -17,7 +18,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDisposable
+public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IMeshJoinSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -408,6 +409,11 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         catch (QrScanUnavailableException exception)
         {
             throw new ApiValidationException(exception.Message + " Enter the pairing code shown on the desktop instead.");
+        }
+
+        if (text is not null && MeshFaceToFace.IsMeshCode(text))
+        {
+            throw new ApiValidationException("That code is from a phone or tablet. Use \"Add a phone or tablet\" below instead.");
         }
 
         // null: the person closed the scanner. Not an error and nothing to pair.
