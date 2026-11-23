@@ -121,6 +121,49 @@ public sealed class MobileMeshTests
         }
     }
 
+    [Fact]
+    public async Task ANewlyPairedPhoneStartsSyncingAtOnceInsteadOfAtTheNextPass()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var deskPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, PeerStateInterval: TimeSpan.FromSeconds(1)));
+            using var phoneIdentity = new SoftwareIdentity();
+            // A pass interval far longer than the test: only the wake-up after pairing can start the session in time.
+            await using var phone = await MobilePeerRuntime.CreateAsync(
+                new MobilePeerOptions(roots[1], "phone", CollectionInterval: TimeSpan.FromHours(1),
+                    SyncInterval: TimeSpan.FromHours(1), MaximumSyncBackoff: TimeSpan.FromHours(1), HeartbeatInterval: TimeSpan.FromSeconds(5)),
+                phoneIdentity,
+                new ScriptedDeviceReader());
+            phone.Start();
+            await phone.CollectOnceAsync();
+            await PairPhoneAsync(phone, desk, deskPort);
+
+            var phoneId = phone.Identity.PeerId;
+            var phoneStream = (await PhoneStore(roots[1]).ReadLocalIdentityAsync())!.OriginStreamId;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while ((await desk.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1)).Count == 0)
+            {
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
     private static PeerStore PhoneStore(string root) => new(PeerStoreOptions.Create(Path.Combine(root, "peer.db")));
 
     private static async Task PairPhoneAsync(MobilePeerRuntime phone, PeerNodeRuntime node, int port)

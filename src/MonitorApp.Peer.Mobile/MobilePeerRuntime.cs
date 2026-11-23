@@ -81,6 +81,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     private readonly LiveInterestRegistry interests;
     private readonly IUserPresenceSigner? presence;
     private readonly object gate = new();
+    private TaskCompletionSource sessionWake = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Dictionary<string, MobilePeerSyncStatus> peerStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> notBefore = new(StringComparer.Ordinal);
@@ -108,6 +109,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
         Mesh = new MeshMembership(store, identity.PublicIdentity, identity.IdentityKey);
+        Mesh.TrustChanged += _ => WakeSessions();
         interests = new LiveInterestRegistry(options.InterestPolicy);
         PeerStates = new PeerStateTracker(store, new SystemPeerClock(), TimeSpan.FromMinutes(5), peerId =>
         {
@@ -277,6 +279,8 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 notBefore.Remove(result.Remote.Identity.PeerId);
             }
 
+            // Start syncing with the new device now rather than at the next pass (Wilson saw a minute's stall).
+            WakeSessions();
             return result.Remote.Identity.PeerId;
         }
         catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
@@ -748,7 +752,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                             Task.Run(() => PeerSessionLoopAsync(peer.PeerId, cancellation.Token), CancellationToken.None));
                     }
 
-                    await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
+                    await WaitForWakeAsync(options.SyncInterval, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -824,12 +828,41 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                     wait = options.SyncInterval;
                 }
 
-                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                await WaitForWakeAsync(wait, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+    }
+
+    /// <summary>Ends every session wait early: a device was just paired or the mesh changed who is trusted.</summary>
+    private void WakeSessions()
+    {
+        TaskCompletionSource woken;
+        lock (gate)
+        {
+            woken = sessionWake;
+            sessionWake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            failures.Clear();
+            notBefore.Clear();
+        }
+
+        woken.TrySetResult();
+    }
+
+    private async Task WaitForWakeAsync(TimeSpan wait, CancellationToken cancellationToken)
+    {
+        Task woken;
+        lock (gate)
+        {
+            woken = sessionWake.Task;
+        }
+
+        using var delay = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await Task.WhenAny(woken, Task.Delay(wait, delay.Token)).ConfigureAwait(false);
+        await delay.CancelAsync().ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>One held-open session (with transport-level reconnect) until cancellation or a permanent refusal.</summary>
