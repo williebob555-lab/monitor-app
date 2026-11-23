@@ -29,6 +29,16 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
     /// <summary>True when the source can scan a pairing QR with a camera; the view shows the Scan QR button only then.</summary>
     public bool CanScanQr => Client is IQrPairingSource { CanScanQr: true };
 
+    /// <summary>
+    /// On a computer (connected to its own node's loopback admin API) the phone QR lives on the node's admin page;
+    /// the view offers a button that opens it. Null on the phone, which has no admin page.
+    /// </summary>
+    public Uri? PhonePairingPage => Client is LocalApiClient local && local.Address.IsLoopback
+        ? new Uri(local.Address, "/#phone")
+        : null;
+
+    public bool CanShowPhonePairing => PhonePairingPage is not null;
+
     public override Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     [RelayCommand]

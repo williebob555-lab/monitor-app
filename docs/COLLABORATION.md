@@ -76,7 +76,7 @@ Every release Wilson installs must contain, signed through the existing manifest
 | Fedora | `monitorapp-node-fedora-x64-<v>.rpm` | node service; desktop app as `monitorapp-desktop-fedora-x64-<v>.tar.gz` |
 | Ubuntu | `monitorapp-node-ubuntu-x64-<v>.deb` | lower priority for Wilson (no server yet) |
 
-Releases come from `.github/workflows/preview.yml` on a push to `main` (or `workflow_dispatch`). A release is only "done" when `install-smoke.yml` is green on the commit it was built from. Updates install on a device only after Wilson approves them there.
+Releases are cut on purpose by running `.github/workflows/preview.yml` (`gh workflow run preview.yml`); pushes to `main` no longer publish one. A release is only "done" when `install-smoke.yml` is green on the commit it was built from. Updates install on a device only after Wilson approves them there.
 
 ## 5. Claims, pushing often, and picking up stale work
 

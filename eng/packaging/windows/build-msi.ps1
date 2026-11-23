@@ -26,4 +26,6 @@ $source = Join-Path $PSScriptRoot 'MonitorApp.wxs'
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent ([System.IO.Path]::GetFullPath($OutputPath))) | Out-Null
 & $wix build $source -arch x64 -ext WixToolset.Util.wixext -d "Version=$Version" -d "StageDir=$((Resolve-Path $StageDirectory).Path)" -o $OutputPath | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'wix build failed.' }
+# The debug symbol file is not shipped.
+Remove-Item -LiteralPath ([System.IO.Path]::ChangeExtension($OutputPath, '.wixpdb')) -ErrorAction SilentlyContinue
 Write-Host "Built $OutputPath"

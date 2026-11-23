@@ -4,6 +4,13 @@
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
     <TextBlock Text="Pair with a desktop" Classes="heading" />
     <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device." TextWrapping="Wrap" />
+    <Border Classes="card" IsVisible="{Binding CanShowPhonePairing}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Add a phone (show the QR code)" Classes="subheading" />
+        <TextBlock TextWrapping="Wrap" Text="The QR code for your phone is on this computer's Monitor App page. Open it, choose Show a new pairing code under Add a phone, and scan it with the phone. Then approve the phone under Pending pairings." />
+        <Button Name="OpenPhonePairing" Content="Open the phone pairing page" Click="OnOpenPhonePairing" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
     <Border Classes="card" IsVisible="{Binding CanScanQr}">

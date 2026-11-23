@@ -9,13 +9,10 @@ name: Preview build
 # Artifacts move between jobs as assets of a DRAFT release (no third-party actions); the draft is published only
 # after the manifest is signed, and deleted if anything fails.
 
+# Releases are cut deliberately (Actions > Preview build > Run workflow, or `gh workflow run preview.yml`),
+# not on every push to main, so the releases list only holds builds someone chose to publish.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
 
 permissions:
   contents: write
