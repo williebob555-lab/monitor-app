@@ -65,15 +65,29 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         }
 
         var first = batch.Records[0];
-        if (!string.Equals(sourcePeerId, first.OriginPeerId, StringComparison.Ordinal))
-        {
-            throw new OriginReplicationTrustException("Relayed origin records are not supported; the source must own the origin stream.");
-        }
-
-        var trusted = await store.ReadTrustedPeerAsync(sourcePeerId, cancellationToken).ConfigureAwait(false);
-        if (trusted is null || trusted.TrustState != PeerTrustState.Active)
+        var source = await store.ReadTrustedPeerAsync(sourcePeerId, cancellationToken).ConfigureAwait(false);
+        if (source is null || source.TrustState != PeerTrustState.Active)
         {
             throw new OriginReplicationTrustException("The source peer is not actively trusted.");
+        }
+
+        // A relayed batch (another trusted device forwarding the origin's records) is accepted only for an origin that
+        // is actively trusted here, and every record must carry the origin's own signature: the relay cannot alter,
+        // invent or reorder them. Only the origin itself may declare part of its stream pruned.
+        var relayed = !string.Equals(sourcePeerId, first.OriginPeerId, StringComparison.Ordinal);
+        var trusted = source;
+        if (relayed)
+        {
+            if (batch.PrunedRange is not null)
+            {
+                throw new OriginReplicationTrustException("Only the origin may declare its records pruned.");
+            }
+
+            trusted = await store.ReadTrustedPeerAsync(first.OriginPeerId, cancellationToken).ConfigureAwait(false);
+            if (trusted is null || trusted.TrustState != PeerTrustState.Active)
+            {
+                throw new OriginReplicationTrustException("The origin of relayed records is not actively trusted.");
+            }
         }
 
         var identity = new PeerPublicIdentity(trusted.PeerId, trusted.PublicKeySpki, trusted.PublicKeyFingerprint);
@@ -106,7 +120,7 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             .ToDictionary(item => item.Sequence);
         foreach (var record in batch.Records)
         {
-            if (existingBySequence.TryGetValue(record.Sequence, out var existing) && !Equivalent(existing, record, sourcePeerId))
+            if (existingBySequence.TryGetValue(record.Sequence, out var existing) && !Equivalent(existing, record))
             {
                 throw new PeerPersistenceConflictException("Origin sequence already contains different content.");
             }
@@ -182,6 +196,45 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             batch.PrunedRange = contractRange;
             return batch;
         }
+    }
+
+    /// <summary>
+    /// Reads another device's records that this device holds, to forward them to a peer that cannot reach that device.
+    /// Ranges pruned here are skipped (only the origin may declare its stream pruned), the batch stops at the first
+    /// sequence this device lacks, and an empty batch means nothing more is held from the requested sequence.
+    /// </summary>
+    public async Task<OriginRecordBatch> ReadRelayAsync(OriginRangeRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var resume = request.Clone();
+        for (var skipped = 0; skipped < 64; skipped++)
+        {
+            OriginRecordBatch batch;
+            try
+            {
+                batch = await ReadAsync(resume, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OriginRangePrunedException pruned) when (pruned.Range is { } range)
+            {
+                resume.FirstSequence = checked(range.LastSequence + 1);
+                if (resume.LastSequence != 0 && resume.FirstSequence > resume.LastSequence) break;
+                continue;
+            }
+
+            for (var index = 1; index < batch.Records.Count; index++)
+            {
+                if (batch.Records[index].Sequence == batch.Records[index - 1].Sequence + 1) continue;
+                while (batch.Records.Count > index) batch.Records.RemoveAt(batch.Records.Count - 1);
+                batch.HasMore = true;
+                break;
+            }
+
+            if (batch.Records.Count == 0) batch.HasMore = false;
+            batch.PrunedRange = null;
+            return batch;
+        }
+
+        return new OriginRecordBatch { RequestId = request.RequestId };
     }
 
     public async Task<OriginRecordBatch> ReadAsync(OriginRangeRequest request, CancellationToken cancellationToken = default)
@@ -286,7 +339,10 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         string sourcePeerId, string originPeerId, string originStreamId, DateTimeOffset updatedAt, CancellationToken cancellationToken)
     {
         var prior = await store.ReadReplicationCursorAsync(sourcePeerId, originPeerId, originStreamId, cancellationToken).ConfigureAwait(false);
-        var accepted = prior.Cursor?.AcceptedThrough ?? 0;
+        // Records are stored once whichever peer delivered them, so this source's cursor starts from the furthest any
+        // source reached: a relay's cursor then never rescans what the origin (or another relay) already delivered.
+        var held = await store.ReadHeldThroughAsync(originPeerId, originStreamId, cancellationToken).ConfigureAwait(false);
+        var accepted = Math.Max(prior.Cursor?.AcceptedThrough ?? 0, held);
         var firstSequence = checked(accepted + 1);
         var records = await store.ReadOriginRangeAsync(originPeerId, originStreamId, firstSequence, options.CursorScanLimit, cancellationToken).ConfigureAwait(false);
         var absent = await store.ReadPrunedRangesFromAsync(originPeerId, originStreamId, firstSequence, cancellationToken).ConfigureAwait(false);
@@ -367,7 +423,8 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         };
     }
 
-    private static bool Equivalent(StoredOriginRecord stored, OriginRecord record, string sourcePeerId) =>
+    // Which peer delivered a record does not matter: the same signed record may arrive from the origin and from relays.
+    private static bool Equivalent(StoredOriginRecord stored, OriginRecord record) =>
         stored.OriginPeerId == record.OriginPeerId &&
         stored.OriginStreamId == record.OriginStreamId &&
         stored.Sequence == record.Sequence &&
@@ -378,7 +435,6 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
         stored.ContentHash.AsSpan().SequenceEqual(record.ContentSha256.Span) &&
         stored.Signature.AsSpan().SequenceEqual(record.OriginSignature.Span) &&
         stored.ObservedAt == record.ObservedAt.ToDateTimeOffset() &&
-        stored.ReceivedFromPeerId == sourcePeerId &&
         stored.Provenance == RecordProvenance.Replicated &&
         stored.Quality == record.Quality.ToString();
 

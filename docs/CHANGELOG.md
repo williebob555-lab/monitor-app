@@ -24,6 +24,8 @@ This file records completed user-visible, operational, architectural, packaging,
 - Deleted the unused controller-era `MonitorApp.Domain` project and `MonitorApp.Domain.Tests` (T057); no peer, client, update, Android, CI, release or packaging code referenced them. Recorded the inventory of the remaining controller-era projects and the ordered extraction plan in `docs/DECISIONS.md`.
 
 ### Added
+- Removing a device on the phone asks for the fingerprint when one is set up, as computers do (T086). Without a fingerprint, removal still works so a lost device can always be removed.
+- Readings pass through other devices (T087): a phone and a tablet, or a phone and a computer it cannot reach directly, now see each other's readings through any computer they both reach, refreshed every 15 seconds. Forwarded readings are still checked against the key of the device that took them, so the computer in between cannot change them.
 - Add a phone or tablet face to face (T085): on the Pair screen, the new device shows its code, a phone or tablet that is already set up scans it, checks the short code, approves with a fingerprint and shows a code back for the new device to scan. Every device then trusts the new one through the mesh.
 
 - Switch reader (T300, from ChatGPT's PR #8): a read-only SNMPv3 reader for the Cisco SG250 that maps ports, VLANs and the switch identity into the topology store. It refuses a credentials folder anyone but its owner can read, never puts passphrases on a command line, and only talks to private addresses. Not switched on in the app yet.

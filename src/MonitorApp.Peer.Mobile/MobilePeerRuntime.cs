@@ -21,7 +21,8 @@ public sealed record MobilePeerOptions(
     TimeSpan SyncInterval,
     TimeSpan MaximumSyncBackoff,
     TimeSpan? HeartbeatInterval = null,
-    LiveInterestPolicy? InterestPolicy = null)
+    LiveInterestPolicy? InterestPolicy = null,
+    TimeSpan? RelayPullInterval = null)
 {
     public static MobilePeerOptions Default(string dataDirectory, string displayName) => new(
         dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5));
@@ -504,6 +505,18 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     /// <summary>Revokes a device here and, through the mesh, on every other member.</summary>
     public async Task RevokeAsync(string peerId, CancellationToken cancellationToken = default)
     {
+        // Removing a device removes it from every device in the mesh, for good: ask for the fingerprint when one is set
+        // up, as computers do. Without one, removal still works, so a lost device can always be removed.
+        if (presence is { IsAvailable: true } signer)
+        {
+            var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
+            var name = string.IsNullOrWhiteSpace(peer?.DisplayName) ? "this device" : peer.DisplayName;
+            var payload = System.Text.Encoding.UTF8.GetBytes(
+                $"monitor-mesh-local-removal-v1|{identity.PublicIdentity.PeerId}|{peerId}|{Guid.NewGuid():N}");
+            await signer.SignAsync(payload, new UserPresenceChallenge($"Remove {name}",
+                $"{name} will be removed from all your devices and cannot be added back without reinstalling."), cancellationToken).ConfigureAwait(false);
+        }
+
         await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         await Mesh.RefreshAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -884,6 +897,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             var transport = PeerTransportOptions.Create(endpoint) with
             {
                 HeartbeatInterval = options.HeartbeatInterval ?? TimeSpan.FromSeconds(15),
+                RelayPullInterval = options.RelayPullInterval ?? TimeSpan.FromSeconds(15),
                 InitialReconnectDelay = options.SyncInterval,
                 MaximumReconnectDelay = options.MaximumSyncBackoff,
             };

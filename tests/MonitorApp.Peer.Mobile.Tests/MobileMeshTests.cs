@@ -48,11 +48,12 @@ public sealed class MobileMeshTests
                 (await PhoneStore(roots[2]).ReadTrustedPeerAsync(server.Identity.PeerId))?.TrustState == PeerTrustState.Active &&
                 (await server.Store.ReadTrustedPeerAsync(phoneId))?.TrustState == PeerTrustState.Active);
 
-            // And the phone syncs with the server directly: the server receives the phone's readings from the phone itself.
+            // And the phone syncs with the server directly: the server accepts the phone's readings from the phone itself
+            // (they may also arrive first through the desk, which forwards them, T087).
             await phone.CollectOnceAsync();
             var phoneStream = (await PhoneStore(roots[2]).ReadLocalIdentityAsync())!.OriginStreamId;
-            await WaitAsync(async () => (await server.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1))
-                .SingleOrDefault()?.ReceivedFromPeerId == phoneId);
+            await WaitAsync(async () => (await server.Store.ReadReplicationCursorAsync(phoneId, phoneId, phoneStream))
+                .Cursor?.AcceptedThrough >= 1);
 
             // Removing the server on the phone removes it on the desk, which paired it by hand.
             await phone.RevokeAsync(server.Identity.PeerId);
@@ -236,6 +237,60 @@ public sealed class MobileMeshTests
     }
 
     [Fact]
+    public async Task APhoneAndATabletSeeEachOthersReadingsThroughTheComputerTheyBothReach()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var deskPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, PeerStateInterval: TimeSpan.FromSeconds(1)));
+            var relayFast = (string root, string name) => MobileOptions(root, name) with { RelayPullInterval = TimeSpan.FromMilliseconds(500) };
+
+            // Neither phone nor tablet listens, so they can never connect to each other: only through the desk.
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(relayFast(roots[1], "phone"), phoneIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(phone, desk, deskPort);
+            using var tabletIdentity = new SoftwareIdentity();
+            await using var tablet = await MobilePeerRuntime.CreateAsync(relayFast(roots[2], "tablet"), tabletIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(tablet, desk, deskPort);
+            var (phoneId, tabletId) = (phone.Identity.PeerId, tablet.Identity.PeerId);
+
+            // A reading taken before the tablet connects arrives with its first sync.
+            phone.Start();
+            await phone.CollectOnceAsync();
+            var phoneStream = (await PhoneStore(roots[1]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () => (await desk.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1)).Count == 1);
+            tablet.Start();
+            await WaitAsync(async () =>
+                (await PhoneStore(roots[2]).ReadTrustedPeerAsync(phoneId))?.TrustState == PeerTrustState.Active &&
+                (await PhoneStore(roots[2]).ReadOriginRangeAsync(phoneId, phoneStream, 1, 1))
+                    .SingleOrDefault()?.ReceivedFromPeerId == desk.Identity.PeerId);
+
+            // Readings taken while both stay connected keep arriving, in both directions.
+            await phone.CollectOnceAsync();
+            await tablet.CollectOnceAsync();
+            var tabletStream = (await PhoneStore(roots[2]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () =>
+                await PhoneStore(roots[2]).ReadHeldThroughAsync(phoneId, phoneStream) >= 2 &&
+                (await PhoneStore(roots[1]).ReadOriginRangeAsync(tabletId, tabletStream, 1, 1)).Count == 1);
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task AddingADeviceFailsClosedWithoutAFingerprintReader()
     {
         var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };
@@ -265,6 +320,42 @@ public sealed class MobileMeshTests
                 catch (IOException)
                 {
                 }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RemovingADeviceOnAPhoneAsksForTheFingerprint()
+    {
+        var root = TestDirectories.Create();
+        try
+        {
+            using var phoneIdentity = new SoftwareIdentity();
+            using var presence = new SoftwarePresenceSigner();
+            await using var phone = await MobilePeerRuntime.CreateAsync(MobileOptions(root, "phone"), phoneIdentity,
+                new ScriptedDeviceReader(), presence);
+            using var tabletKey = MonitorApp.Peer.Core.EcdsaPeerIdentityKey.Create();
+            var tablet = MonitorApp.Peer.Core.PeerPublicIdentity.Create("tablet-peer", tabletKey);
+            await PhoneStore(root).UpsertTrustedPeerAsync(new TrustedPeer(tablet.PeerId, tablet.PublicKeySpki, tablet.PublicKeyFingerprint,
+                "Tablet", PeerTrustState.Active, DateTimeOffset.UtcNow, null));
+
+            presence.Deny = true;
+            await Assert.ThrowsAsync<MonitorApp.Peer.Control.UserPresenceDeniedException>(() => phone.RevokeAsync(tablet.PeerId));
+            Assert.Equal(PeerTrustState.Active, (await PhoneStore(root).ReadTrustedPeerAsync(tablet.PeerId))?.TrustState);
+
+            presence.Deny = false;
+            await phone.RevokeAsync(tablet.PeerId);
+            Assert.Equal(PeerTrustState.Revoked, (await PhoneStore(root).ReadTrustedPeerAsync(tablet.PeerId))?.TrustState);
+            Assert.Equal(2, presence.Prompts);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
             }
         }
     }
