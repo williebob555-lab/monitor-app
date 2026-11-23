@@ -225,6 +225,7 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
     public Task<IReadOnlyList<TrustedPeerDto>> GetPeersAsync(CancellationToken ct = default) => Guard(async () =>
     {
         var peers = await runtime.Store.ReadTrustedPeersAsync(ct).ConfigureAwait(false);
+        var provenance = await MeshProvenance.DescribeAsync(runtime.Store, ct).ConfigureAwait(false);
         return (IReadOnlyList<TrustedPeerDto>)peers
             .Select(peer => new TrustedPeerDto(
                 peer.PeerId,
@@ -232,7 +233,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
                 Convert.ToHexString(peer.PublicKeyFingerprint),
                 peer.TrustState.ToString(),
                 peer.PairedAt,
-                peer.RevokedAt))
+                peer.RevokedAt,
+                provenance.GetValueOrDefault(peer.PeerId)))
             .ToArray();
     });
 
