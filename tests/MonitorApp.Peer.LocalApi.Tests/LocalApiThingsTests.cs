@@ -97,6 +97,30 @@ public sealed class LocalApiThingsTests : IDisposable
         Assert.Null(list.Things.Single(t => t.Id == rack.Id).InsideId);
     }
 
+    [Fact]
+    public async Task ThingsCanBeReadAsTheyWereEarlier()
+    {
+        Directory.CreateDirectory(directory);
+        await using var model = new ModelStore(Path.Combine(directory, "model.db"));
+        await model.InitializeAsync();
+        var rack = await Things.CaptureAsync(model, "Studio rack");
+        await Task.Delay(30);
+        var before = DateTimeOffset.UtcNow;
+        await Task.Delay(30);
+        var amp = await Things.CaptureAsync(model, "Focusrite");
+        await Things.EditAsync(model, amp.Id, new ThingEdit(InsideId: rack.Id));
+        await using var fixture = await LocalApiHostTests.Fixture.CreateAsync(directory, model: model);
+
+        var then = await fixture.Client.GetFromJsonAsync<ThingsResponse>("api/v1/things?asOf=" + Uri.EscapeDataString(before.ToString("O")), Json);
+        Assert.Equal(["Studio rack"], then!.Things.Select(t => t.Name));
+        Assert.Empty(then.Things.Single().PartIds);
+        var now = await fixture.Client.GetFromJsonAsync<ThingsResponse>("api/v1/things", Json);
+        Assert.Equal([amp.Id], now!.Things.Single(t => t.Id == rack.Id).PartIds);
+
+        using var bad = await fixture.Client.GetAsync(new Uri("api/v1/things?asOf=yesterday-ish", UriKind.Relative));
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();

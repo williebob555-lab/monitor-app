@@ -39,7 +39,7 @@ Done items stay listed so progress is visible.
 | 9 | Connection engine (T064, T066, T067): ports, cables and adapters, with chain checks such as USB-C alt mode, audio level mismatch and DC polarity | L | Explanations of why a connection will or won't work, with evidence levels | Queued (ChatGPT's queue) |
 | 10 | "What's missing" (T069): unconnected inputs, missing cables, power shortfalls | M | A list of what a build still needs | Queued |
 | 11 | Physical layouts: racks, pedalboards and desks that look real, with drag to place | L | A rack or pedalboard view of real equipment | Queued |
-| 12 | Time travel over the model: the as-of slider moves things and connections, not just readings | M | Drag back in time and see what was connected | Queued |
+| 12 | Time travel over the model: the as-of slider moves things and connections, not just readings | M | Drag back in time and see what was connected | Things follow the timeline, 0.1.18 (which things existed, what was inside what, their values and readings then; editing off in the past). Connections follow once they are drawn |
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Later |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 

@@ -21,14 +21,26 @@ internal static class LocalApiThings
 {
     public static void Map(WebApplication application)
     {
-        application.MapGet("/api/v1/things", async (HttpContext context, CancellationToken token) =>
+        // ?asOf=<ISO 8601> shows the model as it was then (time travel over things, containment and values).
+        application.MapGet("/api/v1/things", async (HttpContext context, string? asOf, CancellationToken token) =>
         {
             if (context.RequestServices.GetService<ModelStore>() is not { } store)
             {
                 return Results.NotFound(new { error = "The shared model is not available on this node." });
             }
 
-            var model = await store.LoadAsync(cancellationToken: token).ConfigureAwait(false);
+            DateTimeOffset? at = null;
+            if (!string.IsNullOrWhiteSpace(asOf))
+            {
+                if (!DateTimeOffset.TryParse(asOf, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+                {
+                    return Results.BadRequest(new { error = "asOf must be an ISO 8601 time." });
+                }
+
+                at = parsed;
+            }
+
+            var model = await store.LoadAsync(at, cancellationToken: token).ConfigureAwait(false);
             return Results.Json(new ThingsResponse(Things.List(model), Things.KindChoices(store.Library)));
         });
 

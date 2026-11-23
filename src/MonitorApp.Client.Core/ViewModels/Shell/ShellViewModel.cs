@@ -111,6 +111,7 @@ public sealed partial class ShellViewModel : ObservableObject
         if (main.Sections.OfType<ThingsViewModel>().SingleOrDefault() is { } things)
         {
             thingsLens = things;
+            things.AsOf = environment.AsOf;
             things.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
             Dive.CanOpenInThings = true;
             Dive.ThingRequested += (_, nodeId) => OpenInThings(nodeId);
@@ -589,6 +590,16 @@ public sealed partial class ShellViewModel : ObservableObject
                 if (Environment.IsHistorical)
                 {
                     TimelineOpen = true;
+                }
+
+                // One time for every lens: Things follows the timeline too.
+                if (thingsLens is { } things && things.AsOf != Environment.AsOf)
+                {
+                    things.AsOf = Environment.AsOf;
+                    if (Mode == ShellMode.Things)
+                    {
+                        _ = things.RefreshAsync();
+                    }
                 }
 
                 break;

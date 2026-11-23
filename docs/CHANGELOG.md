@@ -18,6 +18,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Things follows the timeline (0.1.18, T083): drag back and Things shows what the model held then (which things existed, what sat inside what, their values and the readings recorded then), marked RECORDED, with adding and editing off. `GET /api/v1/things?asOf=`.
 - Things groups a device's readings under System, Network, Power and Monitoring headings; on a busy computer the big groups start folded, so cards stay short.
 - The map is back (0.1.17): a Map switch in the Ecosystem toolbar shows every device as a card joined by its typed connections, with pan, zoom and drag-to-pin. Selecting a device fills the inspector, and "Dive in" or "Open it up in Things" opens it in the other lenses. The schematic canvas had been built but left unplugged when the Dive became the default.
 - Things (0.1.15 to 0.1.17): every object in the shared model as a card with evidence badges; quick add; "Open it up" pulls a computer apart into the parts its own readings prove (processor, memory, storage, battery, network adapters); "See it live" and "Open it up in Things" move between Things and the Ecosystem on the same device; "Edit" renames a thing, changes its kind, edits your note and puts it inside another thing (containment loops are refused). Edits go through the model change log as entered by you (`POST /api/v1/things/edit`, CSRF-protected).

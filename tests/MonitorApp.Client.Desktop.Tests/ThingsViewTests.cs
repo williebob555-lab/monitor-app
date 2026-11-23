@@ -80,6 +80,33 @@ public sealed class ThingsViewTests
     }
 
     [AvaloniaFact]
+    public void ThingsFollowTheTimelineAndAreReadOnlyInThePast()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Assert.True(things.CanChange);
+
+        var earlier = DateTimeOffset.UtcNow.AddHours(-3);
+        model.Environment.GoToAsync(earlier).GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(earlier, things.AsOf);
+        Assert.Contains(earlier, source.AsOfRequests);
+        Assert.False(things.CanChange);
+        Assert.StartsWith("RECORDED", things.RecordedText, StringComparison.Ordinal);
+        things.EditCommand.Execute(things.Cards.First());
+        Assert.False(things.IsEditing);
+
+        model.Environment.ReturnToNowCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(things.AsOf);
+        Assert.True(things.CanChange);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void EditingAThingSendsOnlyWhatChangedAndOffersOnlyPlacesOutsideIt()
     {
         var source = new FakeThingsSource();
@@ -188,8 +215,11 @@ public sealed class ThingsViewTests
             ]);
         }
 
-        public Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+        public List<DateTimeOffset?> AsOfRequests { get; } = [];
+
+        public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default)
         {
+            AsOfRequests.Add(asOf);
             var laptop = "peer:" + LocalId;
             string[] subjects = ["peer:" + LocalId];
             ThingDto Part(string slot, string name, string kind, string label, string prefix, params ThingFactDto[] facts) =>

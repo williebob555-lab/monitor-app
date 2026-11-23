@@ -56,12 +56,13 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
     private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
 
-    public Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(ct), ct);
+    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(asOf, ct), ct);
 
-    private async Task<ThingsDto?> ReadThingsAsync(CancellationToken ct)
+    private async Task<ThingsDto?> ReadThingsAsync(DateTimeOffset? asOf, CancellationToken ct)
     {
         var store = await ModelAsync(ct).ConfigureAwait(false);
-        if (Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
+        // Looking back in time only reads; bridging new monitoring in belongs to the present.
+        if (asOf is null && Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
         {
             await modelGate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -75,7 +76,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
             }
         }
 
-        var current = await store.LoadAsync(cancellationToken: ct).ConfigureAwait(false);
+        var current = await store.LoadAsync(asOf, cancellationToken: ct).ConfigureAwait(false);
         return new ThingsDto(
             Things.List(current).Select(ToDto).ToArray(),
             Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray());

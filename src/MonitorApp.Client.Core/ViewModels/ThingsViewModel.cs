@@ -161,6 +161,23 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [ObservableProperty]
     private bool available = true;
 
+    /// <summary>
+    /// The time the timeline is set to, or null for now. In the past the screen shows what the model held then (which things
+    /// existed, what sat inside what, their values) with the readings recorded then; adding and editing are off.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHistorical), nameof(CanChange), nameof(RecordedText))]
+    private DateTimeOffset? asOf;
+
+    public bool IsHistorical => AsOf is not null;
+
+    /// <summary>History is observational: nothing is added or edited while looking back.</summary>
+    public bool CanChange => AsOf is null;
+
+    public string RecordedText => AsOf is { } at
+        ? "RECORDED · as of " + at.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.CurrentCulture) + ". This is what you had then; return to live to add or edit."
+        : string.Empty;
+
     /// <summary>The thing opened into its parts ("open the machine"), or null on the card grid.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsGrid), nameof(OpenItems))]
@@ -232,6 +249,14 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     partial void OnAvailableChanged(bool value) => OnPropertyChanged(nameof(EmptyText));
 
+    partial void OnAsOfChanged(DateTimeOffset? value)
+    {
+        if (value is not null)
+        {
+            CancelEdit();
+        }
+    }
+
     public override async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         if (Source is not { } source)
@@ -242,7 +267,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
         await RunAsync(async () =>
         {
-            var things = await source.GetThingsAsync(cancellationToken);
+            var asOf = AsOf;
+            var things = await source.GetThingsAsync(asOf, cancellationToken);
             if (things is null)
             {
                 Available = false;
@@ -257,7 +283,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             {
                 try
                 {
-                    readings = (await Client.GetStateAsync(ct: cancellationToken)).Points;
+                    readings = (await Client.GetStateAsync(asOf, ct: cancellationToken)).Points;
                 }
                 catch (LocalApiException)
                 {
@@ -323,7 +349,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             ThingPartRow part => part.Id,
             _ => null,
         };
-        if (id is null || !things.TryGetValue(id, out var thing))
+        if (id is null || !CanChange || !things.TryGetValue(id, out var thing))
         {
             return;
         }
@@ -371,7 +397,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [RelayCommand]
     private async Task SaveEditAsync()
     {
-        if (Source is not { } source || editing is not { } thing)
+        if (Source is not { } source || editing is not { } thing || !CanChange)
         {
             return;
         }
@@ -437,7 +463,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [RelayCommand]
     private async Task AddAsync()
     {
-        if (Source is not { } source)
+        if (Source is not { } source || !CanChange)
         {
             return;
         }

@@ -94,8 +94,14 @@
                   AutomationProperties.Name="Refresh things" />
         </Grid>
 
+        <!-- Looking back in time: what the model held then; adding and editing are off. -->
+        <Border Classes="tile" IsVisible="{Binding IsHistorical}" BorderBrush="{DynamicResource Brush.Warning}">
+          <TextBlock Text="{Binding RecordedText}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Polite" />
+        </Border>
+
         <!-- Quick capture: a name, or a name and a note on the next lines. -->
-        <Border Classes="tile">
+        <Border Classes="tile" IsVisible="{Binding CanChange}">
           <StackPanel Spacing="8">
             <TextBlock Text="ADD A THING" Classes="section" />
             <TextBox Text="{Binding NewThingText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="160"
@@ -170,7 +176,7 @@
                     <Button Classes="action" Content="See it live" Margin="0,4,8,0" IsVisible="{Binding CanSeeLive}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
-                    <Button Classes="flat" Content="Edit" Margin="0,4,0,0"
+                    <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}" Margin="0,4,0,0"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                   </WrapPanel>
@@ -193,6 +199,7 @@
         </Grid>
         <StackPanel Spacing="2">
           <TextBlock Text="OPENED UP" Classes="section" />
+          <TextBlock Text="{Binding RecordedText}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" IsVisible="{Binding IsHistorical}" />
           <TextBlock Text="{Binding OpenCard.Name, FallbackValue=''}" Classes="headline" TextWrapping="Wrap" />
           <TextBlock Text="Its parts and whatever you put inside it, each with what is known about it."
                      Classes="muted" TextWrapping="Wrap" />
@@ -213,7 +220,7 @@
                     <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
                   </StackPanel>
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
-                  <Button Classes="flat" Content="Edit" HorizontalAlignment="Center"
+                  <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}" HorizontalAlignment="Center"
                           Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                           CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                 </StackPanel>
@@ -237,7 +244,7 @@
                     <Button Classes="flat" Content="See it live" Margin="0,0,8,0" IsVisible="{Binding CanSeeLive}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
-                    <Button Classes="flat" Content="Edit"
+                    <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                   </WrapPanel>
