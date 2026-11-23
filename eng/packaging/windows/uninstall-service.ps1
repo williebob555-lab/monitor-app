@@ -21,6 +21,7 @@ if ($service) {
     & sc.exe delete $name | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc.exe delete failed ($LASTEXITCODE)" }
 }
+Get-NetFirewallRule -DisplayName 'MonitorApp-peer-Tailscale' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 if (Get-ScheduledTask -TaskName 'MonitorAppUpdate' -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName 'MonitorAppUpdate' -Confirm:$false
 }

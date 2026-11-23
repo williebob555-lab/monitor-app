@@ -73,6 +73,12 @@ if ($sc.ExitCode -ne 0) { throw "sc.exe create failed ($($sc.ExitCode))" }
 & sc.exe failure $name reset= 86400 actions= restart/5000/restart/30000/restart/60000 | Out-Null
 & sc.exe failureflag $name 1 | Out-Null
 
+# Tailscale-only inbound rule for the peer port. It allows nothing while the peer listener is on 127.0.0.1 (the default);
+# it matters only after the person turns on "Let my phone reach this computer", which moves the listener to the
+# Tailscale address. Remote addresses outside 100.64.0.0/10 stay blocked.
+Get-NetFirewallRule -DisplayName 'MonitorApp-peer-Tailscale' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+New-NetFirewallRule -DisplayName 'MonitorApp-peer-Tailscale' -Direction Inbound -Protocol TCP -LocalPort $PeerPort -RemoteAddress '100.64.0.0/10' -Action Allow | Out-Null
+
 # Binaries: read/execute for the service account. Data: only the service account, SYSTEM, Administrators.
 # ACLs are applied before the 'current' link exists so nothing is propagated through it; new version directories
 # created later by the SYSTEM helper inherit these entries from versions\.

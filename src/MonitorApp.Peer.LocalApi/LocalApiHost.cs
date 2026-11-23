@@ -58,7 +58,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         ILocalUpdateController? updates = null,
         ControlService? control = null,
         MonitoringControlState? monitoring = null,
-        LocalPresenceService? localPresence = null)
+        LocalPresenceService? localPresence = null,
+        IPeerReachController? reach = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -101,6 +102,11 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (control is not null)
         {
             builder.Services.AddSingleton(control);
+        }
+
+        if (reach is not null)
+        {
+            builder.Services.AddSingleton(reach);
         }
 
         if (monitoring is not null)
@@ -670,6 +676,7 @@ public sealed class LocalApiHost : IAsyncDisposable
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
         MapControlEndpoints(application);
+        MapPhoneReachEndpoints(application);
         MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>
             Results.Json((await store.ReadPinnedIncidentsAsync(token).ConfigureAwait(false)).Select(PinnedIncidentView.Of)));
@@ -728,6 +735,70 @@ public sealed class LocalApiHost : IAsyncDisposable
     /// biometric presence-key enrollments. Mutations need the CSRF token like every other local mutation; a remote
     /// peer can never reach these endpoints (they are the local administrator's decisions).
     /// </summary>
+    /// <summary>
+    /// What the desktop app needs to pair a phone without the admin page: the phone invitation with its QR modules, and the
+    /// "let my phone reach this computer" switch. Loopback only like every local endpoint; changes need the antiforgery token,
+    /// and moving the listener needs presence verification when it is enforced.
+    /// </summary>
+    private static void MapPhoneReachEndpoints(WebApplication application)
+    {
+        application.MapGet("/api/v1/phone-pairing", (PhonePairingService phone) => Results.Json(phone.View()));
+        application.MapPost("/api/v1/phone-pairing", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            PhonePairingService phone,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var request = context.Request.HasJsonContentType()
+                ? await context.Request.ReadFromJsonAsync<PhoneInvitationRequest>(token).ConfigureAwait(false)
+                : null;
+            var advertisable = phone.Advertisable;
+            var address = request?.Address ?? (advertisable.Count > 0 ? advertisable[0].ToString() : null);
+            return await phone.IssueAsync(address, token).ConfigureAwait(false)
+                ? Results.Json(phone.View())
+                : Results.BadRequest(new { error = "This computer is not reachable by a phone yet. Turn on \"Let my phone reach this computer\" first." });
+        });
+        application.MapGet("/api/v1/network/reach", (HttpContext context) =>
+            context.RequestServices.GetService<IPeerReachController>() is { } reach ? Results.Json(reach.GetStatus()) : Results.NotFound());
+        application.MapPost("/api/v1/network/reach", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<IPeerReachController>() is not { } reach)
+            {
+                return Results.NotFound();
+            }
+
+            var request = context.Request.HasJsonContentType()
+                ? await context.Request.ReadFromJsonAsync<PeerReachRequest>(token).ConfigureAwait(false)
+                : null;
+            if (request is null)
+            {
+                return Results.BadRequest(new { error = "Say whether phones should reach this computer." });
+            }
+
+            var blocked = RequirePresence(context, LocalPresenceService.NetworkReachAction, request.ReachableByPhone ? "tailscale" : "local");
+            if (blocked is not null)
+            {
+                return blocked;
+            }
+
+            var change = reach.Change(request.ReachableByPhone);
+            return change.Accepted ? Results.Json(change.Status) : Results.BadRequest(new { error = change.Error });
+        });
+    }
+
     private static void MapControlEndpoints(WebApplication application)
     {
         application.MapGet("/api/v1/audit", async (
@@ -1299,6 +1370,10 @@ public sealed class LocalApiHost : IAsyncDisposable
             ? Results.Redirect("/", permanent: false, preserveMethod: false)
             : Results.Json(value);
 }
+
+internal sealed record PhoneInvitationRequest(string? Address);
+
+internal sealed record PeerReachRequest(bool ReachableByPhone);
 
 /// <summary>Pin a time window of raw observations against retention pruning.</summary>
 internal sealed record PinIncidentRequest(string? Label, string? From, string? To);

@@ -44,13 +44,17 @@ Phases are priorities, not walls: a task from a later phase may be done early if
 
 ## 4. The task queue
 
-Take the **first unclaimed task whose dependencies are done**, unless Wilson asks for something specific. "Suggested" says which agent is likely a good fit; it is a hint, not ownership.
+Take the **first unclaimed task whose dependencies are done**, unless Wilson asks for something specific. `docs/BILL-OF-WORK.md` is the plain-English version of this queue for Wilson: what each item is, its size, and what he will see. Update it in the same PR that finishes an item. "Suggested" says which agent is likely a good fit; it is a hint, not ownership.
 
 Each task is about one sitting of work and has a clear "done when". Bigger work is split into several tasks before anyone starts it.
 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge; plus the Windows MSI and release-smoke fixes | PR #16 merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Code and 4 tests done in PR #16; design in `docs/ARCHITECTURE-MODEL.md` |
+| T072 | 1 | Phone pairing inside the desktop app: draw the pairing QR in Settings > Pairings, plus a "Let my phone reach this computer" switch that binds the peer listener to the Tailscale address (private only, never wildcard) with a Tailscale-only firewall rule | Pair a phone from the app alone, no PowerShell; tests for the bind choice and the QR | none | Claude | Done in PR (this branch), 2026-11-23 | Bill of work item 3. Windows firewall rule: install-service.ps1 for new installs; for existing installs the SYSTEM update task adds it when the switch is turned on (from 0.1.14) |
+| T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | none (T061 done) | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-23 | Bill of work item 4 |
+| T073 | 2 | "Things" lens: the first screen on the model. Cards for every model object, with each value's evidence level shown (measured / spec / entered / estimated / unknown) | Things visible in the desktop and phone app, read from `model.db` | T065 | Claude | | Bill of work item 5 |
+| T074 | 2 | Quick capture: add a thing with only a name or note; add properties, tags and links later | Add, edit and link from the Things screen; changes go through the model change log | T073 | either | | Bill of work item 6 |
+| T075 | 2 | "Open the machine": exploded view of a computer from its model parts, with live readings per part | Tap a computer in Things and see its parts with readings | T073 | Claude | | Bill of work item 7 |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
 | T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
@@ -124,6 +128,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T061 shared model core, MSI; release on purpose only; hourly update checks + Check now; Android in-app updates; alert noise fix | Claude | #16, #17, #18 | 2026-11-23 |
 | T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
 | T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
 | Work board: shared queue | Claude | #15 | 2026-11-22 |
@@ -137,6 +142,8 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 Use this section for anything that does not fit in a PR description: requests to the other agent, or work left for anyone to pick up. Newest first. Delete a note once it is answered.
 
 Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
+
+- 2026-11-23, Claude to anyone: Wilson wants visible progress and a bill of work before big efforts; `docs/BILL-OF-WORK.md` is that list. Favor items he can see. Cut a release (run the Preview workflow by hand) at each finished item and tell him in plain words what he will see. The Android updater (`MobileUpdater`, `AndroidApkInstaller`) is only verified by CI build; first real-phone install is 0.1.13 to the next release.
 
 - 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs #8 and #12 are queued as T300 and T301 under your name; #11 (Android crash fix) was merged by Claude. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
 

@@ -409,7 +409,8 @@ public sealed class LocalApiHostTests : IDisposable
             PhonePairingOptions? phonePairing = null,
             ILocalUpdateController? updates = null,
             LocalPresenceService? presence = null,
-            bool withControl = false)
+            bool withControl = false,
+            IPeerReachController? reach = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -490,7 +491,8 @@ public sealed class LocalApiHostTests : IDisposable
                 alerts,
                 updates: updates,
                 control: control,
-                localPresence: presence);
+                localPresence: presence,
+                reach: reach);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {

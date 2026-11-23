@@ -51,6 +51,53 @@ public static class WindowsApplyHelper
         }
     }
 
+    /// <summary>Inbound rule that lets only Tailscale addresses reach the peer port (used when phones may reach this computer).</summary>
+    public const string FirewallRuleName = "MonitorApp-peer-Tailscale";
+
+    /// <summary>
+    /// Privileged and idempotent: make sure the Tailscale-only inbound rule for the peer port exists. The rule allows nothing
+    /// while the peer listener is on 127.0.0.1; it matters only after the person lets phones reach this computer.
+    /// </summary>
+    public static async Task EnsureFirewallRuleAsync(IProcessRunner runner, int peerPort, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(runner);
+        var show = await runner.RunAsync("netsh.exe", ["advfirewall", "firewall", "show", "rule", $"name={FirewallRuleName}"],
+            TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        if (show.ExitCode == 0)
+        {
+            return;
+        }
+
+        var add = await runner.RunAsync("netsh.exe",
+            ["advfirewall", "firewall", "add", "rule", $"name={FirewallRuleName}", "dir=in", "action=allow", "protocol=TCP",
+                $"localport={peerPort.ToString(System.Globalization.CultureInfo.InvariantCulture)}", "remoteip=100.64.0.0/10"],
+            TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        if (add.ExitCode != 0)
+        {
+            Console.Error.WriteLine($"apply-update: could not add the firewall rule ({add.ExitCode}): {add.StandardError.Trim()}");
+        }
+    }
+
+    /// <summary>Privileged entry from the scheduled task: firewall housekeeping, then the update apply when one was requested.</summary>
+    public static async Task<int> RunWithHousekeepingAsync(
+        string updateDirectory,
+        string installRoot,
+        string keyFile,
+        string channel,
+        IProcessRunner? runner = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The node also starts this task with no update request when the person lets phones reach this computer; then the
+        // only job is the firewall rule.
+        await EnsureFirewallRuleAsync(runner ?? new SystemProcessRunner(), 55431, cancellationToken).ConfigureAwait(false);
+        if (!File.Exists(Path.Combine(updateDirectory, "apply-request.json")))
+        {
+            return 0;
+        }
+
+        return await RunAsync(updateDirectory, installRoot, keyFile, channel, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Privileged side. <paramref name="service"/> is replaceable so the flow can be tested without a real service.</summary>
     public static Task<int> RunAsync(
         string updateDirectory,
