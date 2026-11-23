@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 #Requires -RunAsAdministrator
 <#
 Per-machine installer for the Monitor App preview zip (node service + desktop app). UNTESTED on Windows: written

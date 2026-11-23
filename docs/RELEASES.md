@@ -68,7 +68,8 @@ Artifacts (all listed in the signed `update-manifest.json`, channel `preview`; t
 
 - `monitorapp-node-ubuntu-x64-V.deb` and `monitorapp-node-fedora-x64-V.rpm`: the node service (rpm built in a `fedora:42` container from the same staged tree).
 - `monitorapp-desktop-ubuntu-x64-V.tar.gz` / `monitorapp-desktop-fedora-x64-V.tar.gz`: Avalonia desktop app as a self-contained tarball (identical payload; not part of the packages so the node package stays headless).
-- `monitorapp-node-windows-x64-V.zip`: node and desktop app plus `Install-MonitorApp.ps1` (service plus Start menu shortcut; re-run it from a newer zip to update; in-place Windows apply is TODO).
+- `monitorapp-windows-x64-V-setup.msi`: the Windows installer. Double-click it (or `msiexec /i <file> /qn`). It installs the node service and desktop app by running the same `Install-MonitorApp.ps1` as the zip under Windows PowerShell 5.1, so the side-by-side layout and in-app updates are identical. Reinstalling or installing a newer MSI keeps identity and data; uninstalling removes the service and binaries and keeps `%ProgramData%\MonitorApp`.
+- `monitorapp-node-windows-x64-V.zip`: node and desktop app plus `Install-MonitorApp.ps1` (service plus Start menu shortcut; re-run it from a newer zip to update; the in-app update path uses this zip).
 - `monitorapp-mobile-android-universal-V.apk`: release-signed with your keystore; sideload it.
 
 Installed Linux nodes carry the public key and repository in `/etc/monitor-app/update-key.json` (derived from the protected preview signing key at packaging time). `NodeUpdateAgent` polls the GitHub releases API every ~6 h (jittered, plus on start), picks the newest `preview-*` pre-release, verifies the signed manifest, downloads and verifies the `.deb`/`.rpm`, and then:

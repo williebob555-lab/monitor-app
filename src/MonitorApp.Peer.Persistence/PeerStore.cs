@@ -726,6 +726,17 @@ public sealed partial class PeerStore
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new PeerPersistenceConflictException("Observed entity creation identity is immutable.");
     }
 
+    public async Task<IReadOnlyList<ObservedEntity>> ReadObservedEntitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT entity_id, entity_kind, created_at FROM observed_entities ORDER BY entity_id;";
+        var result = new List<ObservedEntity>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) result.Add(new ObservedEntity(reader.GetString(0), reader.GetString(1), Parse(reader.GetString(2))));
+        return result;
+    }
+
     public async Task AddIdentityClaimAsync(IdentityClaim claim, CancellationToken cancellationToken = default)
     {
         Validate(claim);

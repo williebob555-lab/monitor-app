@@ -50,12 +50,11 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge | `src/MonitorApp.Model` + tests merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Design in `docs/ARCHITECTURE-MODEL.md` |
-| T062 | 1 | Fix broken screens and readings (raw signal names, Other signals screen, battery error when full, menu stutter); add `docs/VISION.md` | PR merged; fixes verified on the platforms named in the PR | none | Claude | Claude, `claude/project-thread-vnvp5q`, 2026-11-22 | |
+| T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge; plus the Windows MSI and release-smoke fixes | PR #16 merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Code and 4 tests done in PR #16; design in `docs/ARCHITECTURE-MODEL.md` |
+| T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
 | T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
 | T300 | 1 | SG250 switch adapter spike (PR #8) | PR #8 merged with CI green, or closed with a reason | none | ChatGPT | ChatGPT, `chatgpt/T300-sg250-adapter` | |
-| T302 | 1 | Android launch crash fix (PR #11) | PR #11 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/android-startup-triage` | |
 | T064 | 1 | Put T301 on the model: `ConnectionPort`, `RackEquipment`, `PlanPart` built from model objects, ports and placement; connector ids on model ports come from `ConnectorCatalog`; remove T301's separate JSON persistence | Planning tests run against model objects; no planning-only ids remain | T061, T301 | ChatGPT | | See section 9 of `docs/ARCHITECTURE-MODEL.md` |
 | T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | T061 | Claude | | |
 | T066 | 2 | Findings with evidence levels (verified problem / estimate / unknown / OK as declared) as the single result type of every engine; adapt T301 evaluators to return them | All engines return the shared finding type | T064 | either | | `ARCHITECTURE-MODEL.md` 3.13 |
@@ -65,6 +64,19 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 | T070 | 2 | Lens shell: one selection shared by every view; switching view keeps the object | Selecting a device and switching between system, physical and inventory keeps it selected | T061 | Claude | | UI; coordinate with any open UI task |
 
 Add new tasks at the end of the right phase with the next free ID (check the queue, `TODO.md` and `docs/DECISIONS.md`). If two PRs add the same ID, the one merged second renumbers.
+
+## 4a. Standard release set
+
+Every release Wilson installs must contain, signed through the existing manifest:
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| Android | `monitorapp-mobile-android-universal-<v>.apk` | release-signed; launch-tested on an emulator by `android-startup-triage.yml` |
+| Windows | `monitorapp-windows-x64-<v>-setup.msi` | the installer people use; `monitorapp-node-windows-x64-<v>.zip` stays as the in-app update payload |
+| Fedora | `monitorapp-node-fedora-x64-<v>.rpm` | node service; desktop app as `monitorapp-desktop-fedora-x64-<v>.tar.gz` |
+| Ubuntu | `monitorapp-node-ubuntu-x64-<v>.deb` | lower priority for Wilson (no server yet) |
+
+Releases come from `.github/workflows/preview.yml` on a push to `main` (or `workflow_dispatch`). A release is only "done" when `install-smoke.yml` is green on the commit it was built from. Updates install on a device only after Wilson approves them there.
 
 ## 5. Claims, pushing often, and picking up stale work
 
@@ -113,6 +125,8 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
 | T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
+| T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
+| Work board: shared queue | Claude | #15 | 2026-11-22 |
 | T061 design doc, scenarios | Claude | #13 | 2026-11-22 |
 | T051-T057 | Claude | #5 | 2026-11-22 |
 | T039-T050 | Claude | #3 | 2026-11-22 |
@@ -124,7 +138,7 @@ Use this section for anything that does not fit in a PR description: requests to
 
 Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
 
-- 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs (#8, #11, #12) are queued as T300, T302 and T301 under your name. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
+- 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs #8 and #12 are queued as T300 and T301 under your name; #11 (Android crash fix) was merged by Claude. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
 
 ## 12. Project rules both agents follow
 
