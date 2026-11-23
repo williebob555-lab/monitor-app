@@ -92,6 +92,20 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         }
     }
 
+    public async Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        var store = await ModelAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId), ct).ConfigureAwait(false);
+        }
+        catch (ModelValidationException exception)
+        {
+            throw new ApiValidationException(exception.Message);
+        }
+    }
+
     /// <summary>The phone's own model.db, opened on first use (most sessions never open Things).</summary>
     private async Task<ModelStore> ModelAsync(CancellationToken ct)
     {

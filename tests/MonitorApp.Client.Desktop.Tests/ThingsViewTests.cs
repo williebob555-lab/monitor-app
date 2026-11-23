@@ -68,6 +68,39 @@ public sealed class ThingsViewTests
         Assert.Equal("Wilson-laptop", things.OpenCard?.Name);
     }
 
+    [AvaloniaFact]
+    public void EditingAThingSendsOnlyWhatChangedAndOffersOnlyPlacesOutsideIt()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
+        things.EditCommand.Execute(laptop);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(things.IsEditing);
+        // A computer can't go inside its own memory; its kind stays offered even though "Add" doesn't list it.
+        Assert.DoesNotContain(things.EditPlaces, p => p.Id is { } id && id.StartsWith(laptop.Id + "/", StringComparison.Ordinal));
+        Assert.DoesNotContain(things.EditPlaces, p => p.Id == laptop.Id);
+        Assert.Equal("device.computer", things.EditKind?.Id);
+        things.CancelEditCommand.Execute(null);
+
+        var amp = things.Cards.Single(c => c.Name == "Focusrite 2i2");
+        things.EditCommand.Execute(amp);
+        Assert.Equal("Bought used. Needs a 12 V supply.", things.EditNote);
+        things.EditInside = things.EditPlaces.Single(p => p.Name == "Studio rack");
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var sent = Assert.Single(source.Edits);
+        Assert.Equal(new ThingEditDto("thing:amp", InsideId: "thing:rack"), sent);
+        Assert.False(things.IsEditing);
+        window.Close();
+    }
+
     [Trait("Category", "Manual")]
 #if MANUAL_SHOTS
     [AvaloniaFact]
@@ -84,6 +117,8 @@ public sealed class ThingsViewTests
         Shot(model, 390, 844, dir, "things-phone-390x844", () => { });
         Shot(model, 1400, 900, dir, "things-open-wide-1400x900", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
         Shot(model, 390, 844, dir, "things-open-phone-390x844", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
+        Shot(model, 1400, 900, dir, "things-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
+        Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -100,6 +135,7 @@ public sealed class ThingsViewTests
     {
         var things = model.Sections.OfType<ThingsViewModel>().Single();
         things.CloseCommand.Execute(null);
+        things.CancelEditCommand.Execute(null);
         var window = Show(model, width, height);
         things.RefreshAsync().GetAwaiter().GetResult();
         arrange();
@@ -164,5 +200,13 @@ public sealed class ThingsViewTests
         }
 
         public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;
+
+        public List<ThingEditDto> Edits { get; } = [];
+
+        public Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
+        {
+            Edits.Add(edit);
+            return Task.CompletedTask;
+        }
     }
 }

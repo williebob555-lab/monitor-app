@@ -29,6 +29,9 @@ public sealed record ThingSummary(
     DateTimeOffset CreatedAt,
     string? SignalPrefix = null);
 
+/// <summary>What a person changed on a thing; null fields are left alone (see <see cref="Things.EditAsync"/>).</summary>
+public sealed record ThingEdit(string? Name = null, string? KindId = null, string? Note = null, string? InsideId = null);
+
 /// <summary>A kind a person can pick when adding a thing.</summary>
 public sealed record ThingKindChoice(string Id, string Label);
 
@@ -36,6 +39,7 @@ public sealed record ThingKindChoice(string Id, string Label);
 public static class Things
 {
     public const string CaptureOrigin = "quick-capture";
+    public const string EditOrigin = "things-edit";
     public const int MaxNameLength = 120;
     public const int MaxNoteLength = 4000;
 
@@ -123,6 +127,103 @@ public static class Things
 
         var model = await store.AppendAsync(changes, CaptureOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Summarize(model, model.Get(id));
+    }
+
+    /// <summary>
+    /// Changes what a person can change on a thing: its name, its kind, their note, and what it sits inside. Every field is
+    /// optional (null leaves it alone). An empty note removes the person's note; an empty <see cref="ThingEdit.InsideId"/>
+    /// takes the thing out of whatever holds it. Readings and other sources' values are never touched. All of it is one
+    /// change set, so a bad move (into itself, into one of its own parts) leaves the thing as it was.
+    /// </summary>
+    public static async Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(edit);
+        var model = await store.LoadAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(thingId) || model.Find(thingId) is not { } thing || thing.CreatedInLayer is not null)
+        {
+            throw new ModelValidationException("That thing is not in the model.");
+        }
+
+        var changes = new List<ModelChange>();
+        if (edit.Name is not null)
+        {
+            var name = edit.Name.Replace('\n', ' ').Replace('\r', ' ').Trim();
+            if (name.Length == 0)
+            {
+                throw new ModelValidationException("A thing needs a name.");
+            }
+
+            if (name.Length > MaxNameLength)
+            {
+                throw new ModelValidationException($"Keep the name under {MaxNameLength} characters.");
+            }
+
+            if (name != thing.Name)
+            {
+                changes.Add(new ObjectRenamed(thing.Id, name));
+            }
+        }
+
+        if (edit.KindId is { } kindId && kindId.Trim() != thing.KindId)
+        {
+            if (!store.Library.IsKnownKind(kindId.Trim()))
+            {
+                throw new ModelValidationException($"'{kindId}' is not a kind this app knows.");
+            }
+
+            changes.Add(new ObjectKindChanged(thing.Id, kindId.Trim()));
+        }
+
+        if (edit.Note is not null)
+        {
+            var note = edit.Note.Replace("\r\n", "\n", StringComparison.Ordinal).Trim();
+            if (note.Length > MaxNoteLength)
+            {
+                throw new ModelValidationException($"Keep the note under {MaxNoteLength} characters.");
+            }
+
+            var current = thing.Properties.FirstOrDefault(p => p.Key == "note.text" && p.Scope is null && p.Evidence.Source == Evidence.UserEntered.Source);
+            if (note.Length == 0 && current is not null)
+            {
+                changes.Add(new PropertyRetracted(thing.Id, "note.text", Evidence.UserEntered.Source));
+            }
+            else if (note.Length > 0 && current?.Value.Text != note)
+            {
+                changes.Add(new PropertyAsserted(thing.Id, "note.text", PropertyValue.Of(note), Evidence.UserEntered));
+            }
+        }
+
+        if (edit.InsideId is { } insideId)
+        {
+            var holder = model.ContainerOf(thing.Id);
+            var target = insideId.Trim();
+            if (target.Length > 0 && model.Find(target) is null)
+            {
+                throw new ModelValidationException("The thing to put it in is not in the model.");
+            }
+
+            if (holder?.SourceId != (target.Length == 0 ? null : target))
+            {
+                if (holder is not null)
+                {
+                    changes.Add(new RelationshipRemoved(holder.RelationshipId));
+                }
+
+                if (target.Length > 0)
+                {
+                    changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", RelationshipTypes.Contains, target, thing.Id));
+                }
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            return Summarize(model, thing);
+        }
+
+        model = await store.AppendAsync(changes, EditOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return Summarize(model, model.Get(thing.Id));
     }
 
     internal static (string Name, string? Note) Split(string? text)

@@ -47,6 +47,9 @@ public sealed record ThingPartRow(
     public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
 }
 
+/// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
+public sealed record ThingPlace(string? Id, string Name);
+
 /// <summary>One thing as a card: name, what kind it is, where it is in its life, its values with evidence, and its parts.</summary>
 public sealed record ThingCard(
     string Id,
@@ -88,6 +91,8 @@ public sealed record ThingCard(
 public sealed partial class ThingsViewModel : SectionViewModel
 {
     private IReadOnlyList<ThingCard> all = [];
+    private Dictionary<string, ThingDto> things = new(StringComparer.Ordinal);
+    private ThingDto? editing;
 
     [ObservableProperty]
     private string filterText = string.Empty;
@@ -108,6 +113,34 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsGrid), nameof(OpenItems))]
     private ThingCard? openCard;
+
+    /// <summary>The thing being edited (its name, kind, note and where it sits), or null.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditing))]
+    private string? editingName;
+
+    [ObservableProperty]
+    private string editName = string.Empty;
+
+    [ObservableProperty]
+    private ThingKindDto? editKind;
+
+    [ObservableProperty]
+    private string editNote = string.Empty;
+
+    [ObservableProperty]
+    private ThingPlace? editInside;
+
+    [ObservableProperty]
+    private string? editError;
+
+    public bool IsEditing => EditingName is not null;
+
+    /// <summary>Kinds offered while editing: the usual ones plus the thing's own kind when it is not among them.</summary>
+    public ObservableCollection<ThingKindDto> EditKinds { get; } = [];
+
+    /// <summary>Where the thing can go: on its own, or inside any other thing that is not one of its own parts.</summary>
+    public ObservableCollection<ThingPlace> EditPlaces { get; } = [];
 
     public bool IsOpen => OpenCard is not null;
 
@@ -180,6 +213,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
             }
 
+            this.things = things.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
             all = Build(things.Things, readings);
             SyncKinds(things.Kinds);
             ApplyFilter();
@@ -225,6 +259,127 @@ public sealed partial class ThingsViewModel : SectionViewModel
             FilterText = OpenCard.Name;
             OpenCard = null;
         }
+    }
+
+    /// <summary>Starts editing a card or a part: fills the form with what the person can change.</summary>
+    [RelayCommand]
+    private void Edit(object? target)
+    {
+        var id = target switch
+        {
+            ThingCard card => card.Id,
+            ThingPartRow part => part.Id,
+            _ => null,
+        };
+        if (id is null || !things.TryGetValue(id, out var thing))
+        {
+            return;
+        }
+
+        editing = thing;
+        EditError = null;
+        EditName = thing.Name;
+        EditNote = PersonNote(thing) ?? string.Empty;
+        EditKinds.Clear();
+        if (!Kinds.Any(k => k.Id == thing.KindId))
+        {
+            EditKinds.Add(new ThingKindDto(thing.KindId, thing.KindLabel));
+        }
+
+        foreach (var kind in Kinds)
+        {
+            EditKinds.Add(kind);
+        }
+
+        EditKind = EditKinds.First(k => k.Id == thing.KindId);
+        EditPlaces.Clear();
+        var nowhere = new ThingPlace(null, "Nothing (on its own)");
+        EditPlaces.Add(nowhere);
+        var own = DescendantsOf(thing.Id);
+        foreach (var place in things.Values
+                     .Where(t => t.Id != thing.Id && !own.Contains(t.Id))
+                     .OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            EditPlaces.Add(new ThingPlace(place.Id, place.Name));
+        }
+
+        EditInside = EditPlaces.FirstOrDefault(p => p.Id == thing.InsideId) ?? nowhere;
+        EditingName = thing.Name;
+    }
+
+    [RelayCommand]
+    private void CancelEdit()
+    {
+        editing = null;
+        EditingName = null;
+        EditError = null;
+    }
+
+    /// <summary>Sends only what changed; the model records it as entered by this person.</summary>
+    [RelayCommand]
+    private async Task SaveEditAsync()
+    {
+        if (Source is not { } source || editing is not { } thing)
+        {
+            return;
+        }
+
+        var name = EditName.Trim();
+        var note = EditNote.Trim();
+        var edit = new ThingEditDto(
+            thing.Id,
+            name == thing.Name ? null : name,
+            EditKind is { } kind && kind.Id != thing.KindId ? kind.Id : null,
+            note == (PersonNote(thing) ?? string.Empty) ? null : note,
+            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null);
+        if (edit is { Name: null, KindId: null, Note: null, InsideId: null })
+        {
+            CancelEdit();
+            return;
+        }
+
+        try
+        {
+            await source.EditThingAsync(edit);
+        }
+        catch (ApiValidationException exception)
+        {
+            EditError = exception.Message;
+            return;
+        }
+        catch (LocalApiException exception)
+        {
+            EditError = exception.Message;
+            return;
+        }
+
+        CancelEdit();
+        StatusMessage = $"Saved {name}.";
+        await RefreshAsync();
+    }
+
+    /// <summary>The note the person wrote themselves (other sources' notes are not theirs to edit here).</summary>
+    private static string? PersonNote(ThingDto thing) =>
+        thing.Facts.FirstOrDefault(f => f.Key == "note.text" && f.Evidence == "Entered")?.Value;
+
+    private HashSet<string> DescendantsOf(string id)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<string>([id]);
+        while (queue.TryDequeue(out var next))
+        {
+            if (!things.TryGetValue(next, out var thing))
+            {
+                continue;
+            }
+
+            foreach (var part in thing.PartIds.Where(found.Add))
+            {
+                queue.Enqueue(part);
+            }
+        }
+
+        return found;
     }
 
     [RelayCommand]

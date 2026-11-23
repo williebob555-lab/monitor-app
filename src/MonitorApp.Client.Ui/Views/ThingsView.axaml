@@ -140,9 +140,12 @@
                     <Button Classes="action" Content="Open it up" Margin="0,4,8,0" IsVisible="{Binding CanOpen}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).OpenCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding OpenLabel}" />
-                    <Button Classes="action" Content="See it live" Margin="0,4,0,0" IsVisible="{Binding CanSeeLive}"
+                    <Button Classes="action" Content="See it live" Margin="0,4,8,0" IsVisible="{Binding CanSeeLive}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
+                    <Button Classes="flat" Content="Edit" Margin="0,4,0,0"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
+                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                   </WrapPanel>
                 </StackPanel>
               </Border>
@@ -164,7 +167,7 @@
         <StackPanel Spacing="2">
           <TextBlock Text="OPENED UP" Classes="section" />
           <TextBlock Text="{Binding OpenCard.Name, FallbackValue=''}" Classes="headline" TextWrapping="Wrap" />
-          <TextBlock Text="Every part this device's own readings prove, each with its live values."
+          <TextBlock Text="Its parts and whatever you put inside it, each with what is known about it."
                      Classes="muted" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -183,6 +186,9 @@
                     <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
                   </StackPanel>
                   <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
+                  <Button Classes="flat" Content="Edit" HorizontalAlignment="Center"
+                          Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
+                          CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                 </StackPanel>
               </Border>
             </DataTemplate>
@@ -199,10 +205,15 @@
                     </StackPanel>
                   </Grid>
                   <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
-                  <TextBlock Text="No readings for this part yet." Classes="muted" IsVisible="{Binding !HasValues}" />
-                  <Button Classes="flat" Content="See it live" HorizontalAlignment="Left" IsVisible="{Binding CanSeeLive}"
-                          Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
-                          CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
+ <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
+                  <WrapPanel>
+                    <Button Classes="flat" Content="See it live" Margin="0,0,8,0" IsVisible="{Binding CanSeeLive}"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
+                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
+                    <Button Classes="flat" Content="Edit"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
+                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
+                  </WrapPanel>
                 </StackPanel>
               </Border>
             </DataTemplate>
@@ -210,5 +221,46 @@
         </ItemsControl>
       </StackPanel>
     </ScrollViewer>
+
+    <!-- Edit a thing: name, kind, the person's own note, and what it sits inside. Readings are never edited here. -->
+    <Border Background="#A0000000" IsVisible="{Binding IsEditing}">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalAlignment="Center">
+        <Border Classes="tile body" MaxWidth="520" Margin="16" AutomationProperties.Name="Edit thing">
+          <StackPanel Spacing="10">
+            <StackPanel Spacing="2">
+              <TextBlock Text="EDIT" Classes="section" />
+              <TextBlock Text="{Binding EditingName, FallbackValue=''}" Classes="headline" TextWrapping="Wrap" />
+              <TextBlock Text="What you change here is marked as entered by you. Readings from monitoring stay as they are."
+                         Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Text="Name" Classes="meta" />
+            <TextBox Text="{Binding EditName}" AutomationProperties.Name="Name" />
+            <TextBlock Text="Kind" Classes="meta" />
+            <ComboBox ItemsSource="{Binding EditKinds}" SelectedItem="{Binding EditKind}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="Kind of thing">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="core:ThingKindDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Inside" Classes="meta" />
+            <ComboBox ItemsSource="{Binding EditPlaces}" SelectedItem="{Binding EditInside}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="What it sits inside">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Note" Classes="meta" />
+            <TextBox Text="{Binding EditNote}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
+                     Watermark="Anything worth remembering" AutomationProperties.Name="Note" />
+            <TextBlock Text="{Binding EditError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                       IsVisible="{Binding EditError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <WrapPanel>
+              <Button Classes="action" Content="Save" Margin="0,0,8,0" Command="{Binding SaveEditCommand}" AutomationProperties.Name="Save changes" />
+              <Button Classes="flat" Content="Cancel" Command="{Binding CancelEditCommand}" AutomationProperties.Name="Cancel editing" />
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+      </ScrollViewer>
+    </Border>
   </Panel>
 </UserControl>
