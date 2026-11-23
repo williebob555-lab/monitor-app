@@ -56,6 +56,19 @@ public sealed class SelfLanTests : IDisposable
         Assert.Equal(InterfaceMedium.Ethernet, WindowsSelfInterfaceCollector.ClassifyWindows(NetworkInterfaceType.Ethernet, "Ethernet", "Realtek"));
     }
 
+    [Theory]
+    [InlineData(NetworkInterfaceType.Wireless80211, "Wi-Fi-QoS Packet Scheduler-0000", "Intel AX200", true)]
+    [InlineData(NetworkInterfaceType.Wireless80211, "Local Area Connection* 6-WFP Native MAC Layer LightWeight Filter-0000", "Wi-Fi Direct", true)]
+    [InlineData(NetworkInterfaceType.Wireless80211, "Local Area Connection* 6", "Microsoft Wi-Fi Direct Virtual Adapter", true)]
+    [InlineData(NetworkInterfaceType.Tunnel, "6to4 Adapter", "Microsoft 6to4 Adapter", true)]
+    [InlineData(NetworkInterfaceType.Tunnel, "Teredo Tunneling Pseudo-Interface", "Teredo", true)]
+    [InlineData(NetworkInterfaceType.Wireless80211, "Wi-Fi", "Intel AX200", false)]
+    [InlineData(NetworkInterfaceType.Ethernet, "Ethernet", "Realtek", false)]
+    [InlineData(NetworkInterfaceType.Tunnel, "Tailscale", "Tailscale Tunnel", false)]
+    [InlineData(NetworkInterfaceType.Ethernet, "vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", false)]
+    public void WindowsDriverPlumbingIsNotCollected(NetworkInterfaceType type, string name, string description, bool plumbing) =>
+        Assert.Equal(plumbing, WindowsSelfInterfaceCollector.IsWindowsPlumbing(type, name, description));
+
     [Fact]
     public void LinuxCollectorReadsFixtureSysfs()
     {

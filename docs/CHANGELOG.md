@@ -8,6 +8,9 @@ This file records completed user-visible, operational, architectural, packaging,
 
 - Menus were laggy again. On the phone every read of its own database (readings, peers, alerts, Things) ran on the screen thread because SQLite's async calls complete synchronously; they now run in the background. The shared model is no longer rebuilt from its whole change log on every read (it is cached until the next change), and Things no longer rebuilds every card, or re-opens the exploded view, when a refresh changed nothing.
 
+- Open it up on Windows printed "Links up:" followed by every driver filter and hidden adapter Windows lists (QoS Packet Scheduler, WFP filters, "Local Area Connection*", 6to4, Teredo) as one line across the screen. Windows no longer collects that plumbing at all, a device with many links names three and counts the rest, the part labels stop at a fixed width with "…", and readings that are unavailable are no longer listed under a part.
+- Pairing a phone by QR failed at random: the reader missed about 1 in 20 pairing codes even when they were perfectly sharp. A frame it cannot read now gets a second pass as an upright code, and a test reads 200 random codes.
+
 ### Fixed (release path)
 
 - The Ubuntu install smoke no longer fails when the update helper's final journal line lands a moment after the node reports the new version.

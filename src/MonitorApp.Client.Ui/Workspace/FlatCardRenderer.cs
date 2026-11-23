@@ -908,6 +908,8 @@ public sealed class FlatCardRenderer : ISchematicRenderer
         }
     }
 
+    private const double MaxCalloutWidth = 260;
+
     private void DrawExplodedLabels(DrawingContext g, SchematicState st, List<(Point Anchor, ExplodedComponent Part)> anchors, Point origin)
     {
         var reach = Math.Max(60, st.Camera.Scale * 0.9);
@@ -924,22 +926,22 @@ public sealed class FlatCardRenderer : ISchematicRenderer
             {
                 var (anchor, comp) = group[i];
                 var layer = comp.Layer!;
-                var maxX = group.Where(a => true).Max(a => side > 0 ? a.Anchor.X : -a.Anchor.X);
                 var x2 = side > 0 ? Math.Max(anchor.X, origin.X) + reach : Math.Min(anchor.X, origin.X) - reach;
-                _ = maxX;
                 var ly = ys[i];
                 g.DrawLine(P(lineStrong, 1), anchor, new Point(anchor.X + (side * 12), ly));
                 g.DrawLine(P(lineStrong, 1), new Point(anchor.X + (side * 12), ly), new Point(x2, ly));
                 g.DrawEllipse(B(textDim), null, anchor, 2, 2);
                 var tx = x2 + (side * 4);
                 var al = side > 0 ? 0 : 2;
-                var room = side > 0 ? st.Size.Width - tx - 6 : tx - 6;
+                // A callout is a label, not a report: cap it so a long summary ends in "…" beside the part instead of
+                // running across the canvas (or off it), and keep it inside the visible area on narrow windows.
+                var room = Math.Min(MaxCalloutWidth, side > 0 ? st.Size.Width - tx - 6 : tx - 6);
                 Txt(g, layer.Title.ToUpperInvariant(), tx, ly - 6, 10, textFaint, al, true, false, room);
                 Txt(g, layer.Summary, tx, ly + 8, 12, layer.Health == SceneHealth.Healthy ? text : warning, al, true, true, room);
                 var extra = 0;
                 foreach (var reading in layer.Readings)
                 {
-                    if (layer.Summary.Contains(reading.DisplayValue, StringComparison.Ordinal) || extra >= 2)
+                    if (!SignalCatalog.IsAvailable(reading) || layer.Summary.Contains(reading.DisplayValue, StringComparison.Ordinal) || extra >= 2)
                     {
                         continue;
                     }

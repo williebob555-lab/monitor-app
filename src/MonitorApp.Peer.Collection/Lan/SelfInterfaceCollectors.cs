@@ -114,6 +114,11 @@ public sealed class WindowsSelfInterfaceCollector : ISelfInterfaceCollector
             var gateways = new List<SelfGateway>();
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces().OrderBy(n => n.Name, StringComparer.Ordinal))
             {
+                if (IsWindowsPlumbing(nic.NetworkInterfaceType, nic.Name, nic.Description))
+                {
+                    continue;
+                }
+
                 var medium = ClassifyWindows(nic.NetworkInterfaceType, nic.Name, nic.Description);
                 var up = nic.OperationalStatus == OperationalStatus.Up;
                 var props = nic.GetIPProperties();
@@ -136,6 +141,24 @@ public sealed class WindowsSelfInterfaceCollector : ISelfInterfaceCollector
         {
             return SelfInterfaceSnapshot.Failed($"Network interface query failed: {ex.ErrorCode}.", now);
         }
+    }
+
+    /// <summary>
+    /// Windows lists driver plumbing alongside real adapters: a copy of each adapter per filter driver bound to it
+    /// ("Wi-Fi-QoS Packet Scheduler-0000", "...-WFP Native MAC Layer LightWeight Filter-0000"), the hidden Wi-Fi Direct
+    /// adapters ("Local Area Connection* 6"), IPv6 transition tunnels (6to4, Teredo, ISATAP) and the kernel debugger.
+    /// None of them is a link a person has or can act on, so they are not collected at all.
+    /// </summary>
+    public static bool IsWindowsPlumbing(NetworkInterfaceType type, string name, string description)
+    {
+        var text = $"{name} {description}";
+        string[] markers =
+        [
+            "QoS Packet Scheduler", "LightWeight Filter", "WFP ", "Native WiFi Filter", "Virtual WiFi Filter", "Npcap Packet Driver",
+            "Local Area Connection*", "6to4", "Teredo", "isatap", "IP-HTTPS", "Kernel Debug", "WAN Miniport",
+        ];
+        return markers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase))
+            || (type == NetworkInterfaceType.Tunnel && ClassifyWindows(type, name, description) != InterfaceMedium.Overlay);
     }
 
     public static InterfaceMedium ClassifyWindows(NetworkInterfaceType type, string name, string description)
