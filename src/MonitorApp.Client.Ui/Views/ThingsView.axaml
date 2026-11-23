@@ -149,6 +149,14 @@
                     </StackPanel>
                   </Grid>
 
+                  <ItemsControl ItemsSource="{Binding LinkTexts}" IsVisible="{Binding HasLinks}" AutomationProperties.Name="Links">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding}" Classes="meta" Foreground="{DynamicResource Brush.Transfer}" TextWrapping="Wrap" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
 
@@ -296,6 +304,34 @@
             <TextBlock Text="Note" Classes="meta" />
             <TextBox Text="{Binding EditNote}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
                      Watermark="Anything worth remembering" AutomationProperties.Name="Note" />
+            <TextBlock Text="Links" Classes="meta" />
+            <ItemsControl ItemsSource="{Binding EditLinks}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="core:ThingLinkDto">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+                      <Run Text="{Binding Phrase}" /><Run Text=" " /><Run Text="{Binding OtherName}" FontWeight="SemiBold" />
+                    </TextBlock>
+                    <Button Grid.Column="1" Classes="flat" Content="Remove"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).RemoveLinkCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding OtherName, StringFormat='Remove the link to {0}'}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="Auto,8,*">
+              <ComboBox ItemsSource="{Binding LinkTypes}" SelectedItem="{Binding NewLinkType}" MinWidth="140" AutomationProperties.Name="Kind of link">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="core:ThingKindDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox Grid.Column="2" ItemsSource="{Binding LinkTargets}" SelectedItem="{Binding NewLinkTarget}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Pick a thing to link to" AutomationProperties.Name="Thing to link to">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
             <TextBlock Text="Add a value" Classes="meta" />
             <Grid ColumnDefinitions="*,8,*">
               <TextBox Text="{Binding NewValueLabel}" Watermark="Name, like Max power" AutomationProperties.Name="Name of the value" />

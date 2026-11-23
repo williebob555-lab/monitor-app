@@ -18,6 +18,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Links between things (0.1.18): depends on, powered by, runs on, part of, replaces, about and connected to, shown on cards from either end ("Powered by Studio PSU", "Powers Focusrite"), added and removed in the edit form.
 - Editing a thing also sets its stage (lifecycle rules apply), its tags, and values you type in, marked as entered by you or as read from a spec sheet (0.1.18).
 - Things follows the timeline (0.1.18, T083): drag back and Things shows what the model held then (which things existed, what sat inside what, their values and the readings recorded then), marked RECORDED, with adding and editing off. `GET /api/v1/things?asOf=`.
 - Things groups a device's readings under System, Network, Power and Monitoring headings; on a busy computer the big groups start folded, so cards stay short.

@@ -151,6 +151,19 @@ public sealed class ThingsViewTests
         Assert.Equal(["studio", "spare"], second.Tags);
         Assert.Equal(new ThingValueEditDto("Max power", "5 W", true), Assert.Single(second.Values!));
         Assert.Null(second.Name);
+
+        // Links show on the card in words; in the form one is removed and another added, on Save.
+        Assert.Equal(["Connected to Router at 192.168.1.1"], amp.LinkTexts);
+        things.EditCommand.Execute(amp);
+        things.RemoveLinkCommand.Execute(things.EditLinks.Single());
+        things.NewLinkType = things.LinkTypes.Single(k => k.Id == "powered-by");
+        things.NewLinkTarget = things.LinkTargets.Single(p => p.Name == "Studio rack");
+        Assert.DoesNotContain(things.LinkTargets, p => p.Id == amp.Id);
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var third = source.Edits[2];
+        Assert.Equal(["rel:amp-router"], third.RemoveLinks);
+        Assert.Equal(new ThingLinkEditDto("powered-by", "thing:rack"), Assert.Single(third.AddLinks!));
         window.Close();
     }
 
@@ -254,11 +267,13 @@ public sealed class ThingsViewTests
                 new("observed:gw", "Router at 192.168.1.1", "device.network.router", "Router", "Owned", [], true, ["lan:gw"], [], null, [], At),
                 new("thing:amp", "Focusrite 2i2", "device.audio", "Audio equipment", "Owned", [], false, [],
                     [new ThingFactDto("note.text", "Note", "Bought used. Needs a 12 V supply.", "Entered", "you", At, 0),
-                     new ThingFactDto("electrical.power.max", "Max", "5 W", "Specified", "datasheet", At, 0)], null, [], At),
+                     new ThingFactDto("electrical.power.max", "Max", "5 W", "Specified", "datasheet", At, 0)], null, [], At,
+                    Links: [new ThingLinkDto("rel:amp-router", "connects-to", "Connected to", "observed:gw", "Router at 192.168.1.1", true)]),
                 new("thing:rack", "Studio rack", "assembly.rack", "Rack", "Idea", [], false, [],
                     [new ThingFactDto("mechanical.rack-units", "Rack units", "Unknown", "Unknown", "you", At, 0)], null, [], At),
             ];
-            return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")]));
+            return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")],
+                [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")]));
         }
 
         public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;

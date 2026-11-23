@@ -305,6 +305,30 @@ public sealed class SystemModelTests : IDisposable
     }
 
     [Fact]
+    public async Task LinksReadFromEitherEndAndCanBeRemovedButNotContainment()
+    {
+        await using var store = await OpenAsync();
+        var psu = await Things.CaptureAsync(store, "Studio PSU");
+        var amp = await Things.CaptureAsync(store, "Focusrite");
+        var rack = await Things.CaptureAsync(store, "Rack");
+        await Things.EditAsync(store, amp.Id, new ThingEdit(InsideId: rack.Id, AddLinks: [new ThingLinkEdit(RelationshipTypes.PoweredBy, psu.Id), new ThingLinkEdit(Things.ConnectsTo, rack.Id)]));
+        // Adding the same link again changes nothing.
+        await Things.EditAsync(store, amp.Id, new ThingEdit(AddLinks: [new ThingLinkEdit(RelationshipTypes.PoweredBy, psu.Id)]));
+
+        var model = await store.LoadAsync();
+        var ampLinks = Things.Summarize(model, model.Get(amp.Id)).Links!;
+        Assert.Equal([("Connected to", "Rack"), ("Powered by", "Studio PSU")], ampLinks.Select(l => (l.Phrase, l.OtherName)));
+        Assert.Equal(("Powers", "Focusrite"), Things.Summarize(model, model.Get(psu.Id)).Links!.Select(l => (l.Phrase, l.OtherName)).Single());
+
+        var containment = model.ContainerOf(amp.Id)!.RelationshipId;
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(RemoveLinks: [containment])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(AddLinks: [new ThingLinkEdit("owns-the-world", psu.Id)])));
+        var edited = await Things.EditAsync(store, psu.Id, new ThingEdit(RemoveLinks: [ampLinks.Single(l => l.TypeId == RelationshipTypes.PoweredBy).RelationshipId]));
+        Assert.Empty(edited.Links!);
+        Assert.Equal(rack.Id, (await store.LoadAsync()).ContainerOf(amp.Id)!.SourceId);
+    }
+
+    [Fact]
     public async Task ReadingTheModelTwiceDoesNotReplayTheLogUntilSomethingChanges()
     {
         await using var store = await OpenAsync();

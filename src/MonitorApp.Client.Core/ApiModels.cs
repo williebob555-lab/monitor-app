@@ -217,7 +217,8 @@ public sealed record ThingDto(
     string? InsideId,
     IReadOnlyList<string> PartIds,
     DateTimeOffset CreatedAt,
-    string? SignalPrefix = null);
+    string? SignalPrefix = null,
+    IReadOnlyList<ThingLinkDto>? Links = null);
 
 public sealed record ThingKindDto(string Id, string Label);
 
@@ -230,9 +231,17 @@ public sealed record ThingEditDto(
     string? InsideId = null,
     string? Lifecycle = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyList<ThingValueEditDto>? Values = null);
+    IReadOnlyList<ThingValueEditDto>? Values = null,
+    IReadOnlyList<ThingLinkEditDto>? AddLinks = null,
+    IReadOnlyList<string>? RemoveLinks = null);
 
 /// <summary>A value the person adds ("Max power" = "5 W"); an empty value removes theirs. FromSpec marks it as read from a spec sheet.</summary>
 public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpec = false);
 
-public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds);
+public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null);
+
+/// <summary>A link on a thing, phrased from its side ("Powered by" Studio PSU).</summary>
+public sealed record ThingLinkDto(string RelationshipId, string TypeId, string Phrase, string OtherId, string OtherName, bool Outgoing);
+
+/// <summary>A link to add: "this thing &lt;type&gt; other".</summary>
+public sealed record ThingLinkEditDto(string TypeId, string OtherId);

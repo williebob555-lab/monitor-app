@@ -108,8 +108,14 @@ public sealed record ThingCard(
     IReadOnlyList<ThingPartRow> Parts,
     string KindId = "thing",
     string? LiveNodeId = null,
-    IReadOnlyList<string>? Tags = null)
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<string>? Links = null)
 {
+    /// <summary>Its links in words ("Powered by Studio PSU").</summary>
+    public IReadOnlyList<string> LinkTexts => Links ?? [];
+
+    public bool HasLinks => Links is { Count: > 0 };
+
     public string TagsText => Tags is { Count: > 0 } tags ? string.Join("  ", tags.Select(t => "#" + t)) : string.Empty;
 
     public bool HasTags => Tags is { Count: > 0 };
@@ -135,7 +141,7 @@ public sealed record ThingCard(
 
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
-        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText,
+        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText, .. LinkTexts,
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
@@ -226,6 +232,23 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     [ObservableProperty]
     private bool newValueFromSpec;
+
+    [ObservableProperty]
+    private ThingKindDto? newLinkType;
+
+    [ObservableProperty]
+    private ThingPlace? newLinkTarget;
+
+    private readonly List<string> removedLinks = [];
+
+    /// <summary>The links on the thing being edited; removing one here takes effect on Save.</summary>
+    public ObservableCollection<ThingLinkDto> EditLinks { get; } = [];
+
+    /// <summary>Kinds of link the node offers ("Depends on", "Powered by", "Connected to", ...).</summary>
+    public ObservableCollection<ThingKindDto> LinkTypes { get; } = [];
+
+    /// <summary>Things the edited one can link to: every other thing.</summary>
+    public ObservableCollection<ThingPlace> LinkTargets { get; } = [];
 
     /// <summary>Every lifecycle stage; the model refuses moves that make no sense (an owned thing back to an idea).</summary>
     public IReadOnlyList<ThingStage> Stages { get; } =
@@ -322,6 +345,14 @@ public sealed partial class ThingsViewModel : SectionViewModel
             this.things = things.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
             all = Build(things.Things, readings);
             SyncKinds(things.Kinds);
+            if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
+            {
+                LinkTypes.Clear();
+                foreach (var linkType in linkTypes)
+                {
+                    LinkTypes.Add(linkType);
+                }
+            }
             ApplyFilter();
         });
     }
@@ -415,7 +446,31 @@ public sealed partial class ThingsViewModel : SectionViewModel
         NewValueLabel = string.Empty;
         NewValueText = string.Empty;
         NewValueFromSpec = false;
+        removedLinks.Clear();
+        EditLinks.Clear();
+        foreach (var link in thing.Links ?? [])
+        {
+            EditLinks.Add(link);
+        }
+
+        LinkTargets.Clear();
+        foreach (var other in things.Values.Where(t => t.Id != thing.Id).OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            LinkTargets.Add(new ThingPlace(other.Id, other.Name));
+        }
+
+        NewLinkType = LinkTypes.FirstOrDefault();
+        NewLinkTarget = null;
         EditingName = thing.Name;
+    }
+
+    [RelayCommand]
+    private void RemoveLink(ThingLinkDto? link)
+    {
+        if (link is not null && EditLinks.Remove(link))
+        {
+            removedLinks.Add(link.RelationshipId);
+        }
     }
 
     [RelayCommand]
@@ -448,8 +503,10 @@ public sealed partial class ThingsViewModel : SectionViewModel
             EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null,
             EditStage is { } stage && stage.Id != thing.Lifecycle ? stage.Id : null,
             tagsChanged ? tags : null,
-            values);
-        if (edit is { Name: null, KindId: null, Note: null, InsideId: null, Lifecycle: null, Tags: null, Values: null })
+            values,
+            NewLinkType is { } linkType && NewLinkTarget?.Id is { } target ? [new ThingLinkEditDto(linkType.Id, target)] : null,
+            removedLinks.Count > 0 ? [.. removedLinks] : null);
+        if (edit is { Name: null, KindId: null, Note: null, InsideId: null, Lifecycle: null, Tags: null, Values: null, AddLinks: null, RemoveLinks: null })
         {
             CancelEdit();
             return;
@@ -561,7 +618,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     parts.Select(p => ToPart(p, bySubject)).ToArray(),
                     t.KindId,
                     NodeIdOf(t.ReadingSubjects),
-                    t.Tags);
+                    t.Tags,
+                    t.Links?.Select(l => $"{l.Phrase} {l.OtherName}").ToArray());
             })
             .ToArray();
     }

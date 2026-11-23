@@ -27,7 +27,20 @@ public sealed record ThingSummary(
     string? InsideId,
     IReadOnlyList<string> PartIds,
     DateTimeOffset CreatedAt,
-    string? SignalPrefix = null);
+    string? SignalPrefix = null,
+    IReadOnlyList<ThingLink>? Links = null);
+
+/// <summary>
+/// A link a person can see and change on a thing, phrased from this thing's side: "Powered by" Studio PSU, or "Powers" the amp
+/// when this thing is the other end. Containment ("inside") is not a link here; it has its own field.
+/// </summary>
+public sealed record ThingLink(string RelationshipId, string TypeId, string Phrase, string OtherId, string OtherName, bool Outgoing);
+
+/// <summary>A link type offered in the edit form ("depends-on" shown as "Depends on").</summary>
+public sealed record ThingLinkType(string Id, string Label);
+
+/// <summary>Adds a link from the edited thing to another: "this thing &lt;type&gt; other".</summary>
+public sealed record ThingLinkEdit(string TypeId, string OtherId);
 
 /// <summary>What a person changed on a thing; null fields are left alone (see <see cref="Things.EditAsync"/>).</summary>
 /// <param name="Lifecycle">A lifecycle stage name ("Idea", "Owned", "Retired", ...); moves follow <see cref="LifecycleRules"/>.</param>
@@ -40,7 +53,9 @@ public sealed record ThingEdit(
     string? InsideId = null,
     string? Lifecycle = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyList<ThingValueEdit>? Values = null);
+    IReadOnlyList<ThingValueEdit>? Values = null,
+    IReadOnlyList<ThingLinkEdit>? AddLinks = null,
+    IReadOnlyList<string>? RemoveLinks = null);
 
 /// <summary>A value the person types, such as "Max power" = "5 W". <paramref name="FromSpec"/> marks it as read from a spec sheet or datasheet.</summary>
 public sealed record ThingValueEdit(string Label, string? Value, bool FromSpec = false);
@@ -113,7 +128,8 @@ public static class Things
             model.ContainerOf(thing.Id)?.SourceId,
             model.ChildrenOf(thing.Id).Select(r => r.TargetId).ToArray(),
             thing.CreatedAt,
-            prefix);
+            prefix,
+            Links(model, thing.Id));
     }
 
     /// <summary>
@@ -260,6 +276,37 @@ public static class Things
             changes.AddRange(ValueChanges(thing, value));
         }
 
+        foreach (var removed in edit.RemoveLinks ?? [])
+        {
+            // Only links this thing takes part in, and never containment (that is "inside").
+            if (model.RelationshipsOf(thing.Id).FirstOrDefault(r => r.RelationshipId == removed) is not { } link || link.TypeId == RelationshipTypes.Contains)
+            {
+                throw new ModelValidationException("That link is not on this thing.");
+            }
+
+            changes.Add(new RelationshipRemoved(link.RelationshipId));
+        }
+
+        foreach (var added in edit.AddLinks ?? [])
+        {
+            if (!LinkTypes.Any(t => t.Id == added.TypeId))
+            {
+                throw new ModelValidationException($"'{added.TypeId}' is not a kind of link this screen can add.");
+            }
+
+            if (model.Find(added.OtherId) is null)
+            {
+                throw new ModelValidationException("The thing to link to is not in the model.");
+            }
+
+            if (model.RelationshipsOf(thing.Id).Any(r => r.TypeId == added.TypeId && r.SourceId == thing.Id && r.TargetId == added.OtherId))
+            {
+                continue;
+            }
+
+            changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", added.TypeId, thing.Id, added.OtherId));
+        }
+
         if (changes.Count == 0)
         {
             return Summarize(model, thing);
@@ -268,6 +315,47 @@ public static class Things
         model = await store.AppendAsync(changes, EditOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Summarize(model, model.Get(thing.Id));
     }
+
+    /// <summary>Links a person can draw from the Things screen, with how each reads from either end.</summary>
+    public static IReadOnlyList<ThingLinkType> LinkTypes { get; } =
+    [
+        new(RelationshipTypes.DependsOn, "Depends on"),
+        new(RelationshipTypes.PoweredBy, "Powered by"),
+        new(RelationshipTypes.HostedOn, "Runs on"),
+        new(RelationshipTypes.PartOfProject, "Part of"),
+        new(RelationshipTypes.Replaces, "Replaces"),
+        new(RelationshipTypes.About, "About"),
+        new(ConnectsTo, "Connected to"),
+    ];
+
+    /// <summary>A loose "these are connected" link, before anyone records ports and cables.</summary>
+    public const string ConnectsTo = "connects-to";
+
+    private static string Phrase(string typeId, bool outgoing) => (typeId, outgoing) switch
+    {
+        (RelationshipTypes.DependsOn, false) => "Needed by",
+        (RelationshipTypes.PoweredBy, false) => "Powers",
+        (RelationshipTypes.HostedOn, false) => "Runs",
+        (RelationshipTypes.PartOfProject, false) => "Includes",
+        (RelationshipTypes.Replaces, false) => "Replaced by",
+        (RelationshipTypes.About, false) => "Noted in",
+        (ConnectsTo, _) => "Connected to",
+        _ when LinkTypes.FirstOrDefault(t => t.Id == typeId) is { } known => known.Label,
+        _ => LabelFor(typeId.Replace('-', '.')),
+    };
+
+    private static ThingLink[] Links(SystemModel model, string thingId) =>
+        model.RelationshipsOf(thingId)
+            .Where(r => r.TypeId != RelationshipTypes.Contains && r.CreatedInLayer is null)
+            .Select(r =>
+            {
+                var outgoing = r.SourceId == thingId;
+                var other = outgoing ? r.TargetId : r.SourceId;
+                return new ThingLink(r.RelationshipId, r.TypeId, Phrase(r.TypeId, outgoing), other, model.Find(other)?.Name ?? other, outgoing);
+            })
+            .OrderBy(l => l.Phrase, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(l => l.OtherName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
 
     /// <summary>Where a person's own values live: "user.Max-power" shows as "Max power".</summary>
     public const string PersonValuePrefix = "user.";
