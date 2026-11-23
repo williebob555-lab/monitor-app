@@ -160,6 +160,33 @@ message MeshLocator {
   uint32 port = 2;
 }
 
+// Face-to-face mesh join (T085): two devices that cannot dial each other (phones, tablets) swap these as QR codes.
+// The joiner shows a signed request; a member scans it, admits the joiner after a fingerprint check, and shows a
+// welcome signed by itself and bound to the request's nonce; the joiner scans it and trusts the member.
+message MeshJoinRequest {
+  string peer_id = 1;
+  bytes public_key_spki = 2;
+  string display_name = 3;
+  bytes nonce = 4;
+  google.protobuf.Timestamp created_at = 5;
+  repeated MeshLocator self_locators = 6;
+  // By the joiner's identity key over MeshFaceToFace's canonical encoding.
+  bytes signature = 7;
+}
+
+message MeshWelcome {
+  string member_peer_id = 1;
+  bytes member_public_key_spki = 2;
+  string member_display_name = 3;
+  repeated MeshLocator member_locators = 4;
+  string joiner_peer_id = 5;
+  bytes joiner_nonce = 6;
+  // The member's own admit statements, so the joiner can reach other members right away.
+  repeated MeshStatement statements = 7;
+  // By the member's identity key over MeshFaceToFace's canonical encoding.
+  bytes signature = 8;
+}
+
 message MeshStatement {
   string statement_id = 1;
   MeshStatementKind kind = 2;
