@@ -908,6 +908,13 @@ public sealed class PeerSessionGrpcService(
             {
                 while (!token.IsCancellationRequested)
                 {
+                    if (session.RenewRequested)
+                    {
+                        // Mesh membership changed since this session swapped it: the dialer reconnects and swaps again.
+                        throw new PeerSessionOperationException(
+                            ProtocolErrorCode.Internal, "Mesh membership changed; reconnect to exchange it.", true);
+                    }
+
                     var progressed = false;
                     while (pushOrigin && await session.TryNextBatchAsync(token).ConfigureAwait(false) is { } batch)
                     {

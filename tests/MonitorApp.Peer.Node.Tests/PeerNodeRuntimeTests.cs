@@ -487,7 +487,8 @@ public sealed class PeerNodeRuntimeTests
         try
         {
             var ports = Enumerable.Range(0, 4).Select(_ => FreePort()).ToArray();
-            var hour = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false);
+            // Without the mesh (T077) the four nodes stay a chain, which is the topology relayed interest is for.
+            var hour = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, Mesh: false);
             await using var viewer = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, ports[0], 0), hour);
             await using var relay = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[1], IPAddress.Loopback, ports[1], 0), hour);
             await using var subject = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[2], IPAddress.Loopback, ports[2], 0), hour);
@@ -592,6 +593,59 @@ public sealed class PeerNodeRuntimeTests
         var latency = System.Diagnostics.Stopwatch.GetElapsedTime(committed[last], arrived[last]);
         Assert.True(latency < TimeSpan.FromSeconds(10), $"Live delivery took {latency}.");
         return latency < TimeSpan.Zero ? TimeSpan.Zero : latency;
+    }
+
+    [Fact]
+    public async Task PairingWithOneComputerJoinsTheWholeMeshAndRemovingADeviceAnywhereRemovesItEverywhere()
+    {
+        var roots = Enumerable.Range(0, 3).Select(_ => CreateTemporaryDirectory()).ToArray();
+        try
+        {
+            var ports = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
+            var options = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false,
+                PeerStateInterval: TimeSpan.FromSeconds(1));
+            await using var laptop = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, ports[0], 0), options);
+            await using var desktop = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[1], IPAddress.Loopback, ports[1], 0), options);
+            await using var server = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[2], IPAddress.Loopback, ports[2], 0), options);
+
+            // Only two pairings, both through the desktop: laptop-desktop, then desktop-server.
+            await PairAsync(laptop, desktop, ports[1]);
+            await PairAsync(desktop, server, ports[2]);
+
+            async Task<PeerTrustState?> TrustAsync(PeerNodeRuntime on, PeerNodeRuntime of) =>
+                (await on.Store.ReadTrustedPeerAsync(of.Identity.PeerId))?.TrustState;
+
+            // The laptop and the server trust each other without ever being paired by hand.
+            await WaitUntilAsync(async () => await TrustAsync(laptop, server) == PeerTrustState.Active &&
+                await TrustAsync(server, laptop) == PeerTrustState.Active, TimeSpan.FromSeconds(60));
+
+            // And they talk directly: the server's readings reach the laptop from the server itself.
+            Assert.True((await server.CollectOnceAsync()).AppendedRecords > 0);
+            var serverStream = (await server.Store.ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitUntilAsync(async () => (await laptop.Store.ReadOriginRangeAsync(server.Identity.PeerId, serverStream, 1, 1))
+                .SingleOrDefault()?.ReceivedFromPeerId == server.Identity.PeerId, TimeSpan.FromSeconds(60));
+
+            // Remove the server on the laptop (the owner's action, through the local API).
+            using var client = CreateCookieClient();
+            var csrf = await ReadCsrfAsync(client, laptop.AdminAddress!);
+            using var revoke = new HttpRequestMessage(HttpMethod.Post,
+                new Uri(laptop.AdminAddress!, $"/api/peers/{Uri.EscapeDataString(server.Identity.PeerId)}/revoke"));
+            revoke.Headers.Add("X-CSRF-TOKEN", csrf);
+            using var revoked = await client.SendAsync(revoke);
+            revoked.EnsureSuccessStatusCode();
+
+            // The desktop, which paired the server directly, drops it too.
+            await WaitUntilAsync(async () => await TrustAsync(desktop, server) == PeerTrustState.Revoked, TimeSpan.FromSeconds(60));
+            Assert.Equal(PeerTrustState.Active, await TrustAsync(desktop, laptop));
+            Assert.Equal(PeerTrustState.Active, await TrustAsync(laptop, desktop));
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                DeleteDirectory(root, recursive: true);
+            }
+        }
     }
 
     private static async Task PairAsync(

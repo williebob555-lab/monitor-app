@@ -12,6 +12,12 @@ public interface IPeerLiveSession : IDisposable
     /// <summary>Client side: ask the remote to push its origin records and interests over this session.</summary>
     bool RequestRemotePush { get; }
 
+    /// <summary>
+    /// True when this session should end so the peers reconnect and swap session-start state again (mesh membership
+    /// changed after this session exchanged it). Both ends check it between sends.
+    /// </summary>
+    bool RenewRequested => false;
+
     /// <summary>Maximum unacknowledged origin batches this side keeps in flight.</summary>
     int MaximumInFlightBatches { get; }
 

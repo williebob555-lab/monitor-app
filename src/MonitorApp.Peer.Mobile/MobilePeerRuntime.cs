@@ -107,6 +107,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         this.store = store;
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
+        Mesh = new MeshMembership(store, identity.PublicIdentity, identity.IdentityKey);
         interests = new LiveInterestRegistry(options.InterestPolicy);
         PeerStates = new PeerStateTracker(store, new SystemPeerClock(), TimeSpan.FromMinutes(5), peerId =>
         {
@@ -116,6 +117,9 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             }
         });
     }
+
+    /// <summary>Mesh membership (T077): devices any member admitted are trusted here too; removals spread.</summary>
+    public MeshMembership Mesh { get; }
 
     /// <summary>The phone's own record of when each paired desktop became reachable or unreachable.</summary>
     public PeerStateTracker PeerStates { get; }
@@ -490,11 +494,15 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         return new PeerGrpcConnector(
             PeerTransportOptions.Create(endpoint),
             new P256PeerSessionAuthenticationProvider(identity.PublicIdentity, remote, identity.IdentityKey),
-            new PeerSyncApplication(store, replication));
+            new PeerSyncApplication(store, replication, mesh: Mesh));
     }
 
-    public Task RevokeAsync(string peerId, CancellationToken cancellationToken = default) =>
-        store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken);
+    /// <summary>Revokes a device here and, through the mesh, on every other member.</summary>
+    public async Task RevokeAsync(string peerId, CancellationToken cancellationToken = default)
+    {
+        await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        await Mesh.RefreshAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>One full collection (every signal plus the LAN model), as at the normal interval.</summary>
     public Task<PeerCollectionRunResult> CollectOnceAsync(CancellationToken cancellationToken = default) =>
@@ -621,7 +629,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             await using var connector = new PeerGrpcConnector(
                 PeerTransportOptions.Create(endpoint),
                 new P256PeerSessionAuthenticationProvider(identity.PublicIdentity, remote, identity.IdentityKey),
-                new PeerSyncApplication(store, replication, alerts: alerts));
+                new PeerSyncApplication(store, replication, alerts: alerts, mesh: Mesh));
             try
             {
                 await connector.SyncOnceAsync(cancellationToken).ConfigureAwait(false);
@@ -838,7 +846,8 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                     store,
                     replication,
                     alerts: alerts,
-                    live: new PeerSyncLiveOptions(interests, RequestRemotePush: true, AlertsStored: RaiseNewAlertsAsync)));
+                    live: new PeerSyncLiveOptions(interests, RequestRemotePush: true, AlertsStored: RaiseNewAlertsAsync),
+                    mesh: Mesh));
             connector.StateChanged += state =>
             {
                 if (state == PeerTransportState.Authenticated)

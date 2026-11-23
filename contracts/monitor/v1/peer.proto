@@ -138,6 +138,41 @@ message PeerHello {
 
 message CapabilityExchange {
   repeated CapabilityDescriptor capabilities = 1;
+  // Additive (T077): the sender's mesh membership statements. Sent only after both sides authenticated;
+  // older peers ignore the field. A receiver accepts a statement only from an issuer it already trusts.
+  repeated MeshStatement mesh_statements = 2;
+  // Additive (T077): where the sender itself accepts sessions (computers; phones send none). The receiver records
+  // them for the authenticated sender and passes them on in its admit statement, so other members can dial it.
+  repeated MeshLocator self_locators = 3;
+}
+
+// Mesh membership (T077). A member that trusts a device states so (ADMIT); a member that revoked one states
+// that (REMOVE). Each statement is signed by its issuer's identity key over an explicit canonical encoding
+// (MeshStatementCryptography) and spreads through every authenticated session.
+enum MeshStatementKind {
+  MESH_STATEMENT_KIND_UNSPECIFIED = 0;
+  MESH_STATEMENT_KIND_ADMIT = 1;
+  MESH_STATEMENT_KIND_REMOVE = 2;
+}
+
+message MeshLocator {
+  string host = 1;
+  uint32 port = 2;
+}
+
+message MeshStatement {
+  string statement_id = 1;
+  MeshStatementKind kind = 2;
+  string issuer_peer_id = 3;
+  string subject_peer_id = 4;
+  bytes subject_public_key_spki = 5;
+  string subject_display_name = 6;
+  repeated MeshLocator subject_locators = 7;
+  google.protobuf.Timestamp issued_at = 8;
+  // ECDSA P-256 / SHA-256, IEEE P1363 (64 bytes).
+  bytes issuer_signature = 9;
+  // SHA-256 of the issuer's public key: the issuer is the (peer id, key) pair, never the peer id alone.
+  bytes issuer_public_key_sha256 = 10;
 }
 
 message OriginRangeRequest {

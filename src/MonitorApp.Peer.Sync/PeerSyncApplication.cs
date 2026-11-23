@@ -44,11 +44,13 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private readonly PeerSyncOptions options;
     private readonly PeerSyncLiveOptions? live;
     private readonly AlertStore? alerts;
+    private readonly MeshMembership? mesh;
     private PeerHello? authenticatedRemoteHello;
 
     public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
-        AlertStore? alerts = null, PeerSyncLiveOptions? live = null)
+        AlertStore? alerts = null, PeerSyncLiveOptions? live = null, MeshMembership? mesh = null)
     {
+        this.mesh = mesh;
         this.live = live;
         this.alerts = alerts;
         this.store = store ?? throw new ArgumentNullException(nameof(store));
@@ -97,13 +99,19 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         LocalCapabilities.Capabilities.Add(capabilities.Select(item => item.Clone()));
         localHello.Cursors.Clear();
         localHello.Cursors.Add(LocalAvailability(identity, DateTimeOffset.UtcNow));
+        // Mesh statements travel in the capability exchange, which is sent only after both sides authenticated.
+        LocalCapabilities.MeshStatements.Clear();
+        LocalCapabilities.SelfLocators.Clear();
+        if (mesh is not null)
+            await MeshExchange.AddLocalAsync(mesh, LocalCapabilities, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask OnAuthenticatedAsync(PeerHello remoteHello, CapabilityExchange remoteCapabilities, CancellationToken cancellationToken)
+    public async ValueTask OnAuthenticatedAsync(PeerHello remoteHello, CapabilityExchange remoteCapabilities, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(remoteHello);
         authenticatedRemoteHello = remoteHello.Clone();
-        return ValueTask.CompletedTask;
+        if (mesh is not null)
+            await MeshExchange.ApplyAsync(mesh, remoteHello.PeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
     }
 
     public async IAsyncEnumerable<PeerSessionRequest> GetPendingRequestsAsync(string remotePeerId,
@@ -194,6 +202,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             return null;
         }
 
+        var meshVersion = mesh?.Version ?? 0;
+
         return new PeerLiveSession(new PeerLiveSessionOptions(
             store,
             remotePeerId,
@@ -209,7 +219,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             live.MaximumInFlightBatches,
             options.MaximumBatchRecords,
             options.MaximumBatchBytes,
-            LocallyInitiated: true));
+            LocallyInitiated: true,
+            RenewRequested: mesh is null ? null : () => mesh.Version != meshVersion));
     }
 
     public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)

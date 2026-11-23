@@ -7,7 +7,7 @@ namespace MonitorApp.Peer.Persistence;
 
 public sealed partial class PeerStore
 {
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
     private const int PublicKeyFingerprintSize = 32;
     private const int P256SignatureSize = 64;
     private readonly string connectionString;
@@ -245,6 +245,8 @@ public sealed partial class PeerStore
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         command.CommandText = PeerStateHistorySchema;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        command.CommandText = MeshSchema;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var migration = connection.CreateCommand();

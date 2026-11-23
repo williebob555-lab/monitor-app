@@ -33,7 +33,8 @@ public sealed record NodeLiveOptions(
     TimeSpan? RetentionInterval = null,
     PeerRetentionPolicy? Retention = null,
     TimeProvider? Time = null,
-    TimeSpan? PeerStateInterval = null);
+    TimeSpan? PeerStateInterval = null,
+    bool Mesh = true);
 
 public sealed class PeerNodeRuntime : IAsyncDisposable
 {
@@ -203,7 +204,23 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await capabilityRegistry.RegisterAsync(
             SystemCapabilityDeclaration.Create(),
             cancellationToken).ConfigureAwait(false);
-        var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval);
+        // Mesh membership (T077): devices any member admits are trusted here too, and removals spread.
+        var mesh = live?.Mesh == false ? null : new MeshMembership(peerStore, identity.PublicIdentity, identity.IdentityKey)
+        {
+            SelfLocators = MeshSelfLocators(options),
+        };
+        var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval, mesh);
+        if (mesh is not null) mesh.TrustChanged += changes => _ = Task.Run(async () =>
+        {
+            try
+            {
+                await connections.RefreshAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is ObjectDisposedException or OperationCanceledException or InvalidOperationException)
+            {
+                // Shutting down; the periodic pass retries otherwise.
+            }
+        });
         var invitationService = new NodePeerInvitationService(identity, peerStore, connections);
         var collection = new NodeCollectionScheduler(
             new PeerSystemMetricsIngestionBridge(
@@ -236,7 +253,13 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var peerStateTask = new NodePeriodicTask(
             "peer-state",
             live?.PeerStateInterval ?? TimeSpan.FromSeconds(15),
-            async token => await peerStateTracker.ReconcileAsync(token).ConfigureAwait(false),
+            async token =>
+            {
+                // Issues this computer's own statements after a local pairing or revocation, and dials newly trusted peers.
+                if (mesh is not null) await mesh.RefreshAsync(token).ConfigureAwait(false);
+                await connections.RefreshAsync(token).ConfigureAwait(false);
+                await peerStateTracker.ReconcileAsync(token).ConfigureAwait(false);
+            },
             time);
         NodePeriodicTask? lanTask = null;
         if (live?.CollectSelfLan ?? true)
@@ -293,6 +316,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 services.AddSingleton<IPeerClock>(clock);
                 services.AddSingleton(pairing);
                 services.AddSingleton(replication);
+                if (mesh is not null) services.AddSingleton(mesh);
                 services.AddSingleton(interests);
                 services.AddSingleton(new AlertDeliveryService(peerStore, alertStore, alertRules));
                 services.AddSingleton(controlService);
@@ -357,6 +381,19 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             identity.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Where other members can dial this computer: the address it listens on, or its Tailscale address when it listens on
+    /// every interface. A loopback listener is advertised as such (development and tests on one machine only).
+    /// </summary>
+    internal static IReadOnlyList<MonitorApp.Contracts.V1.MeshLocator> MeshSelfLocators(NodeOptions options, Func<IEnumerable<System.Net.IPAddress>>? localAddresses = null)
+    {
+        var bind = options.PeerBindAddress;
+        var advertised = bind.Equals(System.Net.IPAddress.Any) || bind.Equals(System.Net.IPAddress.IPv6Any)
+            ? PeerReachSetting.FindTailscaleAddress(localAddresses)
+            : bind;
+        return advertised is null ? [] : [new MonitorApp.Contracts.V1.MeshLocator { Host = advertised.ToString(), Port = (uint)options.PeerPort }];
     }
 
     public async ValueTask DisposeAsync()

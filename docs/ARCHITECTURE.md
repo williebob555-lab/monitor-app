@@ -136,7 +136,7 @@ The initial personal-scale system uses explicit pairwise trust.
 6. Both peers store the other application identity, pinned key, approved endpoint, capabilities, and trust state.
 7. Every later session uses a fresh replay-resistant proof.
 
-Tailscale IP and tailnet membership are bootstrap and reachability evidence only. Address changes require an authenticated update or explicit repair. Trust does not automatically become transitive, and peer introductions remain deferred until their authorization semantics are designed.
+Tailscale IP and tailnet membership are bootstrap and reachability evidence only. Address changes require an authenticated update or explicit repair. Pairing is the human ceremony; the mesh (T077, `docs/DECISIONS.md`) then spreads it: every peer swaps signed admit/remove statements in the authenticated capability exchange of each session and derives trust from them, so a device paired with one member is trusted by all, and a device removed on one member is removed everywhere.
 
 Both peers may initiate a connection. If both initiate simultaneously, a deterministic rule selects one logical session. Reconnection uses bounded backoff and must distinguish service outage, Tailscale path failure, identity rejection, and protocol incompatibility.
 
