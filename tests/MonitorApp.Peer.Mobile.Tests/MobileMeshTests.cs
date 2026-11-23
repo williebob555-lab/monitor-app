@@ -74,6 +74,53 @@ public sealed class MobileMeshTests
         }
     }
 
+    [Fact]
+    public async Task APhoneStillReachesItsComputerWhenANewerAddressIsUnreachable()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var deskPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, PeerStateInterval: TimeSpan.FromSeconds(1)));
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(
+                new MobilePeerOptions(roots[1], "phone", CollectionInterval: TimeSpan.FromHours(1),
+                    SyncInterval: TimeSpan.FromMilliseconds(200), MaximumSyncBackoff: TimeSpan.FromSeconds(1),
+                    HeartbeatInterval: TimeSpan.FromSeconds(5)),
+                phoneIdentity,
+                new ScriptedDeviceReader());
+            await PairPhoneAsync(phone, desk, deskPort);
+
+            // What 0.1.18 did: the computer's advertised address (unreachable from this phone) stored as the newest.
+            await PhoneStore(roots[1]).UpsertPeerLocatorAsync(
+                new PeerLocator(desk.Identity.PeerId, "127.0.0.1", FreePort(), DateTimeOffset.UtcNow.AddMinutes(1), null));
+            Assert.NotEqual(deskPort, (await PhoneStore(roots[1]).ReadPeerLocatorsAsync(desk.Identity.PeerId))[0].Port);
+
+            phone.Start();
+            await phone.CollectOnceAsync();
+            var phoneId = phone.Identity.PeerId;
+            var phoneStream = (await PhoneStore(roots[1]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () => (await desk.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1)).Count == 1);
+
+            // The address that worked is remembered and dialed first from now on.
+            await WaitAsync(async () => (await PhoneStore(roots[1]).ReadPeerLocatorsAsync(desk.Identity.PeerId))[0].Port == deskPort);
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
     private static PeerStore PhoneStore(string root) => new(PeerStoreOptions.Create(Path.Combine(root, "peer.db")));
 
     private static async Task PairPhoneAsync(MobilePeerRuntime phone, PeerNodeRuntime node, int port)

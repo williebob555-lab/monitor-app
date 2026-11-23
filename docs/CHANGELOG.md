@@ -5,6 +5,8 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Fixed
+- Phone and computers stopped exchanging readings on 0.1.18 (T080 hotfix): a computer's advertised address (its Tailscale address) was stored as the newest and always dialed first, so a phone that could not reach it never connected. Devices now dial the address that last worked first, rank advertised addresses below paired ones, and move to the next address when one keeps failing.
+- The phone shows a crash instead of closing, and keeps the details for the next launch (from the shared model thread).
 
 - Menus were laggy again. On the phone every read of its own database (readings, peers, alerts, Things) ran on the screen thread because SQLite's async calls complete synchronously; they now run in the background. The shared model is no longer rebuilt from its whole change log on every read (it is cached until the next change), and Things no longer rebuilds every card, or re-opens the exploded view, when a refresh changed nothing.
 

@@ -410,12 +410,33 @@ public sealed partial class PeerStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Records that a session over this address authenticated, so it is dialed first next time.</summary>
+    public async Task MarkPeerLocatorConnectedAsync(string peerId, string host, int port, DateTimeOffset connectedAt,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(peerId, nameof(peerId));
+        EnsureIdentifier(host, nameof(host));
+        EnsureUtc(connectedAt, nameof(connectedAt));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE peer_locators SET last_connected_at = $connected WHERE peer_id = $peer AND host = $host AND port = $port;";
+        command.Parameters.AddWithValue("$peer", peerId);
+        command.Parameters.AddWithValue("$host", host);
+        command.Parameters.AddWithValue("$port", port);
+        command.Parameters.AddWithValue("$connected", Format(connectedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Addresses to dial, best first: the one that last authenticated, then the newest learned by pairing. Addresses a
+    /// peer only advertised (mesh) are stored as never updated, so they never displace an address that was paired.
+    /// </summary>
     public async Task<IReadOnlyList<PeerLocator>> ReadPeerLocatorsAsync(string peerId, CancellationToken cancellationToken = default)
     {
         EnsureIdentifier(peerId, nameof(peerId));
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT peer_id, host, port, updated_at, last_connected_at FROM peer_locators WHERE peer_id = $peer ORDER BY updated_at DESC, host, port;";
+        command.CommandText = "SELECT peer_id, host, port, updated_at, last_connected_at FROM peer_locators WHERE peer_id = $peer ORDER BY last_connected_at IS NULL, last_connected_at DESC, updated_at DESC, host, port;";
         command.Parameters.AddWithValue("$peer", peerId);
         var result = new List<PeerLocator>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

@@ -162,8 +162,41 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
         }
     }
 
-    private async Task RunConnectionAsync(TrustedPeer peer, PeerLocator locator)
+    private async Task RunConnectionAsync(TrustedPeer peer, PeerLocator first)
     {
+        // Dial the best address; one that keeps failing before it ever authenticates gives way to the peer's next address
+        // (an advertised address this computer cannot reach must not cut it off from one that works).
+        var attempt = 0;
+        var locator = first;
+        while (!lifetime.IsCancellationRequested)
+        {
+            var locators = await ReadLocatorsAsync(peer.PeerId).ConfigureAwait(false);
+            if (attempt > 0 && locators.Count > 0) locator = locators[attempt % locators.Count];
+            var hasAlternatives = locators.Count > 1;
+            if (await RunConnectionOnceAsync(peer, locator, hasAlternatives).ConfigureAwait(false) is null) return;
+            // The address stopped working (or never did): move on to the next one.
+            attempt++;
+        }
+    }
+
+    private async Task<IReadOnlyList<PeerLocator>> ReadLocatorsAsync(string peerId)
+    {
+        try
+        {
+            return await store.ReadPeerLocatorsAsync(peerId, lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Returns whether the session authenticated, or null when the connection must not be retried.</summary>
+    private async Task<bool?> RunConnectionOnceAsync(TrustedPeer peer, PeerLocator locator, bool hasAlternatives)
+    {
+        var authenticated = false;
+        var failuresSinceAuthentication = 0;
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         try
         {
             if (!IPAddress.TryParse(locator.Host, out var address))
@@ -203,10 +236,28 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
                 transport,
                 authentication,
                 synchronization);
-            await connector.RunAsync(lifetime.Token).ConfigureAwait(false);
+            connector.StateChanged += state =>
+            {
+                if (state != PeerTransportState.Authenticated) return;
+                failuresSinceAuthentication = 0;
+                if (authenticated) return;
+                authenticated = true;
+                _ = MarkConnectedAsync(peer.PeerId, locator);
+            };
+            connector.SessionFailed += _ =>
+            {
+                if (hasAlternatives && ++failuresSinceAuthentication >= 3) session.Cancel();
+            };
+            await connector.RunAsync(session.Token).ConfigureAwait(false);
+            return lifetime.IsCancellationRequested ? null : authenticated;
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
+            return null;
+        }
+        catch (OperationCanceledException) when (session.IsCancellationRequested)
+        {
+            return authenticated;
         }
         catch (Exception exception) when (exception is
             PeerAuthenticationException or
@@ -214,6 +265,19 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             InvalidOperationException)
         {
             permanentFailures[peer.PeerId] = exception.Message;
+            return null;
+        }
+    }
+
+    private async Task MarkConnectedAsync(string peerId, PeerLocator locator)
+    {
+        try
+        {
+            await store.MarkPeerLocatorConnectedAsync(peerId, locator.Host, locator.Port, DateTimeOffset.UtcNow).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ObjectDisposedException or InvalidOperationException or System.Data.Common.DbException)
+        {
+            // Only a dialing preference; the next session records it again.
         }
     }
 }
