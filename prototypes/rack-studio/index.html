@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090e14">
+  <title>Monitor / Rack Studio</title>
+  <link rel="stylesheet" href="./studio.css">
+  <link rel="stylesheet" href="./audio.css">
+  <script src="./studio.js" defer></script>
+  <script src="./audio.js" defer></script>
+</head>
+<body>
+<div id="app" class="shell">
+  <nav class="icon-rail" aria-label="Modules">
+    <div class="brand" title="MONITOR"><span class="brand-orbit"></span><span class="brand-center"></span></div>
+    <div class="rail-separator"></div>
+    <button class="nav-icon active" data-tab="rack" title="Rack studio" aria-label="Rack studio">
+      <svg viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="1.8"/><path d="M5 9h14M5 15h14M8 5.7h2M8 12h2M8 18.2h2"/></svg>
+    </button>
+    <button class="nav-icon" data-tab="audio" title="Audio rig & pedalboard routing" aria-label="Audio rig">
+      <svg viewBox="0 0 24 24"><path d="M3 10v4M7 6v12M11 3v18M15 8v8M19 5v14M22 10v4"/></svg>
+    </button>
+    <button class="nav-icon" data-tab="project" title="Project planning" aria-label="Project planning">
+      <svg viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11"/><path d="M3.5 5h2M3.5 12h2M3.5 19h2"/></svg>
+    </button>
+    <button class="nav-icon" data-tab="sources" title="Sourcing" aria-label="Sourcing">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 4.2 5 13.8 0 18M12 3c-5 4.2-5 13.8 0 18"/></svg>
+    </button>
+    <span class="nav-stretch"></span>
+    <div class="sync-led" title="Local design workspace; not connected to devices"></div>
+    <button class="nav-icon" id="shortcutsButton" title="Help & shortcuts" aria-label="Help and shortcuts">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.6 2.6 0 0 1 5 .9c0 2.1-2.7 2.3-2.7 4.3M12 18h.01"/></svg>
+    </button>
+    <div class="avatar" aria-hidden="true">W</div>
+  </nav>
+  <aside class="library-pane">
+    <div class="workspace-banner">
+      <div class="tiny-label">WORKSPACE <span class="star">✳</span> 01 / LOCAL</div>
+      <h1>Homelab<br><i>Rebuild.</i></h1>
+      <button id="scenarioSwitch" class="scenario-button"><span class="cyan-dot"></span> Revision B <span class="subtle">· Proposed</span><span class="down">⌄</span></button>
+    </div>
+    <div class="library-heading"><div class="tiny-label">BUILD LIBRARY</div><h2>Components <span id="componentCount">08</span></h2></div>
+    <label class="searchbox">
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+      <input id="assetSearch" type="search" placeholder="Find components…" aria-label="Search components">
+      <kbd>/</kbd>
+    </label>
+    <div class="library-mini-head"><span>DRAG IN OR CLICK TO PLACE</span><span>↘</span></div>
+    <div id="catalog" class="catalog" aria-label="Component library"></div>
+    <div class="aside-bottom">
+      <div class="tip-card"><span class="tip-glyph">◇</span><div><strong>Designed, not deployed.</strong><p>This entire workspace uses editable fixture dimensions. No live device telemetry.</p></div></div>
+      <button class="text-button" id="resetButton">↺ Reset demo</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="breadcrumb"><span>WORKSPACES</span><b>/</b><span>HOMELAB REBUILD</span><b>/</b><strong id="topLocation">RACK STUDIO</strong></div>
+      <div class="top-actions">
+        <span class="sandbox-status"><i></i> LOCAL SANDBOX</span>
+        <button class="button button-subtle" id="undoButton" title="Undo (Ctrl+Z)">↶</button>
+        <button class="button button-subtle" id="redoButton" title="Redo (Ctrl+Shift+Z)">↷</button>
+        <button class="button button-primary" id="exportButton"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v4h16v-4"/></svg> Export design</button>
+        <label class="button button-subtle import-button" title="Import saved design">Import<input id="importInput" type="file" accept="application/json,.json"></label>
+      </div>
+    </header>
+
+    <section class="workspace-panel visible" id="rackPanel" aria-label="Rack assembly">
+      <div class="page-head">
+        <div><div class="tiny-label accent-label">PHYSICAL SYSTEM DESIGN / 01</div><h2>Rack <em>Studio</em><span class="heading-plus">✳</span></h2><p>Build in three dimensions. Catch what a front view can't.</p></div>
+        <div class="revision-stamp"><span class="stamp-disc"></span><span>SCENARIO B<br><strong>Revision 02</strong></span></div>
+      </div>
+      <div class="toolbar">
+        <div class="segmented" role="tablist" aria-label="Rack visualization">
+          <button class="segment selected" data-view="front" role="tab" aria-selected="true">Front elevation</button>
+          <button class="segment" data-view="side" role="tab" aria-selected="false">Depth section</button>
+          <button class="segment" data-view="thermal" role="tab" aria-selected="false">Thermal map</button>
+        </div>
+        <div class="toolbar-right">
+          <label class="inline-select-label">ASSEMBLY <select id="assemblySelect"><option value="main">Main rack</option><option value="pedalboard">Pedalboard</option></select></label>
+          <label class="inline-select-label">FORMAT <select id="rackFormat"><option value="19">19″ EIA</option><option value="10">10″ EIA</option><option value="23">23″ EIA</option><option value="21">21″ Open Rack</option><option value="euro">Eurorack</option><option value="pedal">Pedalboard</option><option value="api500">500-series</option><option value="mod4">Modular 4U</option><option value="mod5">Modular 5U</option><option value="desktop">Desktop audio</option><option value="custom">Custom</option></select></label>
+          <label class="inline-select-label">HEIGHT <select id="rackHeight"><option value="6">6U</option><option value="9">9U</option><option value="12" selected>12U</option><option value="18">18U</option><option value="24">24U</option><option value="42">42U</option></select></label>
+          <button id="configButton" class="round-tool" title="Rack dimensions and clearances" aria-label="Rack settings">⚙</button>
+        </div>
+      </div>
+
+      <div class="studio-body">
+        <div class="canvas-region" id="canvasRegion">
+          <div class="canvas-label"><span class="scene-id">ASSEMBLY / RACK-01</span><span class="scene-status">◉ <span id="sceneViewName">FRONT ELEVATION</span></span></div>
+          <div class="scene" id="scene" tabindex="0" aria-label="Interactive rack editor. Select a device and press the arrow keys to move it.">
+            <div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div>
+            <div class="scene-grid"></div>
+            <div class="scene-hint left-hint"><span class="hint-line"></span><span>YOUR RACK<br>YOUR RULES</span></div>
+            <div class="rack-stage" id="rackStage"><div id="rackVisualization" class="rack-visualization"></div></div>
+            <div class="scene-hint right-hint"><span class="hint-number">01 / 03</span><span>MODEL SPACE<br>NOT LIVE STATE</span></div>
+          </div>
+          <div class="canvas-footer">
+            <span class="canvas-footnote">↗ DROP COMPONENTS ONTO THE GRID · SELECT TO INSPECT · ARROWS TO MOVE</span>
+            <div class="zoom-cluster"><button id="zoomOut" aria-label="Zoom out">−</button><span id="zoomValue">100%</span><button id="zoomIn" aria-label="Zoom in">+</button></div>
+          </div>
+        </div>
+        <div class="bottom-dock">
+          <div class="dock-metric"><span class="metric-label">OCCUPIED</span><span class="metric-value"><strong id="usedSlots">0</strong><small id="totalSlots"> / 12 U</small></span><div id="fillTrack" class="slot-track"></div></div>
+          <div class="dock-metric"><span class="metric-label">FRONT → REAR</span><span class="metric-value"><strong id="depthValue">—</strong><small> mm max</small></span><div class="metric-note" id="depthNote">including cable relief</div></div>
+          <div class="dock-metric"><span class="metric-label">NOMINAL LOAD</span><span class="metric-value"><strong id="powerValue">—</strong><small> W</small></span><div class="metric-note">not a measured draw</div></div>
+          <div class="dock-findings" id="dockFindings"><span class="findings-glow"></span><div><span class="metric-label">DESIGN REVIEW</span><strong id="reviewHeadline">Reviewing model</strong></div><span class="review-count" id="reviewCount">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace-panel" id="audioPanel" aria-label="Audio routing and power">
+      <div class="page-head">
+        <div><div class="tiny-label accent-label">SIGNAL SYSTEM DESIGN / 02</div><h2>Signal <em>Lab</em><span class="heading-plus">✳</span></h2><p>A patchbay for signal, power and physical reality.</p></div>
+        <div class="revision-stamp"><span class="stamp-disc"></span><span>PROPOSED ROUTING<br><strong>Not energized</strong></span></div>
+      </div>
+      <div class="signal-topline">
+        <span>CHAIN 01 / BASS · PEDALBOARD · INTERFACE</span>
+        <button class="button button-subtle" id="addAudioNode">+ Insert stage</button>
+      </div>
+      <div id="signalGraph" class="signal-graph" aria-label="Interactive signal chain"></div>
+      <div class="audio-bottom-grid">
+        <section class="audio-diagnostic">
+          <div class="tiny-label">ANALYSIS / AUDIO & CONTROL</div>
+          <h3>Connection intelligence</h3>
+          <div id="signalFindings"></div>
+        </section>
+        <section class="audio-diagnostic">
+          <div class="tiny-label">POWER / PEDALBOARD</div>
+          <h3>DC power distribution</h3>
+          <div id="dcGraph"></div>
+        </section>
+      </div>
+      <div class="audio-legend">All routing is proposed. Connector matching alone does not establish electrical, signal-level or voltage compatibility. No audio is played.</div>
+    </section>
+
+    <section class="workspace-panel" id="projectPanel" aria-label="Project planning">
+      <div class="page-head"><div><div class="tiny-label accent-label">BUILD STRATEGY / 02</div><h2>Project <em>Map</em><span class="heading-plus">✳</span></h2><p>Dependencies, scenarios and sourcing, one build at a time.</p></div><div class="revision-stamp"><span class="stamp-disc"></span><span>DESIGN-ONLY<br><strong>Revision 02</strong></span></div></div>
+      <div class="project-summary" id="projectSummary"></div>
+      <div class="section-heading"><div><span class="tiny-label">EXECUTION</span><h3>Build sequence</h3></div><button class="button button-subtle" id="addTaskButton">+ Add task</button></div>
+      <div class="task-board" id="taskBoard"></div>
+      <div class="section-heading"><div><span class="tiny-label">CONSIDERATIONS</span><h3>Trade-offs to resolve</h3></div></div>
+      <div class="decision-grid" id="decisionGrid"></div>
+    </section>
+
+    <section class="workspace-panel" id="sourcesPanel" aria-label="Sources and offers">
+      <div class="page-head"><div><div class="tiny-label accent-label">PROCUREMENT INTELLIGENCE / 03</div><h2>Source <em>Signals</em><span class="heading-plus">✳</span></h2><p>Keep the product, the retailer's offer, and the owned unit distinct.</p></div><div class="revision-stamp"><span class="stamp-disc"></span><span>FIXTURE DATA<br><strong>Not connected</strong></span></div></div>
+      <div class="source-notice"><span>◇</span><p><strong>Connector foundation preview.</strong> Data below is illustrative, not fetched from retailers. Collection will use approved vendor APIs where available, with timestamps, response quality and rate-limit states.</p></div>
+      <div class="source-columns"><div class="source-card"><div class="tiny-label">DATA PIPELINE</div><div class="pipeline-step"><i>01</i><span>Provider adapter</span><small>authorized API</small></div><div class="pipeline-step"><i>02</i><span>Raw observation</span><small>timestamp + provenance</small></div><div class="pipeline-step"><i>03</i><span>Offer normalization</span><small>currency, tax, shipping</small></div><div class="pipeline-step"><i>04</i><span>Price history</span><small>never overwrite evidence</small></div><div class="pipeline-step"><i>05</i><span>Rule triggers</span><small>permissions + dedupe</small></div></div><div class="source-card" id="offersPanel"></div></div>
+    </section>
+  </main>
+
+  <aside class="inspector-pane">
+    <div class="inspector-top"><div><span class="tiny-label">CONTEXT / LIVE EDITOR</span><h3 id="inspectorTitle">Your assembly</h3></div><span class="inspector-id">↗ 01</span></div>
+    <div id="inspectorContent" class="inspector-scroll"></div>
+    <div class="inspector-footer"><span class="small-indicator"></span><span>ALL CHANGES STAY ON THIS DEVICE</span></div>
+  </aside>
+</div>
+<div class="toast-container" id="toast" role="status" aria-live="polite"></div>
+<dialog id="helpDialog" class="modal"><form method="dialog"><h2>Move like an architect.</h2><p>Select a device. Use <kbd>↑</kbd> / <kbd>↓</kbd> to move one U or row. <kbd>Delete</kbd> removes it. <kbd>Ctrl+Z</kbd> undoes. Press <kbd>/</kbd> to search.</p><p>Drag an asset from the library onto the canvas. Use the depth section to inspect cable bends and free space. Design warnings are estimates, never safety certifications.</p><button class="button button-primary">Got it</button></form></dialog>
+</body>
+</html>

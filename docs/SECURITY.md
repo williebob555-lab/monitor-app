@@ -103,6 +103,8 @@ Windows update apply boundary (T043): the node service runs as the virtual accou
 
 Actual inventory and running state are security-relevant facts. Design scenarios, candidate products, and proposed connections must not silently change actual state, collector configuration, automation inputs, or device controls. Promotion from design to actual is explicit and audited. Plan overlays must remain clearly labeled so an operator cannot mistake a proposed power, signal, network, or cable path for an installed one.
 
+The T301 planning evaluator is an offline decision-support component. Its compatibility and constraint findings depend on declared evidence, preserve unknowns, and never authorize energizing equipment or modifying a peer. The accompanying browser prototype is illustrative and is not an authoritative safety validator.
+
 Cable records may expose work locations, equipment relationships, custody, and operational topology. Apply local access control, minimize exports, and keep optional labels free of secrets. The primary cable workflow uses manual templates and does not require QR codes or dedicated scanning hardware.
 
 ## External sourcing and notification egress

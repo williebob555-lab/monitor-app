@@ -256,6 +256,14 @@ dotnet test tests/MonitorApp.Contracts.Tests/MonitorApp.Contracts.Tests.csproj -
 
 This suite includes capability-module compatibility, canonical catalog metadata, deterministic purpose-built-versus-fallback inspector selection, credential-free schema checks, ordinary-versus-defensive network-data policy, actual/design separation, distinct product/offer/instance identity, typed relationships, and the connector/length cable contract. The peer-service suite adds real-SQLite capability registration and advertisement coverage. Universal inventory persistence, promotion workflows, matching, and a client remain future gates.
 
+Standalone design-planning tests:
+
+```powershell
+dotnet test tests/MonitorApp.Planning.Tests/MonitorApp.Planning.Tests.csproj -c Release --no-restore
+```
+
+These unit tests exercise multi-standard rack and nested-subrack placement, panel projection, pedalboard clearances, evidence-aware physical findings, audio/MIDI/CV and pedal-power compatibility, connector/protocol/power/adapter checks, task dependencies, and project/product/offer separation. They do not verify installed hardware, authoritative inventory persistence, or client integration.
+
 Combined current unit and contract tests:
 
 ```powershell
