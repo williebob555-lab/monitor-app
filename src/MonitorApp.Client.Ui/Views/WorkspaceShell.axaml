@@ -166,6 +166,14 @@
         <!-- Main workspace: pages by mode, with the historical outline and the search drop-down laid over it. -->
         <Grid Name="Body" Grid.Row="1" Grid.Column="1">
           <DockPanel>
+            <!-- What made the app stop (or what it caught and survived), shown once so it can be read and passed on. -->
+            <Border Name="CrashBanner" DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" IsVisible="{Binding HasCrashNotice}">
+              <DockPanel Margin="12,8">
+                <Button DockPanel.Dock="Right" Content="Dismiss" Classes="compact flat" Command="{Binding DismissCrashNoticeCommand}"
+                        VerticalAlignment="Top" AutomationProperties.Name="Dismiss the problem report" />
+                <SelectableTextBlock Text="{Binding CrashNotice}" TextWrapping="Wrap" MaxHeight="160" Classes="meta" />
+              </DockPanel>
+            </Border>
             <!-- Dismissible, non-blocking: shown while fingerprint approval is not set up on this computer. -->
             <Border Name="FingerprintBanner" DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1"
                     IsVisible="{Binding Security.ShowBanner, FallbackValue=False}">

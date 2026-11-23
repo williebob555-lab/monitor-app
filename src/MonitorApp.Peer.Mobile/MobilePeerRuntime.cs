@@ -69,7 +69,7 @@ public sealed class MobileControlFailedException(string message, Exception? inne
 /// phone-initiated sync loop. It never listens; replication in both directions rides the sessions it dials.
 /// The host (an Android foreground service) only calls <see cref="Start"/> and <see cref="StopAsync"/>.
 /// </summary>
-public sealed class MobilePeerRuntime : IAsyncDisposable
+public sealed partial class MobilePeerRuntime : IAsyncDisposable
 {
     private readonly MobilePeerOptions options;
     private readonly ILocalPeerIdentityProvider identity;
@@ -81,6 +81,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
     private readonly LiveInterestRegistry interests;
     private readonly IUserPresenceSigner? presence;
     private readonly object gate = new();
+    private TaskCompletionSource sessionWake = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Dictionary<string, MobilePeerSyncStatus> peerStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> notBefore = new(StringComparer.Ordinal);
@@ -108,6 +109,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         this.collection = collection;
         replication = new OriginReplicationCoordinator(store);
         Mesh = new MeshMembership(store, identity.PublicIdentity, identity.IdentityKey);
+        Mesh.TrustChanged += _ => WakeSessions();
         interests = new LiveInterestRegistry(options.InterestPolicy);
         PeerStates = new PeerStateTracker(store, new SystemPeerClock(), TimeSpan.FromMinutes(5), peerId =>
         {
@@ -277,6 +279,8 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 notBefore.Remove(result.Remote.Identity.PeerId);
             }
 
+            // Start syncing with the new device now rather than at the next pass (Wilson saw a minute's stall).
+            WakeSessions();
             return result.Remote.Identity.PeerId;
         }
         catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
@@ -561,7 +565,10 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 }
             }
 
-            await SyncPeerAsync(peer, locators[0], cancellationToken).ConfigureAwait(false);
+            foreach (var locator in locators)
+            {
+                if (await SyncPeerAsync(peer, locator, cancellationToken).ConfigureAwait(false)) break;
+            }
         }
 
         lock (gate)
@@ -614,7 +621,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
 
-    private async Task SyncPeerAsync(TrustedPeer peer, PeerLocator locator, CancellationToken cancellationToken)
+    private async Task<bool> SyncPeerAsync(TrustedPeer peer, PeerLocator locator, CancellationToken cancellationToken)
     {
         try
         {
@@ -646,6 +653,9 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                 peerStatus[peer.PeerId] = new MobilePeerSyncStatus(peer.PeerId, MobileSyncState.Synced, DateTimeOffset.UtcNow, null);
                 PeerStates.NotifySession(peer.PeerId, true);
             }
+
+            await MarkConnectedAsync(peer.PeerId, locator).ConfigureAwait(false);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -655,6 +665,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             or IOException or TimeoutException or InvalidOperationException or PeerSyncException or OperationCanceledException)
         {
             RecordFailure(peer.PeerId, exception);
+            return false;
         }
     }
 
@@ -741,7 +752,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                             Task.Run(() => PeerSessionLoopAsync(peer.PeerId, cancellation.Token), CancellationToken.None));
                     }
 
-                    await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
+                    await WaitForWakeAsync(options.SyncInterval, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -777,6 +788,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
 
     private async Task PeerSessionLoopAsync(string peerId, CancellationToken cancellationToken)
     {
+        var attempt = 0;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -799,7 +811,11 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
 
                 if (wait <= TimeSpan.Zero && locators.Count > 0)
                 {
-                    await RunLiveSessionAsync(peer, locators[0], cancellationToken).ConfigureAwait(false);
+                    // Best address first; one that never authenticates gives way to the next (T080 hotfix: an advertised
+                    // address the phone cannot reach must not cut it off from a peer it reached before).
+                    await RunLiveSessionAsync(peer, locators[attempt % locators.Count], locators.Count > 1, cancellationToken)
+                        .ConfigureAwait(false);
+                    attempt++;
                     lock (gate)
                     {
                         wait = notBefore.TryGetValue(peerId, out var until) && DateTimeOffset.UtcNow < until
@@ -812,7 +828,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                     wait = options.SyncInterval;
                 }
 
-                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                await WaitForWakeAsync(wait, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -820,9 +836,41 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         }
     }
 
-    /// <summary>One held-open session (with transport-level reconnect) until cancellation or a permanent refusal.</summary>
-    private async Task RunLiveSessionAsync(TrustedPeer peer, PeerLocator locator, CancellationToken cancellationToken)
+    /// <summary>Ends every session wait early: a device was just paired or the mesh changed who is trusted.</summary>
+    private void WakeSessions()
     {
+        TaskCompletionSource woken;
+        lock (gate)
+        {
+            woken = sessionWake;
+            sessionWake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            failures.Clear();
+            notBefore.Clear();
+        }
+
+        woken.TrySetResult();
+    }
+
+    private async Task WaitForWakeAsync(TimeSpan wait, CancellationToken cancellationToken)
+    {
+        Task woken;
+        lock (gate)
+        {
+            woken = sessionWake.Task;
+        }
+
+        using var delay = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await Task.WhenAny(woken, Task.Delay(wait, delay.Token)).ConfigureAwait(false);
+        await delay.CancelAsync().ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>One held-open session (with transport-level reconnect) until cancellation or a permanent refusal.</summary>
+    private async Task<bool> RunLiveSessionAsync(TrustedPeer peer, PeerLocator locator, bool hasAlternatives, CancellationToken cancellationToken)
+    {
+        var authenticated = false;
+        var failuresSinceAuthentication = 0;
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
             if (!System.Net.IPAddress.TryParse(locator.Host, out var address))
@@ -852,6 +900,13 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
             {
                 if (state == PeerTransportState.Authenticated)
                 {
+                    failuresSinceAuthentication = 0;
+                    if (!authenticated)
+                    {
+                        authenticated = true;
+                        _ = MarkConnectedAsync(peer.PeerId, locator);
+                    }
+
                     lock (gate)
                     {
                         failures.Remove(peer.PeerId);
@@ -862,17 +917,42 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
                     }
                 }
             };
-            connector.SessionFailed += exception => RecordFailure(peer.PeerId, exception);
-            await connector.RunAsync(cancellationToken).ConfigureAwait(false);
+            connector.SessionFailed += exception =>
+            {
+                RecordFailure(peer.PeerId, exception);
+                if (hasAlternatives && ++failuresSinceAuthentication >= 3)
+                {
+                    session.Cancel();
+                }
+            };
+            await connector.RunAsync(session.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (OperationCanceledException) when (session.IsCancellationRequested)
+        {
+            // This address kept failing; the caller tries the next one.
+        }
         catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
             or IOException or TimeoutException or InvalidOperationException or PeerSyncException)
         {
             RecordFailure(peer.PeerId, exception);
+        }
+
+        return authenticated;
+    }
+
+    private async Task MarkConnectedAsync(string peerId, PeerLocator locator)
+    {
+        try
+        {
+            await store.MarkPeerLocatorConnectedAsync(peerId, locator.Host, locator.Port, DateTimeOffset.UtcNow).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ObjectDisposedException or InvalidOperationException or System.Data.Common.DbException)
+        {
+            // Only a dialing preference; the next session records it again.
         }
     }
 

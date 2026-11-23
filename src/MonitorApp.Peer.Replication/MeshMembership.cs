@@ -37,6 +37,13 @@ public sealed class MeshMembership
     /// <summary>Statements dated further ahead than this are refused (a removed device must not pre-date admissions).</summary>
     public static readonly TimeSpan MaximumClockSkew = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// The "updated" time given to addresses a peer advertises about itself. They rank below every address learned by
+    /// pairing, so an advertised address (for example a Tailscale address the phone cannot reach) never replaces one
+    /// that works; dialers still try it when the others fail.
+    /// </summary>
+    public static readonly DateTimeOffset AdvertisedAt = DateTimeOffset.UnixEpoch;
+
     /// <summary>Most statements accepted from one exchange.</summary>
     public const int MaximumStatementsPerExchange = 512;
 
@@ -77,12 +84,11 @@ public sealed class MeshMembership
         var sender = await store.ReadTrustedPeerAsync(fromPeerId, cancellationToken).ConfigureAwait(false);
         if (sender is null || sender.TrustState != PeerTrustState.Active) return false;
         var known = await store.ReadPeerLocatorsAsync(fromPeerId, cancellationToken).ConfigureAwait(false);
-        var now = utcNow();
         var added = false;
         foreach (var locator in declared)
         {
             if (known.Any(item => item.Host == locator.Host && item.Port == (int)locator.Port)) continue;
-            await store.UpsertPeerLocatorAsync(new PeerLocator(fromPeerId, locator.Host, (int)locator.Port, now, null), cancellationToken).ConfigureAwait(false);
+            await store.UpsertPeerLocatorAsync(new PeerLocator(fromPeerId, locator.Host, (int)locator.Port, AdvertisedAt, null), cancellationToken).ConfigureAwait(false);
             added = true;
         }
 
