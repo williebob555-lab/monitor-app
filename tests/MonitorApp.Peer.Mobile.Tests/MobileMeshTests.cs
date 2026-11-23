@@ -10,7 +10,7 @@ using Xunit;
 namespace MonitorApp.Peer.Mobile.Tests;
 
 /// <summary>
-/// The mesh from the phone's side (T077), over real loopback gRPC: a phone paired with one computer trusts and talks to
+/// The mesh from the phone's side (T080), over real loopback gRPC: a phone paired with one computer trusts and talks to
 /// every computer that computer trusts, and a device the phone removes is removed on the computers.
 /// </summary>
 public sealed class MobileMeshTests

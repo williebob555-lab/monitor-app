@@ -221,4 +221,7 @@ public sealed record ThingDto(
 
 public sealed record ThingKindDto(string Id, string Label);
 
+/// <summary>A change to one thing; null fields are left alone.</summary>
+public sealed record ThingEditDto(string Id, string? Name = null, string? KindId = null, string? Note = null, string? InsideId = null);
+
 public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds);

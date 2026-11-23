@@ -138,15 +138,15 @@ message PeerHello {
 
 message CapabilityExchange {
   repeated CapabilityDescriptor capabilities = 1;
-  // Additive (T077): the sender's mesh membership statements. Sent only after both sides authenticated;
+  // Additive (T080): the sender's mesh membership statements. Sent only after both sides authenticated;
   // older peers ignore the field. A receiver accepts a statement only from an issuer it already trusts.
   repeated MeshStatement mesh_statements = 2;
-  // Additive (T077): where the sender itself accepts sessions (computers; phones send none). The receiver records
+  // Additive (T080): where the sender itself accepts sessions (computers; phones send none). The receiver records
   // them for the authenticated sender and passes them on in its admit statement, so other members can dial it.
   repeated MeshLocator self_locators = 3;
 }
 
-// Mesh membership (T077). A member that trusts a device states so (ADMIT); a member that revoked one states
+// Mesh membership (T080). A member that trusts a device states so (ADMIT); a member that revoked one states
 // that (REMOVE). Each statement is signed by its issuer's identity key over an explicit canonical encoding
 // (MeshStatementCryptography) and spreads through every authenticated session.
 enum MeshStatementKind {

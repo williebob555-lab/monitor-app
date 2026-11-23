@@ -75,7 +75,7 @@
 
         <!-- Thin top toolbar: breadcrumbs, search, LIVE / RECORDED pill, panel toggles. -->
         <Border Name="Toolbar" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Classes="panel" BorderThickness="0,0,0,1" MinHeight="48">
-          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="12,0,8,0">
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto" Margin="12,0,8,0">
             <ItemsControl Name="Breadcrumbs" Grid.Column="0" ItemsSource="{Binding Shell.Breadcrumbs}" IsVisible="{Binding Shell.IsNotNarrow}"
                           VerticalAlignment="Center" AutomationProperties.Name="Breadcrumbs">
               <ItemsControl.ItemsPanel>
@@ -137,17 +137,26 @@
                 <TextBlock Name="LiveText" Text="{Binding Shell.LiveText}" FontFamily="{DynamicResource Font.Mono}" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
+            <!-- The map: every device as a card joined by its connections, with pan and zoom (the graph lens of the ecosystem). -->
+            <Button Name="MapToggle" Grid.Column="3" Classes="compact flat" Command="{Binding Shell.ToggleMapCommand}"
+                    Background="{Binding Shell.MapOpen, Converter={x:Static ctl:ShellIcons.ActiveBackground}}" IsVisible="{Binding Shell.ShowOutlineToggle}"
+                    AutomationProperties.Name="Switch between the Dive and the map of devices and connections" ToolTip.Tip="Map of devices and connections">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Path Classes="icon" Data="{StaticResource Icon.map}" />
+                <TextBlock Text="Map" VerticalAlignment="Center" IsVisible="{Binding Shell.IsNotNarrow}" />
+              </StackPanel>
+            </Button>
             <!-- The outline (with the inspector) is the keyboard and screen-reader alternative to the Dive. -->
-            <Button Name="OutlineToggle" Grid.Column="3" Classes="compact flat" Command="{Binding Shell.ToggleOutlineCommand}"
+            <Button Name="OutlineToggle" Grid.Column="4" Classes="compact flat" Command="{Binding Shell.ToggleOutlineCommand}"
                     Background="{Binding Shell.OutlineOpen, Converter={x:Static ctl:ShellIcons.ActiveBackground}}" IsVisible="{Binding Shell.ShowOutlineToggle}"
                     AutomationProperties.Name="Switch between the Dive and the outline with inspector" ToolTip.Tip="Outline view (accessible list)">
               <Path Classes="icon" Data="{StaticResource Icon.outline}" />
             </Button>
-            <Button Name="InspectorToggle" Grid.Column="4" Classes="compact flat" Command="{Binding Shell.ToggleInspectorCommand}"
+            <Button Name="InspectorToggle" Grid.Column="5" Classes="compact flat" Command="{Binding Shell.ToggleInspectorCommand}"
                     IsVisible="{Binding Shell.ShowInspectorToggle}" AutomationProperties.Name="Show or hide inspector" ToolTip.Tip="Show or hide inspector">
               <Path Classes="icon" Data="{StaticResource Icon.inspector}" />
             </Button>
-            <Button Name="TimelineToggle" Grid.Column="5" Classes="compact flat" Command="{Binding Shell.ToggleTimelineCommand}"
+            <Button Name="TimelineToggle" Grid.Column="6" Classes="compact flat" Command="{Binding Shell.ToggleTimelineCommand}"
                     IsVisible="{Binding Shell.IsNotNarrow}" AutomationProperties.Name="Show or hide timeline" ToolTip.Tip="Show or hide timeline">
               <Path Classes="icon" Data="{StaticResource Icon.timeline}" />
             </Button>

@@ -487,7 +487,7 @@ public sealed class PeerNodeRuntimeTests
         try
         {
             var ports = Enumerable.Range(0, 4).Select(_ => FreePort()).ToArray();
-            // Without the mesh (T077) the four nodes stay a chain, which is the topology relayed interest is for.
+            // Without the mesh (T080) the four nodes stay a chain, which is the topology relayed interest is for.
             var hour = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, Mesh: false);
             await using var viewer = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, ports[0], 0), hour);
             await using var relay = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[1], IPAddress.Loopback, ports[1], 0), hour);

@@ -182,6 +182,12 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) =>
         PostAsync("api/v1/things", ct, body: new { text, kindId });
 
+    public Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return PostAsync("api/v1/things/edit", ct, body: edit);
+    }
+
     public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
     {
         // A node started without its update agent (development runs, some tests) has no update API: say so plainly.

@@ -28,6 +28,12 @@ public sealed class ModelStore : IAsyncDisposable
     private readonly TimeProvider time;
     private bool loaded;
 
+    /// <summary>
+    /// The actual world now, rebuilt only after a change. Replaying the whole log on every read made each Things refresh and
+    /// every bridge pass (one read per monitored subject) cost more as the log grew.
+    /// </summary>
+    private SystemModel? current;
+
     public ModelStore(string databasePath, ModelLibrary? library = null, TimeProvider? timeProvider = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
@@ -74,6 +80,7 @@ public sealed class ModelStore : IAsyncDisposable
             }
 
             log.Clear();
+            current = null;
             await using var read = connection.CreateCommand();
             read.CommandText = "SELECT sequence, change_id, recorded_at, layer_id, origin, payload FROM model_changes ORDER BY sequence;";
             await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -99,6 +106,11 @@ public sealed class ModelStore : IAsyncDisposable
         try
         {
             EnsureLoaded();
+            if (asOf is null && layerId is null)
+            {
+                return current ??= Build(null, null);
+            }
+
             return Build(layerId, asOf);
         }
         finally
@@ -167,6 +179,7 @@ public sealed class ModelStore : IAsyncDisposable
             }
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             log.AddRange(stored);
+            current = null;
             return model;
         }
         finally

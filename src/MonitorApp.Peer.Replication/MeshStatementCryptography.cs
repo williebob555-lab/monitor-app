@@ -9,7 +9,7 @@ using MonitorApp.Peer.Core;
 namespace MonitorApp.Peer.Replication;
 
 /// <summary>
-/// Signs and verifies mesh membership statements (T077) over an explicit, length-prefixed canonical encoding with its
+/// Signs and verifies mesh membership statements (T080) over an explicit, length-prefixed canonical encoding with its
 /// own domain label, so a statement signature can never be confused with an origin record, pairing or session proof.
 /// </summary>
 public static class MeshStatementCryptography

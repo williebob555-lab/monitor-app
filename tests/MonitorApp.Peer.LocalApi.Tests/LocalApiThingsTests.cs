@@ -58,6 +58,45 @@ public sealed class LocalApiThingsTests : IDisposable
         Assert.Contains(list.Kinds, k => k.Id == "device.audio");
     }
 
+    [Fact]
+    public async Task EditingAThingNeedsTheTokenAndPutsItInsideAnother()
+    {
+        Directory.CreateDirectory(directory);
+        await using var model = new ModelStore(Path.Combine(directory, "model.db"));
+        await model.InitializeAsync();
+        var rack = await Things.CaptureAsync(model, "Studio rack");
+        var amp = await Things.CaptureAsync(model, "Focusrite", "device.audio");
+        await using var fixture = await LocalApiHostTests.Fixture.CreateAsync(directory, model: model);
+
+        using var noToken = new HttpRequestMessage(HttpMethod.Post, "api/v1/things/edit") { Content = JsonContent.Create(new { id = amp.Id, name = "Hijacked" }) };
+        using (var rejected = await fixture.Client.SendAsync(noToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/things/edit")
+        {
+            Content = JsonContent.Create(new { id = amp.Id, name = "Focusrite 2i2", insideId = rack.Id }),
+        };
+        request.Headers.Add("X-CSRF-TOKEN", await fixture.GetCsrfTokenAsync());
+        using (var saved = await fixture.Client.SendAsync(request))
+        {
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        }
+
+        using var loop = new HttpRequestMessage(HttpMethod.Post, "api/v1/things/edit") { Content = JsonContent.Create(new { id = rack.Id, insideId = amp.Id }) };
+        loop.Headers.Add("X-CSRF-TOKEN", await fixture.GetCsrfTokenAsync());
+        using (var refused = await fixture.Client.SendAsync(loop))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        }
+
+        var list = await fixture.Client.GetFromJsonAsync<ThingsResponse>("api/v1/things", Json);
+        var edited = list!.Things.Single(t => t.Id == amp.Id);
+        Assert.Equal(("Focusrite 2i2", rack.Id), (edited.Name, edited.InsideId));
+        Assert.Null(list.Things.Single(t => t.Id == rack.Id).InsideId);
+    }
+
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();

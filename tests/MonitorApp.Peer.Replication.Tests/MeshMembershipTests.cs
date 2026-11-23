@@ -10,7 +10,7 @@ using Xunit;
 namespace MonitorApp.Peer.Replication.Tests;
 
 /// <summary>
-/// Mesh membership (T077): trust spreads through signed admit statements, removals spread and win, and nothing an
+/// Mesh membership (T080): trust spreads through signed admit statements, removals spread and win, and nothing an
 /// untrusted, removed or forging device says changes trust.
 /// </summary>
 public sealed class MeshMembershipTests : IAsyncDisposable

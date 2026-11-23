@@ -65,7 +65,7 @@ public sealed class LocalPresenceService
     public const string UpdateApproveAction = "update.approve";
     public const string NetworkReachAction = "network.reach";
 
-    /// <summary>Revoking a device removes it from the whole mesh (T077), so it is high risk.</summary>
+    /// <summary>Revoking a device removes it from the whole mesh (T080), so it is high risk.</summary>
     public const string PeerRevokeAction = "peer.revoke";
 
     private const int MaxPendingChallenges = 64;

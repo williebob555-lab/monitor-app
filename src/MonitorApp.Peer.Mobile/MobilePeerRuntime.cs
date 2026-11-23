@@ -118,7 +118,7 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
         });
     }
 
-    /// <summary>Mesh membership (T077): devices any member admitted are trusted here too; removals spread.</summary>
+    /// <summary>Mesh membership (T080): devices any member admitted are trusted here too; removals spread.</summary>
     public MeshMembership Mesh { get; }
 
     /// <summary>The phone's own record of when each paired desktop became reachable or unreachable.</summary>

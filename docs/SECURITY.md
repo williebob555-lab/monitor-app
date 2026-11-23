@@ -6,7 +6,7 @@ Monitor App is a decentralized personal monitoring mesh. There is no trusted Mon
 
 Tailscale provides private reachability only. A Tailscale address, tailnet membership, LAN presence, hostname, or claimed device id never authenticates or authorizes a Monitor App peer. Pairing must be bilateral, prove possession of application keys, show the user the identity being trusted, and persist explicit pairwise trust. Reconnection uses that application identity with fresh replay-resistant authentication.
 
-The mesh is for one owner's devices. Since T077 (owner decision 2026-11-23, "add once, trusted everywhere") trust spreads: a device any member paired is trusted by every member, through issuer-signed admit statements that each peer verifies and accepts only from issuers it already trusts. A removal on any device removes the device everywhere, is final for that key, and wins over any admission; a removed device's admissions stop counting. Mesh trust never grants control: control grants stay per device and deny by default. There is still no global membership authority. Key rotation must be explicit.
+The mesh is for one owner's devices. Since T080 (owner decision 2026-11-23, "add once, trusted everywhere") trust spreads: a device any member paired is trusted by every member, through issuer-signed admit statements that each peer verifies and accepts only from issuers it already trusts. A removal on any device removes the device everywhere, is final for that key, and wins over any admission; a removed device's admissions stop counting. Mesh trust never grants control: control grants stay per device and deny by default. There is still no global membership authority. Key rotation must be explicit.
 
 ## Peer transport and local storage
 

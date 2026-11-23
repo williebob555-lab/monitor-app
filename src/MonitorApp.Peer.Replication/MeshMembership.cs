@@ -13,7 +13,7 @@ public sealed record MeshTrustChange(string PeerId, string? DisplayName, bool Ad
 public sealed record MeshApplyResult(int Stored, int Ignored, IReadOnlyList<MeshTrustChange> Changes);
 
 /// <summary>
-/// Mesh membership (T077, owner decision 2026-11-23 "add once, trusted everywhere").
+/// Mesh membership (T080, owner decision 2026-11-23 "add once, trusted everywhere").
 ///
 /// Every peer keeps a set of signed statements: "I trust device X with key K" (admit) and "I removed device X with key K"
 /// (remove). This peer issues statements from its own trust table (direct pairings and local revocations), stores

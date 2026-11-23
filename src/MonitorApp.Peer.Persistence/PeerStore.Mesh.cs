@@ -10,7 +10,7 @@ public enum StoredMeshStatementKind
 }
 
 /// <summary>
-/// One stored mesh membership statement (T077). <see cref="StatementBytes"/> is the issuer-signed wire message; the
+/// One stored mesh membership statement (T080). <see cref="StatementBytes"/> is the issuer-signed wire message; the
 /// other columns are copies used for lookups. The store does not verify signatures: <c>MeshMembership</c> does that
 /// before it writes and again whenever it derives trust.
 /// </summary>

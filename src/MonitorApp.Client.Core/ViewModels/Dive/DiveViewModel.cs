@@ -184,6 +184,21 @@ public sealed partial class DiveViewModel : ObservableObject
     [RelayCommand]
     public void Back() => Up();
 
+    /// <summary>True when the shell has a Things lens to open devices in.</summary>
+    public bool CanOpenInThings { get; set; }
+
+    /// <summary>Asks the shell to show this device in Things, pulled apart into its parts (same object, another lens).</summary>
+    public event EventHandler<string>? ThingRequested;
+
+    [RelayCommand]
+    public void OpenInThings(DiveDevicePage? page)
+    {
+        if (page is not null && CanOpenInThings)
+        {
+            ThingRequested?.Invoke(this, page.NodeId);
+        }
+    }
+
     [RelayCommand]
     public void GoHome() => GoTo(null);
 

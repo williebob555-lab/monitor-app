@@ -204,7 +204,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await capabilityRegistry.RegisterAsync(
             SystemCapabilityDeclaration.Create(),
             cancellationToken).ConfigureAwait(false);
-        // Mesh membership (T077): devices any member admits are trusted here too, and removals spread.
+        // Mesh membership (T080): devices any member admits are trusted here too, and removals spread.
         var mesh = live?.Mesh == false ? null : new MeshMembership(peerStore, identity.PublicIdentity, identity.IdentityKey)
         {
             SelfLocators = MeshSelfLocators(options),
