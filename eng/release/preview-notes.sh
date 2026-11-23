@@ -9,7 +9,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 echo "## Monitor App preview $version"
 echo
-echo "Test build for Windows, Fedora, Ubuntu and Android. Not a stable release; expect gaps. See the install notes at the end."
+echo "Test build for Windows, Fedora, Ubuntu and Android. Not a stable release; expect gaps."
+echo
+echo "### Which file do I need?"
+echo
+echo "| Device | Download | How |"
+echo "| --- | --- | --- |"
+echo "| Android phone or tablet | \`monitorapp-mobile-android-universal-$version.apk\` | Open it on the device and allow the install. |"
+echo "| Windows PC | \`monitorapp-windows-x64-$version-setup.msi\` | Double-click it. |"
+echo "| Fedora | \`monitorapp-node-fedora-x64-$version.rpm\` (+ \`monitorapp-desktop-fedora-x64-$version.tar.gz\` for the desktop app) | \`sudo dnf install ./<file>.rpm\` |"
+echo "| Ubuntu | \`monitorapp-node-ubuntu-x64-$version.deb\` (+ \`monitorapp-desktop-ubuntu-x64-$version.tar.gz\` for the desktop app) | \`sudo apt install ./<file>.deb\` |"
+echo
+echo "Everything else is used by the apps themselves, so you don't need to download it: \`update-manifest.json\` and \`SHA256SUMS\` (the signed update list and checksums) and \`monitorapp-node-windows-x64-$version.zip\` (what installed Windows PCs download when they update). Devices that already have Monitor App offer this version as an update and install it only after you approve it."
 echo
 echo "### Changes since the previous preview"
 echo
@@ -38,10 +49,10 @@ while IFS= read -r line; do
 done < <(grep -E '^- \[ \] ' "$root/TODO.md" || true)
 [ "$count" -gt 0 ] || echo "- (none listed)"
 echo
-echo "### Install"
+echo "### Install details"
 echo
 echo "- Ubuntu: \`sudo dpkg -i monitorapp-node-ubuntu-x64-$version.deb\`; Fedora: \`sudo rpm -U monitorapp-node-fedora-x64-$version.rpm\`; then review \`/etc/monitor-app/node.conf\` and \`sudo systemctl enable --now monitor-app\`."
 echo "- Desktop app on Linux: extract \`monitorapp-desktop-<ubuntu|fedora>-x64-$version.tar.gz\` and run \`MonitorApp.Client.Desktop\`."
-echo "- Windows: extract \`monitorapp-node-windows-x64-$version.zip\`, then in an elevated PowerShell 7 run \`.\\Install-MonitorApp.ps1\` (node service and desktop app)."
+echo "- Windows: double-click \`monitorapp-windows-x64-$version-setup.msi\`. It installs the node service and desktop app; uninstalling keeps your data. (The zip with \`Install-MonitorApp.ps1\` still works from Windows PowerShell for manual installs.)"
 echo "- Android: sideload \`monitorapp-mobile-android-universal-$version.apk\`."
 echo "- Updates: installed nodes download and verify new previews automatically and wait for your approval (\`/api/v1/update\`). \`update-manifest.json\` is the signed manifest; \`SHA256SUMS\` lists every file."

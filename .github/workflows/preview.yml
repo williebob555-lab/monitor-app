@@ -9,13 +9,10 @@ name: Preview build
 # Artifacts move between jobs as assets of a DRAFT release (no third-party actions); the draft is published only
 # after the manifest is signed, and deleted if anything fails.
 
+# Releases are cut deliberately (Actions > Preview build > Run workflow, or `gh workflow run preview.yml`),
+# not on every push to main, so the releases list only holds builds someone chose to publish.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
 
 permissions:
   contents: write
@@ -205,6 +202,8 @@ jobs:
           Set-Content -LiteralPath (Join-Path $stage 'node/update-key.json') -Value $key -Encoding utf8NoBOM
           Copy-Item eng/packaging/windows/*.ps1 $stage
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "out/monitorapp-node-windows-x64-$($env:VERSION).zip"
+          # The installer for people: the same files, installed by double-clicking (no PowerShell 7 needed).
+          ./eng/packaging/windows/build-msi.ps1 -StageDirectory $stage -Version $env:VERSION -OutputPath "out/monitorapp-windows-x64-$($env:VERSION)-setup.msi"
 
       - name: Upload to the draft pre-release
         shell: pwsh

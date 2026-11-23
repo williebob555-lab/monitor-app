@@ -15,7 +15,8 @@ namespace MonitorApp.Android;
     MainLauncher = true,
     Exported = true,
     LaunchMode = LaunchMode.SingleTop,
-    Theme = "@android:style/Theme.DeviceDefault.NoActionBar",
+    // AvaloniaMainActivity uses AndroidX AppCompatActivity, which requires an AppCompat theme.
+    Theme = "@style/Theme.AppCompat.NoActionBar",
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.ScreenLayout |
         ConfigChanges.SmallestScreenSize | ConfigChanges.UiMode | ConfigChanges.Density | ConfigChanges.KeyboardHidden)]
 public sealed class MainActivity : AvaloniaMainActivity<AndroidApp>

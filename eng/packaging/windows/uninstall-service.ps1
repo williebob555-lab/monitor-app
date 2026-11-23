@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 #Requires -RunAsAdministrator
 <#
 Removes the Monitor App Windows service. UNTESTED on Windows. By default the node identity and data

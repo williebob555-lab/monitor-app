@@ -13,7 +13,11 @@
         </StackPanel>
         <StackPanel Classes="field">
           <TextBlock Name="SignalLabel" Text="Signal" Classes="label" />
-          <ComboBox ItemsSource="{Binding Picker.Signals}" SelectedItem="{Binding Picker.SelectedSignal}" AutomationProperties.LabeledBy="{Binding #SignalLabel}" />
+          <ComboBox ItemsSource="{Binding Picker.Signals}" SelectedItem="{Binding Picker.SelectedSignal}" AutomationProperties.LabeledBy="{Binding #SignalLabel}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="x:String"><TextBlock Text="{Binding Converter={x:Static ctl:DiveConverters.SignalLabel}}" /></DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
         </StackPanel>
         <StackPanel Classes="field">
           <TextBlock Name="RangeLabel" Text="Range" Classes="label" />

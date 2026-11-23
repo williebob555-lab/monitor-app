@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using MonitorApp.Client.Core.ViewModels;
 
 namespace MonitorApp.Client.Core.Scene;
@@ -20,35 +21,178 @@ public static class SignalIds
 }
 
 /// <summary>What the catalog knows about one signal id.</summary>
-/// <param name="IsKnown">False for ids the catalog has no entry for; they are shown under <see cref="SceneLayerKind.Other"/>.</param>
-public sealed record SignalDescriptor(string SignalId, SceneLayerKind Kind, string Label, bool IsKnown);
+/// <param name="IsKnown">False for ids no definition matches; they are shown under <see cref="SceneLayerKind.Other"/> with a readable label made from the id.</param>
+public sealed record SignalDescriptor(string SignalId, SceneLayerKind Kind, string Label, bool IsKnown)
+{
+    /// <summary>Words for a true/false value ("Charging" / "On battery"); null uses "Yes" / "No".</summary>
+    public (string True, string False)? Flag { get; init; }
+
+    /// <summary>Words for text values the collector sends as codes ("Available" becomes "Working").</summary>
+    public IReadOnlyDictionary<string, string>? Words { get; init; }
+
+    /// <summary>When set, numbers are shown exactly with this word ("1500 bytes") instead of the unit's usual scaling.</summary>
+    public string? Suffix { get; init; }
+}
 
 /// <summary>
-/// Maps signal ids to the layer they belong to, a human label, and exact value formatting. The catalog only
-/// describes how to show what a peer reported; it never supplies a value. Unknown signals keep their raw id as
-/// the label and are formatted generically from the unit the peer sent.
+/// One catalog entry. <see cref="Pattern"/> is a signal id where <c>{name}</c> stands for any part of the id (it may contain dots,
+/// so a VLAN interface "eth0.10" still matches). <see cref="Label"/> may use the same placeholders; their values are shown through
+/// <see cref="SignalCatalog.Names"/> ("wifi" becomes "Wi-Fi"). New collectors add entries with <see cref="SignalCatalog.Register"/>
+/// instead of editing code that formats values.
+/// </summary>
+public sealed record SignalDefinition(string Pattern, SceneLayerKind Kind, string Label)
+{
+    public (string True, string False)? Flag { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Words { get; init; }
+
+    public string? Suffix { get; init; }
+}
+
+/// <summary>
+/// Maps signal ids to the layer they belong to, a plain-English label, and exact value formatting. The catalog only describes how to
+/// show what a peer reported; it never supplies a value. It is data, not a switch: exact ids and patterns are looked up in the order
+/// registered, later registrations win, and ids nothing matches get a readable label made from the id itself.
 /// </summary>
 public static class SignalCatalog
 {
-    private static readonly Dictionary<string, SignalDescriptor> Known = new(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<string, string> CollectorWords = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        [SignalIds.CpuUtilization] = new(SignalIds.CpuUtilization, SceneLayerKind.Compute, "CPU utilization", true),
-        [SignalIds.MemoryUsed] = new(SignalIds.MemoryUsed, SceneLayerKind.Memory, "Memory used", true),
-        [SignalIds.MemoryTotal] = new(SignalIds.MemoryTotal, SceneLayerKind.Memory, "Memory total", true),
-        [SignalIds.StorageFree] = new(SignalIds.StorageFree, SceneLayerKind.Storage, "Storage free", true),
-        [SignalIds.StorageTotal] = new(SignalIds.StorageTotal, SceneLayerKind.Storage, "Storage total", true),
-        [SignalIds.NetworkBytesSent] = new(SignalIds.NetworkBytesSent, SceneLayerKind.Network, "Network sent (counter)", true),
-        [SignalIds.NetworkBytesReceived] = new(SignalIds.NetworkBytesReceived, SceneLayerKind.Network, "Network received (counter)", true),
-        [SignalIds.BatteryLevel] = new(SignalIds.BatteryLevel, SceneLayerKind.Power, "Battery level", true),
-        [SignalIds.BatteryCharging] = new(SignalIds.BatteryCharging, SceneLayerKind.Power, "Battery charging", true),
-        [SignalIds.NetworkConnected] = new(SignalIds.NetworkConnected, SceneLayerKind.Connectivity, "Network connection", true),
-        [SignalIds.NetworkVpn] = new(SignalIds.NetworkVpn, SceneLayerKind.Connectivity, "VPN", true),
+        ["Available"] = "Working",
+        ["Degraded"] = "Partly working",
+        ["Unsupported"] = "Not supported on this device",
+        ["PermissionDenied"] = "No permission",
+        ["Error"] = "Not working",
     };
 
-    public static SignalDescriptor Describe(string signalId) =>
-        Known.TryGetValue(signalId, out var descriptor)
-            ? descriptor
-            : new SignalDescriptor(signalId, SceneLayerKind.Other, signalId, false);
+    private static readonly object Gate = new();
+    private static readonly Dictionary<string, SignalDescriptor> Cache = new(StringComparer.Ordinal);
+    private static readonly List<(SignalDefinition Definition, Regex Matcher, string[] Slots)> Definitions = [];
+
+    /// <summary>
+    /// Plain names for the parts of ids that placeholders capture (interface and collector names). Unlisted parts are shown as
+    /// sent, except that underscores become spaces.
+    /// </summary>
+    public static IDictionary<string, string> Names { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["wifi"] = "Wi-Fi",
+        ["cellular"] = "Mobile data",
+        ["vpn"] = "VPN",
+        ["ethernet"] = "Ethernet",
+        ["bluetooth"] = "Bluetooth",
+        ["battery"] = "Battery",
+        ["network"] = "Network",
+        ["lan"] = "Network link",
+        ["cpu"] = "Processor",
+        ["memory"] = "Memory",
+        ["storage"] = "Storage",
+        ["system"] = "System",
+    };
+
+    static SignalCatalog()
+    {
+        Register(new(SignalIds.CpuUtilization, SceneLayerKind.Compute, "CPU utilization"));
+        Register(new(SignalIds.MemoryUsed, SceneLayerKind.Memory, "Memory used"));
+        Register(new(SignalIds.MemoryTotal, SceneLayerKind.Memory, "Memory total"));
+        Register(new(SignalIds.StorageFree, SceneLayerKind.Storage, "Storage free"));
+        Register(new(SignalIds.StorageTotal, SceneLayerKind.Storage, "Storage total"));
+        Register(new(SignalIds.NetworkBytesSent, SceneLayerKind.Network, "Data sent (total)"));
+        Register(new(SignalIds.NetworkBytesReceived, SceneLayerKind.Network, "Data received (total)"));
+        Register(new(SignalIds.BatteryLevel, SceneLayerKind.Power, "Battery level"));
+        Register(new(SignalIds.BatteryCharging, SceneLayerKind.Power, "Charging") { Flag = ("Charging", "On battery") });
+        Register(new(SignalIds.NetworkConnected, SceneLayerKind.Connectivity, "Internet") { Flag = ("Connected", "Not connected") });
+        Register(new(SignalIds.NetworkVpn, SceneLayerKind.Connectivity, "VPN") { Flag = ("VPN on", "VPN off") });
+
+        // The device's own network links (Peer.Collection LanLinkObservations, phone extras in Peer.Mobile).
+        Register(new("lan.link.{interface}.up", SceneLayerKind.Connectivity, "{interface} link") { Flag = ("Up", "Down") });
+        Register(new("lan.link.{interface}.speed_mbps", SceneLayerKind.Connectivity, "{interface} link speed"));
+        Register(new("lan.link.{interface}.full_duplex", SceneLayerKind.Connectivity, "{interface} duplex") { Flag = ("Full", "Half") });
+        Register(new("lan.link.{interface}.mtu", SceneLayerKind.Connectivity, "{interface} max packet size") { Suffix = "bytes" });
+        Register(new("lan.link.{interface}.metered", SceneLayerKind.Connectivity, "{interface} data plan") { Flag = ("Metered", "Unmetered") });
+        Register(new("lan.link.{interface}.bandwidth_down_mbps", SceneLayerKind.Connectivity, "{interface} download estimate"));
+        Register(new("lan.link.{interface}.bandwidth_up_mbps", SceneLayerKind.Connectivity, "{interface} upload estimate"));
+
+        // Whether each collector is working (PeerSystemMetricsIngestionBridge records collector status as collector.health.{capability}).
+        Register(new("collector.health.{collector}", SceneLayerKind.Collection, "{collector} readings") { Words = CollectorWords });
+    }
+
+    /// <summary>Adds or replaces a definition. Later registrations take precedence over earlier ones for the ids they match.</summary>
+    public static void Register(SignalDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var slots = new List<string>();
+        var regex = "^" + Regex.Replace(
+            Regex.Escape(definition.Pattern).Replace(@"\{", "{", StringComparison.Ordinal),
+            @"\{([a-z_]+)}",
+            m =>
+            {
+                slots.Add(m.Groups[1].Value);
+                return "(.+)";
+            }) + "$";
+        lock (Gate)
+        {
+            Definitions.Insert(0, (definition, new Regex(regex, RegexOptions.CultureInvariant), slots.ToArray()));
+            Cache.Clear();
+        }
+    }
+
+    public static SignalDescriptor Describe(string signalId)
+    {
+        ArgumentNullException.ThrowIfNull(signalId);
+        lock (Gate)
+        {
+            if (Cache.TryGetValue(signalId, out var cached))
+            {
+                return cached;
+            }
+
+            var descriptor = Resolve(signalId);
+            Cache[signalId] = descriptor;
+            return descriptor;
+        }
+    }
+
+    /// <summary>A readable name for an id part: <see cref="Names"/> first, else the part with underscores as spaces.</summary>
+    public static string Name(string part) =>
+        Names.TryGetValue(part, out var name) ? name : part.Replace('_', ' ');
+
+    private static SignalDescriptor Resolve(string signalId)
+    {
+        foreach (var (definition, matcher, slots) in Definitions)
+        {
+            var match = matcher.Match(signalId);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            var label = definition.Label;
+            for (var i = 0; i < slots.Length; i++)
+            {
+                label = label.Replace("{" + slots[i] + "}", Name(match.Groups[i + 1].Value), StringComparison.Ordinal);
+            }
+
+            return new SignalDescriptor(signalId, definition.Kind, Capitalize(label), true) { Flag = definition.Flag, Words = definition.Words, Suffix = definition.Suffix };
+        }
+
+        return new SignalDescriptor(signalId, SceneLayerKind.Other, Humanize(signalId), false);
+    }
+
+    /// <summary>"vendor.fan.speed_rpm" becomes "Fan speed rpm": the vendor/area prefix is dropped and the rest read as words.</summary>
+    private static string Humanize(string signalId)
+    {
+        var parts = signalId.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return signalId;
+        }
+
+        var words = (parts.Length > 1 ? parts.Skip(1) : parts).Select(Name);
+        return Capitalize(string.Join(' ', words));
+    }
+
+    private static string Capitalize(string text) =>
+        text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     /// <summary>Title shown for a layer of this kind.</summary>
     public static string LayerTitle(SceneLayerKind kind) => kind switch
@@ -59,8 +203,16 @@ public static class SignalCatalog
         SceneLayerKind.Network => "Network traffic",
         SceneLayerKind.Power => "Battery and power",
         SceneLayerKind.Connectivity => "Connectivity",
-        _ => "Other signals",
+        SceneLayerKind.Collection => "Monitoring status",
+        _ => "Other readings",
     };
+
+    /// <summary>True when the reading carries a value (it is not "Unavailable").</summary>
+    public static bool IsAvailable(SceneReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        return !reading.DisplayValue.StartsWith(ValueFormatter.Unavailable, StringComparison.Ordinal);
+    }
 
     /// <summary>Builds the scene reading for a point. Unavailable points never carry a number.</summary>
     public static SceneReading ToReading(HistoryPointDto point)
@@ -96,19 +248,15 @@ public static class SignalCatalog
 
     public static string FormatValue(string signalId, string? unit, double? number, bool? boolean, string? text)
     {
-        switch (signalId)
-        {
-            case SignalIds.BatteryCharging when boolean is { } charging:
-                return charging ? "Charging" : "On battery";
-            case SignalIds.NetworkConnected when boolean is { } connected:
-                return connected ? "Connected" : "Not connected";
-            case SignalIds.NetworkVpn when boolean is { } vpn:
-                return vpn ? "VPN on" : "VPN off";
-        }
-
+        var descriptor = Describe(signalId);
         if (boolean is { } flag)
         {
-            return flag ? "Yes" : "No";
+            return descriptor.Flag is { } words ? (flag ? words.True : words.False) : (flag ? "Yes" : "No");
+        }
+
+        if (text is not null && descriptor.Words is { } map && map.TryGetValue(text, out var word))
+        {
+            return word;
         }
 
         if (text is not null)
@@ -121,6 +269,11 @@ public static class SignalCatalog
             return ValueFormatter.Unavailable;
         }
 
+        if (descriptor.Suffix is { } suffix)
+        {
+            return Plain(n) + " " + suffix;
+        }
+
         return unit switch
         {
             "Ratio" => Percent(n),
@@ -128,6 +281,7 @@ public static class SignalCatalog
             "BytesPerSecond" => Bytes(n) + "/s",
             "Seconds" => Duration(n),
             "Celsius" => Plain(n) + " °C",
+            "MegabitsPerSecond" => Mbps(n),
             "Count" => Plain(n),
             null or "" => Plain(n),
             _ => Plain(n) + " " + unit,
@@ -158,6 +312,14 @@ public static class SignalCatalog
         < 3600 => (seconds / 60).ToString("0.#", CultureInfo.InvariantCulture) + " min",
         < 86400 => (seconds / 3600).ToString("0.#", CultureInfo.InvariantCulture) + " h",
         _ => (seconds / 86400).ToString("0.#", CultureInfo.InvariantCulture) + " d",
+    };
+
+    /// <summary>Link speeds: "1 Gbit/s" from 1000 upward, else "54 Mbit/s" (one decimal below 100).</summary>
+    public static string Mbps(double mbps) => Math.Abs(mbps) switch
+    {
+        >= 1000 => (mbps / 1000).ToString("0.#", CultureInfo.InvariantCulture) + " Gbit/s",
+        < 100 => mbps.ToString("0.#", CultureInfo.InvariantCulture) + " Mbit/s",
+        _ => mbps.ToString("0", CultureInfo.InvariantCulture) + " Mbit/s",
     };
 
     private static string Plain(double n) => n.ToString("G10", CultureInfo.InvariantCulture);

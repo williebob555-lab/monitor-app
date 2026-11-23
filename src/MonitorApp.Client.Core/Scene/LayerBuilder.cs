@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace MonitorApp.Client.Core.Scene;
 
 /// <summary>
@@ -10,7 +12,7 @@ public static class LayerBuilder
     private static readonly SceneLayerKind[] Order =
     [
         SceneLayerKind.Compute, SceneLayerKind.Memory, SceneLayerKind.Storage,
-        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Other,
+        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Other, SceneLayerKind.Collection,
     ];
 
     public static IReadOnlyList<SceneLayer> Build(IEnumerable<SceneReading> readings, HealthClassifier classifier)
@@ -99,24 +101,60 @@ public static class LayerBuilder
                 }
         }
 
-        return string.Join(" · ", readings.Select(Describe).Take(3))
-            + (readings.Count > 3 ? $" · {readings.Count - 3} more" : string.Empty);
-    }
-
-    private static string Describe(SceneReading reading)
-    {
-        var descriptor = SignalCatalog.Describe(reading.SignalId);
-        var unavailable = reading.DisplayValue.StartsWith("Unavailable", StringComparison.Ordinal);
-        if (unavailable)
+        var available = readings.Where(SignalCatalog.IsAvailable).ToList();
+        if (available.Count == 0)
         {
-            return $"{reading.Label} reading unavailable";
+            return "Nothing reported";
         }
 
-        // Counters and generic signals need their label to be meaningful; self-describing words stand alone.
-        return reading.SignalId is SignalIds.BatteryCharging or SignalIds.NetworkConnected or SignalIds.NetworkVpn
-            ? reading.DisplayValue
-            : $"{(descriptor.IsKnown ? reading.Label : reading.SignalId)} {reading.DisplayValue}";
+        switch (kind)
+        {
+            case SceneLayerKind.Connectivity:
+                return ConnectivitySummary(available);
+            case SceneLayerKind.Collection:
+                {
+                    var failing = available.Where(r => r.DisplayValue != "Working").ToList();
+                    return failing.Count == 0
+                        ? (available.Count == 1 ? "Collector working" : $"All {available.Count.ToString(CultureInfo.InvariantCulture)} collectors working")
+                        : string.Join(" · ", failing.Select(r => $"{r.Label}: {r.DisplayValue}"));
+                }
+        }
+
+        return string.Join(" · ", available.Select(Describe).Take(3))
+            + (available.Count > 3 ? $" · {(available.Count - 3).ToString(CultureInfo.InvariantCulture)} more" : string.Empty);
     }
+
+    /// <summary>"Connected · VPN on · Links up: Mobile data, VPN": the state words first, then which links are up.</summary>
+    private static string ConnectivitySummary(List<SceneReading> available)
+    {
+        var parts = new List<string>();
+        if (Find(available, SignalIds.NetworkConnected) is { } connected)
+        {
+            parts.Add(connected.DisplayValue);
+        }
+
+        if (Find(available, SignalIds.NetworkVpn) is { } vpn)
+        {
+            parts.Add(vpn.DisplayValue);
+        }
+
+        var links = available.Where(r => r.SignalId.StartsWith("lan.link.", StringComparison.Ordinal) && r.SignalId.EndsWith(".up", StringComparison.Ordinal)).ToList();
+        var up = links.Where(r => r.DisplayValue == "Up").Select(r => SignalCatalog.Name(r.SignalId["lan.link.".Length..^".up".Length])).ToList();
+        if (links.Count > 0)
+        {
+            parts.Add(up.Count == 0 ? "No links up" : (up.Count == 1 ? "Link up: " : "Links up: ") + string.Join(", ", up));
+        }
+
+        return parts.Count > 0
+            ? string.Join(" · ", parts)
+            : string.Join(" · ", available.Take(3).Select(Describe));
+    }
+
+    private static string Describe(SceneReading reading) =>
+        // Self-describing words ("Charging", "VPN on") stand alone; everything else needs its label.
+        reading.SignalId is SignalIds.BatteryCharging or SignalIds.NetworkConnected or SignalIds.NetworkVpn
+            ? reading.DisplayValue
+            : $"{reading.Label} {reading.DisplayValue}";
 
     private static SceneReading? Find(IReadOnlyList<SceneReading> readings, string signalId) =>
         readings.FirstOrDefault(r => r.SignalId == signalId);

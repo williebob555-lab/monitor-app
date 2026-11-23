@@ -18,6 +18,11 @@ internal static class SceneTestData
         new(origin, "stream-" + origin, 1, subject, signal, Now.AddSeconds(-ageSeconds), Now, "adapter", "LocalOrigin",
             "Valid", "Fresh", ageSeconds, new ObservationValueDto("boolean", null, null, value), "Boolean", null);
 
+    /// <summary>A collector status, which the node returns as text.</summary>
+    public static HistoryPointDto Text(string origin, string subject, string signal, string value, double ageSeconds = 5) =>
+        new(origin, "stream-" + origin, 1, subject, signal, Now.AddSeconds(-ageSeconds), Now, "adapter", "LocalOrigin",
+            "Valid", "Fresh", ageSeconds, new ObservationValueDto("text", null, value, null), null, null);
+
     /// <summary>The node withholds the value of unavailable readings.</summary>
     public static HistoryPointDto Unavailable(
         string origin, string subject, string signal, string unit, string quality = "Unavailable", double ageSeconds = 5) =>

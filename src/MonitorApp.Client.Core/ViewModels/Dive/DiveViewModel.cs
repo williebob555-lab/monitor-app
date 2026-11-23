@@ -24,6 +24,12 @@ public sealed partial class DiveViewModel : ObservableObject
     /// <summary>From this fill a gauge is drawn as high.</summary>
     public const double HighThreshold = 0.8;
 
+    /// <summary>A battery at or below this charge is drawn critical. For a battery a high fill is good, so the scale is reversed.</summary>
+    public const double BatteryCriticalThreshold = 0.1;
+
+    /// <summary>A battery at or below this charge is drawn low.</summary>
+    public const double BatteryLowThreshold = 0.2;
+
     /// <summary>The text that says why actions are off while viewing a recorded moment.</summary>
     public const string RecordedNotice = "Recorded view: actions are off. Return to live to act.";
 
@@ -458,7 +464,7 @@ public sealed partial class DiveViewModel : ObservableObject
             : new[] { trends.Cpu(node), trends.Network(node) }.OfType<DiveTrend>().ToList();
         var lines = untrusted
             ? []
-            : node.Layers.Where(l => l.Fill is null && l.Kind != SceneLayerKind.Other).Take(2).Select(l => $"{l.Title}: {l.Summary}").ToList();
+            : node.Layers.Where(l => l.Fill is null && l.Kind is not (SceneLayerKind.Other or SceneLayerKind.Collection)).Take(2).Select(l => $"{l.Title}: {l.Summary}").ToList();
         string? headline = node.Health switch
         {
             SceneHealth.Offline => "--",
@@ -538,7 +544,7 @@ public sealed partial class DiveViewModel : ObservableObject
             };
         if (layer.Fill is { } fill)
         {
-            var level = fill >= FullThreshold ? DiveLevel.Critical : fill >= HighThreshold ? DiveLevel.High : DiveLevel.Normal;
+            var level = Level(layer.Kind, fill);
             return new DiveGauge(node.Id, layer.Id, DiveText.ShortLabel(layer), DiveText.Percent(fill), "%", fill, level, layer.Summary, trend);
         }
 
@@ -546,6 +552,15 @@ public sealed partial class DiveViewModel : ObservableObject
         return new DiveGauge(
             node.Id, layer.Id, DiveText.ShortLabel(layer), first?.DisplayValue ?? "--", string.Empty, null, DiveLevel.None, layer.Summary, trend);
     }
+
+    /// <summary>How alarming a fill is. Usage (CPU, memory, storage) is bad when high; battery charge is bad when low.</summary>
+    public static DiveLevel Level(SceneLayerKind kind, double fill) => kind == SceneLayerKind.Power
+        ? fill <= BatteryCriticalThreshold ? DiveLevel.Critical : fill <= BatteryLowThreshold ? DiveLevel.High : DiveLevel.Normal
+        : fill >= FullThreshold ? DiveLevel.Critical : fill >= HighThreshold ? DiveLevel.High : DiveLevel.Normal;
+
+    /// <summary>"96% charged" for a battery, "94% full" for anything that fills up.</summary>
+    internal static string FillWords(SceneLayer layer, double fill) =>
+        DiveText.Percent(fill) + (layer.Kind == SceneLayerKind.Power ? "% charged" : "% full");
 
     private static bool IsFull(SceneLayer layer) =>
         layer.Kind is SceneLayerKind.Storage or SceneLayerKind.Memory && layer.Fill is >= FullThreshold;
@@ -801,30 +816,41 @@ public sealed partial class DiveViewModel : ObservableObject
         var gauge = Gauge(node, layer, LiveTrends);
         part.Title = layer.Title;
         part.ParentTitle = node.Label;
-        part.Context = $"{layer.Summary}, inside {node.Label}";
+        part.Context = $"Inside {node.Label}";
         part.Gauge = gauge;
         part.Summary = layer.Summary;
         part.IsCritical = gauge.Level == DiveLevel.Critical;
         part.Badge = layer.Fill is { } fill
-            ? new DiveBadge($"{DiveText.Percent(fill)}% full", gauge.Level == DiveLevel.Critical ? SceneHealth.Degraded : layer.Health,
+            ? new DiveBadge(FillWords(layer, fill), gauge.Level == DiveLevel.Critical ? SceneHealth.Degraded : layer.Health,
                 IsFault: gauge.Level == DiveLevel.Critical)
             : new DiveBadge(DiveText.HealthWord(layer.Health), layer.Health);
         part.Statement = layer.Fill is { } f
             ? IsFull(layer)
                 ? $"{layer.Title} on {node.Label} is {DiveText.Percent(f)}% full ({layer.Summary}). Anything on this device that writes here can fail until space is freed."
-                : $"{layer.Title} on {node.Label} is {DiveText.Percent(f)}% full ({layer.Summary})."
-            : $"{layer.Title} on {node.Label}: {layer.Summary}.";
+                : $"{layer.Title} on {node.Label} is {FillWords(layer, f)} ({layer.Summary})."
+            : string.Empty; // the summary is already the heading; repeating it said everything three times
         var related = Problems(scene, node.Id).Where(p => !(p.NodeId == node.Id && p.LayerId == layer.Id)).ToList();
         Sync(part.Related, related);
         part.HasRelated = related.Count > 0;
         part.RelatedHeading = related.Count > 0 ? $"Also reported on {node.Label}" : string.Empty;
-        Sync(part.Readings, layer.Readings.Select(r => new DiveReadingRow(
-            r.Label,
-            r.DisplayValue,
-            $"observed {r.ObservedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)} · {r.Quality} · {r.Freshness} · {r.Source}"))
-            .ToList());
+        Sync(part.Readings, layer.Readings.Where(SignalCatalog.IsAvailable).Select(ReadingRow).ToList());
+        var unavailable = layer.Readings.Where(r => !SignalCatalog.IsAvailable(r)).Select(ReadingRow).ToList();
+        Sync(part.UnavailableReadings, unavailable);
+        part.UnavailableCount = unavailable.Count;
         part.MuteAction = MuteActionFor();
     }
+
+    /// <summary>A reading in plain words: when it was taken, and whether it is out of date. Quality codes and source ids stay out of sight.</summary>
+    private static DiveReadingRow ReadingRow(SceneReading reading)
+    {
+        var time = reading.ObservedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        var meta = !SignalCatalog.IsAvailable(reading) ? $"Checked {time}"
+            : PlainHealth.Reading(reading) == SceneHealth.Stale ? $"Out of date · last updated {time}"
+            : $"Updated {time}";
+        return new DiveReadingRow(reading.Label, reading.DisplayValue, meta);
+    }
+
+    private static readonly HealthClassifier PlainHealth = new();
 
     /// <summary>Updates a bound collection with as few changes as possible, so open pages keep their place while data refreshes.</summary>
     private static void Sync<T>(ObservableCollection<T> target, IReadOnlyList<T> items)
