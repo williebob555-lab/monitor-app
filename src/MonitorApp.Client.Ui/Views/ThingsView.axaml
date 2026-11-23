@@ -135,10 +135,15 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <Button Classes="action" Content="Open it up" HorizontalAlignment="Left" Margin="0,4,0,0"
+                  </StackPanel>
+                  <WrapPanel>
+                    <Button Classes="action" Content="Open it up" Margin="0,4,8,0" IsVisible="{Binding CanOpen}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).OpenCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding OpenLabel}" />
-                  </StackPanel>
+                    <Button Classes="action" Content="See it live" Margin="0,4,0,0" IsVisible="{Binding CanSeeLive}"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
+                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
+                  </WrapPanel>
                 </StackPanel>
               </Border>
             </DataTemplate>
@@ -195,6 +200,9 @@
                   </Grid>
                   <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="No readings for this part yet." Classes="muted" IsVisible="{Binding !HasValues}" />
+                  <Button Classes="flat" Content="See it live" HorizontalAlignment="Left" IsVisible="{Binding CanSeeLive}"
+                          Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
+                          CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
                 </StackPanel>
               </Border>
             </DataTemplate>

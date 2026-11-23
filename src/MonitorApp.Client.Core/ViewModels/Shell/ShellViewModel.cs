@@ -101,6 +101,18 @@ public sealed partial class ShellViewModel : ObservableObject
         };
         Activity.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
 
+        // Things and the Ecosystem are two lenses on the same objects: each can open the other on the thing you picked.
+        if (main.Sections.OfType<ThingsViewModel>().SingleOrDefault() is { } things)
+        {
+            things.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
+            Dive.CanOpenInThings = true;
+            Dive.ThingRequested += (_, nodeId) =>
+            {
+                Mode = ShellMode.Things;
+                _ = things.OpenNodeAsync(nodeId);
+            };
+        }
+
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
         Search.PropertyChanged += (_, args) =>

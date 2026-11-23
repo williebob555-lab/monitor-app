@@ -60,7 +60,6 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 | T067 | 2 | Connection chain evaluation over the model: walk port to cable to adapter to port, evaluate each layer, report where a chain fails | Scenario 8 examples pass as tests (USB-C alt mode, 1/4-inch level mismatch, DC polarity) | T064, T066 | either | | |
 | T068 | 2 | Local web API for the model: read objects, ports, connections, relationships, history as-of; write changes with validation | API tests over a real `model.db` | T061 | ChatGPT | | `GET/POST /api/v1/things` exists (LocalApiThings.cs); extend it rather than adding a second API. Follow `docs/SECURITY.md` loopback and antiforgery rules |
 | T069 | 2 | "What's missing" derivation: unconnected required inputs, missing cables (with connector ends and length estimate), power shortfalls, as requirement objects | Tests on rack and pedalboard fixtures | T067 | either | | |
-| T070 | 2 | Lens shell: one selection shared by every view; switching view keeps the object | Selecting a device and switching between system, physical and inventory keeps it selected | T061 | Claude | | UI; coordinate with any open UI task |
 
 Add new tasks at the end of the right phase with the next free ID (check the queue, `TODO.md` and `docs/DECISIONS.md`). If two PRs add the same ID, the one merged second renumbers.
 
@@ -123,6 +122,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T070 lens shell, first cut: Things and the live view open each other on the same device (physical and inventory lenses join when they exist) | Claude | #23 | 2026-11-23 |
 | T075 open the machine: parts proved by readings, exploded view | Claude | #22 | 2026-11-23 |
 | T065 model in the running node, T073 Things screen, T074 add a thing, T076 Things on the phone | Claude | #21 | 2026-11-23 |
 | T072 phone pairing inside the desktop app | Claude | #20 | 2026-11-23 |

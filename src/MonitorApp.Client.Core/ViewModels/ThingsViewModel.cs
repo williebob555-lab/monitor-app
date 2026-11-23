@@ -33,9 +33,15 @@ public sealed record ThingValueRow(string Label, string Value, string Evidence, 
 
 /// <summary>A part shown inside its card ("Memory", "Network adapter wlan0") with its own live readings and values.</summary>
 /// <param name="Detail">A one-line summary for the card: its first readings, or an identifying value such as the MAC address.</param>
-public sealed record ThingPartRow(string Id, string Name, string KindLabel, string KindId, string? Detail, IReadOnlyList<ThingValueRow> Values)
+/// <param name="LiveNodeId">The device in the Ecosystem this part's readings come from, when it has any.</param>
+/// <param name="LiveLayerId">The Ecosystem layer that holds those readings ("memory", "connectivity").</param>
+public sealed record ThingPartRow(
+    string Id, string Name, string KindLabel, string KindId, string? Detail, IReadOnlyList<ThingValueRow> Values,
+    string? LiveNodeId = null, string? LiveLayerId = null)
 {
     public bool HasValues => Values.Count > 0;
+
+    public bool CanSeeLive => LiveNodeId is not null;
 
     /// <summary>The kind under the name, left out when it only repeats the name ("Memory", "Memory").</summary>
     public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
@@ -51,8 +57,12 @@ public sealed record ThingCard(
     string? InsideName,
     IReadOnlyList<ThingValueRow> Values,
     IReadOnlyList<ThingPartRow> Parts,
-    string KindId = "thing")
+    string KindId = "thing",
+    string? LiveNodeId = null)
 {
+    /// <summary>Monitored things can be seen live in the Ecosystem.</summary>
+    public bool CanSeeLive => LiveNodeId is not null;
+
     public bool HasValues => Values.Count > 0;
 
     public bool HasParts => Parts.Count > 0;
@@ -186,6 +196,37 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [RelayCommand]
     private void Close() => OpenCard = null;
 
+    /// <summary>Asks the shell to show a thing (or one of its parts) live in the Ecosystem: the same object, another lens.</summary>
+    public event EventHandler<Shell.BreadcrumbItem>? DiveRequested;
+
+    [RelayCommand]
+    private void SeeLive(object? target)
+    {
+        switch (target)
+        {
+            case ThingCard { LiveNodeId: { } node } card:
+                DiveRequested?.Invoke(this, new Shell.BreadcrumbItem(card.Name, node));
+                break;
+            case ThingPartRow { LiveNodeId: { } node } part:
+                DiveRequested?.Invoke(this, new Shell.BreadcrumbItem(part.Name, node, false, part.LiveLayerId));
+                break;
+        }
+    }
+
+    /// <summary>Opens the thing an Ecosystem node stands for (a computer seen in the Dive), refreshing first.</summary>
+    public async Task OpenNodeAsync(string nodeId)
+    {
+        await RefreshAsync();
+        FilterText = string.Empty;
+        OpenCard = all.FirstOrDefault(c => c.LiveNodeId == nodeId && c.CanOpen) ?? all.FirstOrDefault(c => c.LiveNodeId == nodeId);
+        if (OpenCard is { CanOpen: false })
+        {
+            // Nothing to pull apart: show its card on the grid instead.
+            FilterText = OpenCard.Name;
+            OpenCard = null;
+        }
+    }
+
     [RelayCommand]
     private async Task AddAsync()
     {
@@ -246,7 +287,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     null,
                     [.. Readings(t.ReadingSubjects, bySubject, id => !claimed.Any(c => id.StartsWith(c, StringComparison.Ordinal))), .. Facts(t)],
                     parts.Select(p => ToPart(p, bySubject)).ToArray(),
-                    t.KindId);
+                    t.KindId,
+                    NodeIdOf(t.ReadingSubjects));
             })
             .ToArray();
     }
@@ -306,12 +348,21 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     private static ThingPartRow ToPart(ThingDto part, Dictionary<string, List<HistoryPointDto>> bySubject)
     {
-        ThingValueRow[] values = part.SignalPrefix is { } prefix
-            ? [.. Readings(part.ReadingSubjects, bySubject, id => id.StartsWith(prefix, StringComparison.Ordinal)), .. Facts(part)]
-            : [.. Readings(part.ReadingSubjects, bySubject, _ => true), .. Facts(part)];
+        Func<string, bool> mine = part.SignalPrefix is { } prefix ? id => id.StartsWith(prefix, StringComparison.Ordinal) : _ => true;
+        ThingValueRow[] values = [.. Readings(part.ReadingSubjects, bySubject, mine), .. Facts(part)];
         var detail = values.Length == 0 ? null : string.Join(" · ", values.Take(2).Select(v => $"{v.Label} {v.Value}"));
-        return new ThingPartRow(part.Id, part.Name, part.KindLabel, part.KindId, detail, values);
+        // The Ecosystem shows readings by layer; the part's first reading says which layer holds it.
+        var first = part.ReadingSubjects.SelectMany(s => bySubject.GetValueOrDefault(s) ?? []).FirstOrDefault(p => mine(p.SignalId));
+        var node = first is null ? null : NodeIdOf(part.ReadingSubjects);
+        var layer = first is null ? null : SignalCatalog.Describe(first.SignalId).Kind.ToString().ToLowerInvariant();
+        return new ThingPartRow(part.Id, part.Name, part.KindLabel, part.KindId, detail, values, node, layer);
     }
+
+    /// <summary>The Ecosystem node of a peer subject ("peer:abc" is node "abc"); other subjects have no node of their own.</summary>
+    private static string? NodeIdOf(IReadOnlyList<string> subjects) =>
+        subjects.FirstOrDefault(s => s.StartsWith(PeerSubject, StringComparison.Ordinal)) is { } peer ? peer[PeerSubject.Length..] : null;
+
+    private const string PeerSubject = "peer:";
 
     internal static string LifecycleText(string lifecycle) => lifecycle switch
     {

@@ -42,6 +42,32 @@ public sealed class ThingsViewTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void ThingsAndTheEcosystemOpenEachOtherOnTheSameDevice()
+    {
+        using var model = new MainViewModel(new FakeThingsSource());
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        model.Environment.RefreshAsync().GetAwaiter().GetResult();
+        things.RefreshAsync().GetAwaiter().GetResult();
+        var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
+        Assert.Equal(FakeEnvironmentSource.LocalId, laptop.LiveNodeId);
+        var memory = laptop.Parts.Single(p => p.Name == "Memory");
+        Assert.Equal(("memory", FakeEnvironmentSource.LocalId), (memory.LiveLayerId, memory.LiveNodeId));
+
+        model.Shell.GoTo(ShellMode.Things);
+        things.SeeLiveCommand.Execute(memory);
+        Assert.Equal(ShellMode.Ecosystem, model.Shell.Mode);
+        Assert.Equal(FakeEnvironmentSource.LocalId, model.Shell.Dive.NodeId);
+
+        Assert.True(model.Shell.Dive.CanOpenInThings);
+        model.Shell.Dive.GoTo(FakeEnvironmentSource.LocalId);
+        var page = Assert.IsType<MonitorApp.Client.Core.ViewModels.Dive.DiveDevicePage>(model.Shell.Dive.Page);
+        model.Shell.Dive.OpenInThingsCommand.Execute(page);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(ShellMode.Things, model.Shell.Mode);
+        Assert.Equal("Wilson-laptop", things.OpenCard?.Name);
+    }
+
     [Trait("Category", "Manual")]
 #if MANUAL_SHOTS
     [AvaloniaFact]
