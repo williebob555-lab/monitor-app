@@ -40,8 +40,11 @@ internal sealed class AndroidApkInstaller(Context context) : IApkInstaller
             }
 
             var intent = new Intent(context, typeof(ApkInstallResultReceiver)).SetPackage(context.PackageName);
-            // Mutable: the installer adds the status and the confirmation intent to it.
-            var pending = PendingIntent.GetBroadcast(context, sessionId, intent, PendingIntentFlags.Mutable | PendingIntentFlags.UpdateCurrent)!;
+            // Mutable: the installer adds the status and the confirmation intent to it (mutable is the default before Android 12).
+            var flags = OperatingSystem.IsAndroidVersionAtLeast(31)
+                ? PendingIntentFlags.Mutable | PendingIntentFlags.UpdateCurrent
+                : PendingIntentFlags.UpdateCurrent;
+            var pending = PendingIntent.GetBroadcast(context, sessionId, intent, flags)!;
             session.Commit(pending.IntentSender!);
             return null;
         }
