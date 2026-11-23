@@ -89,7 +89,10 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
             asOf is null ? ThingsWiring.Missing(current).Select(m => new MissingItemDto(m.Code, m.Need, m.Explanation, m.Certainty, m.Things)).ToArray() : [],
             ThingsWiring.Racks(current).Select(r => new RackLayoutDto(r.RackId, r.Units, r.UnitsKnown,
                 r.Blocks.Select(b => new RackBlockDto(b.TopUnit, b.Units, b.ThingId, b.Name, b.HeightKnown, b.Problem)).ToArray(), r.Unplaced,
-                r.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray());
+                r.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray(),
+            ThingsWiring.Surfaces(current).Select(s => new SurfaceLayoutDto(s.SurfaceId, s.Width, s.Depth, s.SizeKnown,
+                s.Items.Select(i => new SurfaceItemDto(i.ThingId, i.Name, i.X, i.Y, i.Width, i.Depth, i.SizeKnown, i.Problem)).ToArray(), s.Unplaced,
+                s.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray());
     }
 
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);

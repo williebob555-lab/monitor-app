@@ -286,7 +286,12 @@ public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpe
 
 public sealed record ThingsDto(
     IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null, IReadOnlyList<RackLayoutDto>? Racks = null);
+    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null, IReadOnlyList<RackLayoutDto>? Racks = null, IReadOnlyList<SurfaceLayoutDto>? Surfaces = null);
+
+/// <summary>A pedalboard or desk seen from above, sizes in mm, with what sits where and fit findings.</summary>
+public sealed record SurfaceLayoutDto(string SurfaceId, double Width, double Depth, bool SizeKnown, IReadOnlyList<SurfaceItemDto> Items, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFindingDto> Findings);
+
+public sealed record SurfaceItemDto(string ThingId, string Name, double X, double Y, double Width, double Depth, bool SizeKnown, bool Problem);
 
 /// <summary>A rack drawn top down: blocks of equipment or empty units, what is inside but not placed, and fit findings.</summary>
 public sealed record RackLayoutDto(string RackId, int Units, bool UnitsKnown, IReadOnlyList<RackBlockDto> Blocks, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFindingDto> Findings);

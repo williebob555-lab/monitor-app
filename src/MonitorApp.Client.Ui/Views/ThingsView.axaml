@@ -257,6 +257,46 @@
                     </ItemsControl>
                   </StackPanel>
 
+                  <!-- A pedalboard or desk from above, drawn to scale in mm and fitted to the card; the front edge is at the bottom. -->
+                  <StackPanel Spacing="4" IsVisible="{Binding HasBoard}" AutomationProperties.Name="Board">
+                    <TextBlock Text="{Binding Board.SizeText}" Classes="section" TextWrapping="Wrap" />
+                    <Viewbox Stretch="Uniform" MaxHeight="260" HorizontalAlignment="Left">
+                      <Border Width="{Binding Board.Width}" Height="{Binding Board.Depth}" ClipToBounds="False"
+                              Background="{DynamicResource Brush.Surface1}" BorderBrush="{DynamicResource Brush.LineStrong}" BorderThickness="3" CornerRadius="6">
+                        <ItemsControl ItemsSource="{Binding Board.Items}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.Styles>
+                            <Style Selector="ContentPresenter" x:DataType="vm:ThingBoardItem">
+                              <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                              <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                            </Style>
+                          </ItemsControl.Styles>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ThingBoardItem">
+                              <Grid Width="{Binding Width}" Height="{Binding Height}">
+                                <Border IsVisible="{Binding IsOk}" CornerRadius="4" Background="{DynamicResource Brush.Surface3}"
+                                        BorderBrush="{DynamicResource Brush.LineStrong}" BorderThickness="2" />
+                                <Border IsVisible="{Binding IsProblem}" CornerRadius="4" Background="{DynamicResource Brush.Surface3}"
+                                        BorderBrush="{DynamicResource Brush.Fault}" BorderThickness="4" />
+                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Margin="4"
+                                           FontSize="{Binding $parent[ItemsControl].((vm:ThingCard)DataContext).Board.LabelSize, FallbackValue=20}" />
+                              </Grid>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
+                    </Viewbox>
+                    <ItemsControl ItemsSource="{Binding Board.Notes}" IsVisible="{Binding Board.HasNotes}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <TextBlock Text="{Binding}" Classes="meta" TextWrapping="Wrap" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+
                   <StackPanel Spacing="4" IsVisible="{Binding HasParts}">
                     <TextBlock Text="{Binding PartsHeading}" Classes="section" />
                     <ItemsControl ItemsSource="{Binding Parts}">
@@ -389,8 +429,8 @@
                 <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
-            <TextBlock Text="Where inside (in a rack: the bottom unit, like U5)" Classes="meta" IsVisible="{Binding EditInside.Id, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
-            <TextBox Text="{Binding EditSlot}" Watermark="U5" MaxLength="16" AutomationProperties.Name="Where inside"
+            <TextBlock Text="Where inside: in a rack the bottom unit, like U5; on a board or desk x, y in mm from the front-left corner, like 120, 40" Classes="meta" TextWrapping="Wrap" IsVisible="{Binding EditInside.Id, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+            <TextBox Text="{Binding EditSlot}" Watermark="U5 or 120, 40" MaxLength="16" AutomationProperties.Name="Where inside"
                      IsVisible="{Binding EditInside.Id, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
             <TextBlock Text="Stage" Classes="meta" />
             <ComboBox ItemsSource="{Binding Stages}" SelectedItem="{Binding EditStage}" HorizontalAlignment="Stretch"

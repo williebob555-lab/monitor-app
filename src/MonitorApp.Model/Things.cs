@@ -474,9 +474,25 @@ public static class Things
             }
 
             text = $"U{unit}";
+            return (current ?? new Placement()) with { Slot = text, Position = null };
         }
 
-        return (current ?? new Placement()) with { Slot = text.Length == 0 ? null : text };
+        // On a board or desk: "x,y" in mm from the left-front corner, seen from above.
+        var parts = text.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length == 2
+            && double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x)
+            && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var y))
+        {
+            if (!double.IsFinite(x) || !double.IsFinite(y) || Math.Abs(x) > 10_000 || Math.Abs(y) > 10_000)
+            {
+                throw new ModelValidationException("A position on a board is two numbers in mm, like \"120, 40\".");
+            }
+
+            var where = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{x:0.#},{y:0.#}");
+            return (current ?? new Placement()) with { Slot = where, Position = new Point3(x, y, 0) };
+        }
+
+        return (current ?? new Placement()) with { Slot = text.Length == 0 ? null : text, Position = null };
     }
 
     public const int MaxSlotLength = 16;

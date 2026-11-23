@@ -244,6 +244,33 @@ public sealed class ThingsViewTests
     }
 
     [AvaloniaFact]
+    public void APedalboardIsDrawnFromAboveWithTheFrontAtTheBottomAndAPedalIsPlacedInMillimetres()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var board = things.Cards.Single(c => c.Name == "Pedalboard").Board!;
+        Assert.Equal("500 × 250 mm, seen from above (front at the bottom)", board.SizeText);
+        var fuzz = board.Items.Single(i => i.Label == "Fuzz");
+        Assert.Equal((20.0, 120.0, 70.0, 120.0, true), (fuzz.Left, fuzz.Top, fuzz.Width, fuzz.Height, fuzz.IsProblem)); // 250 - 10 - 120 from the back
+        Assert.Contains(board.Items, i => i.Label == "Tuner" && i.IsOk);
+        Assert.Equal(["Delay and Fuzz take the same space.", "Looper is on Pedalboard but has no position yet."], board.Notes);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Tuner" && t.IsEffectivelyVisible);
+
+        things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2"));
+        things.EditInside = things.EditPlaces.Single(p => p.Name == "Pedalboard");
+        things.EditSlot = "200, 60";
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(("thing:board", "200, 60"), (source.Edits.Single().InsideId, source.Edits.Single().Slot));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void WhatsMissingListsNeedsAndAddsOneToTheListAsARequirement()
     {
         var source = new FakeThingsSource();
@@ -291,6 +318,7 @@ public sealed class ThingsViewTests
         Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
         Shot(model, 1400, 900, dir, "things-ports-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Pedal power")));
         Shot(model, 1400, 1500, dir, "things-rack-wide-1400x1500", () => things.FilterText = "rack");
+        Shot(model, 1400, 1500, dir, "things-board-wide-1400x1500", () => things.FilterText = "pedalboard");
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -382,6 +410,7 @@ public sealed class ThingsViewTests
                     Ports: [new ThingPortDto("port:psu-1", "DC out 1", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"],
                                 [new ThingFactDto("electrical.voltage", "Voltage", "9 V", "Specified", "datasheet", At, 0)], "conn:psu-amp", "thing:amp", "Focusrite 2i2", "DC in"),
                             new ThingPortDto("port:psu-2", "DC out 2", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"], [])]),
+                new("thing:board", "Pedalboard", "assembly.pedalboard", "Pedalboard", "Owned", [], false, [], [], null, [], At),
                 new("thing:rack", "Studio rack", "assembly.rack", "Rack", "Idea", [], false, [],
                     [new ThingFactDto("mechanical.rack-units", "Rack units", "Unknown", "Unknown", "you", At, 0)], null, [], At),
             ];
@@ -397,7 +426,12 @@ public sealed class ThingsViewTests
                     [new RackBlockDto(6, 1, null, null, true, false), new RackBlockDto(5, 2, "thing:amp", "Focusrite 2i2", true, false),
                      new RackBlockDto(3, 1, "thing:dsp", "DSP", false, true), new RackBlockDto(2, 1, null, null, true, false), new RackBlockDto(1, 1, null, null, true, false),
                      new RackBlockDto(3, 1, "thing:eq", "EQ", true, true)],
-                    [], [new WiringFindingDto("overlap", "LikelyProblem", "DSP (U3, 1U) and EQ (U3, 1U) take the same space.")])]));
+                    [], [new WiringFindingDto("overlap", "LikelyProblem", "DSP (U3, 1U) and EQ (U3, 1U) take the same space.")])],
+                [new SurfaceLayoutDto("thing:board", 500, 250, true,
+                    [new SurfaceItemDto("thing:fuzz", "Fuzz", 20, 10, 70, 120, true, true), new SurfaceItemDto("thing:delay", "Delay", 60, 40, 100, 130, true, true),
+                     new SurfaceItemDto("thing:tuner", "Tuner", 380, 10, 70, 120, false, false)],
+                    ["Looper"], [new WiringFindingDto("overlap", "VerifiedProblem", "Delay and Fuzz take the same space."),
+                                 new WiringFindingDto("not-placed", "Unknown", "Looper is on Pedalboard but has no position yet.")])]));
         }
 
         public List<(string Text, string? Kind)> Added { get; } = [];
