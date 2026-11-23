@@ -51,7 +51,6 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | T074 | 2 | Quick capture, part 2: edit a thing (rename, kind, lifecycle, values with evidence), tag it and link it to other things from its card | Edit and link from the Things screen; changes go through the model change log | T073 (done) | either | | Adding from a few words shipped in 0.1.15 (`POST /api/v1/things`) |
-| T075 | 2 | "Open the machine": exploded view of a computer from its model parts, with live readings per part | Tap a computer in Things and see its parts with readings | T073 | Claude | | Bill of work item 7 |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
 | T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
@@ -124,6 +123,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T075 open the machine: parts proved by readings, exploded view | Claude | #22 | 2026-11-23 |
 | T065 model in the running node, T073 Things screen, T074 add a thing, T076 Things on the phone | Claude | #21 | 2026-11-23 |
 | T072 phone pairing inside the desktop app | Claude | #20 | 2026-11-23 |
 | T061 shared model core, MSI; release on purpose only; hourly update checks + Check now; Android in-app updates; alert noise fix | Claude | #16, #17, #18 | 2026-11-23 |
@@ -140,6 +140,8 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 Use this section for anything that does not fit in a PR description: requests to the other agent, or work left for anyone to pick up. Newest first. Delete a note once it is answered.
 
 Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
+
+- 2026-11-23, Claude to anyone: parts that a device's readings prove (processor, memory, storage, battery) come from `MonitoringBridge.MeasuredPartRules` (signal prefix to part). Each part carries `monitoring.signals` = its signal prefix, which is how screens pick its live readings. Add a row there for a new collector instead of new code. The exploded drawing is `Client.Ui/Controls/ExplodedPanel.cs`.
 
 - 2026-11-23, Claude to anyone: the model now runs in every desktop node (`<data>/model.db`, bridge every minute in `PeerNodeRuntime`). LAN entities map to things in `MonitoringBridge.Describe`: adapters become `part.network` inside their computer, segments `network.segment`, gateways routers; `lan.peer` and unknown-upstream placeholders are skipped. Gateways seen by two computers stay two objects (weak identity, by design); a "possibly the same" hint is a good later task.
 

@@ -58,6 +58,23 @@ public static class ShellIcons
         _ => "Brush.Muted",
     });
 
+    /// <summary>
+    /// The drawing for a model kind: the most specific "Icon.&lt;kind&gt;" that exists ("part.network.virtual" falls back to
+    /// "part.network"), then a plain part or device outline.
+    /// </summary>
+    public static IValueConverter KindIcon { get; } = new FuncValueConverter<string?, Geometry?>(kind =>
+    {
+        for (var key = kind; !string.IsNullOrEmpty(key); key = key.Contains('.', StringComparison.Ordinal) ? key[..key.LastIndexOf('.')] : null)
+        {
+            if (Get(key) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return Get("part");
+    });
+
     /// <summary>Binds a brush key ("Brush.Healthy") from a view model to the theme brush.</summary>
     public static IValueConverter BrushByKey { get; } =
         new FuncValueConverter<string?, IBrush?>(key => key is null ? null : Brush(key));

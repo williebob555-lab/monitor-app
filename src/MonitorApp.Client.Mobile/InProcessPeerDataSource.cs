@@ -121,7 +121,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     private static ThingDto ToDto(ThingSummary thing) => new(
         thing.Id, thing.Name, thing.KindId, thing.KindLabel, thing.Lifecycle, thing.Tags, thing.Monitored, thing.ReadingSubjects,
         thing.Facts.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
-        thing.InsideId, thing.PartIds, thing.CreatedAt);
+        thing.InsideId, thing.PartIds, thing.CreatedAt, thing.SignalPrefix);
 
     public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
 

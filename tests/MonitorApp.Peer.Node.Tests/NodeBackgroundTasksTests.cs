@@ -52,13 +52,21 @@ public sealed class NodeBackgroundTasksTests
 
             // The shared model follows monitoring: this computer becomes a thing and its adapter a part of it.
             Assert.Equal(TimeSpan.FromMinutes(1), node.ModelBridgeSchedule!.Interval);
+            await node.CollectOnceAsync();
             await node.ModelBridgeSchedule.RunNowAsync();
             Assert.Null(node.ModelBridgeSchedule.LastFailureKind);
             var model = await node.Model!.LoadAsync();
             var computer = model.FindBound(MonitorApp.Model.MonitoringSubjectKind.Peer, node.Identity.PeerId)!;
             Assert.Equal(Environment.MachineName, computer.Name);
-            var adapter = Assert.Single(model.ChildrenOf(computer.Id));
-            Assert.Equal("Network adapter eth0", model.Get(adapter.TargetId).Name);
+            var parts = model.ChildrenOf(computer.Id).Select(r => model.Get(r.TargetId)).ToDictionary(p => p.Name);
+            Assert.Contains("Network adapter eth0", parts.Keys);
+            Assert.Equal("lan.link.eth0.", parts["Network adapter eth0"].Strongest(MonitorApp.Model.MonitoringBridge.SignalsKey)!.Value.Text);
+            // Parts the computer's own readings prove, each pointing at its readings.
+            Assert.Equal("system.memory.", parts["Memory"].Strongest(MonitorApp.Model.MonitoringBridge.SignalsKey)!.Value.Text);
+            Assert.Contains("Processor", parts.Keys);
+            var before = (await node.Model.ReadChangesAsync()).Count;
+            await node.ModelBridgeSchedule.RunNowAsync();
+            Assert.Equal(before, (await node.Model.ReadChangesAsync()).Count);
         }
         finally
         {
