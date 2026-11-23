@@ -82,7 +82,12 @@ internal sealed class PhonePairingService(PhonePairingOptions? options, PeerStor
         {
             builder.Append("<p role=\"alert\"><strong>This peer cannot be reached by a phone yet.</strong> Its listener is bound to ")
                 .Append(html.Encode(string.Join(", ", options.AdvertiseAddresses)))
-                .Append(", which a phone cannot use. Bind the peer listener (<code>MonitorApp:Peer:BindAddress</code>) to this computer's Tailscale or other private address and restart. Monitor App never binds a public or wildcard address for you.</p></section>");
+                .Append(", which a phone cannot use. Tell Monitor App to listen on this computer's Tailscale (or other private) address, then restart it and reload this page. ")
+                .Append("Windows, in an administrator PowerShell: <code>Set-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\MonitorApp -Name Environment -Type MultiString -Value \"MONITOR_APP_PEER_BIND=$(tailscale ip -4)\"; New-NetFirewallRule -DisplayName 'Monitor App peer (Tailscale)' -Direction Inbound -Protocol TCP -LocalPort ")
+                .Append(options.PeerPort.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                .Append(" -RemoteAddress 100.64.0.0/10 -Action Allow; Restart-Service MonitorApp</code>. ")
+                .Append("Fedora or Ubuntu: set <code>MONITOR_APP_PEER_BIND=</code> followed by the output of <code>tailscale ip -4</code> in <code>/etc/monitor-app/node.conf</code>, then <code>sudo systemctl restart monitor-app</code>. ")
+                .Append("Monitor App never binds a public or wildcard address for you.</p></section>");
             return builder.ToString();
         }
 
