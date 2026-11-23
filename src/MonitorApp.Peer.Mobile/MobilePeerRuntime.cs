@@ -201,8 +201,9 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     public event Action<IReadOnlyList<InboxAlert>>? NewAlerts;
 
     /// <summary>Alerts persisted on this phone, active first then most recent; bounded.</summary>
-    public Task<IReadOnlyList<InboxAlert>> ReadAlertsAsync(int limit = 100, CancellationToken cancellationToken = default) =>
-        alerts.ReadInboxAsync(limit, false, cancellationToken);
+    public async Task<IReadOnlyList<InboxAlert>> ReadAlertsAsync(int limit = 100, CancellationToken cancellationToken = default) =>
+        // Every computer announces a newly joined device; show it once.
+        MeshJoinAlerts.Collapse(await alerts.ReadInboxAsync(limit, false, cancellationToken).ConfigureAwait(false), identity.PublicIdentity.PeerId);
 
     public Task<IReadOnlyList<InboxAlert>> ReadPendingNotificationsAsync(CancellationToken cancellationToken = default) =>
         alerts.ReadInboxAsync(100, true, cancellationToken);
@@ -691,6 +692,16 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         }
 
         var pending = await alerts.ReadInboxAsync(100, true, CancellationToken.None).ConfigureAwait(false);
+        if (pending.Any(item => item.Alert.RuleId == MeshJoinAlerts.RuleId))
+        {
+            // Notify a newly joined device once, however many computers announce it.
+            var shown = MeshJoinAlerts.Collapse(await alerts.ReadInboxAsync(500, false, CancellationToken.None).ConfigureAwait(false), identity.PublicIdentity.PeerId)
+                .Select(item => item.Alert.AlertId).ToHashSet(StringComparer.Ordinal);
+            foreach (var duplicate in pending.Where(item => item.Alert.RuleId == MeshJoinAlerts.RuleId && !shown.Contains(item.Alert.AlertId)))
+                await alerts.MarkNotifiedAsync(duplicate.Alert.AlertId, duplicate.Alert.Revision, CancellationToken.None).ConfigureAwait(false);
+            pending = pending.Where(item => item.Alert.RuleId != MeshJoinAlerts.RuleId || shown.Contains(item.Alert.AlertId)).ToArray();
+        }
+
         if (pending.Count > 0)
         {
             handler(pending);

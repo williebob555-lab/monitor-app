@@ -15,7 +15,8 @@ public sealed record TrustedPeerView(
     string FingerprintSha256,
     string TrustState,
     DateTimeOffset PairedAt,
-    DateTimeOffset? RevokedAt);
+    DateTimeOffset? RevokedAt,
+    string? Provenance = null);
 
 public sealed record PendingPairingView(
     string PairingId,

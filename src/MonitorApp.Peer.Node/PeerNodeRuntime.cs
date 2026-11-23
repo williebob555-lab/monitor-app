@@ -215,12 +215,31 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             try
             {
                 await connections.RefreshAsync().ConfigureAwait(false);
+                await RaiseJoinAlertsAsync(changes).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is ObjectDisposedException or OperationCanceledException or InvalidOperationException)
             {
                 // Shutting down; the periodic pass retries otherwise.
             }
         });
+
+        // A device another member added is announced to the owner's phones (T086), so an unexpected join is noticed.
+        async Task RaiseJoinAlertsAsync(IReadOnlyList<MeshTrustChange> changes)
+        {
+            var joined = changes.Where(change => change.Admitted &&
+                !string.Equals(change.ByPeerId, identity.PublicIdentity.PeerId, StringComparison.Ordinal)).ToArray();
+            if (joined.Length == 0) return;
+            var active = (await peerStore.ReadTrustedPeersAsync(CancellationToken.None).ConfigureAwait(false))
+                .Where(peer => peer.TrustState == PeerTrustState.Active).Select(peer => peer.PeerId).ToHashSet(StringComparer.Ordinal);
+            var recipients = (await alertStore.ReadRecipientsAsync(CancellationToken.None).ConfigureAwait(false)).Where(active.Contains).ToArray();
+            foreach (var change in joined)
+            {
+                // The device that joined does not need telling about itself.
+                await MeshJoinAlerts.RaiseAsync(alertStore, identity.PublicIdentity.PeerId,
+                    recipients.Where(recipient => recipient != change.PeerId).ToArray(), change.PeerId,
+                    change.DisplayName, change.ByDisplayName, alertRules.OutboxTtl, DateTimeOffset.UtcNow, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
         var invitationService = new NodePeerInvitationService(identity, peerStore, connections);
         var collection = new NodeCollectionScheduler(
             new PeerSystemMetricsIngestionBridge(

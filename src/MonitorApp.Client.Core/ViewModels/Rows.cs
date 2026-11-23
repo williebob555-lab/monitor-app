@@ -8,9 +8,12 @@ public sealed record TrustedPeerRow(
     string Fingerprint,
     string TrustState,
     string PairedAt,
-    string? RevokedAt)
+    string? RevokedAt,
+    string? Provenance = null)
 {
     public bool CanRevoke => string.Equals(TrustState, "Active", StringComparison.Ordinal);
+
+    public bool HasProvenance => !string.IsNullOrEmpty(Provenance);
 
     public static TrustedPeerRow From(TrustedPeerDto peer) => new(
         peer.PeerId,
@@ -18,7 +21,8 @@ public sealed record TrustedPeerRow(
         peer.FingerprintSha256,
         peer.TrustState,
         Format.Time(peer.PairedAt),
-        peer.RevokedAt is { } revoked ? Format.Time(revoked) : null);
+        peer.RevokedAt is { } revoked ? Format.Time(revoked) : null,
+        peer.Provenance);
 }
 
 public sealed record PendingPairingRow(

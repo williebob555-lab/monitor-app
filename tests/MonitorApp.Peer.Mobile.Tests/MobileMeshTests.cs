@@ -325,6 +325,59 @@ public sealed class MobileMeshTests
     }
 
     [Fact]
+    public async Task APhoneHearsOnceThatADeviceJoinedThroughAnotherComputer()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create(), TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var nodeOptions = new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false,
+                PeerStateInterval: TimeSpan.FromSeconds(1));
+            var deskPort = FreePort();
+            var serverPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0), nodeOptions);
+            await using var server = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[1], IPAddress.Loopback, serverPort, 0), nodeOptions);
+            await PairNodesAsync(desk, server, serverPort);
+
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[2], "phone"), phoneIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(phone, desk, deskPort);
+            phone.Start();
+            await WaitAsync(() => Task.FromResult(phone.GetStatus().Peers.Any(peer =>
+                peer.PeerId == server.Identity.PeerId && peer.State == MobileSyncState.Synced)));
+
+            // A tablet paired on the desk: the server learns it from the desk and tells the phone, which never paired it.
+            using var tabletIdentity = new SoftwareIdentity();
+            await using var tablet = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[3], "tablet"), tabletIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(tablet, desk, deskPort);
+            var tabletId = tablet.Identity.PeerId;
+            await WaitAsync(async () => (await phone.ReadAlertsAsync()).Any(item =>
+                item.Alert.RuleId == MonitorApp.Peer.Alerts.MeshJoinAlerts.RuleId && item.Alert.SubjectId == tabletId));
+            var joined = (await phone.ReadAlertsAsync()).Where(item => item.Alert.RuleId == MonitorApp.Peer.Alerts.MeshJoinAlerts.RuleId).ToArray();
+            Assert.Equal(tabletId, Assert.Single(joined).Alert.SubjectId);
+            Assert.Equal(server.Identity.PeerId, joined[0].Alert.OriginPeerId);
+
+            // The device list says how each device came to be trusted.
+            var provenance = await MeshProvenance.DescribeAsync(PhoneStore(roots[2]));
+            Assert.Equal("Paired on this device", provenance[desk.Identity.PeerId]);
+            Assert.StartsWith("Added by ", provenance[server.Identity.PeerId], StringComparison.Ordinal);
+            Assert.StartsWith("Added by ", provenance[tabletId], StringComparison.Ordinal);
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task RemovingADeviceOnAPhoneAsksForTheFingerprint()
     {
         var root = TestDirectories.Create();

@@ -56,8 +56,8 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
     public string RevocationPrompt => PendingRevocation is null
         ? string.Empty
-        : $"Revoke trust in {PendingRevocation.Name} (fingerprint {PendingRevocation.Fingerprint})? " +
-            "The peer will no longer be trusted until it is paired again.";
+        : $"Remove {PendingRevocation.Name} (fingerprint {PendingRevocation.Fingerprint}) from all your devices? " +
+            "Every device stops trusting it, and it cannot be added back without reinstalling it.";
 
     partial void OnPendingRevocationChanged(TrustedPeerRow? value)
     {
@@ -123,7 +123,7 @@ public sealed partial class PairingsViewModel : SectionViewModel
         await RunAsync(async () =>
         {
             await Client.RevokePeerAsync(peer.PeerId);
-            StatusMessage = $"Revoked trust in {peer.Name}.";
+            StatusMessage = $"Removed {peer.Name} from all your devices.";
             await ReloadAsync(CancellationToken.None);
         });
     }

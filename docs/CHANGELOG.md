@@ -24,6 +24,8 @@ This file records completed user-visible, operational, architectural, packaging,
 - Deleted the unused controller-era `MonitorApp.Domain` project and `MonitorApp.Domain.Tests` (T057); no peer, client, update, Android, CI, release or packaging code referenced them. Recorded the inventory of the remaining controller-era projects and the ordered extraction plan in `docs/DECISIONS.md`.
 
 ### Added
+- Mesh device list (T086): Pairing and trust shows how each device came to be trusted ("Paired on this device", "Added by Laptop", "Removed by Phone") and since when; removal is worded as what it is, removal from all your devices.
+- "New device joined" alert (T086): when a device another member added becomes trusted on a computer, your phone gets one alert naming who added it, however many computers announce it, so a device you did not add is noticed.
 - Removing a device on the phone asks for the fingerprint when one is set up, as computers do (T086). Without a fingerprint, removal still works so a lost device can always be removed.
 - Readings pass through other devices (T087): a phone and a tablet, or a phone and a computer it cannot reach directly, now see each other's readings through any computer they both reach, refreshed every 15 seconds. Forwarded readings are still checked against the key of the device that took them, so the computer in between cannot change them.
 - Add a phone or tablet face to face (T085): on the Pair screen, the new device shows its code, a phone or tablet that is already set up scans it, checks the short code, approves with a fingerprint and shows a code back for the new device to scan. Every device then trusts the new one through the mesh.

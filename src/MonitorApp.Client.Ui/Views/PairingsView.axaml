@@ -51,7 +51,7 @@
       <StackPanel Spacing="6">
         <TextBlock Text="{Binding RevocationPrompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
         <WrapPanel>
-          <Button Content="Confirm revoke" Command="{Binding ConfirmRevokeCommand}" Margin="0,0,8,0" />
+          <Button Content="Remove" Command="{Binding ConfirmRevokeCommand}" Margin="0,0,8,0" />
           <Button Content="Cancel" Command="{Binding CancelRevokeCommand}" />
         </WrapPanel>
       </StackPanel>
@@ -63,10 +63,12 @@
             <StackPanel Spacing="4">
               <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
               <TextBlock Text="{Binding TrustState, StringFormat='Trust: {0}'}" />
+              <TextBlock Text="{Binding Provenance}" IsVisible="{Binding HasProvenance}" Classes="muted" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding PairedAt, StringFormat='Trusted since {0}'}" Classes="muted" />
               <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
-              <Button Content="Revoke trust..." IsVisible="{Binding CanRevoke}" HorizontalAlignment="Left"
+              <Button Content="Remove from all devices..." IsVisible="{Binding CanRevoke}" HorizontalAlignment="Left"
                       Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).RequestRevokeCommand}" CommandParameter="{Binding}"
-                      AutomationProperties.Name="{Binding Name, StringFormat='Revoke trust in {0}'}" />
+                      AutomationProperties.Name="{Binding Name, StringFormat='Remove {0} from all devices'}" />
             </StackPanel>
           </Border>
         </DataTemplate>

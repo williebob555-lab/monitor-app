@@ -58,7 +58,8 @@ internal sealed class LocalApiDataSource
                 reader.IsDBNull(5) ? null : Parse(reader.GetString(5))));
         }
 
-        return result;
+        var provenance = await MeshProvenance.DescribeAsync(peerStore, cancellationToken).ConfigureAwait(false);
+        return result.Select(peer => peer with { Provenance = provenance.GetValueOrDefault(peer.PeerId) }).ToList();
     }
 
     public async Task<IReadOnlyList<PendingPairingView>> ReadPendingPairingsAsync(
