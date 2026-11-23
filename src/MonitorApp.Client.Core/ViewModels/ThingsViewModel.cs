@@ -129,6 +129,29 @@ public sealed class ThingPortChoice(string? ThingId, string PortId, string Text)
     public string Text { get; } = Text;
 }
 
+/// <summary>
+/// One block of a rack drawing, top down: a piece of equipment spanning <see cref="Units"/> units, or an empty unit.
+/// <see cref="Height"/> is the drawn height in pixels.
+/// </summary>
+public sealed record ThingRackRow(string UnitText, string Label, int Units, bool IsEmpty, bool IsProblem, bool HeightKnown)
+{
+    public const double UnitHeight = 22;
+
+    public double Height => Units * UnitHeight;
+
+    public bool IsEquipment => !IsEmpty;
+
+    public bool IsOk => !IsEmpty && !IsProblem;
+}
+
+/// <summary>A rack on its card: size, the drawing, and fit notes (overlaps, past the top, unknown sizes, not placed yet).</summary>
+public sealed record ThingRack(string SizeText, IReadOnlyList<ThingRackRow> Rows, IReadOnlyList<string> Notes)
+{
+    public bool HasNotes => Notes.Count > 0;
+
+    internal string Signature => string.Join(';', [SizeText, .. Rows.Select(r => $"{r.UnitText}:{r.Label}:{r.Units}:{r.IsProblem}"), .. Notes]);
+}
+
 /// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
 public sealed record ThingPlace(string? Id, string Name);
 
@@ -147,8 +170,11 @@ public sealed record ThingCard(
     IReadOnlyList<string>? Tags = null,
     IReadOnlyList<string>? Links = null,
     IReadOnlyList<string>? Ports = null,
-    IReadOnlyList<ThingWiringRow>? Wiring = null)
+    IReadOnlyList<ThingWiringRow>? Wiring = null,
+    ThingRack? Rack = null)
 {
+    public bool HasRack => Rack is not null;
+
     /// <summary>Its ports in words ("DC out · DC barrel 5.5/2.1 mm plug · output · 9 V → Delay DC in").</summary>
     public IReadOnlyList<string> PortTexts => Ports ?? [];
 
@@ -190,7 +216,7 @@ public sealed record ThingCard(
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
         Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText, .. LinkTexts, .. PortTexts,
-        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"),
+        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"), Rack?.Signature ?? string.Empty,
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
@@ -262,6 +288,10 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     [ObservableProperty]
     private ThingPlace? editInside;
+
+    /// <summary>Where inside its holder the thing sits: a rack unit such as "U5". Empty when not placed.</summary>
+    [ObservableProperty]
+    private string editSlot = string.Empty;
 
     [ObservableProperty]
     private string? editError;
@@ -472,7 +502,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
             }
 
-            all = Build(things.Things, readings, wiring, Connectors);
+            all = Build(things.Things, readings, wiring, Connectors, things.Racks);
             SyncMissing(things.Missing ?? []);
             SyncKinds(things.Kinds);
             if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
@@ -571,6 +601,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
         }
 
         EditInside = EditPlaces.FirstOrDefault(p => p.Id == thing.InsideId) ?? nowhere;
+        EditSlot = thing.Slot ?? string.Empty;
         EditStage = Stages.FirstOrDefault(st => st.Id == thing.Lifecycle);
         EditTags = string.Join(", ", thing.Tags);
         NewValueLabel = string.Empty;
@@ -751,11 +782,12 @@ public sealed partial class ThingsViewModel : SectionViewModel
             NewPort() is { } port ? [port] : null,
             removedPorts.Count > 0 ? [.. removedPorts] : null,
             PortConnection() is { } connect ? [connect] : null,
-            unplugged.Count > 0 ? [.. unplugged] : null);
+            unplugged.Count > 0 ? [.. unplugged] : null,
+            EditInside?.Id is { } holder && (EditSlot.Trim() != (thing.Slot ?? string.Empty) || (holder != thing.InsideId && EditSlot.Trim().Length > 0)) ? EditSlot.Trim() : null);
         if (edit is
             {
                 Name: null, KindId: null, Note: null, InsideId: null, Lifecycle: null, Tags: null, Values: null, AddLinks: null, RemoveLinks: null,
-                AddPorts: null, RemovePorts: null, Connect: null, Disconnect: null
+                AddPorts: null, RemovePorts: null, Connect: null, Disconnect: null, Slot: null
             })
         {
             CancelEdit();
@@ -921,8 +953,9 @@ public sealed partial class ThingsViewModel : SectionViewModel
     /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>
     public static IReadOnlyList<ThingCard> Build(
         IReadOnlyList<ThingDto> things, IReadOnlyList<HistoryPointDto> readings,
-        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null)
+        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null, IReadOnlyList<RackLayoutDto>? racks = null)
     {
+        var rackOf = (racks ?? []).ToDictionary(r => r.RackId, StringComparer.Ordinal);
         wiring ??= Array.Empty<ThingWiringDto>().ToLookup(w => w.ThingId, StringComparer.Ordinal);
         var labels = (connectors ?? []).ToDictionary(c => c.Id, c => c.Label, StringComparer.OrdinalIgnoreCase);
         var byId = things.ToDictionary(t => t.Id, StringComparer.Ordinal);
@@ -950,10 +983,22 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     t.Tags,
                     t.Links?.Select(l => $"{l.Phrase} {l.OtherName}").ToArray(),
                     t.Ports?.Select(p => PortText(p, labels)).ToArray(),
-                    wiring[t.Id].Select(WiringRow).ToArray());
+                    wiring[t.Id].Select(WiringRow).ToArray(),
+                    rackOf.TryGetValue(t.Id, out var rack) ? RackOf(rack) : null);
             })
             .ToArray();
     }
+
+    private static ThingRack RackOf(RackLayoutDto rack) => new(
+        rack.UnitsKnown ? $"{rack.Units}U rack" : $"Size unknown, drawn {rack.Units}U",
+        rack.Blocks.Select(b => new ThingRackRow(
+            b.Units == 1 ? $"U{b.TopUnit}" : $"U{b.TopUnit}–{b.TopUnit - b.Units + 1}",
+            b.Name is null ? string.Empty : b.HeightKnown ? b.Name : $"{b.Name} (height unknown)",
+            b.Units,
+            b.ThingId is null,
+            b.Problem,
+            b.HeightKnown)).ToArray(),
+        rack.Findings.Where(f => f.Code is not ("rack-size-unknown" or "height-unknown")).Select(f => f.Explanation).ToArray());
 
     private static string PortText(ThingPortDto port, Dictionary<string, string> labels)
     {

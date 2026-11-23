@@ -10,7 +10,7 @@ namespace MonitorApp.Peer.LocalApi;
 /// <summary>Everything the Things screen shows, plus the kinds a person can pick when adding one.</summary>
 public sealed record ThingsResponse(
     IReadOnlyList<ThingSummary> Things, IReadOnlyList<ThingKindChoice> Kinds, IReadOnlyList<ThingLinkType>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoice>? Connectors = null, IReadOnlyList<ThingWiring>? Wiring = null, IReadOnlyList<MissingNeed>? Missing = null);
+    IReadOnlyList<ConnectorChoice>? Connectors = null, IReadOnlyList<ThingWiring>? Wiring = null, IReadOnlyList<MissingNeed>? Missing = null, IReadOnlyList<RackDrawing>? Racks = null);
 
 internal sealed record ThingCaptureRequest(string? Text, string? KindId);
 
@@ -19,7 +19,7 @@ internal sealed record ThingEditRequest(
     string? Lifecycle = null, IReadOnlyList<string>? Tags = null, IReadOnlyList<ThingValueEdit>? Values = null,
     IReadOnlyList<ThingLinkEdit>? AddLinks = null, IReadOnlyList<string>? RemoveLinks = null,
     IReadOnlyList<ThingPortEdit>? AddPorts = null, IReadOnlyList<string>? RemovePorts = null,
-    IReadOnlyList<ThingConnectEdit>? Connect = null, IReadOnlyList<string>? Disconnect = null);
+    IReadOnlyList<ThingConnectEdit>? Connect = null, IReadOnlyList<string>? Disconnect = null, string? Slot = null);
 
 /// <summary>
 /// The shared model over the loopback API (T073, T074). Reading is open to the local app like every other read; adding a
@@ -51,7 +51,7 @@ internal static class LocalApiThings
             var model = await store.LoadAsync(at, cancellationToken: token).ConfigureAwait(false);
             return Results.Json(new ThingsResponse(
                 Things.List(model), Things.KindChoices(store.Library), Things.LinkTypes, ThingsWiring.Connectors(), ThingsWiring.For(model),
-                at is null ? ThingsWiring.Missing(model) : []));
+                at is null ? ThingsWiring.Missing(model) : [], ThingsWiring.Racks(model)));
         });
 
         application.MapPost("/api/v1/things", async (HttpContext context, IAntiforgery antiforgery, CancellationToken token) =>
@@ -106,7 +106,7 @@ internal static class LocalApiThings
             {
                 var thing = await Things.EditAsync(store, request?.Id ?? string.Empty, new ThingEdit(
                     request?.Name, request?.KindId, request?.Note, request?.InsideId, request?.Lifecycle, request?.Tags, request?.Values, request?.AddLinks, request?.RemoveLinks,
-                    request?.AddPorts, request?.RemovePorts, request?.Connect, request?.Disconnect), ThingsWiring.IsKnownConnector, token).ConfigureAwait(false);
+                    request?.AddPorts, request?.RemovePorts, request?.Connect, request?.Disconnect, request?.Slot), ThingsWiring.IsKnownConnector, token).ConfigureAwait(false);
                 return Results.Json(thing);
             }
             catch (ModelValidationException exception)

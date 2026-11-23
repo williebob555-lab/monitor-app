@@ -15,6 +15,9 @@ public sealed record ThingWiring(string ThingId, string Route, string Verdict, s
 /// <summary>A need from <see cref="WhatsMissing"/>, in the words the Things screen shows.</summary>
 public sealed record MissingNeed(string Code, string Need, string Explanation, string Certainty, IReadOnlyList<string> Things);
 
+/// <summary>A rack from <see cref="RackLayouts"/>, with findings in the Things screen's words.</summary>
+public sealed record RackDrawing(string RackId, int Units, bool UnitsKnown, IReadOnlyList<RackBlock> Blocks, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFinding> Findings);
+
 /// <summary>What the Things screen needs from the connection engine, for any head (local API or the phone).</summary>
 public static class ThingsWiring
 {
@@ -27,6 +30,10 @@ public static class ThingsWiring
 
     public static IReadOnlyList<MissingNeed> Missing(SystemModel model, ConnectorCatalog? catalog = null) =>
         WhatsMissing.Derive(model, catalog).Select(m => new MissingNeed(m.Code, m.Need, m.Explanation, m.Certainty.ToString(), m.Things)).ToArray();
+
+    public static IReadOnlyList<RackDrawing> Racks(SystemModel model) =>
+        RackLayouts.All(model).Select(r => new RackDrawing(r.RackId, r.Units, r.UnitsKnown, r.Blocks, r.Unplaced,
+            r.Findings.OrderBy(f => f.Certainty).Select(f => new WiringFinding(f.Code, f.Certainty.ToString(), f.Explanation)).ToArray())).ToArray();
 
     public static bool IsKnownConnector(string id) => ConnectorCatalog.BuiltIn.TryGet(id, out _);
 

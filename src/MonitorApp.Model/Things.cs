@@ -29,7 +29,8 @@ public sealed record ThingSummary(
     DateTimeOffset CreatedAt,
     string? SignalPrefix = null,
     IReadOnlyList<ThingLink>? Links = null,
-    IReadOnlyList<ThingPort>? Ports = null);
+    IReadOnlyList<ThingPort>? Ports = null,
+    string? Slot = null);
 
 /// <summary>
 /// A link a person can see and change on a thing, phrased from this thing's side: "Powered by" Studio PSU, or "Powers" the amp
@@ -60,7 +61,8 @@ public sealed record ThingEdit(
     IReadOnlyList<ThingPortEdit>? AddPorts = null,
     IReadOnlyList<string>? RemovePorts = null,
     IReadOnlyList<ThingConnectEdit>? Connect = null,
-    IReadOnlyList<string>? Disconnect = null);
+    IReadOnlyList<string>? Disconnect = null,
+    string? Slot = null);
 
 /// <summary>A value the person types, such as "Max power" = "5 W". <paramref name="FromSpec"/> marks it as read from a spec sheet or datasheet.</summary>
 public sealed record ThingValueEdit(string Label, string? Value, bool FromSpec = false);
@@ -135,7 +137,8 @@ public static class Things
             thing.CreatedAt,
             prefix,
             Links(model, thing.Id),
-            ThingPorts.Describe(model, thing));
+            ThingPorts.Describe(model, thing),
+            model.ContainerOf(thing.Id)?.Placement?.Slot);
     }
 
     /// <summary>
@@ -252,9 +255,19 @@ public static class Things
 
                 if (target.Length > 0)
                 {
-                    changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", RelationshipTypes.Contains, target, thing.Id));
+                    changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", RelationshipTypes.Contains, target, thing.Id,
+                        SlotPlacement(edit.Slot, null)));
                 }
             }
+            else if (holder is not null && edit.Slot is not null)
+            {
+                changes.Add(new PlacementChanged(holder.RelationshipId, SlotPlacement(edit.Slot, holder.Placement)!));
+            }
+        }
+        else if (edit.Slot is not null)
+        {
+            var holder = model.ContainerOf(thing.Id) ?? throw new ModelValidationException("Put it inside something first, then say where.");
+            changes.Add(new PlacementChanged(holder.RelationshipId, SlotPlacement(edit.Slot, holder.Placement)!));
         }
 
         if (edit.Lifecycle is { } stageText && stageText.Trim().Length > 0)
@@ -435,6 +448,38 @@ public static class Things
 
         return (name, string.IsNullOrEmpty(note) ? null : note);
     }
+
+    /// <summary>
+    /// Where a thing sits inside its holder, in the holder's own terms: "U5" is the fifth rack unit from the bottom. An
+    /// empty slot clears it. Kept short, because it is a position, not a note.
+    /// </summary>
+    private static Placement? SlotPlacement(string? slot, Placement? current)
+    {
+        if (slot is null)
+        {
+            return current;
+        }
+
+        var text = slot.Trim();
+        if (text.Length > MaxSlotLength)
+        {
+            throw new ModelValidationException("Say where in a few characters, like \"U5\".");
+        }
+
+        if (text.StartsWith('U') || text.StartsWith('u'))
+        {
+            if (!int.TryParse(text.AsSpan(1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var unit) || unit < 1 || unit > 100)
+            {
+                throw new ModelValidationException("A rack position is U and a unit number from the bottom, like \"U5\".");
+            }
+
+            text = $"U{unit}";
+        }
+
+        return (current ?? new Placement()) with { Slot = text.Length == 0 ? null : text };
+    }
+
+    public const int MaxSlotLength = 16;
 
     public static string Format(PropertyValue value)
     {

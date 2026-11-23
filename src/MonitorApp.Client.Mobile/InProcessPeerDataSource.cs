@@ -85,7 +85,10 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
             ThingsWiring.Connectors().Select(c => new ConnectorChoiceDto(c.Id, c.Label, c.Domain)).ToArray(),
             ThingsWiring.For(current).Select(w => new ThingWiringDto(w.ThingId, w.Route, w.Verdict, w.VerdictText,
                 w.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray(),
-            asOf is null ? ThingsWiring.Missing(current).Select(m => new MissingItemDto(m.Code, m.Need, m.Explanation, m.Certainty, m.Things)).ToArray() : []);
+            asOf is null ? ThingsWiring.Missing(current).Select(m => new MissingItemDto(m.Code, m.Need, m.Explanation, m.Certainty, m.Things)).ToArray() : [],
+            ThingsWiring.Racks(current).Select(r => new RackLayoutDto(r.RackId, r.Units, r.UnitsKnown,
+                r.Blocks.Select(b => new RackBlockDto(b.TopUnit, b.Units, b.ThingId, b.Name, b.HeightKnown, b.Problem)).ToArray(), r.Unplaced,
+                r.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray());
     }
 
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);
@@ -119,7 +122,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
                 edit.AddPorts?.Select(p => new ThingPortEdit(p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals, p.Level, p.Voltage, p.Polarity, p.CurrentMax, p.CurrentDraw, p.FromSpec)).ToArray(),
                 edit.RemovePorts,
                 edit.Connect?.Select(c => new ThingConnectEdit(c.PortId, c.OtherId, c.OtherPortId)).ToArray(),
-                edit.Disconnect), ThingsWiring.IsKnownConnector, ct).ConfigureAwait(false);
+                edit.Disconnect, edit.Slot), ThingsWiring.IsKnownConnector, ct).ConfigureAwait(false);
         }
         catch (ModelValidationException exception)
         {
@@ -160,7 +163,8 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         thing.Links?.Select(l => new ThingLinkDto(l.RelationshipId, l.TypeId, l.Phrase, l.OtherId, l.OtherName, l.Outgoing)).ToArray(),
         thing.Ports?.Select(p => new ThingPortDto(p.PortId, p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals,
             p.Values.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
-            p.ConnectionId, p.OtherId, p.OtherName, p.OtherPortName)).ToArray());
+            p.ConnectionId, p.OtherId, p.OtherName, p.OtherPortName)).ToArray(),
+        thing.Slot);
 
     public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
 
