@@ -1,8 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
              x:Class="MonitorApp.Client.Ui.Views.PairDeviceView" x:DataType="vm:PairDeviceViewModel">
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
-    <TextBlock Text="Pair with a desktop" Classes="heading" />
+    <TextBlock Text="Pair a device" Classes="heading" />
     <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device." TextWrapping="Wrap" />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
@@ -10,6 +11,32 @@
       <StackPanel Spacing="8">
         <TextBlock Text="Scan the QR code" Classes="subheading" />
         <Button Content="Scan QR" Command="{Binding ScanQrCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
+    <Border Classes="card" IsVisible="{Binding CanAddMeshDevices}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Add a phone or tablet" Classes="subheading" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Phones and tablets add each other face to face. On the new device choose &quot;Show my code&quot;; on a device that is already set up choose &quot;Scan the other device&quot;. Then the new device scans the reply. Both ask for your fingerprint, and every one of your devices then trusts the new one." />
+        <WrapPanel Orientation="Horizontal">
+          <Button Name="ShowJoinCode" Content="Show my code" Command="{Binding ShowJoinCodeCommand}" Margin="0,0,8,8" />
+          <Button Name="ScanDeviceCode" Content="Scan the other device" Command="{Binding ScanDeviceCodeCommand}" Margin="0,0,8,8" />
+        </WrapPanel>
+        <Border Classes="card" IsVisible="{Binding HasPendingDevice}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding PendingDevicePrompt}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Name="ConfirmDevice" Content="{Binding PendingDeviceAction}" Command="{Binding ConfirmPendingDeviceCommand}" Margin="0,0,8,0" />
+              <Button Content="Cancel" Command="{Binding CancelPendingDeviceCommand}" />
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        <StackPanel Spacing="8" IsVisible="{Binding HasShownCode}">
+          <ctl:QrCodeView Rows="{Binding ShownQrRows}" Width="300" Height="300" HorizontalAlignment="Left"
+                          AutomationProperties.Name="Device code to scan" />
+          <TextBlock Text="{Binding ShownCodeCaption}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ThisDeviceCodeText}" TextWrapping="Wrap" />
+        </StackPanel>
       </StackPanel>
     </Border>
     <Border Classes="card">

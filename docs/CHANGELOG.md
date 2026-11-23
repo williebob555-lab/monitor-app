@@ -20,6 +20,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - Deleted the unused controller-era `MonitorApp.Domain` project and `MonitorApp.Domain.Tests` (T057); no peer, client, update, Android, CI, release or packaging code referenced them. Recorded the inventory of the remaining controller-era projects and the ordered extraction plan in `docs/DECISIONS.md`.
 
 ### Added
+- Add a phone or tablet face to face (T085): on the Pair screen, the new device shows its code, a phone or tablet that is already set up scans it, checks the short code, approves with a fingerprint and shows a code back for the new device to scan. Every device then trusts the new one through the mesh.
 
 - Mesh pairing (T080): pair a device with any one member and every member trusts it and connects to it; revoke it on any member and it is removed everywhere. Signed admit/remove statements (peer schema v5, additive `CapabilityExchange.mesh_statements`) are swapped after authentication in every session; existing pairings are carried over automatically. Revoking a device on a computer now asks for the fingerprint when one is enrolled.
 - Things groups a device's readings under System, Network, Power and Monitoring headings; on a busy computer the big groups start folded, so cards stay short.

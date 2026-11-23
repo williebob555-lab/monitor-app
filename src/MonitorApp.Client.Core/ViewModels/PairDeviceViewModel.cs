@@ -19,7 +19,7 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
     private string invitationText = string.Empty;
 
     public PairDeviceViewModel(NodeConnection connection)
-        : base(connection, "Pair a desktop")
+        : base(connection, "Pair a device")
     {
     }
 

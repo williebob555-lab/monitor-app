@@ -164,6 +164,115 @@ public sealed class MobileMeshTests
         }
     }
 
+    [Fact]
+    public async Task ATabletAddedFaceToFaceByAPhoneJoinsTheMeshAndReachesTheComputers()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var deskPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, PeerStateInterval: TimeSpan.FromSeconds(1)));
+
+            using var phoneIdentity = new SoftwareIdentity();
+            using var phonePresence = new SoftwarePresenceSigner();
+            await using var phone = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[1], "phone"), phoneIdentity,
+                new ScriptedDeviceReader(), phonePresence);
+            await PairPhoneAsync(phone, desk, deskPort);
+            phone.Start();
+
+            using var tabletIdentity = new SoftwareIdentity();
+            using var tabletPresence = new SoftwarePresenceSigner();
+            await using var tablet = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[2], "tablet"), tabletIdentity,
+                new ScriptedDeviceReader(), tabletPresence);
+
+            // The tablet shows its join code; the phone scans it and sees the code the tablet shows for itself.
+            var joinCode = tablet.CreateMeshJoinCode();
+            var joinPreview = phone.PreviewMeshCode(joinCode);
+            Assert.True(joinPreview.IsJoinRequest);
+            Assert.Equal(tablet.VerificationCode, joinPreview.VerificationCode);
+
+            // Without the owner's fingerprint nothing is added.
+            phonePresence.Deny = true;
+            await Assert.ThrowsAsync<MonitorApp.Peer.Control.UserPresenceDeniedException>(() => phone.AdmitFromJoinCodeAsync(joinCode));
+            Assert.Null(await PhoneStore(roots[1]).ReadTrustedPeerAsync(tablet.Identity.PeerId));
+            phonePresence.Deny = false;
+
+            var welcomeCode = await phone.AdmitFromJoinCodeAsync(joinCode);
+            var welcomePreview = tablet.PreviewMeshCode(welcomeCode);
+            Assert.False(welcomePreview.IsJoinRequest);
+            Assert.Equal(phone.VerificationCode, welcomePreview.VerificationCode);
+            Assert.Equal(phone.Identity.PeerId, await tablet.JoinFromWelcomeAsync(welcomeCode));
+            Assert.Equal(1, tabletPresence.Prompts);
+
+            // The welcome is used up: the same reply cannot be applied again.
+            await Assert.ThrowsAsync<FormatException>(() => tablet.JoinFromWelcomeAsync(welcomeCode));
+
+            // The desk learns the tablet from the phone, the tablet learns the desk (and its address) from the welcome,
+            // and the tablet syncs with the desk directly.
+            tablet.Start();
+            var tabletId = tablet.Identity.PeerId;
+            await WaitAsync(async () =>
+                (await desk.Store.ReadTrustedPeerAsync(tabletId))?.TrustState == PeerTrustState.Active &&
+                (await PhoneStore(roots[2]).ReadTrustedPeerAsync(desk.Identity.PeerId))?.TrustState == PeerTrustState.Active);
+            await tablet.CollectOnceAsync();
+            var tabletStream = (await PhoneStore(roots[2]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () => (await desk.Store.ReadOriginRangeAsync(tabletId, tabletStream, 1, 1))
+                .SingleOrDefault()?.ReceivedFromPeerId == tabletId);
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AddingADeviceFailsClosedWithoutAFingerprintReader()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[0], "phone"), phoneIdentity, new ScriptedDeviceReader());
+            using var tabletIdentity = new SoftwareIdentity();
+            await using var tablet = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[1], "tablet"), tabletIdentity, new ScriptedDeviceReader());
+
+            var joinCode = tablet.CreateMeshJoinCode();
+            await Assert.ThrowsAsync<MonitorApp.Peer.Control.UserPresenceDeniedException>(() => phone.AdmitFromJoinCodeAsync(joinCode));
+            Assert.Null(await PhoneStore(roots[0]).ReadTrustedPeerAsync(tablet.Identity.PeerId));
+
+            // A device's own join code is refused, and a reply cannot be scanned before showing a join code.
+            Assert.Throws<FormatException>(() => tablet.PreviewMeshCode(joinCode));
+            Assert.Throws<FormatException>(() => phone.PreviewMeshCode(MonitorApp.Peer.Replication.MeshFaceToFace.WelcomePrefix + "AAAA"));
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    private static MobilePeerOptions MobileOptions(string root, string name) =>
+        new(root, name, CollectionInterval: TimeSpan.FromHours(1), SyncInterval: TimeSpan.FromMilliseconds(200),
+            MaximumSyncBackoff: TimeSpan.FromSeconds(1), HeartbeatInterval: TimeSpan.FromSeconds(5));
+
     private static PeerStore PhoneStore(string root) => new(PeerStoreOptions.Create(Path.Combine(root, "peer.db")));
 
     private static async Task PairPhoneAsync(MobilePeerRuntime phone, PeerNodeRuntime node, int port)
