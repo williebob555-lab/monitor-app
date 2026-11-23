@@ -6,6 +6,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Fixed
 
+- Saving readings from a paired device wrote one database transaction per reading, so a busy computer took seconds per collection; they are now saved in one batch.
 - Menus were laggy again. On the phone every read of its own database (readings, peers, alerts, Things) ran on the screen thread because SQLite's async calls complete synchronously; they now run in the background. The shared model is no longer rebuilt from its whole change log on every read (it is cached until the next change), and Things no longer rebuilds every card, or re-opens the exploded view, when a refresh changed nothing.
 
 - Open it up on Windows printed "Links up:" followed by every driver filter and hidden adapter Windows lists (QoS Packet Scheduler, WFP filters, "Local Area Connection*", 6to4, Teredo) as one line across the screen. Windows no longer collects that plumbing at all, a device with many links names three and counts the rest, the part labels stop at a fixed width with "…", and readings that are unavailable are no longer listed under a part.
@@ -21,6 +22,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Ports and connections in Things (0.1.20, T064/T066/T067): give a thing ports (connector, plug or socket, which way, what it carries, its level, voltage, polarity and current, typed in or read from a spec sheet), plug one thing into another (directly or through cables and adapters), unplug and remove. Each card shows its connections with a verdict: works, likely a problem, won't work or not enough known, and the reasons (wrong connector, signal the cable can't carry, line level into an instrument input, 18 V into a 9 V pedal, reversed polarity, not enough current). Verdicts are "verified" only when both sides come from specs or measurements.
 - Links between things (0.1.20): depends on, powered by, runs on, part of, replaces, about and connected to, shown on cards from either end ("Powered by Studio PSU", "Powers Focusrite"), added and removed in the edit form.
 - Editing a thing also sets its stage (lifecycle rules apply), its tags, and values you type in, marked as entered by you or as read from a spec sheet (0.1.20).
 - Things follows the timeline (0.1.20, T083): drag back and Things shows what the model held then (which things existed, what sat inside what, their values and the readings recorded then), marked RECORDED, with adding and editing off. `GET /api/v1/things?asOf=`.
