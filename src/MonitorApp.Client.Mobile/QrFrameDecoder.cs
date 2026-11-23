@@ -11,6 +11,12 @@ namespace MonitorApp.Client.Mobile;
 /// </summary>
 public static class QrFrameDecoder
 {
+    private static BarcodeReaderGeneric[] Readers =>
+    [
+        new() { Options = new DecodingOptions { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true } },
+        new() { Options = new DecodingOptions { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true, PureBarcode = true } },
+    ];
+
     /// <summary>
     /// Tries to read a pairing invitation from one luminance frame. Returns the QR text only when it starts with the
     /// invitation prefix; the text is not otherwise validated here (pairing decodes and validates it).
@@ -30,12 +36,19 @@ public static class QrFrameDecoder
             throw new ArgumentException("The luminance buffer is smaller than the frame it describes.", nameof(luminance));
         }
 
-        var reader = new BarcodeReaderGeneric
+        // The detector misreads the finder patterns of a few percent of perfectly rendered codes (measured: 16 in 300
+        // random invitations), so a frame it cannot read gets a second pass that treats the frame as an upright code.
+        // That pass is what reads a phone held square to the desktop screen, which is how people scan in practice.
+        var source = new PlanarYUVLuminanceSource(luminance, rowStride, height, 0, 0, width, height, false);
+        foreach (var reader in Readers)
         {
-            Options = new DecodingOptions { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true },
-        };
-        var result = reader.Decode(new PlanarYUVLuminanceSource(luminance, rowStride, height, 0, 0, width, height, false));
-        return result?.Text is { } text && IsInvitationText(text) ? text : null;
+            if (reader.Decode(source)?.Text is { } text)
+            {
+                return IsInvitationText(text) ? text : null;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>True for text that claims to be a Monitor App pairing invitation.</summary>

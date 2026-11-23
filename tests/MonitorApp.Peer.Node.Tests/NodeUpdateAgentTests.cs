@@ -12,6 +12,16 @@ namespace MonitorApp.Peer.Node.Tests;
 public sealed class NodeUpdateAgentTests : IDisposable
 {
     private static readonly byte[] Package = "node-package-0.1.2"u8.ToArray();
+
+    /// <summary>Waits for the agent's startup work instead of a fixed sleep, which a busy CI runner can outlast.</summary>
+    private static async Task WaitForFileAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!File.Exists(path) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+    }
     private readonly string directory = Path.Combine(Path.GetTempPath(), "monitor-update-agent-tests", Guid.NewGuid().ToString("N"));
     private readonly ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
@@ -218,11 +228,11 @@ public sealed class NodeUpdateAgentTests : IDisposable
         using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, new RecordingApplier(), interval: TimeSpan.FromHours(1));
         var before = DateTimeOffset.UtcNow.AddSeconds(-1);
 
+        var marker = Path.Combine(directory, "update", "health.json");
         await agent.StartAsync(default);
-        await Task.Delay(300);
+        await WaitForFileAsync(marker);
         await agent.StopAsync(default);
 
-        var marker = Path.Combine(directory, "update", "health.json");
         Assert.True(File.Exists(marker));
         Assert.True(File.GetLastWriteTimeUtc(marker) >= before.UtcDateTime);
         using var document = JsonDocument.Parse(File.ReadAllBytes(marker));
@@ -238,7 +248,7 @@ public sealed class NodeUpdateAgentTests : IDisposable
         using var agent = new NodeUpdateAgent(options, null, null, null, new RecordingApplier(), NullLogger<NodeUpdateAgent>.Instance);
 
         await agent.StartAsync(default);
-        await Task.Delay(300);
+        await WaitForFileAsync(options.HealthMarkerPath);
         await agent.StopAsync(default);
 
         Assert.Equal("Disabled", agent.GetStatus().Stage);

@@ -73,6 +73,8 @@
     { "key": "electrical.voltage.min", "type": "quantity", "dimension": "voltage" },
     { "key": "electrical.voltage.max", "type": "quantity", "dimension": "voltage" },
     { "key": "electrical.current.max", "type": "quantity", "dimension": "current" },
+    { "key": "electrical.current.draw", "type": "quantity", "dimension": "current" },
+    { "key": "adapter.active", "type": "flag" },
     { "key": "electrical.polarity", "type": "text" },
     { "key": "electrical.impedance", "type": "quantity", "dimension": "impedance" },
     { "key": "thermal.heat-output", "type": "quantity", "dimension": "power" },

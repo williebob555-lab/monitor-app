@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
 using MonitorApp.Model;
+using MonitorApp.Planning.Model;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
@@ -56,12 +57,13 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
     private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
 
-    public Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(ct), ct);
+    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(asOf, ct), ct);
 
-    private async Task<ThingsDto?> ReadThingsAsync(CancellationToken ct)
+    private async Task<ThingsDto?> ReadThingsAsync(DateTimeOffset? asOf, CancellationToken ct)
     {
         var store = await ModelAsync(ct).ConfigureAwait(false);
-        if (Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
+        // Looking back in time only reads; bridging new monitoring in belongs to the present.
+        if (asOf is null && Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
         {
             await modelGate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -75,10 +77,15 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
             }
         }
 
-        var current = await store.LoadAsync(cancellationToken: ct).ConfigureAwait(false);
+        var current = await store.LoadAsync(asOf, cancellationToken: ct).ConfigureAwait(false);
         return new ThingsDto(
             Things.List(current).Select(ToDto).ToArray(),
-            Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray());
+            Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray(),
+            Things.LinkTypes.Select(t => new ThingKindDto(t.Id, t.Label)).ToArray(),
+            ThingsWiring.Connectors().Select(c => new ConnectorChoiceDto(c.Id, c.Label, c.Domain)).ToArray(),
+            ThingsWiring.For(current).Select(w => new ThingWiringDto(w.ThingId, w.Route, w.Verdict, w.VerdictText,
+                w.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray(),
+            asOf is null ? ThingsWiring.Missing(current).Select(m => new MissingItemDto(m.Code, m.Need, m.Explanation, m.Certainty, m.Things)).ToArray() : []);
     }
 
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);
@@ -107,7 +114,12 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         var store = await ModelAsync(ct).ConfigureAwait(false);
         try
         {
-            await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId), ct).ConfigureAwait(false);
+            await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId, edit.Lifecycle, edit.Tags, edit.Values?.Select(v => new ThingValueEdit(v.Label, v.Value, v.FromSpec)).ToArray(),
+                edit.AddLinks?.Select(l => new ThingLinkEdit(l.TypeId, l.OtherId)).ToArray(), edit.RemoveLinks,
+                edit.AddPorts?.Select(p => new ThingPortEdit(p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals, p.Level, p.Voltage, p.Polarity, p.CurrentMax, p.CurrentDraw, p.FromSpec)).ToArray(),
+                edit.RemovePorts,
+                edit.Connect?.Select(c => new ThingConnectEdit(c.PortId, c.OtherId, c.OtherPortId)).ToArray(),
+                edit.Disconnect), ThingsWiring.IsKnownConnector, ct).ConfigureAwait(false);
         }
         catch (ModelValidationException exception)
         {
@@ -144,7 +156,11 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     private static ThingDto ToDto(ThingSummary thing) => new(
         thing.Id, thing.Name, thing.KindId, thing.KindLabel, thing.Lifecycle, thing.Tags, thing.Monitored, thing.ReadingSubjects,
         thing.Facts.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
-        thing.InsideId, thing.PartIds, thing.CreatedAt, thing.SignalPrefix);
+        thing.InsideId, thing.PartIds, thing.CreatedAt, thing.SignalPrefix,
+        thing.Links?.Select(l => new ThingLinkDto(l.RelationshipId, l.TypeId, l.Phrase, l.OtherId, l.OtherName, l.Outgoing)).ToArray(),
+        thing.Ports?.Select(p => new ThingPortDto(p.PortId, p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals,
+            p.Values.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
+            p.ConnectionId, p.OtherId, p.OtherName, p.OtherPortName)).ToArray());
 
     public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
 

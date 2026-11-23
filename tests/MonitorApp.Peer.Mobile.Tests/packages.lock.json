@@ -548,6 +548,7 @@
           "MonitorApp.Peer.Control": "[1.0.0, )",
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Transport": "[1.0.0, )",
+          "MonitorApp.Planning": "[1.0.0, )",
           "QRCoder": "[1.6.0, )"
         }
       },
@@ -632,6 +633,12 @@
           "Grpc.Net.Client": "[2.85.0, )",
           "MonitorApp.Contracts": "[1.0.0, )",
           "MonitorApp.Peer.Core": "[1.0.0, )"
+        }
+      },
+      "monitorapp.planning": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Model": "[1.0.0, )"
         }
       },
       "monitorapp.update": {

@@ -94,8 +94,14 @@
                   AutomationProperties.Name="Refresh things" />
         </Grid>
 
+        <!-- Looking back in time: what the model held then; adding and editing are off. -->
+        <Border Classes="tile" IsVisible="{Binding IsHistorical}" BorderBrush="{DynamicResource Brush.Warning}">
+          <TextBlock Text="{Binding RecordedText}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Polite" />
+        </Border>
+
         <!-- Quick capture: a name, or a name and a note on the next lines. -->
-        <Border Classes="tile">
+        <Border Classes="tile" IsVisible="{Binding CanChange}">
           <StackPanel Spacing="8">
             <TextBlock Text="ADD A THING" Classes="section" />
             <TextBox Text="{Binding NewThingText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="160"
@@ -116,6 +122,31 @@
                        IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           </StackPanel>
         </Border>
+
+        <!-- What the things on record still need, worked out from their ports, connections and values (T069). -->
+        <Expander IsVisible="{Binding HasMissing}" IsExpanded="True" HorizontalAlignment="Stretch" AutomationProperties.Name="What's missing">
+          <Expander.Header>
+            <TextBlock Text="{Binding MissingTitle}" Classes="section" />
+          </Expander.Header>
+          <ItemsControl ItemsSource="{Binding Missing}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ThingMissingRow">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding Need}" FontWeight="SemiBold" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding IsProblem}" />
+                    <TextBlock Text="{Binding Need}" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding !IsProblem}" />
+                    <TextBlock Text="{Binding Explanation}" Classes="meta" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="flat" Content="Add to my list" VerticalAlignment="Top" Margin="8,0,0,0"
+                          IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}"
+                          Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).AddNeedCommand}" CommandParameter="{Binding}"
+                          AutomationProperties.Name="{Binding Need, StringFormat='Add {0} to my list'}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Expander>
 
         <Grid ColumnDefinitions="*,Auto">
           <TextBox Text="{Binding FilterText}" Watermark="Filter by name, kind or value" AutomationProperties.Name="Filter things" />
@@ -139,8 +170,54 @@
                     <StackPanel Grid.Column="1" Spacing="2">
                       <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" />
                       <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding TagsText}" Classes="meta" Foreground="{DynamicResource Brush.Planned}" TextWrapping="Wrap" IsVisible="{Binding HasTags}" />
                     </StackPanel>
                   </Grid>
+
+                  <ItemsControl ItemsSource="{Binding LinkTexts}" IsVisible="{Binding HasLinks}" AutomationProperties.Name="Links">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding}" Classes="meta" Foreground="{DynamicResource Brush.Transfer}" TextWrapping="Wrap" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <StackPanel Spacing="2" IsVisible="{Binding HasPorts}" AutomationProperties.Name="Ports">
+                    <TextBlock Text="Ports" Classes="section" />
+                    <ItemsControl ItemsSource="{Binding PortTexts}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <TextBlock Text="{Binding}" Classes="meta" TextWrapping="Wrap" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+
+                  <!-- Each connection path at this thing, followed through cables and adapters, with the engine's verdict and why. -->
+                  <ItemsControl ItemsSource="{Binding WiringRows}" IsVisible="{Binding HasWiring}" AutomationProperties.Name="Connections">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ThingWiringRow">
+                        <Border Classes="panelbox" Padding="8,6" Margin="0,2">
+                          <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding Route}" Classes="meta" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsOk}" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding IsProblem}" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Warning}" IsVisible="{Binding IsUnknown}" />
+                            <ItemsControl ItemsSource="{Binding Reasons}" IsVisible="{Binding HasReasons}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                  <TextBlock Text="{Binding}" Classes="meta" TextWrapping="Wrap" />
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
 
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
@@ -170,7 +247,7 @@
                     <Button Classes="action" Content="See it live" Margin="0,4,8,0" IsVisible="{Binding CanSeeLive}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
-                    <Button Classes="flat" Content="Edit" Margin="0,4,0,0"
+                    <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}" Margin="0,4,0,0"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                   </WrapPanel>
@@ -193,6 +270,7 @@
         </Grid>
         <StackPanel Spacing="2">
           <TextBlock Text="OPENED UP" Classes="section" />
+          <TextBlock Text="{Binding RecordedText}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" IsVisible="{Binding IsHistorical}" />
           <TextBlock Text="{Binding OpenCard.Name, FallbackValue=''}" Classes="headline" TextWrapping="Wrap" />
           <TextBlock Text="Its parts and whatever you put inside it, each with what is known about it."
                      Classes="muted" TextWrapping="Wrap" />
@@ -213,7 +291,7 @@
                     <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
                   </StackPanel>
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
-                  <Button Classes="flat" Content="Edit" HorizontalAlignment="Center"
+                  <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}" HorizontalAlignment="Center"
                           Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                           CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                 </StackPanel>
@@ -237,7 +315,7 @@
                     <Button Classes="flat" Content="See it live" Margin="0,0,8,0" IsVisible="{Binding CanSeeLive}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).SeeLiveCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='See {0} live in the Ecosystem'}" />
-                    <Button Classes="flat" Content="Edit"
+                    <Button Classes="flat" Content="Edit" IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}"
                             Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />
                   </WrapPanel>
@@ -276,9 +354,109 @@
                 <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
+            <TextBlock Text="Stage" Classes="meta" />
+            <ComboBox ItemsSource="{Binding Stages}" SelectedItem="{Binding EditStage}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="Where it is in its life">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ThingStage"><TextBlock Text="{Binding Text}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Tags" Classes="meta" />
+            <TextBox Text="{Binding EditTags}" Watermark="studio, spare, needs repair" AutomationProperties.Name="Tags, separated by commas" />
             <TextBlock Text="Note" Classes="meta" />
             <TextBox Text="{Binding EditNote}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
                      Watermark="Anything worth remembering" AutomationProperties.Name="Note" />
+            <TextBlock Text="Links" Classes="meta" />
+            <ItemsControl ItemsSource="{Binding EditLinks}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="core:ThingLinkDto">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+                      <Run Text="{Binding Phrase}" /><Run Text=" " /><Run Text="{Binding OtherName}" FontWeight="SemiBold" />
+                    </TextBlock>
+                    <Button Grid.Column="1" Classes="flat" Content="Remove"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).RemoveLinkCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding OtherName, StringFormat='Remove the link to {0}'}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="Auto,8,*">
+              <ComboBox ItemsSource="{Binding LinkTypes}" SelectedItem="{Binding NewLinkType}" MinWidth="140" AutomationProperties.Name="Kind of link">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="core:ThingKindDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox Grid.Column="2" ItemsSource="{Binding LinkTargets}" SelectedItem="{Binding NewLinkTarget}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Pick a thing to link to" AutomationProperties.Name="Thing to link to">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <TextBlock Text="Ports" Classes="meta" />
+            <ItemsControl ItemsSource="{Binding EditPorts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="core:ThingPortDto">
+                  <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
+                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+                      <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="{Binding OtherName, Mode=OneWay, StringFormat=' → {0}'}" /><Run Text="{Binding OtherPortName, Mode=OneWay, StringFormat=' {0}'}" />
+                    </TextBlock>
+                    <Button Grid.Column="1" Classes="flat" Content="Unplug" IsVisible="{Binding ConnectionId, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).UnplugPortCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Name, StringFormat='Unplug {0}'}" />
+                    <Button Grid.Column="2" Classes="flat" Content="Remove"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).RemovePortCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Name, StringFormat='Remove the port {0}'}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Add a port" Classes="meta" />
+            <TextBox Name="NewPortName" Text="{Binding NewPortName}" Watermark="Name, like DC in or Line out L" AutomationProperties.Name="Name of the new port" />
+            <ComboBox ItemsSource="{Binding Connectors}" SelectedItem="{Binding NewPortConnector}" HorizontalAlignment="Stretch"
+                      PlaceholderText="Connector" AutomationProperties.Name="Connector of the new port">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="core:ConnectorChoiceDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Grid ColumnDefinitions="*,8,*">
+              <ComboBox ItemsSource="{Binding Genders}" SelectedItem="{Binding NewPortGender}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Plug or socket" AutomationProperties.Name="Plug or socket" />
+              <ComboBox Grid.Column="2" ItemsSource="{Binding Directions}" SelectedItem="{Binding NewPortDirection}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Output or input" AutomationProperties.Name="Which way it goes" />
+            </Grid>
+            <TextBox Text="{Binding NewPortSignals}" Watermark="What it carries, like usb-3, dp-alt or analog-audio" AutomationProperties.Name="What the port carries" />
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewPortVoltage}" Watermark="Voltage, like 9 V" AutomationProperties.Name="Voltage" />
+              <TextBox Grid.Column="2" Text="{Binding NewPortPolarity}" Watermark="Polarity, like center-negative" AutomationProperties.Name="Polarity" />
+            </Grid>
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewPortCurrent}" Watermark="Current, like 500 mA" AutomationProperties.Name="Current it supplies or draws" />
+              <TextBox Grid.Column="2" Text="{Binding NewPortLevel}" Watermark="Level, like line or instrument" AutomationProperties.Name="Signal level" />
+            </Grid>
+            <CheckBox IsChecked="{Binding NewPortFromSpec}" Content="These port values come from a spec sheet" />
+            <TextBlock Text="Plug in" Classes="meta" />
+            <Grid ColumnDefinitions="*,8,*">
+              <ComboBox ItemsSource="{Binding ConnectFromChoices}" SelectedItem="{Binding ConnectFrom}" HorizontalAlignment="Stretch"
+                        PlaceholderText="This thing's port" AutomationProperties.Name="Port to plug in">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPortChoice"><TextBlock Text="{Binding Text}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox Grid.Column="2" ItemsSource="{Binding ConnectToChoices}" SelectedItem="{Binding ConnectTo}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Into" AutomationProperties.Name="Port to plug it into">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPortChoice"><TextBlock Text="{Binding Text}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <TextBlock Text="Add a value" Classes="meta" />
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewValueLabel}" Watermark="Name, like Max power" AutomationProperties.Name="Name of the value" />
+              <TextBox Grid.Column="2" Text="{Binding NewValueText}" Watermark="Value, like 5 W" AutomationProperties.Name="The value; leave empty to remove yours" />
+            </Grid>
+            <CheckBox IsChecked="{Binding NewValueFromSpec}" Content="I read this from a spec sheet or datasheet" />
             <TextBlock Text="{Binding EditError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
                        IsVisible="{Binding EditError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <WrapPanel>

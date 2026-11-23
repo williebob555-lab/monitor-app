@@ -223,7 +223,12 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             await WaitAsync(() => node.CurrentCollectionInterval == fast && node.ActiveLiveInterestCount == 1);
             var collections = await CountCollectionsAsync(node, TimeSpan.FromSeconds(4.5));
             output.WriteLine($"collections while viewed over 4.5 s: {collections}");
-            Assert.True(collections >= 3, $"Expected fast sampling while viewed, saw {collections} collections.");
+            // If this machine cannot collect in under a second, say how long one collection takes so a failure
+            // separates "the fast interval never took effect" from "collection itself is slow here".
+            var timer = Stopwatch.StartNew();
+            await node.CollectOnceAsync();
+            output.WriteLine($"one collection took {timer.ElapsedMilliseconds} ms");
+            Assert.True(collections >= 3, $"Expected fast sampling while viewed, saw {collections} collections; one collection took {timer.ElapsedMilliseconds} ms.");
             viewing.Dispose();
             await WaitAsync(() => node.CurrentCollectionInterval == normal && node.ActiveLiveInterestCount == 0);
 

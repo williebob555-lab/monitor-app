@@ -80,6 +80,33 @@ public sealed class ThingsViewTests
     }
 
     [AvaloniaFact]
+    public void ThingsFollowTheTimelineAndAreReadOnlyInThePast()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Assert.True(things.CanChange);
+
+        var earlier = DateTimeOffset.UtcNow.AddHours(-3);
+        model.Environment.GoToAsync(earlier).GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(earlier, things.AsOf);
+        Assert.Contains(earlier, source.AsOfRequests);
+        Assert.False(things.CanChange);
+        Assert.StartsWith("RECORDED", things.RecordedText, StringComparison.Ordinal);
+        things.EditCommand.Execute(things.Cards.First());
+        Assert.False(things.IsEditing);
+
+        model.Environment.ReturnToNowCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(things.AsOf);
+        Assert.True(things.CanChange);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void EditingAThingSendsOnlyWhatChangedAndOffersOnlyPlacesOutsideIt()
     {
         var source = new FakeThingsSource();
@@ -109,6 +136,109 @@ public sealed class ThingsViewTests
         var sent = Assert.Single(source.Edits);
         Assert.Equal(new ThingEditDto("thing:amp", InsideId: "thing:rack"), sent);
         Assert.False(things.IsEditing);
+
+        // Stage, tags and a value from a spec sheet travel in one edit.
+        things.EditCommand.Execute(amp);
+        things.EditStage = things.Stages.Single(s => s.Id == "Installed");
+        things.EditTags = "studio, #spare";
+        things.NewValueLabel = "Max power";
+        things.NewValueText = "5 W";
+        things.NewValueFromSpec = true;
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var second = source.Edits[1];
+        Assert.Equal("Installed", second.Lifecycle);
+        Assert.Equal(["studio", "spare"], second.Tags);
+        Assert.Equal(new ThingValueEditDto("Max power", "5 W", true), Assert.Single(second.Values!));
+        Assert.Null(second.Name);
+
+        // Links show on the card in words; in the form one is removed and another added, on Save.
+        Assert.Equal(["Connected to Router at 192.168.1.1"], amp.LinkTexts);
+        things.EditCommand.Execute(amp);
+        things.RemoveLinkCommand.Execute(things.EditLinks.Single());
+        things.NewLinkType = things.LinkTypes.Single(k => k.Id == "powered-by");
+        things.NewLinkTarget = things.LinkTargets.Single(p => p.Name == "Studio rack");
+        Assert.DoesNotContain(things.LinkTargets, p => p.Id == amp.Id);
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var third = source.Edits[2];
+        Assert.Equal(["rel:amp-router"], third.RemoveLinks);
+        Assert.Equal(new ThingLinkEditDto("powered-by", "thing:rack"), Assert.Single(third.AddLinks!));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void PortsAndConnectionsShowOnTheCardAndTheFormAddsAPortAndPlugsItIn()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var amp = things.Cards.Single(c => c.Name == "Focusrite 2i2");
+        Assert.Equal(["DC in · DC barrel 5.5/2.1 mm socket · input · 12 V · dc-fixed → Pedal power DC out 1"], amp.PortTexts);
+        var wiring = Assert.Single(amp.WiringRows);
+        Assert.Equal(("Won't work", true), (wiring.VerdictText, wiring.IsProblem));
+        Assert.Equal(["Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V."], wiring.Reasons);
+
+        // The power supply: unplug the 9 V port from the amp, add a 12 V port and plug that one into the amp instead.
+        var psu = things.Cards.Single(c => c.Name == "Pedal power");
+        things.EditCommand.Execute(psu);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["DC out 2"], things.ConnectFromChoices.Select(c => c.Text));
+        Assert.DoesNotContain(things.ConnectToChoices, c => c.Text == "Focusrite 2i2 · DC in");
+        things.UnplugPortCommand.Execute(things.EditPorts.Single(p => p.Name == "DC out 1"));
+        Assert.Contains(things.ConnectToChoices, c => c.Text == "Focusrite 2i2 · DC in");
+        things.NewPortName = "DC out 3";
+        things.NewPortConnector = things.Connectors.Single(c => c.Id == "dc-barrel-5521");
+        things.NewPortGender = "Plug";
+        things.NewPortDirection = "Output";
+        things.NewPortSignals = "dc-fixed";
+        things.NewPortVoltage = "12 V";
+        things.NewPortCurrent = "1 A";
+        things.NewPortFromSpec = true;
+        things.ConnectFrom = things.ConnectFromChoices.Single(c => c.Text == "The new port");
+        things.ConnectTo = things.ConnectToChoices.Single(c => c.Text == "Focusrite 2i2 · DC in");
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var sent = Assert.Single(source.Edits);
+        Assert.Equal(["conn:psu-amp"], sent.Disconnect);
+        var port = Assert.Single(sent.AddPorts!);
+        Assert.Equal(new ThingPortEditDto("DC out 3", "dc-barrel-5521", "Plug", "Output", null, null, "12 V", null, "1 A", null, true), port with { Signals = null });
+        Assert.Equal(["dc-fixed"], port.Signals);
+        Assert.Equal(new ThingConnectEditDto("DC out 3", "thing:amp", "port:amp-dc"), Assert.Single(sent.Connect!));
+        Assert.Null(sent.Name);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void WhatsMissingListsNeedsAndAddsOneToTheListAsARequirement()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("What's missing: 2 things", things.MissingTitle);
+        var stronger = things.Missing[0];
+        Assert.Equal(("A stronger supply than Pedal power", true, "Pedal power"), (stronger.Need, stronger.IsProblem, stronger.About));
+        Assert.False(things.Missing[1].IsProblem);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "A stronger supply than Pedal power" && t.IsEffectivelyVisible);
+
+        things.AddNeedCommand.Execute(stronger);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(("A stronger supply than Pedal power\nFocusrite 2i2 DC in draws 0.5 A, more than the 0.3 A Pedal power DC out 1 can supply.", "requirement"), Assert.Single(source.Added));
+
+        // In the past there is nothing to add, so the list is empty.
+        things.AsOf = DateTimeOffset.UtcNow.AddDays(-1);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(things.HasMissing);
         window.Close();
     }
 
@@ -130,6 +260,7 @@ public sealed class ThingsViewTests
         Shot(model, 390, 844, dir, "things-open-phone-390x844", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
         Shot(model, 1400, 900, dir, "things-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
         Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
+        Shot(model, 1400, 900, dir, "things-ports-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Pedal power")));
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -188,8 +319,11 @@ public sealed class ThingsViewTests
             ]);
         }
 
-        public Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+        public List<DateTimeOffset?> AsOfRequests { get; } = [];
+
+        public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default)
         {
+            AsOfRequests.Add(asOf);
             var laptop = "peer:" + LocalId;
             string[] subjects = ["peer:" + LocalId];
             ThingDto Part(string slot, string name, string kind, string label, string prefix, params ThingFactDto[] facts) =>
@@ -209,14 +343,35 @@ public sealed class ThingsViewTests
                 new("observed:gw", "Router at 192.168.1.1", "device.network.router", "Router", "Owned", [], true, ["lan:gw"], [], null, [], At),
                 new("thing:amp", "Focusrite 2i2", "device.audio", "Audio equipment", "Owned", [], false, [],
                     [new ThingFactDto("note.text", "Note", "Bought used. Needs a 12 V supply.", "Entered", "you", At, 0),
-                     new ThingFactDto("electrical.power.max", "Max", "5 W", "Specified", "datasheet", At, 0)], null, [], At),
+                     new ThingFactDto("electrical.power.max", "Max", "5 W", "Specified", "datasheet", At, 0)], null, [], At,
+                    Links: [new ThingLinkDto("rel:amp-router", "connects-to", "Connected to", "observed:gw", "Router at 192.168.1.1", true)],
+                    Ports: [new ThingPortDto("port:amp-dc", "DC in", "dc-barrel-5521", "Socket", "Input", ["dc-fixed"],
+                        [new ThingFactDto("electrical.voltage", "Voltage", "12 V", "Specified", "datasheet", At, 0)],
+                        "conn:psu-amp", "thing:psu", "Pedal power", "DC out 1")]),
+                new("thing:psu", "Pedal power", "device.power.supply", "Power supply", "Owned", [], false, [], [], null, [], At,
+                    Ports: [new ThingPortDto("port:psu-1", "DC out 1", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"],
+                                [new ThingFactDto("electrical.voltage", "Voltage", "9 V", "Specified", "datasheet", At, 0)], "conn:psu-amp", "thing:amp", "Focusrite 2i2", "DC in"),
+                            new ThingPortDto("port:psu-2", "DC out 2", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"], [])]),
                 new("thing:rack", "Studio rack", "assembly.rack", "Rack", "Idea", [], false, [],
                     [new ThingFactDto("mechanical.rack-units", "Rack units", "Unknown", "Unknown", "you", At, 0)], null, [], At),
             ];
-            return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")]));
+            return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")],
+                [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")],
+                [new ConnectorChoiceDto("dc-barrel-5521", "DC barrel 5.5/2.1 mm", "Power"), new ConnectorChoiceDto("usb-c", "USB Type-C", "Usb")],
+                [new ThingWiringDto("thing:amp", "Pedal power DC out 1 → Focusrite 2i2 DC in", "WillNotWork", "Won't work",
+                    [new WiringFindingDto("voltage-mismatch", "VerifiedProblem", "Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V.")])],
+                asOf is not null ? [] :
+                [new MissingItemDto("supply-too-weak", "A stronger supply than Pedal power", "Focusrite 2i2 DC in draws 0.5 A, more than the 0.3 A Pedal power DC out 1 can supply.", "VerifiedProblem", ["thing:psu"]),
+                 new MissingItemDto("input-unconnected", "Something into Focusrite 2i2 Input 1", "Focusrite 2i2 Input 1 has nothing plugged in; it takes analog-audio.", "Unknown", ["thing:amp"])]));
         }
 
-        public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;
+        public List<(string Text, string? Kind)> Added { get; } = [];
+
+        public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default)
+        {
+            Added.Add((text, kindId));
+            return Task.CompletedTask;
+        }
 
         public List<ThingEditDto> Edits { get; } = [];
 

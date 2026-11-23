@@ -1,3 +1,4 @@
+using MonitorApp.Agent.Core;
 using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -114,6 +115,11 @@ public sealed class WindowsSelfInterfaceCollector : ISelfInterfaceCollector
             var gateways = new List<SelfGateway>();
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces().OrderBy(n => n.Name, StringComparer.Ordinal))
             {
+                if (IsWindowsPlumbing(nic.NetworkInterfaceType, nic.Name, nic.Description))
+                {
+                    continue;
+                }
+
                 var medium = ClassifyWindows(nic.NetworkInterfaceType, nic.Name, nic.Description);
                 var up = nic.OperationalStatus == OperationalStatus.Up;
                 var props = nic.GetIPProperties();
@@ -137,6 +143,10 @@ public sealed class WindowsSelfInterfaceCollector : ISelfInterfaceCollector
             return SelfInterfaceSnapshot.Failed($"Network interface query failed: {ex.ErrorCode}.", now);
         }
     }
+
+    /// <summary>Driver filters, hidden Wi-Fi Direct adapters and transition tunnels are not links; see <see cref="WindowsNetworkPlumbing"/>.</summary>
+    public static bool IsWindowsPlumbing(NetworkInterfaceType type, string name, string description) =>
+        WindowsNetworkPlumbing.IsPlumbing(type, name, description);
 
     public static InterfaceMedium ClassifyWindows(NetworkInterfaceType type, string name, string description)
     {

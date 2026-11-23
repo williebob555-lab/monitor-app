@@ -132,7 +132,7 @@ public sealed class SystemSnapshotCollector : ISystemSnapshotCollector
         }
     }
 
-    private static void CollectNetwork(List<CollectedMetric> metrics, List<CollectorHealth> health)
+    private void CollectNetwork(List<CollectedMetric> metrics, List<CollectorHealth> health)
     {
         try
         {
@@ -142,7 +142,9 @@ public sealed class SystemSnapshotCollector : ISystemSnapshotCollector
             foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
-                    networkInterface.OperationalStatus != OperationalStatus.Up)
+                    networkInterface.OperationalStatus != OperationalStatus.Up ||
+                    (platform == Platform.Windows && WindowsNetworkPlumbing.IsPlumbing(
+                        networkInterface.NetworkInterfaceType, networkInterface.Name, networkInterface.Description)))
                 {
                     continue;
                 }
