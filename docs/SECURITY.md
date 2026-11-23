@@ -105,6 +105,8 @@ Actual inventory and running state are security-relevant facts. Design scenarios
 
 The T301 planning evaluator is an offline decision-support component. Its compatibility and constraint findings depend on declared evidence, preserve unknowns, and never authorize energizing equipment or modifying a peer. The accompanying browser prototype is illustrative and is not an authoritative safety validator.
 
+Standalone T301 plan files are local user data, not replicated peer records. Imports are bounded and strict; unsupported versions, malformed structure, checksum changes, and missing explicit migrations fail closed. The checksum detects corruption but provides no authenticity or secrecy. Protect the containing directory with ordinary account permissions, do not put credentials in plan notes or source URLs, and treat imported labels, URLs, and descriptions as untrusted when a client eventually renders them.
+
 Cable records may expose work locations, equipment relationships, custody, and operational topology. Apply local access control, minimize exports, and keep optional labels free of secrets. The primary cable workflow uses manual templates and does not require QR codes or dedicated scanning hardware.
 
 ## External sourcing and notification egress

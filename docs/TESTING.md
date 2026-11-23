@@ -262,7 +262,7 @@ Standalone design-planning tests:
 dotnet test tests/MonitorApp.Planning.Tests/MonitorApp.Planning.Tests.csproj -c Release --no-restore
 ```
 
-These unit tests exercise multi-standard rack and nested-subrack placement, panel projection, pedalboard clearances, evidence-aware physical findings, audio/MIDI/CV and pedal-power compatibility, connector/protocol/power/adapter checks, task dependencies, and project/product/offer separation. They do not verify installed hardware, authoritative inventory persistence, or client integration.
+These unit tests exercise multi-standard rack and nested-subrack placement, panel projection, pedalboard clearances, evidence-aware physical findings, audio/MIDI/CV and pedal-power compatibility, connector/protocol/power/adapter checks, task dependencies, project/product/offer separation, strict and bounded project JSON, registered migration, checksums, atomic immutable revision files, stale/concurrent writers, corruption isolation, rack/audio round trips, and semantic revision comparison. They do not verify installed hardware, authoritative inventory persistence, multi-process behavior on every supported filesystem, or client integration.
 
 Combined current unit and contract tests:
 

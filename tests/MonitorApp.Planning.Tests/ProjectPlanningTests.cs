@@ -98,4 +98,18 @@ public sealed class ProjectPlanningTests
         var matching = plan with { RackPlan = rack with { ScenarioId = plan.ScenarioId, Revision = plan.Revision } };
         Assert.DoesNotContain(ProjectScenarioEvaluator.Evaluate(matching).Findings, x => x.Code == "rack-revision-mismatch");
     }
+
+    [Fact]
+    public void AudioPlanCannotLeakIntoAnotherScenarioRevision()
+    {
+        var audio = new MonitorApp.Planning.Audio.AudioPlan("other-scenario", 1, [], [], [], [], [], [], []);
+        var plan = Scenario() with { AudioPlan = audio };
+        Assert.Contains(ProjectScenarioEvaluator.Evaluate(plan).Findings, x => x.Code == "audio-revision-mismatch");
+        var matching = plan with
+        {
+            AudioPlan = audio with { ScenarioId = plan.ScenarioId, Revision = plan.Revision }
+        };
+        Assert.DoesNotContain(ProjectScenarioEvaluator.Evaluate(matching).Findings,
+            x => x.Code == "audio-revision-mismatch");
+    }
 }

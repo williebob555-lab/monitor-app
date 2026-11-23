@@ -1,3 +1,4 @@
+using MonitorApp.Planning.Audio;
 using MonitorApp.Planning.Racks;
 
 namespace MonitorApp.Planning.Projects;
@@ -53,7 +54,8 @@ public sealed record ProjectScenario(
     IReadOnlyList<PlanPart> Parts,
     IReadOnlyList<PlanTask> Tasks,
     IReadOnlyList<PlanOfferSnapshot> Offers,
-    RackLayout? RackPlan = null);
+    RackLayout? RackPlan = null,
+    AudioPlan? AudioPlan = null);
 
 public enum ProjectFindingSeverity { Error = 1, Warning = 2, Unresolved = 3 }
 public sealed record ProjectFinding(string Code, ProjectFindingSeverity Severity, string? ObjectId, string Description);
@@ -77,12 +79,13 @@ public sealed record ProjectEvaluation(
     IReadOnlyList<ProjectFinding> Findings,
     IReadOnlyList<ProjectCostGroup> Costs,
     IReadOnlyList<string> ReadyTaskIds,
-    RackLayoutEvaluation? RackEvaluation)
+    RackLayoutEvaluation? RackEvaluation,
+    AudioEvaluation? AudioEvaluation)
 {
     public bool HasErrors => Findings.Any(x => x.Severity == ProjectFindingSeverity.Error) ||
-                             RackEvaluation?.HasErrors == true;
+                             RackEvaluation?.HasErrors == true || AudioEvaluation?.HasErrors == true;
     public bool HasUnresolved => Findings.Any(x => x.Severity == ProjectFindingSeverity.Unresolved) ||
-                                 RackEvaluation?.HasUnknowns == true;
+                                 RackEvaluation?.HasUnknowns == true || AudioEvaluation?.HasUnknowns == true;
 }
 
 public static class ProjectScenarioEvaluator
@@ -186,7 +189,17 @@ public static class ProjectScenarioEvaluator
                 rack = RackLayoutValidator.Evaluate(plan.RackPlan);
         }
 
-        return new ProjectEvaluation(plan.ProjectId, plan.ScenarioId, plan.Revision, issues, costs, ready, rack);
+        AudioEvaluation? audio = null;
+        if (plan.AudioPlan is not null)
+        {
+            if (plan.AudioPlan.ScenarioId != plan.ScenarioId || plan.AudioPlan.Revision != plan.Revision)
+                Issue("audio-revision-mismatch", ProjectFindingSeverity.Error, null,
+                    "Audio layout must belong to this exact design scenario revision.");
+            else
+                audio = AudioPlanEvaluator.Evaluate(plan.AudioPlan);
+        }
+
+        return new ProjectEvaluation(plan.ProjectId, plan.ScenarioId, plan.Revision, issues, costs, ready, rack, audio);
 
         Dictionary<string, T> Index<T>(IEnumerable<T> sequence, Func<T, string> key, string error)
         {
