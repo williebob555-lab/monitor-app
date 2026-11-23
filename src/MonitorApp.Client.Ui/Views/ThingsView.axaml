@@ -22,6 +22,23 @@
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
+    <Style Selector="Expander.group">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0,4,0,0" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Expander.group /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0,4" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Expander.group /template/ Border#ExpanderContent">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0,2,0,0" />
+    </Style>
     <Style Selector="TextBlock.badgetext">
       <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
     </Style>
@@ -49,6 +66,16 @@
                      Foreground="{Binding BadgeBrushKey, Converter={x:Static ctl:ShellIcons.BrushByKey}}" />
         </Border>
       </Grid>
+    </DataTemplate>
+    <!-- A heading of values ("NETWORK · 7"); big groups on a busy computer start folded so the card stays short. -->
+    <DataTemplate DataType="vm:ThingValueGroup">
+      <Expander Classes="group" IsExpanded="{Binding StartsOpen, Mode=OneTime}" HorizontalAlignment="Stretch" Margin="0,2"
+                AutomationProperties.Name="{Binding Header}">
+        <Expander.Header>
+          <TextBlock Text="{Binding Header}" Classes="section" />
+        </Expander.Header>
+        <ItemsControl ItemsSource="{Binding Values}" />
+      </Expander>
     </DataTemplate>
   </UserControl.DataTemplates>
 
@@ -115,7 +142,7 @@
                     </StackPanel>
                   </Grid>
 
-                  <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
+                  <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
 
                   <StackPanel Spacing="4" IsVisible="{Binding HasParts}">
@@ -185,7 +212,7 @@
                     <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" HorizontalAlignment="Center" TextAlignment="Center" />
                     <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
                   </StackPanel>
-                  <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
+                  <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <Button Classes="flat" Content="Edit" HorizontalAlignment="Center"
                           Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).EditCommand}"
                           CommandParameter="{Binding}" AutomationProperties.Name="{Binding Name, StringFormat='Edit {0}'}" />

@@ -34,6 +34,8 @@ Done items stay listed so progress is visible.
 | 7 | **Open the machine**: an exploded view of a computer from the model (board, processor, memory, drives, network, battery), each part with its live reading | L | Tap a computer and it opens into its parts | Done, 0.1.16 |
 | 8 | Lens shell (T070): one selection shared by every view, so switching lens keeps the thing you picked | M | Select a thing and switch between system, physical and inventory without losing it | Done, 0.1.17 (Things and the live view open each other; more lenses join as they arrive) |
 | 8a | **The map is back**: the node-and-connection graph of the ecosystem as a "Map" switch beside the Dive; select a device to dive in or open it up in Things | S | A Map button in the Ecosystem toolbar | Done, 0.1.17 |
+| 8b | **Menu lag fix** (high priority): phone reads off the screen thread, the shared model cached between changes, Things keeps unchanged cards | S | Menus respond at once again | Done, 0.1.17 |
+| 8c | **Readings by category**: a computer's readings under System, Network, Power headings, big groups folded | S | Short cards instead of one long list | Done, 0.1.17 (Things) |
 | 9 | Connection engine (T064, T066, T067): ports, cables and adapters, with chain checks such as USB-C alt mode, audio level mismatch and DC polarity | L | Explanations of why a connection will or won't work, with evidence levels | Queued (ChatGPT's queue) |
 | 10 | "What's missing" (T069): unconnected inputs, missing cables, power shortfalls | M | A list of what a build still needs | Queued |
 | 11 | Physical layouts: racks, pedalboards and desks that look real, with drag to place | L | A rack or pedalboard view of real equipment | Queued |

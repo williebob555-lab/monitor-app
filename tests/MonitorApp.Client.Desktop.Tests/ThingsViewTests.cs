@@ -28,6 +28,11 @@ public sealed class ThingsViewTests
         var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
         Assert.True(laptop.CanOpen);
         Assert.DoesNotContain(laptop.Values, v => v.Label == "Memory total");
+        // A busy computer's readings come under headings, and a big heading starts folded instead of one long list.
+        var network = Assert.Single(laptop.Groups, g => g.Title == "Network");
+        Assert.False(network.StartsOpen);
+        Assert.Contains(network.Values, v => v.Label == "Data sent (total)");
+        Assert.True(things.Cards.Single(c => c.Name == "Focusrite 2i2").Groups.Single().StartsOpen);
         Assert.Contains(laptop.Parts, p => p.Name == "Memory" && p.Values.Any(v => v.Label == "Memory total" && v.Badge == "measured · live"));
 
         things.OpenCommand.Execute(laptop);
@@ -174,6 +179,12 @@ public sealed class ThingsViewTests
                 (SignalIds.BatteryLevel, 0.83, "Ratio"),
                 ("lan.link.wlan0.speed_mbps", 866, "Count"),
                 (SignalIds.NetworkBytesReceived, 48.2e9, "Bytes"),
+                (SignalIds.NetworkBytesSent, 9.7e9, "Bytes"),
+                (SignalIds.NetworkConnected, 1, "Flag"),
+                (SignalIds.NetworkVpn, 1, "Flag"),
+                ("lan.link.eth0.speed_mbps", 1000, "Count"),
+                ("lan.link.eth1.speed_mbps", 2500, "Count"),
+                ("lan.link.docker0.speed_mbps", 10000, "Count"),
             ]);
         }
 

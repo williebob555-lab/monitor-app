@@ -7,7 +7,8 @@ namespace MonitorApp.Client.Core.ViewModels;
 
 /// <summary>One value on a card, with how it is known ("Measured", "Entered", ...) and where it came from.</summary>
 /// <param name="IsLive">A live reading from monitoring rather than a stored value.</param>
-public sealed record ThingValueRow(string Label, string Value, string Evidence, string SourceText, bool IsLive)
+/// <param name="Category">The heading the value is listed under: "About" for what is known about the thing, otherwise the kind of reading ("System", "Network", "Power").</param>
+public sealed record ThingValueRow(string Label, string Value, string Evidence, string SourceText, bool IsLive, string Category = ThingValueGroup.About)
 {
     /// <summary>The short badge text: "measured", "spec", "entered", "estimated", "imported" or "unknown".</summary>
     public string Badge => Evidence switch
@@ -28,6 +29,48 @@ public sealed record ThingValueRow(string Label, string Value, string Evidence, 
         "Entered" => "Brush.Planned",
         "Estimated" => "Brush.Warning",
         _ => "Brush.Muted",
+    };
+}
+
+/// <summary>
+/// One heading of a thing's values ("System · 4"). A computer can report dozens of readings; grouping them keeps the card short,
+/// and big groups start folded.
+/// </summary>
+public sealed record ThingValueGroup(string Title, IReadOnlyList<ThingValueRow> Values, bool StartsOpen)
+{
+    public const string About = "About";
+    public const string System = "System";
+    public const string Network = "Network";
+    public const string Power = "Power";
+    public const string Monitoring = "Monitoring";
+    public const string Other = "Other readings";
+
+    /// <summary>Groups larger than this start folded when the thing has many values.</summary>
+    public const int FoldAbove = 4;
+
+    private static readonly string[] Order = [About, System, Network, Power, Other, Monitoring];
+
+    public string Header => $"{Title.ToUpperInvariant()} · {Values.Count}";
+
+    public static IReadOnlyList<ThingValueGroup> Of(IReadOnlyList<ThingValueRow> values)
+    {
+        var many = values.Count > 6;
+        return values
+            .GroupBy(v => v.Category, StringComparer.Ordinal)
+            .OrderBy(g => Array.IndexOf(Order, g.Key) is var i && i < 0 ? Order.Length : i)
+            .Select(g => g.ToArray())
+            .Select(g => new ThingValueGroup(g[0].Category, g, g[0].Category == About || !many || g.Length <= FoldAbove))
+            .ToArray();
+    }
+
+    /// <summary>The heading for a live reading, from what the signal measures.</summary>
+    public static string ForReading(SceneLayerKind kind) => kind switch
+    {
+        SceneLayerKind.Compute or SceneLayerKind.Memory or SceneLayerKind.Storage => System,
+        SceneLayerKind.Network or SceneLayerKind.Connectivity => Network,
+        SceneLayerKind.Power => Power,
+        SceneLayerKind.Collection => Monitoring,
+        _ => Other,
     };
 }
 
@@ -67,6 +110,9 @@ public sealed record ThingCard(
     public bool CanSeeLive => LiveNodeId is not null;
 
     public bool HasValues => Values.Count > 0;
+
+    /// <summary>The values under their headings (About, System, Network, Power, ...).</summary>
+    public IReadOnlyList<ThingValueGroup> Groups => ThingValueGroup.Of(Values);
 
     public bool HasParts => Parts.Count > 0;
 
@@ -476,7 +522,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
 
                 var source = point.Freshness == "Stale" ? "monitoring, not recent" : "monitoring";
-                yield return new ThingValueRow(reading.Label, reading.DisplayValue, "Measured", source, IsLive: true);
+                yield return new ThingValueRow(reading.Label, reading.DisplayValue, "Measured", source, IsLive: true,
+                    ThingValueGroup.ForReading(SignalCatalog.Describe(point.SignalId).Kind));
             }
         }
     }
