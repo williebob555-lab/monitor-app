@@ -200,8 +200,9 @@ public sealed class LocalApiHostTests : IDisposable
 
         Assert.Contains("<h1>Monitor App local administration</h1>", page, StringComparison.Ordinal);
         Assert.Contains("<button type=\"submit\">", page, StringComparison.Ordinal);
-        Assert.Contains("Implemented now", page, StringComparison.Ordinal);
-        Assert.Contains("Planned", page, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"#phone\">Add a phone</a>", page, StringComparison.Ordinal);
+        Assert.True(page.IndexOf("id=\"phone\"", StringComparison.Ordinal) < page.IndexOf("id=\"alerts\"", StringComparison.Ordinal),
+            "Add a phone comes before alerts.");
         Assert.DoesNotContain(Fixture.KeyProviderSecret, combined, StringComparison.Ordinal);
         Assert.DoesNotContain(Fixture.AdapterCredentialSecret, combined, StringComparison.Ordinal);
         Assert.DoesNotContain(Convert.ToBase64String(fixture.LocalIdentity.PublicKeySpki), combined, StringComparison.Ordinal);

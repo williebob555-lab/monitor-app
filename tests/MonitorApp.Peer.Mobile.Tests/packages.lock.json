@@ -557,7 +557,8 @@
           "MonitorApp.Peer.Persistence": "[1.0.0, )",
           "MonitorApp.Peer.Replication": "[1.0.0, )",
           "MonitorApp.Peer.Sync": "[1.0.0, )",
-          "MonitorApp.Peer.Transport": "[1.0.0, )"
+          "MonitorApp.Peer.Transport": "[1.0.0, )",
+          "MonitorApp.Update": "[1.0.0, )"
         }
       },
       "monitorapp.peer.node": {

@@ -1,3 +1,4 @@
+using System.Reflection;
 using Android.Content;
 using MonitorApp.Peer.Mobile;
 
@@ -11,6 +12,51 @@ internal static class MobileRuntimeHost
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static MobilePeerRuntime? runtime;
+    private static readonly object UpdaterLock = new();
+    private static MobileUpdater? updater;
+    private static CancellationTokenSource? updaterLoop;
+
+    /// <summary>
+    /// The phone's updater, one per process, checking at start and then hourly while the process lives. Disabled (and saying
+    /// why) when the APK carries no packaged update key, which only release builds have.
+    /// </summary>
+    public static MobileUpdater GetUpdater(Context context)
+    {
+        lock (UpdaterLock)
+        {
+            if (updater is not null)
+            {
+                return updater;
+            }
+
+            var appContext = context.ApplicationContext ?? context;
+            MobileUpdateTrust? trust = null;
+            try
+            {
+                using var asset = appContext.Assets!.Open("update-key.json");
+                using var buffer = new MemoryStream();
+                asset.CopyTo(buffer);
+                trust = MobileUpdateTrust.TryParse(buffer.ToArray());
+            }
+            catch (Java.IO.IOException)
+            {
+                // Development builds ship no update key; the updater reports itself disabled.
+            }
+
+            // The release build stamps the release version into the assembly (-p:Version), the same version the APK displays.
+            var versionText = typeof(MobileRuntimeHost).Assembly
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? string.Empty;
+            var installed = MonitorApp.Update.ReleaseVersion.TryParse(versionText.Split('-', '+')[0], out var parsed)
+                ? parsed
+                : new MonitorApp.Update.ReleaseVersion(0, 0, 0);
+            updater = new MobileUpdater(
+                Path.Combine(appContext.FilesDir!.AbsolutePath, "update"), installed, trust, new AndroidApkInstaller(appContext));
+            updaterLoop = new CancellationTokenSource();
+            var loop = updaterLoop.Token;
+            _ = Task.Run(() => updater.RunAsync(null, loop), loop);
+            return updater;
+        }
+    }
 
     public static async Task<MobilePeerRuntime> GetAsync(Context context)
     {

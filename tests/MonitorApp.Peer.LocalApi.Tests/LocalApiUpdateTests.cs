@@ -35,6 +35,30 @@ public sealed class LocalApiUpdateTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckNowNeedsAntiforgeryTokenAndReturnsTheStatus()
+    {
+        var controller = new FakeController(pending: false);
+        await using var fixture = await LocalApiHostTests.Fixture.CreateAsync(directory, updates: controller);
+
+        using var noToken = new HttpRequestMessage(HttpMethod.Post, "api/v1/update/check") { Content = JsonContent.Create(new { }) };
+        using var rejected = await fixture.Client.SendAsync(noToken);
+        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        Assert.Equal(0, controller.Checks);
+
+        var csrf = await fixture.GetCsrfTokenAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/update/check") { Content = JsonContent.Create(new { }) };
+        request.Headers.Add("X-CSRF-TOKEN", csrf);
+        using var accepted = await fixture.Client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.Equal(1, controller.Checks);
+        Assert.Equal(0, controller.Approvals);
+
+        var page = await fixture.Client.GetStringAsync("/");
+        Assert.Contains("Check for updates now", page, StringComparison.Ordinal);
+        Assert.Contains("Installed version <strong>0.1.1</strong>", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ApproveWithNothingStagedIsAConflictAndMissingControllerIsNotFound()
     {
         await using (var fixture = await LocalApiHostTests.Fixture.CreateAsync(directory, updates: new FakeController(pending: false)))
@@ -65,6 +89,14 @@ public sealed class LocalApiUpdateTests : IDisposable
     private sealed class FakeController(bool pending) : ILocalUpdateController
     {
         public int Approvals { get; private set; }
+
+        public int Checks { get; private set; }
+
+        public Task CheckNowAsync(CancellationToken cancellationToken)
+        {
+            Checks++;
+            return Task.CompletedTask;
+        }
 
         public LocalUpdateStatus GetStatus() =>
             new("approve", "0.1.1", pending ? "Staged" : "Idle", pending ? "0.1.2" : null, null, null, null, pending);

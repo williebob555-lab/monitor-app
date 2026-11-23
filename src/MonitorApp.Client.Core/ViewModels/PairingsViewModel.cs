@@ -7,6 +7,16 @@ namespace MonitorApp.Client.Core.ViewModels;
 /// <summary>Pending pairing decisions and trust revocation. Revocation needs an explicit second step.</summary>
 public sealed partial class PairingsViewModel : SectionViewModel
 {
+    /// <summary>
+    /// On a computer (connected to its own node's loopback admin API) the phone QR code lives on the node's admin page; the view
+    /// offers a button that opens it at the Add a phone section. Null when not connected to a loopback node.
+    /// </summary>
+    public Uri? PhonePairingPage => Client is LocalApiClient local && local.Address.IsLoopback
+        ? new Uri(local.Address, "/#phone")
+        : null;
+
+    public bool CanShowPhonePairing => PhonePairingPage is not null;
+
     [ObservableProperty]
     private TrustedPeerRow? pendingRevocation;
 

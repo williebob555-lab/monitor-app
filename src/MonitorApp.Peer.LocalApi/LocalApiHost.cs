@@ -572,6 +572,25 @@ public sealed class LocalApiHost : IAsyncDisposable
             context.RequestServices.GetService<ILocalUpdateController>() is { } updates
                 ? Results.Json(updates.GetStatus())
                 : Results.NotFound());
+        application.MapPost("/api/v1/update/check", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<ILocalUpdateController>() is not { } updates)
+            {
+                return Results.NotFound();
+            }
+
+            // Checking only downloads and verifies; installing still needs approval, so no presence check is needed here.
+            await updates.CheckNowAsync(token).ConfigureAwait(false);
+            return Results.Json(updates.GetStatus());
+        });
         application.MapPost("/api/v1/update/approve", async (
             HttpContext context,
             IAntiforgery antiforgery,
@@ -1221,10 +1240,12 @@ public sealed class LocalApiHost : IAsyncDisposable
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Monitor App local administration</title><style nonce="{{nonce}}">
             body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus,input:focus,select:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef;color:#111}.scroll{overflow-x:auto}.sr{position:absolute;left:-10000px}fieldset{border:1px solid #777}.err{font-weight:bold}td input[type=number]{width:7rem}
-            </style></head><body><header><h1>Monitor App local administration</h1><p class="status"><strong>Implemented now:</strong> local identity, peer trust, pairing decisions, current state, bounded history, and as-of reconstruction. <strong>Planned:</strong> the full experience, collectors, platform packages, and authenticated remote browser access.</p></header>
+            </style></head><body><header><h1>Monitor App local administration</h1><nav aria-label="On this page"><a href="#updates">Updates</a> · <a href="#phone">Add a phone</a> · <a href="#pairings">Pending pairings</a> · <a href="#alerts">Alerts</a> · <a href="#peers">Trusted devices</a></nav></header>
             <main data-csrf="{{encode(csrf)}}"><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
-            <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{{pairingRows}}</tbody></table></section>
+            {{LocalApiAdminSections.Updates(context.RequestServices, clock.UtcNow.ToUniversalTime(), HtmlEncoder.Default)}}
             {{phonePairing.RenderSection(csrf, HtmlEncoder.Default)}}
+            <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2>{{(pairings.Count == 0 ? "<p>No devices are waiting for approval.</p>" : $"<table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{pairingRows}</tbody></table>")}}</section>
+            {{adminSections}}
             <section aria-labelledby="invite"><h2 id="invite">Invite a fresh peer</h2><p>Enter the identity shown by the other peer. Invitation transport must be configured by the running node.</p>
             <form method="post" action="/api/invitations"><input type="hidden" name="__RequestVerificationToken" value="{{encode(csrf)}}">
             <p><label for="expectedPeerId">Expected peer id</label><br><input id="expectedPeerId" name="expectedPeerId" required maxlength="256"></p>
@@ -1234,7 +1255,6 @@ public sealed class LocalApiHost : IAsyncDisposable
             <p><label for="securityPolicy">Declared security policy</label><br><select id="securityPolicy" name="securityPolicy"><option value="LoopbackPrototype">Loopback prototype</option><option value="AuthenticatedPrivateTransport">Authenticated private transport</option></select></p>
             <button type="submit">Dispatch invitation</button></form><p role="status"><strong>Last result:</strong> {{invitationResult}}</p></section>
             <section aria-labelledby="peers"><h2 id="peers">Trusted and revoked peers</h2><table><thead><tr><th>Peer</th><th>Fingerprint</th><th>Trust</th><th>Action</th></tr></thead><tbody>{{peerRows}}</tbody></table></section>
-            {{adminSections}}
             {{LocalApiClientPage.Sections}}
             <section aria-labelledby="observations"><h2 id="observations">Raw record query</h2><p>Use the JSON endpoints for scripted access: <code>/api/v1/history?from=...&amp;to=...</code>, <code>/api/v1/state?asOf=...</code>, <code>/api/v1/catalog</code>, or page raw records with <code>/api/observations?originPeerId=...&amp;originStreamId=...</code>. Results identify origin, collection source, source time, received time, provenance, and quality.</p></section></main><script nonce="{{nonce}}">{{LocalApiClientPage.Script}}</script><script nonce="{{nonce}}">{{LocalApiAdminSections.Script}}</script></body></html>
             """;

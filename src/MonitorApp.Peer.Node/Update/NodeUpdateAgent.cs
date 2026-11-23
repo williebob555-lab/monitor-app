@@ -157,6 +157,22 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
 
     public Task<bool> ApproveAsync(CancellationToken cancellationToken) => ApproveCoreAsync(null, null, "local-api");
 
+    /// <summary>Minimum spacing between checks the person asks for, so repeated presses cannot exhaust the release API's rate limit.</summary>
+    public static readonly TimeSpan ManualCheckSpacing = TimeSpan.FromSeconds(30);
+
+    public async Task CheckNowAsync(CancellationToken cancellationToken)
+    {
+        lock (_statusLock)
+        {
+            if (_lastChecked is { } last && _time.GetUtcNow() - last < ManualCheckSpacing)
+            {
+                return;
+            }
+        }
+
+        await RunCycleAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Approval bound to the exact staged version and artifact digest; the check and the start of the apply are atomic.</summary>
     public Task<bool> ApproveAsync(string version, string digestHex, CancellationToken cancellationToken) =>
         ApproveCoreAsync(version, digestHex, "remote-control");

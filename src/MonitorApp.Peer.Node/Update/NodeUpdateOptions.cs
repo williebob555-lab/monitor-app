@@ -45,7 +45,7 @@ public sealed record NodeUpdateTrust(string KeyId, byte[] PublicKeySpki, string 
 /// <summary>
 /// Update-agent configuration. Environment variables (the packaged unit loads /etc/monitor-app/node.conf):
 /// MONITOR_APP_UPDATE_POLICY=approve|auto (default approve), MONITOR_APP_UPDATE_REPO=owner/repo,
-/// MONITOR_APP_UPDATE_KEY_FILE, MONITOR_APP_UPDATE_API_URL (HTTPS), MONITOR_APP_UPDATE_INTERVAL_HOURS (default 6),
+/// MONITOR_APP_UPDATE_KEY_FILE, MONITOR_APP_UPDATE_API_URL (HTTPS), MONITOR_APP_UPDATE_INTERVAL_HOURS (default 1),
 /// MONITOR_APP_UPDATE_CHANNEL (default preview), MONITOR_APP_UPDATE_PACKAGE=auto|deb|rpm|zip,
 /// MONITOR_APP_INSTALL_ROOT (Windows versioned install root).
 /// </summary>
@@ -117,7 +117,7 @@ public sealed record NodeUpdateOptions(
             throw new ArgumentException("MONITOR_APP_UPDATE_API_URL must use HTTPS.");
         }
 
-        if (!double.TryParse(Get("MONITOR_APP_UPDATE_INTERVAL_HOURS") ?? "6", NumberStyles.Float, CultureInfo.InvariantCulture, out var hours)
+        if (!double.TryParse(Get("MONITOR_APP_UPDATE_INTERVAL_HOURS") ?? "1", NumberStyles.Float, CultureInfo.InvariantCulture, out var hours)
             || hours is < 0.01 or > 24 * 30)
         {
             throw new ArgumentException("MONITOR_APP_UPDATE_INTERVAL_HOURS is out of range.");

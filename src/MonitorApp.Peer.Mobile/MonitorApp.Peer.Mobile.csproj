@@ -15,5 +15,6 @@
     <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Sync\MonitorApp.Peer.Sync.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Transport\MonitorApp.Peer.Transport.csproj" />
+    <ProjectReference Include="..\MonitorApp.Update\MonitorApp.Update.csproj" />
   </ItemGroup>
 </Project>

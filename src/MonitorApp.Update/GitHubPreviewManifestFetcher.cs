@@ -1,7 +1,6 @@
 using System.Text.Json;
-using MonitorApp.Update;
 
-namespace MonitorApp.Peer.Node.Update;
+namespace MonitorApp.Update;
 
 /// <summary>
 /// Finds the newest non-draft preview pre-release of a repository through the GitHub REST API and downloads its
