@@ -108,6 +108,17 @@ public sealed record ThingWiringRow(string Route, string VerdictText, string Ton
     public bool HasReasons => Reasons.Count > 0;
 }
 
+/// <summary>
+/// Something a setup still needs, as the "What's missing" list shows it. <see cref="Tone"/> is "problem" when values show
+/// it is needed, "unknown" when the app only sees a gap. <see cref="About"/> names the things involved.
+/// </summary>
+public sealed record ThingMissingRow(string Need, string Explanation, string Tone, string About)
+{
+    public bool IsProblem => Tone == "problem";
+
+    public bool HasAbout => About.Length > 0;
+}
+
 /// <summary>A port a connection can start from or go to; <see cref="ThingId"/> is null for this thing's own ports.</summary>
 public sealed class ThingPortChoice(string? ThingId, string PortId, string Text)
 {
@@ -379,6 +390,13 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     public ObservableCollection<ThingCard> Cards { get; } = [];
 
+    /// <summary>What the things on record still need (T069): power, cables, adapters, more current. Empty in the past.</summary>
+    public ObservableCollection<ThingMissingRow> Missing { get; } = [];
+
+    public bool HasMissing => Missing.Count > 0;
+
+    public string MissingTitle => Missing.Count == 1 ? "What's missing: 1 thing" : $"What's missing: {Missing.Count} things";
+
     public ObservableCollection<ThingKindDto> Kinds { get; } = [];
 
     public bool HasCards => Cards.Count > 0;
@@ -455,6 +473,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             }
 
             all = Build(things.Things, readings, wiring, Connectors);
+            SyncMissing(things.Missing ?? []);
             SyncKinds(things.Kinds);
             if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
             {
@@ -851,6 +870,52 @@ public sealed partial class ThingsViewModel : SectionViewModel
         NewThingText = string.Empty;
         StatusMessage = $"Added {FirstLine(text)}.";
         await RefreshAsync();
+    }
+
+    /// <summary>Keeps the note for a need: it becomes a requirement on the person's list, and stops being suggested.</summary>
+    [RelayCommand]
+    private async Task AddNeedAsync(ThingMissingRow? row)
+    {
+        if (row is null || Source is not { } source || !CanChange)
+        {
+            return;
+        }
+
+        try
+        {
+            await source.AddThingAsync($"{row.Need}\n{row.Explanation}", "requirement");
+        }
+        catch (Exception exception) when (exception is ApiValidationException or LocalApiException)
+        {
+            StatusMessage = exception.Message;
+            return;
+        }
+
+        StatusMessage = $"Added \"{row.Need}\" to your list.";
+        await RefreshAsync();
+    }
+
+    private void SyncMissing(IReadOnlyList<MissingItemDto> items)
+    {
+        var rows = items.Select(m => new ThingMissingRow(
+                m.Need,
+                m.Explanation,
+                m.Certainty is "VerifiedProblem" or "LikelyProblem" ? "problem" : "unknown",
+                string.Join(", ", m.Things.Select(id => things.TryGetValue(id, out var t) ? t.Name : null).OfType<string>())))
+            .ToArray();
+        if (rows.SequenceEqual(Missing))
+        {
+            return;
+        }
+
+        Missing.Clear();
+        foreach (var row in rows)
+        {
+            Missing.Add(row);
+        }
+
+        OnPropertyChanged(nameof(HasMissing));
+        OnPropertyChanged(nameof(MissingTitle));
     }
 
     /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>

@@ -79,7 +79,7 @@ public static class Things
     /// <summary>Kinds offered when adding a thing; anything else can be set later.</summary>
     public static IReadOnlyList<string> CaptureKinds { get; } =
     [
-        "thing", "note", "device.computer", "device.phone", "device.network", "device.audio", "device.power", "part", "cable", "adapter", "software", "project",
+        "thing", "note", "device.computer", "device.phone", "device.network", "device.audio", "device.power", "part", "cable", "adapter", "software", "project", "requirement",
     ];
 
     public static IReadOnlyList<ThingKindChoice> KindChoices(ModelLibrary library)
@@ -153,7 +153,7 @@ public static class Things
         }
 
         var id = "thing:" + Guid.NewGuid().ToString("N");
-        var lifecycle = kind is "note" or "project" ? Lifecycle.Idea : Lifecycle.Owned;
+        var lifecycle = kind is "note" or "project" or "requirement" ? Lifecycle.Idea : Lifecycle.Owned;
         var changes = new List<ModelChange> { new ObjectCreated(id, name, kind, lifecycle) };
         if (note is not null)
         {

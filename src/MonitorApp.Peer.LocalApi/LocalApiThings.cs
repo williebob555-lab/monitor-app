@@ -10,7 +10,7 @@ namespace MonitorApp.Peer.LocalApi;
 /// <summary>Everything the Things screen shows, plus the kinds a person can pick when adding one.</summary>
 public sealed record ThingsResponse(
     IReadOnlyList<ThingSummary> Things, IReadOnlyList<ThingKindChoice> Kinds, IReadOnlyList<ThingLinkType>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoice>? Connectors = null, IReadOnlyList<ThingWiring>? Wiring = null);
+    IReadOnlyList<ConnectorChoice>? Connectors = null, IReadOnlyList<ThingWiring>? Wiring = null, IReadOnlyList<MissingNeed>? Missing = null);
 
 internal sealed record ThingCaptureRequest(string? Text, string? KindId);
 
@@ -50,7 +50,8 @@ internal static class LocalApiThings
 
             var model = await store.LoadAsync(at, cancellationToken: token).ConfigureAwait(false);
             return Results.Json(new ThingsResponse(
-                Things.List(model), Things.KindChoices(store.Library), Things.LinkTypes, ThingsWiring.Connectors(), ThingsWiring.For(model)));
+                Things.List(model), Things.KindChoices(store.Library), Things.LinkTypes, ThingsWiring.Connectors(), ThingsWiring.For(model),
+                at is null ? ThingsWiring.Missing(model) : []));
         });
 
         application.MapPost("/api/v1/things", async (HttpContext context, IAntiforgery antiforgery, CancellationToken token) =>

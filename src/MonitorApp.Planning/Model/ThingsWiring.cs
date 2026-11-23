@@ -12,6 +12,9 @@ public sealed record WiringFinding(string Code, string Certainty, string Explana
 /// <summary>A connection path that starts or ends at a thing, with the engine's verdict and its reasons.</summary>
 public sealed record ThingWiring(string ThingId, string Route, string Verdict, string VerdictText, IReadOnlyList<WiringFinding> Findings);
 
+/// <summary>A need from <see cref="WhatsMissing"/>, in the words the Things screen shows.</summary>
+public sealed record MissingNeed(string Code, string Need, string Explanation, string Certainty, IReadOnlyList<string> Things);
+
 /// <summary>What the Things screen needs from the connection engine, for any head (local API or the phone).</summary>
 public static class ThingsWiring
 {
@@ -21,6 +24,9 @@ public static class ThingsWiring
             .ThenBy(t => t.Label, StringComparer.OrdinalIgnoreCase)
             .Select(t => new ConnectorChoice(t.Id, t.Label, t.Domain.ToString()))
             .ToArray();
+
+    public static IReadOnlyList<MissingNeed> Missing(SystemModel model, ConnectorCatalog? catalog = null) =>
+        WhatsMissing.Derive(model, catalog).Select(m => new MissingNeed(m.Code, m.Need, m.Explanation, m.Certainty.ToString(), m.Things)).ToArray();
 
     public static bool IsKnownConnector(string id) => ConnectorCatalog.BuiltIn.TryGet(id, out _);
 

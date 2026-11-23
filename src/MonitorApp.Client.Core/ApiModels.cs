@@ -284,7 +284,10 @@ public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpe
 
 public sealed record ThingsDto(
     IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null);
+    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null);
+
+/// <summary>Something a setup still needs ("Power for Tuner"), with how sure the app is and the things involved.</summary>
+public sealed record MissingItemDto(string Code, string Need, string Explanation, string Certainty, IReadOnlyList<string> Things);
 
 /// <summary>A link on a thing, phrased from its side ("Powered by" Studio PSU).</summary>
 public sealed record ThingLinkDto(string RelationshipId, string TypeId, string Phrase, string OtherId, string OtherName, bool Outgoing);

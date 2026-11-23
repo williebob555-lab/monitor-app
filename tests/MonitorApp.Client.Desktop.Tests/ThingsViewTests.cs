@@ -214,6 +214,34 @@ public sealed class ThingsViewTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void WhatsMissingListsNeedsAndAddsOneToTheListAsARequirement()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("What's missing: 2 things", things.MissingTitle);
+        var stronger = things.Missing[0];
+        Assert.Equal(("A stronger supply than Pedal power", true, "Pedal power"), (stronger.Need, stronger.IsProblem, stronger.About));
+        Assert.False(things.Missing[1].IsProblem);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "A stronger supply than Pedal power" && t.IsEffectivelyVisible);
+
+        things.AddNeedCommand.Execute(stronger);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(("A stronger supply than Pedal power\nFocusrite 2i2 DC in draws 0.5 A, more than the 0.3 A Pedal power DC out 1 can supply.", "requirement"), Assert.Single(source.Added));
+
+        // In the past there is nothing to add, so the list is empty.
+        things.AsOf = DateTimeOffset.UtcNow.AddDays(-1);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(things.HasMissing);
+        window.Close();
+    }
+
     [Trait("Category", "Manual")]
 #if MANUAL_SHOTS
     [AvaloniaFact]
@@ -331,10 +359,19 @@ public sealed class ThingsViewTests
                 [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")],
                 [new ConnectorChoiceDto("dc-barrel-5521", "DC barrel 5.5/2.1 mm", "Power"), new ConnectorChoiceDto("usb-c", "USB Type-C", "Usb")],
                 [new ThingWiringDto("thing:amp", "Pedal power DC out 1 → Focusrite 2i2 DC in", "WillNotWork", "Won't work",
-                    [new WiringFindingDto("voltage-mismatch", "VerifiedProblem", "Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V.")])]));
+                    [new WiringFindingDto("voltage-mismatch", "VerifiedProblem", "Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V.")])],
+                asOf is not null ? [] :
+                [new MissingItemDto("supply-too-weak", "A stronger supply than Pedal power", "Focusrite 2i2 DC in draws 0.5 A, more than the 0.3 A Pedal power DC out 1 can supply.", "VerifiedProblem", ["thing:psu"]),
+                 new MissingItemDto("input-unconnected", "Something into Focusrite 2i2 Input 1", "Focusrite 2i2 Input 1 has nothing plugged in; it takes analog-audio.", "Unknown", ["thing:amp"])]));
         }
 
-        public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;
+        public List<(string Text, string? Kind)> Added { get; } = [];
+
+        public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default)
+        {
+            Added.Add((text, kindId));
+            return Task.CompletedTask;
+        }
 
         public List<ThingEditDto> Edits { get; } = [];
 

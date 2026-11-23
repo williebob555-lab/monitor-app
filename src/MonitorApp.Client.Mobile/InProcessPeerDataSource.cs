@@ -84,7 +84,8 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
             Things.LinkTypes.Select(t => new ThingKindDto(t.Id, t.Label)).ToArray(),
             ThingsWiring.Connectors().Select(c => new ConnectorChoiceDto(c.Id, c.Label, c.Domain)).ToArray(),
             ThingsWiring.For(current).Select(w => new ThingWiringDto(w.ThingId, w.Route, w.Verdict, w.VerdictText,
-                w.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray());
+                w.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray(),
+            asOf is null ? ThingsWiring.Missing(current).Select(m => new MissingItemDto(m.Code, m.Need, m.Explanation, m.Certainty, m.Things)).ToArray() : []);
     }
 
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);

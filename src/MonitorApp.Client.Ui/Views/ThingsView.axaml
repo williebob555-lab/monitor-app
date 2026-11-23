@@ -123,6 +123,31 @@
           </StackPanel>
         </Border>
 
+        <!-- What the things on record still need, worked out from their ports, connections and values (T069). -->
+        <Expander IsVisible="{Binding HasMissing}" IsExpanded="True" HorizontalAlignment="Stretch" AutomationProperties.Name="What's missing">
+          <Expander.Header>
+            <TextBlock Text="{Binding MissingTitle}" Classes="section" />
+          </Expander.Header>
+          <ItemsControl ItemsSource="{Binding Missing}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ThingMissingRow">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding Need}" FontWeight="SemiBold" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding IsProblem}" />
+                    <TextBlock Text="{Binding Need}" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding !IsProblem}" />
+                    <TextBlock Text="{Binding Explanation}" Classes="meta" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="flat" Content="Add to my list" VerticalAlignment="Top" Margin="8,0,0,0"
+                          IsVisible="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).CanChange}"
+                          Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).AddNeedCommand}" CommandParameter="{Binding}"
+                          AutomationProperties.Name="{Binding Need, StringFormat='Add {0} to my list'}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Expander>
+
         <Grid ColumnDefinitions="*,Auto">
           <TextBox Text="{Binding FilterText}" Watermark="Filter by name, kind or value" AutomationProperties.Name="Filter things" />
           <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="meta" VerticalAlignment="Center" Margin="12,0,0,0" />

@@ -59,6 +59,40 @@ public sealed class LocalApiThingsTests : IDisposable
     }
 
     [Fact]
+    public async Task WhatsMissingIsListedAndANeedOnTheListIsNoLongerSuggested()
+    {
+        Directory.CreateDirectory(directory);
+        await using var model = new ModelStore(Path.Combine(directory, "model.db"));
+        await model.InitializeAsync();
+        await model.AppendAsync(
+        [
+            new ObjectCreated("fuzz", "Fuzz", "device.audio", Lifecycle.Owned),
+            new PortAdded("fuzz", new PortSpec("dc", "DC in", "dc-barrel-5521", PortGender.Socket, PortDirection.Input, ["dc-power"])),
+            new PropertyAsserted("fuzz", "electrical.voltage", PropertyValue.Number(9, "V"), new Evidence(EvidenceLevel.Specified, "datasheet"), "dc"),
+        ], "test");
+        await using var fixture = await LocalApiHostTests.Fixture.CreateAsync(directory, model: model);
+
+        var list = await fixture.Client.GetFromJsonAsync<ThingsResponse>("api/v1/things", Json);
+        var need = Assert.Single(list!.Missing!);
+        Assert.Equal(("power-missing", "Power for Fuzz", "Unknown"), (need.Code, need.Need, need.Certainty));
+        Assert.Equal(["fuzz"], need.Things);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/things")
+        {
+            Content = JsonContent.Create(new { text = "Power for Fuzz\n" + need.Explanation, kindId = "requirement" }),
+        };
+        request.Headers.Add("X-CSRF-TOKEN", await fixture.GetCsrfTokenAsync());
+        using (var created = await fixture.Client.SendAsync(request))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        }
+
+        list = await fixture.Client.GetFromJsonAsync<ThingsResponse>("api/v1/things", Json);
+        Assert.Empty(list!.Missing!);
+        Assert.Equal("Idea", list.Things.Single(t => t.Name == "Power for Fuzz").Lifecycle);
+    }
+
+    [Fact]
     public async Task EditingAThingNeedsTheTokenAndPutsItInsideAnother()
     {
         Directory.CreateDirectory(directory);
