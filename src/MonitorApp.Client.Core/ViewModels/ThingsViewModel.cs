@@ -134,7 +134,7 @@ public sealed class ThingPortChoice(string? ThingId, string PortId, string Text)
 /// One block of a rack drawing, top down: a piece of equipment spanning <see cref="Units"/> units, or an empty unit.
 /// <see cref="Height"/> is the drawn height in pixels.
 /// </summary>
-public sealed record ThingRackRow(string UnitText, string Label, int Units, bool IsEmpty, bool IsProblem, bool HeightKnown)
+public sealed record ThingRackRow(string UnitText, string Label, int Units, bool IsEmpty, bool IsProblem, bool HeightKnown, string? ThingId = null, int TopUnit = 0)
 {
     public const double UnitHeight = 22;
 
@@ -157,7 +157,7 @@ public sealed record ThingRack(string SizeText, IReadOnlyList<ThingRackRow> Rows
 /// A thing on a pedalboard or desk as drawn from above, in mm. The front edge (where you stand) is at the bottom, so
 /// <see cref="Top"/> is measured from the back.
 /// </summary>
-public sealed record ThingBoardItem(string Label, double Left, double Top, double Width, double Height, bool IsProblem)
+public sealed record ThingBoardItem(string Label, double Left, double Top, double Width, double Height, bool IsProblem, string? ThingId = null)
 {
     public bool IsOk => !IsProblem;
 }
@@ -928,6 +928,54 @@ public sealed partial class ThingsViewModel : SectionViewModel
         await RefreshAsync();
     }
 
+    /// <summary>
+    /// Drops a thing dragged on a board or desk drawing. <paramref name="left"/> and <paramref name="top"/> are where its
+    /// drawn box ended up, in the drawing's mm (top measured from the back); positions snap to 5 mm.
+    /// </summary>
+    public Task MoveOnBoardAsync(ThingBoard board, ThingBoardItem item, double left, double top)
+    {
+        ArgumentNullException.ThrowIfNull(board);
+        ArgumentNullException.ThrowIfNull(item);
+        var x = Snap(left);
+        var y = Snap(board.Depth - top - item.Height);
+        return item.ThingId is null || (x == Snap(item.Left) && y == Snap(board.Depth - item.Top - item.Height))
+            ? Task.CompletedTask
+            : MoveAsync(item.ThingId, item.Label, string.Create(CultureInfo.InvariantCulture, $"{x:0},{y:0}"));
+    }
+
+    /// <summary>Drops a thing dragged up or down a rack drawing by <paramref name="units"/> rack units (up is positive).</summary>
+    public Task MoveInRackAsync(ThingRackRow row, int units)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var bottom = row.TopUnit - row.Units + 1 + units;
+        return row.ThingId is null || units == 0 || bottom < 1
+            ? Task.CompletedTask
+            : MoveAsync(row.ThingId, row.Label, $"U{bottom}");
+    }
+
+    private static double Snap(double mm) => Math.Round(mm / 5) * 5;
+
+    private async Task MoveAsync(string thingId, string name, string slot)
+    {
+        if (Source is not { } source || !CanChange)
+        {
+            return;
+        }
+
+        try
+        {
+            await source.EditThingAsync(new ThingEditDto(thingId, Slot: slot));
+        }
+        catch (Exception exception) when (exception is ApiValidationException or LocalApiException)
+        {
+            StatusMessage = exception.Message;
+            return;
+        }
+
+        StatusMessage = $"Moved {name} to {slot}.";
+        await RefreshAsync();
+    }
+
     /// <summary>Keeps the note for a need: it becomes a requirement on the person's list, and stops being suggested.</summary>
     [RelayCommand]
     private async Task AddNeedAsync(ThingMissingRow? row)
@@ -1021,7 +1069,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             : string.Create(CultureInfo.InvariantCulture, $"Size unknown, drawn {board.Width:0} × {board.Depth:0} mm"),
         board.Width,
         board.Depth,
-        board.Items.Select(i => new ThingBoardItem(i.Name, i.X, board.Depth - i.Y - i.Depth, i.Width, i.Depth, i.Problem)).ToArray(),
+        board.Items.Select(i => new ThingBoardItem(i.Name, i.X, board.Depth - i.Y - i.Depth, i.Width, i.Depth, i.Problem, i.ThingId)).ToArray(),
         board.Findings.Where(f => f.Code != "surface-size-unknown").Select(f => f.Explanation).ToArray());
 
     private static ThingRack RackOf(RackLayoutDto rack) => new(
@@ -1032,7 +1080,9 @@ public sealed partial class ThingsViewModel : SectionViewModel
             b.Units,
             b.ThingId is null,
             b.Problem,
-            b.HeightKnown)).ToArray(),
+            b.HeightKnown,
+            b.ThingId,
+            b.TopUnit)).ToArray(),
         rack.Findings.Where(f => f.Code is not ("rack-size-unknown" or "height-unknown")).Select(f => f.Explanation).ToArray());
 
     private static string PortText(ThingPortDto port, Dictionary<string, string> labels)

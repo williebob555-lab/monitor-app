@@ -102,6 +102,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Drag to place (T082): drag a pedal around a board or desk drawing, or a piece of equipment up and down a rack drawing, and it moves there (snapped to 5 mm or whole rack units), saved like any other edit. Off in the past.
 - Pedalboards and desks (T082): a board's card draws it from above to scale, front edge at the bottom, with each pedal or device where you put it. In Edit, put a thing on a board and say where in mm from the front-left corner ("120, 40"). Pedals hanging over the edge, pedals on top of each other, unknown sizes and things not placed yet are shown under the drawing.
 - Live protocol (additive `peer.proto`, fields 20-22): `LiveSubscribe`/`LiveSubscribeAck`, `LiveInterest` (subject, signals, lease seconds, 0 withdraws) and `LiveInterestAck`. Interest is accepted only from an authenticated, actively trusted peer, only for the receiver's own data, with a maximum lease (120 s), a bounded number of concurrent interests (16) and signals (32); revoking trust withdraws it.
 - `PeerStore.Live` (`PeerLiveFeed`): in-process `Subscribe`/`IAsyncEnumerable` of newly committed local and replicated observations; `PeerNodeRuntime.LiveObservations`/`BeginViewing` and `MobilePeerRuntime.LiveObservations`/`BeginViewing` for UIs; loopback-only SSE endpoint `GET /api/v1/live` in `Peer.LocalApi` (same security headers; a connected viewer counts as live interest in the node's own data).
