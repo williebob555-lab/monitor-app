@@ -20,6 +20,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string connectionStatus = "Not connected yet.";
 
+    /// <summary>
+    /// What went wrong the last time the app stopped unexpectedly, or an error it caught and survived, shown until
+    /// dismissed so a crash on a phone is something a person can read and pass on instead of the app just closing.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCrashNotice))]
+    private string? crashNotice;
+
+    public bool HasCrashNotice => !string.IsNullOrEmpty(CrashNotice);
+
+    [RelayCommand]
+    private void DismissCrashNotice() => CrashNotice = null;
+
     public MainViewModel(Uri? address = null, Func<Uri, IPeerDataSource>? clientFactory = null)
         : this(new NodeConnection(address ?? LocalApiClient.DefaultAddress, clientFactory))
     {
