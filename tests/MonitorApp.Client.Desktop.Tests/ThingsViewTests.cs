@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -267,6 +268,45 @@ public sealed class ThingsViewTests
         things.SaveEditCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(("thing:board", "200, 60"), (source.Edits.Single().InsideId, source.Edits.Single().Slot));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DraggingAPedalOnTheBoardOrEquipmentInTheRackMovesIt()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 1500);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        // The tuner sits at x 380 mm; drag it 100 mm to the left. Points are worked out in the board's own mm.
+        var tuner = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Tuner").FindAncestorOfType<Grid>()!;
+        var canvas = tuner.FindAncestorOfType<Canvas>()!;
+        var from = canvas.TranslatePoint(new Avalonia.Point(415, 180), window)!.Value;
+        var to = canvas.TranslatePoint(new Avalonia.Point(315, 180), window)!.Value;
+        window.MouseDown(from, Avalonia.Input.MouseButton.Left);
+        window.MouseMove(to);
+        window.MouseUp(to, Avalonia.Input.MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new ThingEditDto("thing:tuner", Slot: "280,10"), source.Edits.Single());
+
+        // The DSP is at U3; drag it up one unit.
+        var dsp = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "DSP (height unknown)" && t.IsEffectivelyVisible).FindAncestorOfType<Grid>()!;
+        var rowFrom = dsp.TranslatePoint(new Avalonia.Point(dsp.Bounds.Width / 2, dsp.Bounds.Height / 2), window)!.Value;
+        var rowTo = rowFrom.WithY(rowFrom.Y - ThingRackRow.UnitHeight);
+        window.MouseDown(rowFrom, Avalonia.Input.MouseButton.Left);
+        window.MouseMove(rowTo);
+        window.MouseUp(rowTo, Avalonia.Input.MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new ThingEditDto("thing:dsp", Slot: "U4"), source.Edits[^1]);
+
+        // A tap is not a move.
+        window.MouseDown(rowFrom, Avalonia.Input.MouseButton.Left);
+        window.MouseUp(rowFrom, Avalonia.Input.MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, source.Edits.Count);
         window.Close();
     }
 

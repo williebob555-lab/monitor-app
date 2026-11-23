@@ -230,7 +230,8 @@
                       <ItemsControl ItemsSource="{Binding Rack.Rows}">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:ThingRackRow">
-                            <Grid ColumnDefinitions="56,8,*,8" Height="{Binding Height}">
+                            <Grid ColumnDefinitions="56,8,*,8" Height="{Binding Height}" Background="Transparent"
+                                  PointerPressed="OnPlacePressed" PointerMoved="OnPlaceMoved" PointerReleased="OnPlaceReleased">
                               <TextBlock Text="{Binding UnitText}" Classes="meta" VerticalAlignment="Center" Margin="2,0,4,0" />
                               <Border Grid.Column="1" Background="{DynamicResource Brush.Surface3}" />
                               <Border Grid.Column="3" Background="{DynamicResource Brush.Surface3}" />
@@ -275,7 +276,9 @@
                           </ItemsControl.Styles>
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ThingBoardItem">
-                              <Grid Width="{Binding Width}" Height="{Binding Height}">
+                              <Grid Width="{Binding Width}" Height="{Binding Height}" Background="Transparent" Cursor="SizeAll"
+                                    PointerPressed="OnPlacePressed" PointerMoved="OnPlaceMoved" PointerReleased="OnPlaceReleased"
+                                    ToolTip.Tip="Drag to move">
                                 <Border IsVisible="{Binding IsOk}" CornerRadius="4" Background="{DynamicResource Brush.Surface3}"
                                         BorderBrush="{DynamicResource Brush.LineStrong}" BorderThickness="2" />
                                 <Border IsVisible="{Binding IsProblem}" CornerRadius="4" Background="{DynamicResource Brush.Surface3}"
