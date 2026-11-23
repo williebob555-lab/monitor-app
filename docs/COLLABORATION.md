@@ -50,7 +50,6 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| T076 | 2 | Things on the phone: the phone opens its own `model.db`, runs the bridge over its peer store, and implements `IThingsSource` in `InProcessPeerDataSource` | Things mode visible on the phone with the same cards | T073 (done) | Claude | | Desktop Things shipped in 0.1.15; `Things` and `MonitoringBridge` in `MonitorApp.Model` are head-neutral |
 | T074 | 2 | Quick capture, part 2: edit a thing (rename, kind, lifecycle, values with evidence), tag it and link it to other things from its card | Edit and link from the Things screen; changes go through the model change log | T073 (done) | either | | Adding from a few words shipped in 0.1.15 (`POST /api/v1/things`) |
 | T075 | 2 | "Open the machine": exploded view of a computer from its model parts, with live readings per part | Tap a computer in Things and see its parts with readings | T073 | Claude | | Bill of work item 7 |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
@@ -125,7 +124,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
-| T065 model in the running node, T073 Things screen (desktop), T074 add a thing | Claude | #21 | 2026-11-23 |
+| T065 model in the running node, T073 Things screen, T074 add a thing, T076 Things on the phone | Claude | #21 | 2026-11-23 |
 | T072 phone pairing inside the desktop app | Claude | #20 | 2026-11-23 |
 | T061 shared model core, MSI; release on purpose only; hourly update checks + Check now; Android in-app updates; alert noise fix | Claude | #16, #17, #18 | 2026-11-23 |
 | T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |

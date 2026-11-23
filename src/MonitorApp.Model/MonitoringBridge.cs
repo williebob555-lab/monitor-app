@@ -95,12 +95,14 @@ public static class MonitoringBridge
     /// A peer's own LAN record and the "unknown upstream" placeholders are not things and are skipped.
     /// </summary>
     /// <param name="localName">Name for this device's object, such as the machine name; "This device" when null.</param>
-    public static async Task<BridgeResult> SyncFromPeerStoreAsync(PeerStore peers, ModelStore store, string? localName = null, CancellationToken cancellationToken = default)
+    /// <param name="localKind">Kind for this device's object ("device.phone" on a phone); a computer when null.</param>
+    public static async Task<BridgeResult> SyncFromPeerStoreAsync(
+        PeerStore peers, ModelStore store, string? localName = null, string? localKind = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peers);
         var subjects = new List<MonitoredSubject>();
         if (await peers.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) is { } local)
-            subjects.Add(PeerSubject(local.PeerId, string.IsNullOrWhiteSpace(localName) ? "This device" : localName, local.PublicKeyFingerprint));
+            subjects.Add(PeerSubject(local.PeerId, string.IsNullOrWhiteSpace(localName) ? "This device" : localName, local.PublicKeyFingerprint, localKind));
 
         foreach (var peer in await peers.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
             if (peer.TrustState == PeerTrustState.Active)
@@ -158,8 +160,8 @@ public static class MonitoringBridge
         return parts.Length >= 4 && parts[0] == "lan" ? string.Join(':', parts[3..]) : entityId;
     }
 
-    private static MonitoredSubject PeerSubject(string peerId, string name, byte[] fingerprint) =>
-        new(MonitoringSubjectKind.Peer, peerId, name, "device.computer",
+    private static MonitoredSubject PeerSubject(string peerId, string name, byte[] fingerprint, string? kind = null) =>
+        new(MonitoringSubjectKind.Peer, peerId, name, kind ?? "device.computer",
             new Dictionary<string, string>(StringComparer.Ordinal) { ["identity.peer-key-fingerprint"] = Convert.ToHexString(fingerprint) });
 
     private static string KindFor(string monitoringKind) => monitoringKind.ToUpperInvariant() switch

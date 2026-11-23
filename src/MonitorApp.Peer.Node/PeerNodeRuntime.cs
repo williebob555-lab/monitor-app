@@ -272,7 +272,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var modelTask = new NodePeriodicTask(
             "model-bridge",
             TimeSpan.FromMinutes(1),
-            async token => await MonitoringBridge.SyncFromPeerStoreAsync(peerStore, modelStore, machineName, token).ConfigureAwait(false),
+            async token => await MonitoringBridge.SyncFromPeerStoreAsync(peerStore, modelStore, machineName, cancellationToken: token).ConfigureAwait(false),
             time);
 
         var peerArgs = new[]

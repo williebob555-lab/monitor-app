@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
+using MonitorApp.Model;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
@@ -15,7 +16,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IDisposable
+public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -30,6 +31,9 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     private readonly Action<IReadOnlyList<MonitorApp.Peer.Alerts.InboxAlert>> alertHandler;
     private readonly Task liveLoop;
     private int changePending;
+    private readonly SemaphoreSlim modelGate = new(1, 1);
+    private ModelStore? model;
+    private long nextBridgeTicks;
 
     public InProcessPeerDataSource(
         MobilePeerRuntime runtime, TimeSpan? staleAfter = null, Action? startHost = null, Action? stopHost = null,
@@ -48,6 +52,76 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     }
 
     public string Description => "this phone";
+
+    /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
+    private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
+
+    public async Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+    {
+        var store = await ModelAsync(ct).ConfigureAwait(false);
+        if (Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
+        {
+            await modelGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
+                Interlocked.Exchange(ref nextBridgeTicks, Environment.TickCount64 + (long)BridgeSpacing.TotalMilliseconds);
+            }
+            finally
+            {
+                modelGate.Release();
+            }
+        }
+
+        var current = await store.LoadAsync(cancellationToken: ct).ConfigureAwait(false);
+        return new ThingsDto(
+            Things.List(current).Select(ToDto).ToArray(),
+            Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray());
+    }
+
+    public async Task AddThingAsync(string text, string? kindId, CancellationToken ct = default)
+    {
+        var store = await ModelAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await Things.CaptureAsync(store, text, kindId, ct).ConfigureAwait(false);
+        }
+        catch (ModelValidationException exception)
+        {
+            throw new ApiValidationException(exception.Message);
+        }
+    }
+
+    /// <summary>The phone's own model.db, opened on first use (most sessions never open Things).</summary>
+    private async Task<ModelStore> ModelAsync(CancellationToken ct)
+    {
+        if (Volatile.Read(ref model) is { } ready)
+        {
+            return ready;
+        }
+
+        await modelGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (model is null)
+            {
+                var opened = new ModelStore(Path.Combine(runtime.DataDirectory, "model.db"));
+                await opened.InitializeAsync(ct).ConfigureAwait(false);
+                Volatile.Write(ref model, opened);
+            }
+
+            return model!;
+        }
+        finally
+        {
+            modelGate.Release();
+        }
+    }
+
+    private static ThingDto ToDto(ThingSummary thing) => new(
+        thing.Id, thing.Name, thing.KindId, thing.KindLabel, thing.Lifecycle, thing.Tags, thing.Monitored, thing.ReadingSubjects,
+        thing.Facts.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
+        thing.InsideId, thing.PartIds, thing.CreatedAt);
 
     public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
 
@@ -532,6 +606,12 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         }
 
         stop.Dispose();
+        if (model is not null)
+        {
+            _ = model.DisposeAsync().AsTask();
+        }
+
+        modelGate.Dispose();
     }
 
     private static async Task<string> PairAsync(Func<Task<string>> pair)

@@ -158,6 +158,12 @@ public sealed class MobilePeerRuntime : IAsyncDisposable
 
     public PeerStore Store => store;
 
+    /// <summary>Where this phone keeps its databases (peer.db, model.db).</summary>
+    public string DataDirectory => options.DataDirectory;
+
+    /// <summary>The name this phone pairs under.</summary>
+    public string DisplayName => options.DisplayName;
+
     /// <summary>Exception type of the last failed phone-transport LAN run (null after a success); it never fails ordinary collection.</summary>
     public string? LastLanError => lan.LastError;
 
