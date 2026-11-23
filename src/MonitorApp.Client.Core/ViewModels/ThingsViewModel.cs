@@ -90,6 +90,45 @@ public sealed record ThingPartRow(
     public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
 }
 
+/// <summary>A lifecycle stage offered while editing ("Owned" shown as "owned").</summary>
+public sealed record ThingStage(string Id, string Text);
+
+/// <summary>
+/// A connection path in a card: the route ("Laptop USB-C → USB-C cable → Monitor USB-C in"), the verdict in words and the
+/// reasons, problems first. <see cref="Tone"/> is "problem", "unknown" or "ok" for styling.
+/// </summary>
+public sealed record ThingWiringRow(string Route, string VerdictText, string Tone, IReadOnlyList<string> Reasons)
+{
+    public bool IsProblem => Tone == "problem";
+
+    public bool IsUnknown => Tone == "unknown";
+
+    public bool IsOk => Tone == "ok";
+
+    public bool HasReasons => Reasons.Count > 0;
+}
+
+/// <summary>
+/// Something a setup still needs, as the "What's missing" list shows it. <see cref="Tone"/> is "problem" when values show
+/// it is needed, "unknown" when the app only sees a gap. <see cref="About"/> names the things involved.
+/// </summary>
+public sealed record ThingMissingRow(string Need, string Explanation, string Tone, string About)
+{
+    public bool IsProblem => Tone == "problem";
+
+    public bool HasAbout => About.Length > 0;
+}
+
+/// <summary>A port a connection can start from or go to; <see cref="ThingId"/> is null for this thing's own ports.</summary>
+public sealed class ThingPortChoice(string? ThingId, string PortId, string Text)
+{
+    public string? ThingId { get; } = ThingId;
+
+    public string PortId { get; } = PortId;
+
+    public string Text { get; } = Text;
+}
+
 /// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
 public sealed record ThingPlace(string? Id, string Name);
 
@@ -104,8 +143,31 @@ public sealed record ThingCard(
     IReadOnlyList<ThingValueRow> Values,
     IReadOnlyList<ThingPartRow> Parts,
     string KindId = "thing",
-    string? LiveNodeId = null)
+    string? LiveNodeId = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<string>? Links = null,
+    IReadOnlyList<string>? Ports = null,
+    IReadOnlyList<ThingWiringRow>? Wiring = null)
 {
+    /// <summary>Its ports in words ("DC out · DC barrel 5.5/2.1 mm plug · output · 9 V → Delay DC in").</summary>
+    public IReadOnlyList<string> PortTexts => Ports ?? [];
+
+    public bool HasPorts => Ports is { Count: > 0 };
+
+    /// <summary>Each connection path at this thing with the connection engine's verdict and why.</summary>
+    public IReadOnlyList<ThingWiringRow> WiringRows => Wiring ?? [];
+
+    public bool HasWiring => Wiring is { Count: > 0 };
+
+    /// <summary>Its links in words ("Powered by Studio PSU").</summary>
+    public IReadOnlyList<string> LinkTexts => Links ?? [];
+
+    public bool HasLinks => Links is { Count: > 0 };
+
+    public string TagsText => Tags is { Count: > 0 } tags ? string.Join("  ", tags.Select(t => "#" + t)) : string.Empty;
+
+    public bool HasTags => Tags is { Count: > 0 };
+
     /// <summary>Monitored things can be seen live in the Ecosystem.</summary>
     public bool CanSeeLive => LiveNodeId is not null;
 
@@ -127,12 +189,13 @@ public sealed record ThingCard(
 
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
-        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty,
+        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText, .. LinkTexts, .. PortTexts,
+        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"),
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
     /// <summary>Text used by the filter box.</summary>
-    internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
+    internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, TagsText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
 }
 
 /// <summary>
@@ -161,6 +224,23 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [ObservableProperty]
     private bool available = true;
 
+    /// <summary>
+    /// The time the timeline is set to, or null for now. In the past the screen shows what the model held then (which things
+    /// existed, what sat inside what, their values) with the readings recorded then; adding and editing are off.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHistorical), nameof(CanChange), nameof(RecordedText))]
+    private DateTimeOffset? asOf;
+
+    public bool IsHistorical => AsOf is not null;
+
+    /// <summary>History is observational: nothing is added or edited while looking back.</summary>
+    public bool CanChange => AsOf is null;
+
+    public string RecordedText => AsOf is { } at
+        ? "RECORDED · as of " + at.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.CurrentCulture) + ". This is what you had then; return to live to add or edit."
+        : string.Empty;
+
     /// <summary>The thing opened into its parts ("open the machine"), or null on the card grid.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsGrid), nameof(OpenItems))]
@@ -186,6 +266,106 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [ObservableProperty]
     private string? editError;
 
+    [ObservableProperty]
+    private ThingStage? editStage;
+
+    /// <summary>Tags, separated by commas or spaces ("studio, spare").</summary>
+    [ObservableProperty]
+    private string editTags = string.Empty;
+
+    [ObservableProperty]
+    private string newValueLabel = string.Empty;
+
+    [ObservableProperty]
+    private string newValueText = string.Empty;
+
+    [ObservableProperty]
+    private bool newValueFromSpec;
+
+    [ObservableProperty]
+    private ThingKindDto? newLinkType;
+
+    [ObservableProperty]
+    private ThingPlace? newLinkTarget;
+
+    private readonly List<string> removedLinks = [];
+
+    private readonly List<string> removedPorts = [];
+
+    private readonly List<string> unplugged = [];
+
+    private ILookup<string, ThingWiringDto> wiring = Array.Empty<ThingWiringDto>().ToLookup(w => w.ThingId, StringComparer.Ordinal);
+
+    /// <summary>The sentinel "from" choice for the port being added in the same edit.</summary>
+    internal const string NewPortChoice = "@new";
+
+    [ObservableProperty]
+    private string newPortName = string.Empty;
+
+    [ObservableProperty]
+    private ConnectorChoiceDto? newPortConnector;
+
+    [ObservableProperty]
+    private string? newPortGender;
+
+    [ObservableProperty]
+    private string? newPortDirection;
+
+    /// <summary>What the port carries, separated by commas ("usb-3, usb-pd" or "analog-audio").</summary>
+    [ObservableProperty]
+    private string newPortSignals = string.Empty;
+
+    [ObservableProperty]
+    private string newPortVoltage = string.Empty;
+
+    [ObservableProperty]
+    private string newPortPolarity = string.Empty;
+
+    [ObservableProperty]
+    private string newPortLevel = string.Empty;
+
+    /// <summary>Current: what an output can supply, or what an input draws.</summary>
+    [ObservableProperty]
+    private string newPortCurrent = string.Empty;
+
+    [ObservableProperty]
+    private bool newPortFromSpec;
+
+    [ObservableProperty]
+    private ThingPortChoice? connectFrom;
+
+    [ObservableProperty]
+    private ThingPortChoice? connectTo;
+
+    /// <summary>The ports of the thing being edited; removing or unplugging one here takes effect on Save.</summary>
+    public ObservableCollection<ThingPortDto> EditPorts { get; } = [];
+
+    /// <summary>Connectors from the shared connector library, for a new port.</summary>
+    public ObservableCollection<ConnectorChoiceDto> Connectors { get; } = [];
+
+    public IReadOnlyList<string> Genders { get; } = ["Plug", "Socket", "Genderless"];
+
+    public IReadOnlyList<string> Directions { get; } = ["Output", "Input", "Both"];
+
+    /// <summary>This thing's ports a connection can start from (plus the one being added).</summary>
+    public ObservableCollection<ThingPortChoice> ConnectFromChoices { get; } = [];
+
+    /// <summary>Every other thing's free ports, to plug into.</summary>
+    public ObservableCollection<ThingPortChoice> ConnectToChoices { get; } = [];
+
+    /// <summary>The links on the thing being edited; removing one here takes effect on Save.</summary>
+    public ObservableCollection<ThingLinkDto> EditLinks { get; } = [];
+
+    /// <summary>Kinds of link the node offers ("Depends on", "Powered by", "Connected to", ...).</summary>
+    public ObservableCollection<ThingKindDto> LinkTypes { get; } = [];
+
+    /// <summary>Things the edited one can link to: every other thing.</summary>
+    public ObservableCollection<ThingPlace> LinkTargets { get; } = [];
+
+    /// <summary>Every lifecycle stage; the model refuses moves that make no sense (an owned thing back to an idea).</summary>
+    public IReadOnlyList<ThingStage> Stages { get; } =
+        [.. new[] { "Idea", "Candidate", "Planned", "Ordered", "Owned", "Installed", "Retired", "Disposed" }.Select(id => new ThingStage(id, LifecycleText(id)))];
+
     public bool IsEditing => EditingName is not null;
 
     /// <summary>Kinds offered while editing: the usual ones plus the thing's own kind when it is not among them.</summary>
@@ -210,6 +390,13 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     public ObservableCollection<ThingCard> Cards { get; } = [];
 
+    /// <summary>What the things on record still need (T069): power, cables, adapters, more current. Empty in the past.</summary>
+    public ObservableCollection<ThingMissingRow> Missing { get; } = [];
+
+    public bool HasMissing => Missing.Count > 0;
+
+    public string MissingTitle => Missing.Count == 1 ? "What's missing: 1 thing" : $"What's missing: {Missing.Count} things";
+
     public ObservableCollection<ThingKindDto> Kinds { get; } = [];
 
     public bool HasCards => Cards.Count > 0;
@@ -232,6 +419,14 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     partial void OnAvailableChanged(bool value) => OnPropertyChanged(nameof(EmptyText));
 
+    partial void OnAsOfChanged(DateTimeOffset? value)
+    {
+        if (value is not null)
+        {
+            CancelEdit();
+        }
+    }
+
     public override async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         if (Source is not { } source)
@@ -242,7 +437,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
         await RunAsync(async () =>
         {
-            var things = await source.GetThingsAsync(cancellationToken);
+            var asOf = AsOf;
+            var things = await source.GetThingsAsync(asOf, cancellationToken);
             if (things is null)
             {
                 Available = false;
@@ -257,7 +453,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             {
                 try
                 {
-                    readings = (await Client.GetStateAsync(ct: cancellationToken)).Points;
+                    readings = (await Client.GetStateAsync(asOf, ct: cancellationToken)).Points;
                 }
                 catch (LocalApiException)
                 {
@@ -266,8 +462,27 @@ public sealed partial class ThingsViewModel : SectionViewModel
             }
 
             this.things = things.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
-            all = Build(things.Things, readings);
+            wiring = (things.Wiring ?? []).ToLookup(w => w.ThingId, StringComparer.Ordinal);
+            if (things.Connectors is { } connectors && Connectors.Count != connectors.Count)
+            {
+                Connectors.Clear();
+                foreach (var connector in connectors)
+                {
+                    Connectors.Add(connector);
+                }
+            }
+
+            all = Build(things.Things, readings, wiring, Connectors);
+            SyncMissing(things.Missing ?? []);
             SyncKinds(things.Kinds);
+            if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
+            {
+                LinkTypes.Clear();
+                foreach (var linkType in linkTypes)
+                {
+                    LinkTypes.Add(linkType);
+                }
+            }
             ApplyFilter();
         });
     }
@@ -323,7 +538,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             ThingPartRow part => part.Id,
             _ => null,
         };
-        if (id is null || !things.TryGetValue(id, out var thing))
+        if (id is null || !CanChange || !things.TryGetValue(id, out var thing))
         {
             return;
         }
@@ -356,7 +571,146 @@ public sealed partial class ThingsViewModel : SectionViewModel
         }
 
         EditInside = EditPlaces.FirstOrDefault(p => p.Id == thing.InsideId) ?? nowhere;
+        EditStage = Stages.FirstOrDefault(st => st.Id == thing.Lifecycle);
+        EditTags = string.Join(", ", thing.Tags);
+        NewValueLabel = string.Empty;
+        NewValueText = string.Empty;
+        NewValueFromSpec = false;
+        removedLinks.Clear();
+        EditLinks.Clear();
+        foreach (var link in thing.Links ?? [])
+        {
+            EditLinks.Add(link);
+        }
+
+        LinkTargets.Clear();
+        foreach (var other in things.Values.Where(t => t.Id != thing.Id).OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            LinkTargets.Add(new ThingPlace(other.Id, other.Name));
+        }
+
+        NewLinkType = LinkTypes.FirstOrDefault();
+        NewLinkTarget = null;
+        removedPorts.Clear();
+        unplugged.Clear();
+        EditPorts.Clear();
+        foreach (var port in thing.Ports ?? [])
+        {
+            EditPorts.Add(port);
+        }
+
+        NewPortName = string.Empty;
+        NewPortConnector = null;
+        NewPortGender = null;
+        NewPortDirection = null;
+        NewPortSignals = string.Empty;
+        NewPortVoltage = string.Empty;
+        NewPortPolarity = string.Empty;
+        NewPortLevel = string.Empty;
+        NewPortCurrent = string.Empty;
+        NewPortFromSpec = false;
+        RebuildConnectChoices();
+        ConnectFrom = null;
+        ConnectTo = null;
         EditingName = thing.Name;
+    }
+
+    [RelayCommand]
+    private void RemoveLink(ThingLinkDto? link)
+    {
+        if (link is not null && EditLinks.Remove(link))
+        {
+            removedLinks.Add(link.RelationshipId);
+        }
+    }
+
+    [RelayCommand]
+    private void RemovePort(ThingPortDto? port)
+    {
+        if (port is not null && EditPorts.Remove(port))
+        {
+            removedPorts.Add(port.PortId);
+            RebuildConnectChoices();
+        }
+    }
+
+    /// <summary>Unplugs a port (the connection goes on Save); the port itself stays.</summary>
+    [RelayCommand]
+    private void UnplugPort(ThingPortDto? port)
+    {
+        if (port?.ConnectionId is not { } connection)
+        {
+            return;
+        }
+
+        var index = EditPorts.IndexOf(port);
+        if (index < 0)
+        {
+            return;
+        }
+
+        unplugged.Add(connection);
+        EditPorts[index] = port with { ConnectionId = null, OtherId = null, OtherName = null, OtherPortName = null };
+        RebuildConnectChoices();
+    }
+
+    /// <summary>Offers "the new port" as a place to plug in from once it has a name, without rebuilding the lists on each key.</summary>
+    partial void OnNewPortNameChanged(string value)
+    {
+        var existing = ConnectFromChoices.FirstOrDefault(c => c.PortId == NewPortChoice);
+        if (value.Trim().Length > 0 && existing is null && editing is not null)
+        {
+            ConnectFromChoices.Add(newPortChoice);
+        }
+        else if (value.Trim().Length == 0 && existing is not null)
+        {
+            ConnectFromChoices.Remove(existing);
+        }
+    }
+
+    private readonly ThingPortChoice newPortChoice = new(null, NewPortChoice, "The new port");
+
+    /// <summary>Rebuilds both port lists, keeping the same choice objects selected where they still apply.</summary>
+    private void RebuildConnectChoices()
+    {
+        if (editing is not { } thing)
+        {
+            return;
+        }
+
+        var from = ConnectFrom;
+        var to = ConnectTo;
+        Sync(ConnectFromChoices, [
+            .. EditPorts.Where(p => p.ConnectionId is null).Select(p => new ThingPortChoice(null, p.PortId, p.Name)),
+            .. NewPortName.Trim().Length > 0 ? [newPortChoice] : Array.Empty<ThingPortChoice>()]);
+        Sync(ConnectToChoices, [
+            .. things.Values.Where(t => t.Id != thing.Id).OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase)
+                .SelectMany(other => (other.Ports ?? [])
+                    // Free ports, and ports this edit is about to unplug.
+                    .Where(p => p.ConnectionId is null || unplugged.Contains(p.ConnectionId))
+                    .Select(p => new ThingPortChoice(other.Id, p.PortId, $"{other.Name} · {p.Name}")))]);
+        ConnectFrom = ConnectFromChoices.FirstOrDefault(c => c == from);
+        ConnectTo = ConnectToChoices.FirstOrDefault(c => c == to);
+    }
+
+    /// <summary>Adds and removes so that existing choice objects (and any selection of them) survive.</summary>
+    private static void Sync(ObservableCollection<ThingPortChoice> target, IReadOnlyList<ThingPortChoice> wanted)
+    {
+        for (var i = target.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Any(w => w.ThingId == target[i].ThingId && w.PortId == target[i].PortId && w.Text == target[i].Text))
+            {
+                target.RemoveAt(i);
+            }
+        }
+
+        foreach (var choice in wanted)
+        {
+            if (!target.Any(t => t.ThingId == choice.ThingId && t.PortId == choice.PortId && t.Text == choice.Text))
+            {
+                target.Add(choice);
+            }
+        }
     }
 
     [RelayCommand]
@@ -365,26 +719,44 @@ public sealed partial class ThingsViewModel : SectionViewModel
         editing = null;
         EditingName = null;
         EditError = null;
+        ConnectToChoices.Clear();
+        ConnectFromChoices.Clear();
     }
 
     /// <summary>Sends only what changed; the model records it as entered by this person.</summary>
     [RelayCommand]
     private async Task SaveEditAsync()
     {
-        if (Source is not { } source || editing is not { } thing)
+        if (Source is not { } source || editing is not { } thing || !CanChange)
         {
             return;
         }
 
         var name = EditName.Trim();
         var note = EditNote.Trim();
+        var tags = EditTags.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => t.TrimStart('#')).Where(t => t.Length > 0).ToArray();
+        var tagsChanged = !tags.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(thing.Tags);
+        ThingValueEditDto[]? values = NewValueLabel.Trim().Length > 0 ? [new ThingValueEditDto(NewValueLabel.Trim(), NewValueText.Trim(), NewValueFromSpec)] : null;
         var edit = new ThingEditDto(
             thing.Id,
             name == thing.Name ? null : name,
             EditKind is { } kind && kind.Id != thing.KindId ? kind.Id : null,
             note == (PersonNote(thing) ?? string.Empty) ? null : note,
-            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null);
-        if (edit is { Name: null, KindId: null, Note: null, InsideId: null })
+            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null,
+            EditStage is { } stage && stage.Id != thing.Lifecycle ? stage.Id : null,
+            tagsChanged ? tags : null,
+            values,
+            NewLinkType is { } linkType && NewLinkTarget?.Id is { } target ? [new ThingLinkEditDto(linkType.Id, target)] : null,
+            removedLinks.Count > 0 ? [.. removedLinks] : null,
+            NewPort() is { } port ? [port] : null,
+            removedPorts.Count > 0 ? [.. removedPorts] : null,
+            PortConnection() is { } connect ? [connect] : null,
+            unplugged.Count > 0 ? [.. unplugged] : null);
+        if (edit is
+            {
+                Name: null, KindId: null, Note: null, InsideId: null, Lifecycle: null, Tags: null, Values: null, AddLinks: null, RemoveLinks: null,
+                AddPorts: null, RemovePorts: null, Connect: null, Disconnect: null
+            })
         {
             CancelEdit();
             return;
@@ -409,6 +781,35 @@ public sealed partial class ThingsViewModel : SectionViewModel
         StatusMessage = $"Saved {name}.";
         await RefreshAsync();
     }
+
+    private ThingPortEditDto? NewPort()
+    {
+        var name = NewPortName.Trim();
+        if (name.Length == 0)
+        {
+            return null;
+        }
+
+        static string? Text(string value) => value.Trim() is { Length: > 0 } text ? text : null;
+        var output = NewPortDirection is "Output";
+        return new ThingPortEditDto(
+            name,
+            NewPortConnector?.Id,
+            NewPortGender,
+            NewPortDirection,
+            NewPortSignals.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            Text(NewPortLevel),
+            Text(NewPortVoltage),
+            Text(NewPortPolarity),
+            output ? Text(NewPortCurrent) : null,
+            output ? null : Text(NewPortCurrent),
+            NewPortFromSpec);
+    }
+
+    private ThingConnectEditDto? PortConnection() =>
+        ConnectFrom is { } from && ConnectTo is { ThingId: { } otherId } to
+            ? new ThingConnectEditDto(from.PortId == NewPortChoice ? NewPortName.Trim() : from.PortId, otherId, to.PortId)
+            : null;
 
     /// <summary>The note the person wrote themselves (other sources' notes are not theirs to edit here).</summary>
     private static string? PersonNote(ThingDto thing) =>
@@ -437,7 +838,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [RelayCommand]
     private async Task AddAsync()
     {
-        if (Source is not { } source)
+        if (Source is not { } source || !CanChange)
         {
             return;
         }
@@ -471,9 +872,59 @@ public sealed partial class ThingsViewModel : SectionViewModel
         await RefreshAsync();
     }
 
-    /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>
-    public static IReadOnlyList<ThingCard> Build(IReadOnlyList<ThingDto> things, IReadOnlyList<HistoryPointDto> readings)
+    /// <summary>Keeps the note for a need: it becomes a requirement on the person's list, and stops being suggested.</summary>
+    [RelayCommand]
+    private async Task AddNeedAsync(ThingMissingRow? row)
     {
+        if (row is null || Source is not { } source || !CanChange)
+        {
+            return;
+        }
+
+        try
+        {
+            await source.AddThingAsync($"{row.Need}\n{row.Explanation}", "requirement");
+        }
+        catch (Exception exception) when (exception is ApiValidationException or LocalApiException)
+        {
+            StatusMessage = exception.Message;
+            return;
+        }
+
+        StatusMessage = $"Added \"{row.Need}\" to your list.";
+        await RefreshAsync();
+    }
+
+    private void SyncMissing(IReadOnlyList<MissingItemDto> items)
+    {
+        var rows = items.Select(m => new ThingMissingRow(
+                m.Need,
+                m.Explanation,
+                m.Certainty is "VerifiedProblem" or "LikelyProblem" ? "problem" : "unknown",
+                string.Join(", ", m.Things.Select(id => things.TryGetValue(id, out var t) ? t.Name : null).OfType<string>())))
+            .ToArray();
+        if (rows.SequenceEqual(Missing))
+        {
+            return;
+        }
+
+        Missing.Clear();
+        foreach (var row in rows)
+        {
+            Missing.Add(row);
+        }
+
+        OnPropertyChanged(nameof(HasMissing));
+        OnPropertyChanged(nameof(MissingTitle));
+    }
+
+    /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>
+    public static IReadOnlyList<ThingCard> Build(
+        IReadOnlyList<ThingDto> things, IReadOnlyList<HistoryPointDto> readings,
+        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null)
+    {
+        wiring ??= Array.Empty<ThingWiringDto>().ToLookup(w => w.ThingId, StringComparer.Ordinal);
+        var labels = (connectors ?? []).ToDictionary(c => c.Id, c => c.Label, StringComparer.OrdinalIgnoreCase);
         var byId = things.ToDictionary(t => t.Id, StringComparer.Ordinal);
         var bySubject = readings
             .GroupBy(r => r.SubjectEntityId, StringComparer.Ordinal)
@@ -495,10 +946,54 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     [.. Readings(t.ReadingSubjects, bySubject, id => !claimed.Any(c => id.StartsWith(c, StringComparison.Ordinal))), .. Facts(t)],
                     parts.Select(p => ToPart(p, bySubject)).ToArray(),
                     t.KindId,
-                    NodeIdOf(t.ReadingSubjects));
+                    NodeIdOf(t.ReadingSubjects),
+                    t.Tags,
+                    t.Links?.Select(l => $"{l.Phrase} {l.OtherName}").ToArray(),
+                    t.Ports?.Select(p => PortText(p, labels)).ToArray(),
+                    wiring[t.Id].Select(WiringRow).ToArray());
             })
             .ToArray();
     }
+
+    private static string PortText(ThingPortDto port, Dictionary<string, string> labels)
+    {
+        var connector = port.ConnectorTypeId is { } id ? labels.GetValueOrDefault(id) ?? id : null;
+        var parts = new List<string> { port.Name };
+        if (connector is not null || port.Gender != "Unknown")
+        {
+            parts.Add(string.Join(' ', new[] { connector, port.Gender == "Unknown" ? null : port.Gender.ToLowerInvariant() }.OfType<string>()));
+        }
+
+        if (port.Direction != "Unknown")
+        {
+            parts.Add(port.Direction.ToLowerInvariant());
+        }
+
+        parts.AddRange(port.Values.Select(v => v.Value));
+        if (port.Signals.Count > 0)
+        {
+            parts.Add(string.Join(", ", port.Signals));
+        }
+
+        var text = string.Join(" · ", parts);
+        return port.OtherName is { } other ? $"{text} → {other} {port.OtherPortName}" : text;
+    }
+
+    private static ThingWiringRow WiringRow(ThingWiringDto wiring) => new(
+        wiring.Route,
+        wiring.VerdictText,
+        wiring.Verdict switch
+        {
+            "WillNotWork" or "ProbablyWillNotWork" => "problem",
+            "CannotTellYet" => "unknown",
+            _ => "ok",
+        },
+        wiring.Findings.Where(f => f.Certainty != "OkAsDeclared").Select(f => f.Certainty switch
+        {
+            "VerifiedProblem" => f.Explanation,
+            "LikelyProblem" => "Likely: " + f.Explanation,
+            _ => "Unknown: " + f.Explanation,
+        }).ToArray());
 
     private static IEnumerable<ThingValueRow> Facts(ThingDto thing) =>
         thing.Facts.Where(f => f.Key != "identity.peer-key-fingerprint").Select(ToRow);

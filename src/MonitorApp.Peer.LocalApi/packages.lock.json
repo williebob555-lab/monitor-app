@@ -116,6 +116,12 @@
           "MonitorApp.Peer.Core": "[1.0.0, )"
         }
       },
+      "monitorapp.planning": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Model": "[1.0.0, )"
+        }
+      },
       "Google.Protobuf": {
         "type": "CentralTransitive",
         "requested": "[3.36.2, )",

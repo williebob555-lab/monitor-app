@@ -27,10 +27,43 @@ public sealed record ThingSummary(
     string? InsideId,
     IReadOnlyList<string> PartIds,
     DateTimeOffset CreatedAt,
-    string? SignalPrefix = null);
+    string? SignalPrefix = null,
+    IReadOnlyList<ThingLink>? Links = null,
+    IReadOnlyList<ThingPort>? Ports = null);
+
+/// <summary>
+/// A link a person can see and change on a thing, phrased from this thing's side: "Powered by" Studio PSU, or "Powers" the amp
+/// when this thing is the other end. Containment ("inside") is not a link here; it has its own field.
+/// </summary>
+public sealed record ThingLink(string RelationshipId, string TypeId, string Phrase, string OtherId, string OtherName, bool Outgoing);
+
+/// <summary>A link type offered in the edit form ("depends-on" shown as "Depends on").</summary>
+public sealed record ThingLinkType(string Id, string Label);
+
+/// <summary>Adds a link from the edited thing to another: "this thing &lt;type&gt; other".</summary>
+public sealed record ThingLinkEdit(string TypeId, string OtherId);
 
 /// <summary>What a person changed on a thing; null fields are left alone (see <see cref="Things.EditAsync"/>).</summary>
-public sealed record ThingEdit(string? Name = null, string? KindId = null, string? Note = null, string? InsideId = null);
+/// <param name="Lifecycle">A lifecycle stage name ("Idea", "Owned", "Retired", ...); moves follow <see cref="LifecycleRules"/>.</param>
+/// <param name="Tags">The complete set of tags the thing should have (null: leave them).</param>
+/// <param name="Values">Values the person adds or replaces; an empty value removes theirs.</param>
+public sealed record ThingEdit(
+    string? Name = null,
+    string? KindId = null,
+    string? Note = null,
+    string? InsideId = null,
+    string? Lifecycle = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<ThingValueEdit>? Values = null,
+    IReadOnlyList<ThingLinkEdit>? AddLinks = null,
+    IReadOnlyList<string>? RemoveLinks = null,
+    IReadOnlyList<ThingPortEdit>? AddPorts = null,
+    IReadOnlyList<string>? RemovePorts = null,
+    IReadOnlyList<ThingConnectEdit>? Connect = null,
+    IReadOnlyList<string>? Disconnect = null);
+
+/// <summary>A value the person types, such as "Max power" = "5 W". <paramref name="FromSpec"/> marks it as read from a spec sheet or datasheet.</summary>
+public sealed record ThingValueEdit(string Label, string? Value, bool FromSpec = false);
 
 /// <summary>A kind a person can pick when adding a thing.</summary>
 public sealed record ThingKindChoice(string Id, string Label);
@@ -46,7 +79,7 @@ public static class Things
     /// <summary>Kinds offered when adding a thing; anything else can be set later.</summary>
     public static IReadOnlyList<string> CaptureKinds { get; } =
     [
-        "thing", "note", "device.computer", "device.phone", "device.network", "device.audio", "device.power", "part", "cable", "adapter", "software", "project",
+        "thing", "note", "device.computer", "device.phone", "device.network", "device.audio", "device.power", "part", "cable", "adapter", "software", "project", "requirement",
     ];
 
     public static IReadOnlyList<ThingKindChoice> KindChoices(ModelLibrary library)
@@ -100,7 +133,9 @@ public static class Things
             model.ContainerOf(thing.Id)?.SourceId,
             model.ChildrenOf(thing.Id).Select(r => r.TargetId).ToArray(),
             thing.CreatedAt,
-            prefix);
+            prefix,
+            Links(model, thing.Id),
+            ThingPorts.Describe(model, thing));
     }
 
     /// <summary>
@@ -118,7 +153,7 @@ public static class Things
         }
 
         var id = "thing:" + Guid.NewGuid().ToString("N");
-        var lifecycle = kind is "note" or "project" ? Lifecycle.Idea : Lifecycle.Owned;
+        var lifecycle = kind is "note" or "project" or "requirement" ? Lifecycle.Idea : Lifecycle.Owned;
         var changes = new List<ModelChange> { new ObjectCreated(id, name, kind, lifecycle) };
         if (note is not null)
         {
@@ -135,7 +170,12 @@ public static class Things
     /// takes the thing out of whatever holds it. Readings and other sources' values are never touched. All of it is one
     /// change set, so a bad move (into itself, into one of its own parts) leaves the thing as it was.
     /// </summary>
-    public static async Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, CancellationToken cancellationToken = default)
+    public static Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, CancellationToken cancellationToken = default) =>
+        EditAsync(store, thingId, edit, null, cancellationToken);
+
+    /// <param name="knownConnector">Whether a connector id is in the shared connector library; the model itself does not
+    /// hold the library, so callers that have it pass it. Without it any short id is accepted.</param>
+    public static async Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, Func<string, bool>? knownConnector, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(edit);
@@ -217,6 +257,68 @@ public static class Things
             }
         }
 
+        if (edit.Lifecycle is { } stageText && stageText.Trim().Length > 0)
+        {
+            if (!Enum.TryParse<Lifecycle>(stageText.Trim(), ignoreCase: true, out var stage) || !Enum.IsDefined(stage))
+            {
+                throw new ModelValidationException($"'{stageText}' is not a lifecycle stage.");
+            }
+
+            if (stage != thing.Lifecycle)
+            {
+                changes.Add(new LifecycleMoved(thing.Id, stage));
+            }
+        }
+
+        if (edit.Tags is { } tags)
+        {
+            var wanted = tags.Select(t => t.Trim().TrimStart('#')).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (wanted.Any(t => t.Length > MaxTagLength))
+            {
+                throw new ModelValidationException($"Keep each tag under {MaxTagLength} characters.");
+            }
+
+            changes.AddRange(thing.Tags.Where(t => !wanted.Contains(t, StringComparer.OrdinalIgnoreCase)).Select(t => (ModelChange)new ObjectUntagged(thing.Id, t)));
+            changes.AddRange(wanted.Where(t => !thing.Tags.Contains(t, StringComparer.OrdinalIgnoreCase)).Select(t => (ModelChange)new ObjectTagged(thing.Id, t)));
+        }
+
+        foreach (var value in edit.Values ?? [])
+        {
+            changes.AddRange(ValueChanges(thing, value));
+        }
+
+        foreach (var removed in edit.RemoveLinks ?? [])
+        {
+            // Only links this thing takes part in, and never containment (that is "inside").
+            if (model.RelationshipsOf(thing.Id).FirstOrDefault(r => r.RelationshipId == removed) is not { } link || link.TypeId == RelationshipTypes.Contains)
+            {
+                throw new ModelValidationException("That link is not on this thing.");
+            }
+
+            changes.Add(new RelationshipRemoved(link.RelationshipId));
+        }
+
+        foreach (var added in edit.AddLinks ?? [])
+        {
+            if (!LinkTypes.Any(t => t.Id == added.TypeId))
+            {
+                throw new ModelValidationException($"'{added.TypeId}' is not a kind of link this screen can add.");
+            }
+
+            if (model.Find(added.OtherId) is null)
+            {
+                throw new ModelValidationException("The thing to link to is not in the model.");
+            }
+
+            if (model.RelationshipsOf(thing.Id).Any(r => r.TypeId == added.TypeId && r.SourceId == thing.Id && r.TargetId == added.OtherId))
+            {
+                continue;
+            }
+
+            changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", added.TypeId, thing.Id, added.OtherId));
+        }
+
+        changes.AddRange(ThingPorts.Changes(model, thing, edit, knownConnector ?? (id => id.Length <= 40)));
         if (changes.Count == 0)
         {
             return Summarize(model, thing);
@@ -224,6 +326,88 @@ public static class Things
 
         model = await store.AppendAsync(changes, EditOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Summarize(model, model.Get(thing.Id));
+    }
+
+    /// <summary>Links a person can draw from the Things screen, with how each reads from either end.</summary>
+    public static IReadOnlyList<ThingLinkType> LinkTypes { get; } =
+    [
+        new(RelationshipTypes.DependsOn, "Depends on"),
+        new(RelationshipTypes.PoweredBy, "Powered by"),
+        new(RelationshipTypes.HostedOn, "Runs on"),
+        new(RelationshipTypes.PartOfProject, "Part of"),
+        new(RelationshipTypes.Replaces, "Replaces"),
+        new(RelationshipTypes.About, "About"),
+        new(ConnectsTo, "Connected to"),
+    ];
+
+    /// <summary>A loose "these are connected" link, before anyone records ports and cables.</summary>
+    public const string ConnectsTo = "connects-to";
+
+    private static string Phrase(string typeId, bool outgoing) => (typeId, outgoing) switch
+    {
+        (RelationshipTypes.DependsOn, false) => "Needed by",
+        (RelationshipTypes.PoweredBy, false) => "Powers",
+        (RelationshipTypes.HostedOn, false) => "Runs",
+        (RelationshipTypes.PartOfProject, false) => "Includes",
+        (RelationshipTypes.Replaces, false) => "Replaced by",
+        (RelationshipTypes.About, false) => "Noted in",
+        (ConnectsTo, _) => "Connected to",
+        _ when LinkTypes.FirstOrDefault(t => t.Id == typeId) is { } known => known.Label,
+        _ => LabelFor(typeId.Replace('-', '.')),
+    };
+
+    private static ThingLink[] Links(SystemModel model, string thingId) =>
+        model.RelationshipsOf(thingId)
+            .Where(r => r.TypeId != RelationshipTypes.Contains && r.CreatedInLayer is null)
+            .Select(r =>
+            {
+                var outgoing = r.SourceId == thingId;
+                var other = outgoing ? r.TargetId : r.SourceId;
+                return new ThingLink(r.RelationshipId, r.TypeId, Phrase(r.TypeId, outgoing), other, model.Find(other)?.Name ?? other, outgoing);
+            })
+            .OrderBy(l => l.Phrase, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(l => l.OtherName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+
+    /// <summary>Where a person's own values live: "user.Max-power" shows as "Max power".</summary>
+    public const string PersonValuePrefix = "user.";
+
+    /// <summary>The source of values a person read from a spec sheet.</summary>
+    public const string SpecSource = "user-spec";
+
+    public const int MaxTagLength = 40;
+
+    private static IEnumerable<ModelChange> ValueChanges(ModelObject thing, ThingValueEdit value)
+    {
+        var label = (value.Label ?? string.Empty).Trim();
+        if (label.Length == 0 || label.Length > MaxNameLength)
+        {
+            throw new ModelValidationException("Give the value a short name, like \"Max power\".");
+        }
+
+        var key = PersonValuePrefix + string.Join('-', label.Replace('.', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        var text = (value.Value ?? string.Empty).Trim();
+        if (text.Length > MaxNoteLength)
+        {
+            throw new ModelValidationException($"Keep the value under {MaxNoteLength} characters.");
+        }
+
+        if (text.Length == 0)
+        {
+            // Removes only the person's own values for this name; values from other sources stay.
+            foreach (var source in new[] { Evidence.UserEntered.Source, SpecSource })
+            {
+                if (thing.Properties.Any(p => p.Key == key && p.Scope is null && p.Evidence.Source == source))
+                {
+                    yield return new PropertyRetracted(thing.Id, key, source);
+                }
+            }
+
+            yield break;
+        }
+
+        var evidence = value.FromSpec ? new Evidence(EvidenceLevel.Specified, SpecSource) : Evidence.UserEntered;
+        yield return new PropertyAsserted(thing.Id, key, PropertyValue.Of(text), evidence);
     }
 
     internal static (string Name, string? Note) Split(string? text)
@@ -279,9 +463,10 @@ public static class Things
         return last.Length == 0 ? key : char.ToUpperInvariant(last[0]) + last[1..];
     }
 
-    private static string SourceText(Evidence evidence) => evidence.Source switch
+    internal static string SourceText(Evidence evidence) => evidence.Source switch
     {
         "user" => "you",
+        SpecSource => "you, from a spec",
         MonitoringBridge.Origin => "monitoring",
         var other => other,
     };

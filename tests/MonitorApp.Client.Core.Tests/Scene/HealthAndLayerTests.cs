@@ -186,6 +186,19 @@ public sealed class HealthAndLayerTests
         Assert.Equal("Monitoring status", layers.Single(l => l.Kind == SceneLayerKind.Collection).Title);
     }
 
+    private static readonly string[] LinkNames = ["ethernet", "wifi", "vpn", "bluetooth", "cellular"];
+
+    [Fact]
+    public void ADeviceWithManyLinksNamesAFewAndCountsTheRest()
+    {
+        var points = LinkNames
+            .Select(n => Flag("p", "peer:p", $"lan.link.{n}.up", true))
+            .Append(Flag("p", "peer:p", SignalIds.NetworkConnected, true));
+        var connectivity = LayerBuilder.Build(points.Select(SignalCatalog.ToReading), classifier).Single(l => l.Kind == SceneLayerKind.Connectivity);
+        Assert.StartsWith("Connected · 5 links up: ", connectivity.Summary, StringComparison.Ordinal);
+        Assert.EndsWith(" and 3 more", connectivity.Summary, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void UnavailableReadingsCarryNoNumberAndNeverShowZero()
     {

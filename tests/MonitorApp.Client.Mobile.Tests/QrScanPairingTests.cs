@@ -35,6 +35,19 @@ public sealed class QrScanPairingTests
     }
 
     [Fact]
+    public void EveryInvitationDecodesNotJustMostOfThem()
+    {
+        // Before the upright-code fallback, about one random invitation in twenty rendered perfectly and still read as nothing.
+        for (var i = 0; i < 200; i++)
+        {
+            var text = new PeerPairingInvitation(
+                System.Net.IPAddress.Parse("127.0.0.1"), 40000 + i, Guid.NewGuid().ToString("N"), System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), null).Encode();
+            var frame = Render(text, modulePixels: 4 + (i % 5), rowPadding: 16, noise: false);
+            Assert.Equal(text, QrFrameDecoder.TryDecodeInvitation(frame.Luminance, frame.RowStride, frame.Width, frame.Height));
+        }
+    }
+
+    [Fact]
     public void OtherQrCodesAndEmptyFramesAreIgnoredSoScanningContinues()
     {
         var url = Render("https://example.com/not-monitor-app", modulePixels: 5, rowPadding: 0, noise: false);

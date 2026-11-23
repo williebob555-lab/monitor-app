@@ -124,6 +124,8 @@ public static class LayerBuilder
             + (available.Count > 3 ? $" · {(available.Count - 3).ToString(CultureInfo.InvariantCulture)} more" : string.Empty);
     }
 
+    private const int MaxNamedLinks = 3;
+
     /// <summary>"Connected · VPN on · Links up: Mobile data, VPN": the state words first, then which links are up.</summary>
     private static string ConnectivitySummary(List<SceneReading> available)
     {
@@ -142,7 +144,15 @@ public static class LayerBuilder
         var up = links.Where(r => r.DisplayValue == "Up").Select(r => SignalCatalog.Name(r.SignalId["lan.link.".Length..^".up".Length])).ToList();
         if (links.Count > 0)
         {
-            parts.Add(up.Count == 0 ? "No links up" : (up.Count == 1 ? "Link up: " : "Links up: ") + string.Join(", ", up));
+            // A device can report dozens of links (older Windows builds listed every driver filter as one), so name
+            // the first few and count the rest rather than printing a line that runs off the screen.
+            parts.Add(up.Count switch
+            {
+                0 => "No links up",
+                1 => "Link up: " + up[0],
+                <= MaxNamedLinks => "Links up: " + string.Join(", ", up),
+                _ => $"{up.Count.ToString(CultureInfo.InvariantCulture)} links up: {string.Join(", ", up.Take(MaxNamedLinks - 1))} and {(up.Count - MaxNamedLinks + 1).ToString(CultureInfo.InvariantCulture)} more",
+            });
         }
 
         return parts.Count > 0

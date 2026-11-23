@@ -160,9 +160,10 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
         return await GetPhonePairingAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+    public async Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default)
     {
-        using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, "api/v1/things"), ct).ConfigureAwait(false);
+        var url = asOf is { } at ? "api/v1/things?asOf=" + Uri.EscapeDataString(at.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)) : "api/v1/things";
+        using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, url), ct).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;

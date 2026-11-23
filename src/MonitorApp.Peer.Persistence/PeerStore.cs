@@ -484,54 +484,90 @@ public sealed partial class PeerStore
         }
     }
 
-    public async Task<RecordInsertOutcome> AppendOriginRecordAsync(OriginRecordWrite write, CancellationToken cancellationToken = default)
+    public async Task<RecordInsertOutcome> AppendOriginRecordAsync(OriginRecordWrite write, CancellationToken cancellationToken = default) =>
+        (await AppendOriginRecordsAsync([write], cancellationToken).ConfigureAwait(false))[0];
+
+    /// <summary>
+    /// Appends several origin records in one transaction: all of them or none. One collection writes dozens of records,
+    /// and a transaction (with its own connection and commit flush) per record made a single collection take seconds on
+    /// Windows. The rules per record are the same as <see cref="AppendOriginRecordAsync"/>; an identical retry is kept as
+    /// such and a conflicting one fails the whole batch.
+    /// </summary>
+    public async Task<IReadOnlyList<RecordInsertOutcome>> AppendOriginRecordsAsync(IReadOnlyList<OriginRecordWrite> writes, CancellationToken cancellationToken = default)
     {
-        Validate(write);
-        var hash = SHA256.HashData(write.RecordBytes);
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
-        var existing = await ReadStoredOriginRecordAsync(connection, transaction, write.OriginPeerId, write.OriginStreamId, write.Sequence, cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
+        ArgumentNullException.ThrowIfNull(writes);
+        foreach (var write in writes)
         {
-            if (!Equal(existing, write, hash))
+            Validate(write);
+        }
+
+        var outcomes = new List<RecordInsertOutcome>(writes.Count);
+        var inserted = new List<StoredOriginRecord>(writes.Count);
+        if (writes.Count == 0)
+        {
+            return outcomes;
+        }
+
+        await using (var connection = await OpenAsync(cancellationToken).ConfigureAwait(false))
+        {
+            await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+            foreach (var write in writes)
             {
-                throw new PeerPersistenceConflictException("Origin sequence already contains different content.");
+                var hash = SHA256.HashData(write.RecordBytes);
+                var existing = await ReadStoredOriginRecordAsync(connection, transaction, write.OriginPeerId, write.OriginStreamId, write.Sequence, cancellationToken).ConfigureAwait(false);
+                if (existing is not null)
+                {
+                    if (!Equal(existing, write, hash))
+                    {
+                        throw new PeerPersistenceConflictException("Origin sequence already contains different content.");
+                    }
+
+                    outcomes.Add(RecordInsertOutcome.IdenticalRetry);
+                    continue;
+                }
+
+                if (write.Provenance == RecordProvenance.LocalOrigin)
+                {
+                    await EnsureNextLocalSequenceAsync(connection, transaction, write, cancellationToken).ConfigureAwait(false);
+                }
+
+                await using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO origin_records(origin_peer_id, origin_stream_id, sequence, subject_entity_id, adapter_instance_id,
+                        signal_id, record_bytes, content_hash, signature, observed_at, received_at, received_from_peer_id, provenance, quality)
+                    VALUES ($origin, $stream, $sequence, $subject, $adapter, $signal, $bytes, $hash, $signature,
+                        $observed, $received, $from, $provenance, $quality);
+                    """;
+                Bind(insert, write, hash);
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                if (write.Provenance == RecordProvenance.LocalOrigin)
+                {
+                    await using var advance = connection.CreateCommand();
+                    advance.Transaction = transaction;
+                    advance.CommandText = "UPDATE local_peer_identity SET next_sequence = $next WHERE singleton_id = 1;";
+                    advance.Parameters.AddWithValue("$next", ToInt64(write.Sequence + 1));
+                    await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                outcomes.Add(RecordInsertOutcome.Inserted);
+                inserted.Add(new StoredOriginRecord(
+                    write.OriginPeerId, write.OriginStreamId, write.Sequence, write.SubjectEntityId, write.AdapterInstanceId,
+                    write.SignalId, write.RecordBytes, hash, write.Signature, write.ObservedAt, write.ReceivedAt,
+                    write.ReceivedFromPeerId, write.Provenance, write.Quality));
             }
 
-            return RecordInsertOutcome.IdenticalRetry;
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        if (write.Provenance == RecordProvenance.LocalOrigin)
+        // Only committed records are announced.
+        foreach (var record in inserted)
         {
-            await EnsureNextLocalSequenceAsync(connection, transaction, write, cancellationToken).ConfigureAwait(false);
+            Live.Publish(record);
         }
 
-        await using var insert = connection.CreateCommand();
-        insert.Transaction = transaction;
-        insert.CommandText = """
-            INSERT INTO origin_records(origin_peer_id, origin_stream_id, sequence, subject_entity_id, adapter_instance_id,
-                signal_id, record_bytes, content_hash, signature, observed_at, received_at, received_from_peer_id, provenance, quality)
-            VALUES ($origin, $stream, $sequence, $subject, $adapter, $signal, $bytes, $hash, $signature,
-                $observed, $received, $from, $provenance, $quality);
-            """;
-        Bind(insert, write, hash);
-        await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-        if (write.Provenance == RecordProvenance.LocalOrigin)
-        {
-            await using var advance = connection.CreateCommand();
-            advance.Transaction = transaction;
-            advance.CommandText = "UPDATE local_peer_identity SET next_sequence = $next WHERE singleton_id = 1;";
-            advance.Parameters.AddWithValue("$next", ToInt64(write.Sequence + 1));
-            await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        Live.Publish(new StoredOriginRecord(
-            write.OriginPeerId, write.OriginStreamId, write.Sequence, write.SubjectEntityId, write.AdapterInstanceId,
-            write.SignalId, write.RecordBytes, hash, write.Signature, write.ObservedAt, write.ReceivedAt,
-            write.ReceivedFromPeerId, write.Provenance, write.Quality));
-        return RecordInsertOutcome.Inserted;
+        return outcomes;
     }
 
     public async Task<IReadOnlyList<StoredOriginRecord>> ReadOriginRangeAsync(string originPeerId, string originStreamId,

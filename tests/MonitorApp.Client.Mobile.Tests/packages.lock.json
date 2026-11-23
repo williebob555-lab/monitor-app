@@ -303,6 +303,7 @@
           "MonitorApp.Client.Core": "[1.0.0, )",
           "MonitorApp.Model": "[1.0.0, )",
           "MonitorApp.Peer.Mobile": "[1.0.0, )",
+          "MonitorApp.Planning": "[1.0.0, )",
           "ZXing.Net": "[0.16.10, )"
         }
       },
@@ -424,6 +425,12 @@
           "Grpc.Net.Client": "[2.85.0, )",
           "MonitorApp.Contracts": "[1.0.0, )",
           "MonitorApp.Peer.Core": "[1.0.0, )"
+        }
+      },
+      "monitorapp.planning": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Model": "[1.0.0, )"
         }
       },
       "monitorapp.update": {

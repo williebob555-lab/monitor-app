@@ -280,6 +280,91 @@ public sealed class SystemModelTests : IDisposable
     }
 
     [Fact]
+    public async Task APersonAddsPortsWithTheirValuesPlugsThingsTogetherAndUnplugsThem()
+    {
+        await using var store = await OpenAsync();
+        var psu = await Things.CaptureAsync(store, "Pedal power", "device.power.supply");
+        var pedal = await Things.CaptureAsync(store, "Delay", "device.audio.effect");
+        psu = await Things.EditAsync(store, psu.Id, new ThingEdit(AddPorts:
+            [new ThingPortEdit("DC out 1", "dc-barrel-5521", "plug", "output", ["dc-fixed"], Voltage: "9 V", Polarity: "center-negative", CurrentMax: "500 mA", FromSpec: true)]));
+        var port = Assert.Single(psu.Ports!);
+        Assert.Equal(("DC out 1", "dc-barrel-5521", "Plug", "Output"), (port.Name, port.ConnectorTypeId, port.Gender, port.Direction));
+        Assert.Equal(["9 V", "center-negative", "500 mA"], port.Values.Select(v => v.Value));
+        Assert.All(port.Values, v => Assert.Equal("Specified", v.Evidence));
+
+        // A new port can be plugged in by name in the same edit.
+        pedal = await Things.EditAsync(store, pedal.Id, new ThingEdit(
+            AddPorts: [new ThingPortEdit("DC in", "dc-barrel-5521", "socket", "input", ["dc-fixed"], Voltage: "9 V", CurrentDraw: "100 mA")],
+            Connect: [new ThingConnectEdit("DC in", psu.Id, port.PortId)]));
+        var dcIn = Assert.Single(pedal.Ports!);
+        Assert.Equal(("Pedal power", "DC out 1"), (dcIn.OtherName, dcIn.OtherPortName));
+
+        // Bad input is refused and changes nothing.
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("Out", Voltage: "nine")])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("DC IN")])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("Out", "usb-z")]), id => id == "usb-c"));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(Connect: [new ThingConnectEdit("nope", psu.Id, port.PortId)])));
+
+        // Unplugging, then removing a port that is still plugged in unplugs it too.
+        pedal = await Things.EditAsync(store, pedal.Id, new ThingEdit(Disconnect: [dcIn.ConnectionId!]));
+        Assert.Null(Assert.Single(pedal.Ports!).ConnectionId);
+        await Things.EditAsync(store, pedal.Id, new ThingEdit(Connect: [new ThingConnectEdit(dcIn.PortId, psu.Id, port.PortId)]));
+        psu = await Things.EditAsync(store, psu.Id, new ThingEdit(RemovePorts: [port.PortId]));
+        Assert.Empty(psu.Ports!);
+        var model = await store.LoadAsync();
+        Assert.Empty(model.Connections);
+    }
+
+    [Fact]
+    public async Task APersonCanMoveAThingThroughItsLifeTagItAndAddValuesWithHowTheyKnowThem()
+    {
+        await using var store = await OpenAsync();
+        var amp = await Things.CaptureAsync(store, "Focusrite 2i2", "device.audio");
+
+        var edited = await Things.EditAsync(store, amp.Id, new ThingEdit(
+            Lifecycle: "installed",
+            Tags: ["studio", "#spare", "Studio"],
+            Values: [new ThingValueEdit("Max power", "5 W", FromSpec: true), new ThingValueEdit("Bought from", "a friend")]));
+        Assert.Equal("Installed", edited.Lifecycle);
+        Assert.Equal(["studio", "spare"], edited.Tags);
+        var power = edited.Facts.Single(f => f.Label == "Max power");
+        Assert.Equal(("5 W", "Specified", "you, from a spec"), (power.Value, power.Evidence, power.Source));
+        Assert.Equal("Entered", edited.Facts.Single(f => f.Label == "Bought from").Evidence);
+
+        // Moves the lifecycle rules forbid are refused; tags and values can be taken away again.
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(Lifecycle: "Idea")));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(Lifecycle: "Broken")));
+        edited = await Things.EditAsync(store, amp.Id, new ThingEdit(Tags: ["spare"], Values: [new ThingValueEdit("Max power", "")]));
+        Assert.Equal(["spare"], edited.Tags);
+        Assert.DoesNotContain(edited.Facts, f => f.Label == "Max power");
+        Assert.Contains(edited.Facts, f => f.Label == "Bought from");
+    }
+
+    [Fact]
+    public async Task LinksReadFromEitherEndAndCanBeRemovedButNotContainment()
+    {
+        await using var store = await OpenAsync();
+        var psu = await Things.CaptureAsync(store, "Studio PSU");
+        var amp = await Things.CaptureAsync(store, "Focusrite");
+        var rack = await Things.CaptureAsync(store, "Rack");
+        await Things.EditAsync(store, amp.Id, new ThingEdit(InsideId: rack.Id, AddLinks: [new ThingLinkEdit(RelationshipTypes.PoweredBy, psu.Id), new ThingLinkEdit(Things.ConnectsTo, rack.Id)]));
+        // Adding the same link again changes nothing.
+        await Things.EditAsync(store, amp.Id, new ThingEdit(AddLinks: [new ThingLinkEdit(RelationshipTypes.PoweredBy, psu.Id)]));
+
+        var model = await store.LoadAsync();
+        var ampLinks = Things.Summarize(model, model.Get(amp.Id)).Links!;
+        Assert.Equal([("Connected to", "Rack"), ("Powered by", "Studio PSU")], ampLinks.Select(l => (l.Phrase, l.OtherName)));
+        Assert.Equal(("Powers", "Focusrite"), Things.Summarize(model, model.Get(psu.Id)).Links!.Select(l => (l.Phrase, l.OtherName)).Single());
+
+        var containment = model.ContainerOf(amp.Id)!.RelationshipId;
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(RemoveLinks: [containment])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(AddLinks: [new ThingLinkEdit("owns-the-world", psu.Id)])));
+        var edited = await Things.EditAsync(store, psu.Id, new ThingEdit(RemoveLinks: [ampLinks.Single(l => l.TypeId == RelationshipTypes.PoweredBy).RelationshipId]));
+        Assert.Empty(edited.Links!);
+        Assert.Equal(rack.Id, (await store.LoadAsync()).ContainerOf(amp.Id)!.SourceId);
+    }
+
+    [Fact]
     public async Task ReadingTheModelTwiceDoesNotReplayTheLogUntilSomethingChanges()
     {
         await using var store = await OpenAsync();

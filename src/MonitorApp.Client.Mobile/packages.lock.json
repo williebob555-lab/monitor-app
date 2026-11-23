@@ -186,6 +186,12 @@
           "MonitorApp.Peer.Core": "[1.0.0, )"
         }
       },
+      "monitorapp.planning": {
+        "type": "Project",
+        "dependencies": {
+          "MonitorApp.Model": "[1.0.0, )"
+        }
+      },
       "monitorapp.update": {
         "type": "Project"
       },

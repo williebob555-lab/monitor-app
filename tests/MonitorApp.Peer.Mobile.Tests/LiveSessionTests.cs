@@ -225,8 +225,11 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             output.WriteLine($"collections while viewed over 4.5 s: {collections}");
             // At the normal 10 s interval a 4.5 s window holds at most one collection, so two prove the fast interval.
             // Requiring more measured the collector's own speed: a real Windows collection on a CI runner can take
-            // longer than the 1 s interval, which made this fail there although the scheduler had switched.
-            Assert.True(collections >= 2, $"Expected fast sampling while viewed, saw {collections} collections.");
+            // longer than the 1 s interval. The time of one collection is still reported to tell the two apart.
+            var timer = Stopwatch.StartNew();
+            await node.CollectOnceAsync();
+            output.WriteLine($"one collection took {timer.ElapsedMilliseconds} ms");
+            Assert.True(collections >= 2, $"Expected fast sampling while viewed, saw {collections} collections; one collection took {timer.ElapsedMilliseconds} ms.");
             viewing.Dispose();
             await WaitAsync(() => node.CurrentCollectionInterval == normal && node.ActiveLiveInterestCount == 0);
 

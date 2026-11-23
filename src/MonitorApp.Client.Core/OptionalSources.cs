@@ -244,8 +244,8 @@ public interface ISecuritySource
 /// <summary>The shared model: every thing this device knows, and quick capture of a new one from a few words.</summary>
 public interface IThingsSource
 {
-    /// <summary>Null when the peer has no shared model yet (an older node).</summary>
-    Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default);
+    /// <summary>Null when the peer has no shared model yet (an older node). With <paramref name="asOf"/>, the model as it was then.</summary>
+    Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default);
 
     /// <summary>Adds a thing; the first line is its name and the rest a note. Throws <see cref="ApiValidationException"/> with a plain message when refused.</summary>
     Task AddThingAsync(string text, string? kindId, CancellationToken ct = default);
