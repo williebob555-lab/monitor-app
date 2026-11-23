@@ -186,6 +186,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Fixed
 
+- Syncing wrote every received reading in its own database transaction, so on Windows a routine sync held the database for seconds and delayed alerts behind it. Each received batch is now saved in one transaction.
 - One-shot sync (`PeerGrpcConnector.SyncOnceAsync`) now waits for the remote to finish processing before reporting success, so replies-free messages such as an alert acknowledgement are never cut off.
 - Restored platform-neutral NuGet lockfiles after the first private CI run exposed runtime-specific publishing residue; self-contained packaging now isolates runtime locks and fails if it changes any tracked file.
 - Made the private-repository publishing helper tolerate expected missing-remote and missing-repository probes under Windows PowerShell 5 without weakening creation or visibility checks.
