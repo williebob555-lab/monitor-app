@@ -46,6 +46,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private readonly AlertStore? alerts;
     private readonly MeshMembership? mesh;
     private PeerHello? authenticatedRemoteHello;
+    // The membership version the statements sent in this session reflect; a later change renews the session.
+    private long exchangedMeshVersion;
 
     public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
         AlertStore? alerts = null, PeerSyncLiveOptions? live = null, MeshMembership? mesh = null)
@@ -103,7 +105,11 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         LocalCapabilities.MeshStatements.Clear();
         LocalCapabilities.SelfLocators.Clear();
         if (mesh is not null)
+        {
+            // Read the version before the statements, so a change made while they are gathered renews the session.
+            Volatile.Write(ref exchangedMeshVersion, mesh.Version);
             await MeshExchange.AddLocalAsync(mesh, LocalCapabilities, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async ValueTask OnAuthenticatedAsync(PeerHello remoteHello, CapabilityExchange remoteCapabilities, CancellationToken cancellationToken)
@@ -111,7 +117,13 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         ArgumentNullException.ThrowIfNull(remoteHello);
         authenticatedRemoteHello = remoteHello.Clone();
         if (mesh is not null)
+        {
+            var before = mesh.Version;
             await MeshExchange.ApplyAsync(mesh, remoteHello.PeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
+            // What the remote just sent needs no renewal; a local change since the hello was prepared still does.
+            if (before == Volatile.Read(ref exchangedMeshVersion))
+                Volatile.Write(ref exchangedMeshVersion, mesh.Version);
+        }
     }
 
     public async IAsyncEnumerable<PeerSessionRequest> GetPendingRequestsAsync(string remotePeerId,
@@ -202,7 +214,7 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             return null;
         }
 
-        var meshVersion = mesh?.Version ?? 0;
+        var meshVersion = Volatile.Read(ref exchangedMeshVersion);
 
         return new PeerLiveSession(new PeerLiveSessionOptions(
             store,

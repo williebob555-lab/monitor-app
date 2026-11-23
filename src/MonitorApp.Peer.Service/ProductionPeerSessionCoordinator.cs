@@ -168,10 +168,13 @@ public sealed class ProductionPeerSessionCoordinator(
     ControlService? control = null,
     MeshMembership? mesh = null) : IPeerSessionCoordinator
 {
+    // Per dialing peer: the membership version the statements last sent to it reflect.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> exchangedMeshVersions = new(StringComparer.Ordinal);
+
     public IPeerLiveSession? OpenLiveSession(string remotePeerId)
     {
         // Membership changed after this session swapped statements: end it so the dialer reconnects and swaps again.
-        var meshVersion = mesh?.Version ?? 0;
+        var meshVersion = mesh is not null && exchangedMeshVersions.TryRemove(remotePeerId, out var exchanged) ? exchanged : mesh?.Version ?? 0;
         return new PeerLiveSession(new PeerLiveSessionOptions(
             store,
             remotePeerId,
@@ -280,6 +283,8 @@ public sealed class ProductionPeerSessionCoordinator(
         if (mesh is not null)
         {
             await MeshExchange.ApplyAsync(mesh, remotePeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
+            // Read the version before the statements, so a change made while they are gathered renews the session.
+            exchangedMeshVersions[remotePeerId] = mesh.Version;
             await MeshExchange.AddLocalAsync(mesh, response, cancellationToken).ConfigureAwait(false);
         }
 

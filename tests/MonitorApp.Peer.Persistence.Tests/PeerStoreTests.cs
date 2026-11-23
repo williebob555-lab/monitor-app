@@ -45,6 +45,24 @@ public sealed class PeerStoreTests : IDisposable
 
     [Fact]
     [Trait("Category", "SQLite")]
+    public async Task AddressesThatWorkedAreDialedFirstAndAdvertisedOnesLast()
+    {
+        var store = await CreateStoreAsync();
+        var remoteIdentity = CreateIdentityMaterial();
+        await store.UpsertTrustedPeerAsync(new TrustedPeer("peer-b", remoteIdentity.PublicKey, remoteIdentity.Fingerprint, "Peer B", PeerTrustState.Active, now, null));
+        await store.UpsertPeerLocatorAsync(new PeerLocator("peer-b", "192.168.1.20", 44044, now, null)); // paired over the LAN
+        await store.UpsertPeerLocatorAsync(new PeerLocator("peer-b", "100.64.0.2", 44044, DateTimeOffset.UnixEpoch, null)); // advertised
+        Assert.Equal(["192.168.1.20", "100.64.0.2"], (await store.ReadPeerLocatorsAsync("peer-b")).Select(item => item.Host));
+
+        // A newer address that has never worked (what 0.1.18 stored) still loses to the one that last authenticated.
+        await store.UpsertPeerLocatorAsync(new PeerLocator("peer-b", "100.64.0.3", 44044, now.AddMinutes(5), null));
+        await store.MarkPeerLocatorConnectedAsync("peer-b", "192.168.1.20", 44044, now.AddMinutes(1));
+        Assert.Equal(["192.168.1.20", "100.64.0.3", "100.64.0.2"], (await store.ReadPeerLocatorsAsync("peer-b")).Select(item => item.Host));
+        Assert.Equal(now.AddMinutes(1), (await store.ReadPeerLocatorsAsync("peer-b"))[0].LastConnectedAt);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
     public async Task LiveFeedPublishesOnlyNewlyCommittedRecordsAndStopsAfterUnsubscribe()
     {
         var store = await CreateStoreAsync();
