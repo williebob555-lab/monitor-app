@@ -66,6 +66,11 @@ public sealed class InProcessPeerDataSourceTests
             await source.AddThingAsync("Spare SSD\nin the desk drawer", "part");
             Assert.Contains((await source.GetThingsAsync())!.Things, t => t.Name == "Spare SSD" && t.Facts.Single().Evidence == "Entered");
             await Assert.ThrowsAsync<ApiValidationException>(() => source.AddThingAsync("  ", null));
+            var ssd = (await source.GetThingsAsync())!.Things.Single(t => t.Name == "Spare SSD");
+            var phoneThing = (await source.GetThingsAsync())!.Things.Single(t => t.Name == "test-phone");
+            await source.EditThingAsync(new ThingEditDto(ssd.Id, Name: "Spare 1 TB SSD", InsideId: phoneThing.Id));
+            Assert.Contains((await source.GetThingsAsync())!.Things, t => t.Name == "Spare 1 TB SSD" && t.InsideId == phoneThing.Id);
+            await Assert.ThrowsAsync<ApiValidationException>(() => source.EditThingAsync(new ThingEditDto(ssd.Id, Name: " ")));
 
             var catalog = await source.GetCatalogAsync();
             Assert.Contains(desktopId, catalog.OriginPeers);

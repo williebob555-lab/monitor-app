@@ -279,6 +279,62 @@ public sealed class SystemModelTests : IDisposable
         Assert.Equal(longLine, trimmed.Facts.Single().Value);
     }
 
+    [Fact]
+    public async Task ReadingTheModelTwiceDoesNotReplayTheLogUntilSomethingChanges()
+    {
+        await using var store = await OpenAsync();
+        await Things.CaptureAsync(store, "Studio rack");
+        var first = await store.LoadAsync();
+        Assert.Same(first, await store.LoadAsync());
+
+        await Things.CaptureAsync(store, "Focusrite");
+        var after = await store.LoadAsync();
+        Assert.NotSame(first, after);
+        Assert.Equal(2, Things.List(after).Count);
+        Assert.Single(Things.List(first));
+        // As-of reads are still rebuilt from the log.
+        Assert.NotSame(after, await store.LoadAsync(asOf: DateTimeOffset.UtcNow.AddYears(1)));
+    }
+
+    [Fact]
+    public async Task EditingAThingChangesOnlyWhatThePersonOwnsAndKeepsContainmentSound()
+    {
+        await using var store = await OpenAsync();
+        var rack = await Things.CaptureAsync(store, "Studio rack", "thing");
+        var amp = await Things.CaptureAsync(store, "Focusrite\nold note", "device.audio");
+        // A value from another source must survive the person's edits.
+        await store.AppendAsync(new PropertyAsserted(amp.Id, "electrical.power.max", PropertyValue.Number(5, "W"), new Evidence(EvidenceLevel.Specified, "datasheet")), "test");
+
+        var edited = await Things.EditAsync(store, amp.Id, new ThingEdit(Name: " Focusrite 2i2 ", Note: "needs 12 V", InsideId: rack.Id));
+        Assert.Equal("Focusrite 2i2", edited.Name);
+        Assert.Equal(rack.Id, edited.InsideId);
+        Assert.Equal("needs 12 V", edited.Facts.Single(f => f.Key == "note.text").Value);
+        Assert.Contains(edited.Facts, f => f.Key == "electrical.power.max" && f.Evidence == "Specified");
+        var model = await store.LoadAsync();
+        Assert.Equal([amp.Id], Things.Summarize(model, model.Get(rack.Id)).PartIds);
+
+        // A loop (the rack into the amp it holds) is refused and changes nothing, not even the rename sent with it.
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, rack.Id, new ThingEdit(Name: "Renamed", InsideId: amp.Id)));
+        Assert.Equal("Studio rack", (await store.LoadAsync()).Get(rack.Id).Name);
+
+        // Clearing the note removes it; an empty InsideId takes the thing out; the kind can change to any known kind.
+        edited = await Things.EditAsync(store, amp.Id, new ThingEdit(KindId: "device", Note: "", InsideId: ""));
+        Assert.Null(edited.InsideId);
+        Assert.Equal("device", edited.KindId);
+        Assert.DoesNotContain(edited.Facts, f => f.Key == "note.text");
+        Assert.Contains(edited.Facts, f => f.Key == "electrical.power.max");
+
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(KindId: "no.such.kind")));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(Name: "  ")));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, "thing:missing", new ThingEdit(Name: "x")));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(InsideId: "thing:missing")));
+
+        // Nothing changed: nothing is written.
+        var before = (await store.ReadChangesAsync()).Count;
+        await Things.EditAsync(store, amp.Id, new ThingEdit(Name: "Focusrite 2i2"));
+        Assert.Equal(before, (await store.ReadChangesAsync()).Count);
+    }
+
     private sealed class ManualClock(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset now = start;

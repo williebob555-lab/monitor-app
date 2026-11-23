@@ -28,6 +28,11 @@ public sealed class ThingsViewTests
         var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
         Assert.True(laptop.CanOpen);
         Assert.DoesNotContain(laptop.Values, v => v.Label == "Memory total");
+        // A busy computer's readings come under headings, and a big heading starts folded instead of one long list.
+        var network = Assert.Single(laptop.Groups, g => g.Title == "Network");
+        Assert.False(network.StartsOpen);
+        Assert.Contains(network.Values, v => v.Label == "Data sent (total)");
+        Assert.True(things.Cards.Single(c => c.Name == "Focusrite 2i2").Groups.Single().StartsOpen);
         Assert.Contains(laptop.Parts, p => p.Name == "Memory" && p.Values.Any(v => v.Label == "Memory total" && v.Badge == "measured · live"));
 
         things.OpenCommand.Execute(laptop);
@@ -37,8 +42,73 @@ public sealed class ThingsViewTests
         Assert.Equal(1 + laptop.Parts.Count, panel.Children.Count);
         Assert.True(panel.Bounds.Width > 0);
 
+        // A refresh that changed nothing leaves the cards and the opened view as they are (no rebuild, no second explosion).
+        var opened = things.OpenCard;
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Same(laptop, things.Cards.Single(c => c.Name == "Wilson-laptop"));
+        Assert.Same(opened, things.OpenCard);
+
         things.CloseCommand.Execute(null);
         Assert.True(things.IsGrid);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ThingsAndTheEcosystemOpenEachOtherOnTheSameDevice()
+    {
+        using var model = new MainViewModel(new FakeThingsSource());
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        model.Environment.RefreshAsync().GetAwaiter().GetResult();
+        things.RefreshAsync().GetAwaiter().GetResult();
+        var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
+        Assert.Equal(FakeEnvironmentSource.LocalId, laptop.LiveNodeId);
+        var memory = laptop.Parts.Single(p => p.Name == "Memory");
+        Assert.Equal(("memory", FakeEnvironmentSource.LocalId), (memory.LiveLayerId, memory.LiveNodeId));
+
+        model.Shell.GoTo(ShellMode.Things);
+        things.SeeLiveCommand.Execute(memory);
+        Assert.Equal(ShellMode.Ecosystem, model.Shell.Mode);
+        Assert.Equal(FakeEnvironmentSource.LocalId, model.Shell.Dive.NodeId);
+
+        Assert.True(model.Shell.Dive.CanOpenInThings);
+        model.Shell.Dive.GoTo(FakeEnvironmentSource.LocalId);
+        var page = Assert.IsType<MonitorApp.Client.Core.ViewModels.Dive.DiveDevicePage>(model.Shell.Dive.Page);
+        model.Shell.Dive.OpenInThingsCommand.Execute(page);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(ShellMode.Things, model.Shell.Mode);
+        Assert.Equal("Wilson-laptop", things.OpenCard?.Name);
+    }
+
+    [AvaloniaFact]
+    public void EditingAThingSendsOnlyWhatChangedAndOffersOnlyPlacesOutsideIt()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var laptop = things.Cards.Single(c => c.Name == "Wilson-laptop");
+        things.EditCommand.Execute(laptop);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(things.IsEditing);
+        // A computer can't go inside its own memory; its kind stays offered even though "Add" doesn't list it.
+        Assert.DoesNotContain(things.EditPlaces, p => p.Id is { } id && id.StartsWith(laptop.Id + "/", StringComparison.Ordinal));
+        Assert.DoesNotContain(things.EditPlaces, p => p.Id == laptop.Id);
+        Assert.Equal("device.computer", things.EditKind?.Id);
+        things.CancelEditCommand.Execute(null);
+
+        var amp = things.Cards.Single(c => c.Name == "Focusrite 2i2");
+        things.EditCommand.Execute(amp);
+        Assert.Equal("Bought used. Needs a 12 V supply.", things.EditNote);
+        things.EditInside = things.EditPlaces.Single(p => p.Name == "Studio rack");
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var sent = Assert.Single(source.Edits);
+        Assert.Equal(new ThingEditDto("thing:amp", InsideId: "thing:rack"), sent);
+        Assert.False(things.IsEditing);
         window.Close();
     }
 
@@ -58,6 +128,8 @@ public sealed class ThingsViewTests
         Shot(model, 390, 844, dir, "things-phone-390x844", () => { });
         Shot(model, 1400, 900, dir, "things-open-wide-1400x900", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
         Shot(model, 390, 844, dir, "things-open-phone-390x844", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
+        Shot(model, 1400, 900, dir, "things-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
+        Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -74,6 +146,7 @@ public sealed class ThingsViewTests
     {
         var things = model.Sections.OfType<ThingsViewModel>().Single();
         things.CloseCommand.Execute(null);
+        things.CancelEditCommand.Execute(null);
         var window = Show(model, width, height);
         things.RefreshAsync().GetAwaiter().GetResult();
         arrange();
@@ -106,6 +179,12 @@ public sealed class ThingsViewTests
                 (SignalIds.BatteryLevel, 0.83, "Ratio"),
                 ("lan.link.wlan0.speed_mbps", 866, "Count"),
                 (SignalIds.NetworkBytesReceived, 48.2e9, "Bytes"),
+                (SignalIds.NetworkBytesSent, 9.7e9, "Bytes"),
+                (SignalIds.NetworkConnected, 1, "Flag"),
+                (SignalIds.NetworkVpn, 1, "Flag"),
+                ("lan.link.eth0.speed_mbps", 1000, "Count"),
+                ("lan.link.eth1.speed_mbps", 2500, "Count"),
+                ("lan.link.docker0.speed_mbps", 10000, "Count"),
             ]);
         }
 
@@ -138,5 +217,13 @@ public sealed class ThingsViewTests
         }
 
         public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;
+
+        public List<ThingEditDto> Edits { get; } = [];
+
+        public Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
+        {
+            Edits.Add(edit);
+            return Task.CompletedTask;
+        }
     }
 }

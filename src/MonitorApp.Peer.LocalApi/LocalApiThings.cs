@@ -11,6 +11,8 @@ public sealed record ThingsResponse(IReadOnlyList<ThingSummary> Things, IReadOnl
 
 internal sealed record ThingCaptureRequest(string? Text, string? KindId);
 
+internal sealed record ThingEditRequest(string? Id, string? Name, string? KindId, string? Note, string? InsideId);
+
 /// <summary>
 /// The shared model over the loopback API (T073, T074). Reading is open to the local app like every other read; adding a
 /// thing is a local mutation and needs the antiforgery token. It records only what the person typed, marked as entered by them.
@@ -52,6 +54,36 @@ internal static class LocalApiThings
             {
                 var thing = await Things.CaptureAsync(store, request?.Text ?? string.Empty, request?.KindId, token).ConfigureAwait(false);
                 return Results.Json(thing, statusCode: StatusCodes.Status201Created);
+            }
+            catch (ModelValidationException exception)
+            {
+                return Results.BadRequest(new { error = exception.Message });
+            }
+        });
+
+        // Thing ids hold ':' and '/' ("peer:abc/memory"), so the id travels in the body rather than the path.
+        application.MapPost("/api/v1/things/edit", async (HttpContext context, IAntiforgery antiforgery, CancellationToken token) =>
+        {
+            if (!await LocalApiHost.IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<ModelStore>() is not { } store)
+            {
+                return Results.NotFound(new { error = "The shared model is not available on this node." });
+            }
+
+            if (!context.Request.HasJsonContentType())
+            {
+                return Results.BadRequest(new { error = "Send the change as JSON." });
+            }
+
+            var request = await context.Request.ReadFromJsonAsync<ThingEditRequest>(token).ConfigureAwait(false);
+            try
+            {
+                var thing = await Things.EditAsync(store, request?.Id ?? string.Empty, new ThingEdit(request?.Name, request?.KindId, request?.Note, request?.InsideId), token).ConfigureAwait(false);
+                return Results.Json(thing);
             }
             catch (ModelValidationException exception)
             {

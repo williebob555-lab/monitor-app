@@ -7,7 +7,8 @@ namespace MonitorApp.Client.Core.ViewModels;
 
 /// <summary>One value on a card, with how it is known ("Measured", "Entered", ...) and where it came from.</summary>
 /// <param name="IsLive">A live reading from monitoring rather than a stored value.</param>
-public sealed record ThingValueRow(string Label, string Value, string Evidence, string SourceText, bool IsLive)
+/// <param name="Category">The heading the value is listed under: "About" for what is known about the thing, otherwise the kind of reading ("System", "Network", "Power").</param>
+public sealed record ThingValueRow(string Label, string Value, string Evidence, string SourceText, bool IsLive, string Category = ThingValueGroup.About)
 {
     /// <summary>The short badge text: "measured", "spec", "entered", "estimated", "imported" or "unknown".</summary>
     public string Badge => Evidence switch
@@ -31,15 +32,66 @@ public sealed record ThingValueRow(string Label, string Value, string Evidence, 
     };
 }
 
+/// <summary>
+/// One heading of a thing's values ("System · 4"). A computer can report dozens of readings; grouping them keeps the card short,
+/// and big groups start folded.
+/// </summary>
+public sealed record ThingValueGroup(string Title, IReadOnlyList<ThingValueRow> Values, bool StartsOpen)
+{
+    public const string About = "About";
+    public const string System = "System";
+    public const string Network = "Network";
+    public const string Power = "Power";
+    public const string Monitoring = "Monitoring";
+    public const string Other = "Other readings";
+
+    /// <summary>Groups larger than this start folded when the thing has many values.</summary>
+    public const int FoldAbove = 4;
+
+    private static readonly string[] Order = [About, System, Network, Power, Other, Monitoring];
+
+    public string Header => $"{Title.ToUpperInvariant()} · {Values.Count}";
+
+    public static IReadOnlyList<ThingValueGroup> Of(IReadOnlyList<ThingValueRow> values)
+    {
+        var many = values.Count > 6;
+        return values
+            .GroupBy(v => v.Category, StringComparer.Ordinal)
+            .OrderBy(g => Array.IndexOf(Order, g.Key) is var i && i < 0 ? Order.Length : i)
+            .Select(g => g.ToArray())
+            .Select(g => new ThingValueGroup(g[0].Category, g, g[0].Category == About || !many || g.Length <= FoldAbove))
+            .ToArray();
+    }
+
+    /// <summary>The heading for a live reading, from what the signal measures.</summary>
+    public static string ForReading(SceneLayerKind kind) => kind switch
+    {
+        SceneLayerKind.Compute or SceneLayerKind.Memory or SceneLayerKind.Storage => System,
+        SceneLayerKind.Network or SceneLayerKind.Connectivity => Network,
+        SceneLayerKind.Power => Power,
+        SceneLayerKind.Collection => Monitoring,
+        _ => Other,
+    };
+}
+
 /// <summary>A part shown inside its card ("Memory", "Network adapter wlan0") with its own live readings and values.</summary>
 /// <param name="Detail">A one-line summary for the card: its first readings, or an identifying value such as the MAC address.</param>
-public sealed record ThingPartRow(string Id, string Name, string KindLabel, string KindId, string? Detail, IReadOnlyList<ThingValueRow> Values)
+/// <param name="LiveNodeId">The device in the Ecosystem this part's readings come from, when it has any.</param>
+/// <param name="LiveLayerId">The Ecosystem layer that holds those readings ("memory", "connectivity").</param>
+public sealed record ThingPartRow(
+    string Id, string Name, string KindLabel, string KindId, string? Detail, IReadOnlyList<ThingValueRow> Values,
+    string? LiveNodeId = null, string? LiveLayerId = null)
 {
     public bool HasValues => Values.Count > 0;
+
+    public bool CanSeeLive => LiveNodeId is not null;
 
     /// <summary>The kind under the name, left out when it only repeats the name ("Memory", "Memory").</summary>
     public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
 }
+
+/// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
+public sealed record ThingPlace(string? Id, string Name);
 
 /// <summary>One thing as a card: name, what kind it is, where it is in its life, its values with evidence, and its parts.</summary>
 public sealed record ThingCard(
@@ -51,9 +103,16 @@ public sealed record ThingCard(
     string? InsideName,
     IReadOnlyList<ThingValueRow> Values,
     IReadOnlyList<ThingPartRow> Parts,
-    string KindId = "thing")
+    string KindId = "thing",
+    string? LiveNodeId = null)
 {
+    /// <summary>Monitored things can be seen live in the Ecosystem.</summary>
+    public bool CanSeeLive => LiveNodeId is not null;
+
     public bool HasValues => Values.Count > 0;
+
+    /// <summary>The values under their headings (About, System, Network, Power, ...).</summary>
+    public IReadOnlyList<ThingValueGroup> Groups => ThingValueGroup.Of(Values);
 
     public bool HasParts => Parts.Count > 0;
 
@@ -65,6 +124,12 @@ public sealed record ThingCard(
     public string OpenLabel => $"Open {Name}";
 
     public string Subtitle => InsideName is null ? $"{KindLabel} · {LifecycleText}" : $"{KindLabel} · {LifecycleText} · inside {InsideName}";
+
+    /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
+    internal string Signature => string.Join('\u001f', [
+        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty,
+        .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
+        .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
     /// <summary>Text used by the filter box.</summary>
     internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
@@ -78,6 +143,8 @@ public sealed record ThingCard(
 public sealed partial class ThingsViewModel : SectionViewModel
 {
     private IReadOnlyList<ThingCard> all = [];
+    private Dictionary<string, ThingDto> things = new(StringComparer.Ordinal);
+    private ThingDto? editing;
 
     [ObservableProperty]
     private string filterText = string.Empty;
@@ -98,6 +165,34 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsGrid), nameof(OpenItems))]
     private ThingCard? openCard;
+
+    /// <summary>The thing being edited (its name, kind, note and where it sits), or null.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditing))]
+    private string? editingName;
+
+    [ObservableProperty]
+    private string editName = string.Empty;
+
+    [ObservableProperty]
+    private ThingKindDto? editKind;
+
+    [ObservableProperty]
+    private string editNote = string.Empty;
+
+    [ObservableProperty]
+    private ThingPlace? editInside;
+
+    [ObservableProperty]
+    private string? editError;
+
+    public bool IsEditing => EditingName is not null;
+
+    /// <summary>Kinds offered while editing: the usual ones plus the thing's own kind when it is not among them.</summary>
+    public ObservableCollection<ThingKindDto> EditKinds { get; } = [];
+
+    /// <summary>Where the thing can go: on its own, or inside any other thing that is not one of its own parts.</summary>
+    public ObservableCollection<ThingPlace> EditPlaces { get; } = [];
 
     public bool IsOpen => OpenCard is not null;
 
@@ -170,6 +265,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
             }
 
+            this.things = things.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
             all = Build(things.Things, readings);
             SyncKinds(things.Kinds);
             ApplyFilter();
@@ -185,6 +281,158 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     [RelayCommand]
     private void Close() => OpenCard = null;
+
+    /// <summary>Asks the shell to show a thing (or one of its parts) live in the Ecosystem: the same object, another lens.</summary>
+    public event EventHandler<Shell.BreadcrumbItem>? DiveRequested;
+
+    [RelayCommand]
+    private void SeeLive(object? target)
+    {
+        switch (target)
+        {
+            case ThingCard { LiveNodeId: { } node } card:
+                DiveRequested?.Invoke(this, new Shell.BreadcrumbItem(card.Name, node));
+                break;
+            case ThingPartRow { LiveNodeId: { } node } part:
+                DiveRequested?.Invoke(this, new Shell.BreadcrumbItem(part.Name, node, false, part.LiveLayerId));
+                break;
+        }
+    }
+
+    /// <summary>Opens the thing an Ecosystem node stands for (a computer seen in the Dive), refreshing first.</summary>
+    public async Task OpenNodeAsync(string nodeId)
+    {
+        await RefreshAsync();
+        FilterText = string.Empty;
+        OpenCard = all.FirstOrDefault(c => c.LiveNodeId == nodeId && c.CanOpen) ?? all.FirstOrDefault(c => c.LiveNodeId == nodeId);
+        if (OpenCard is { CanOpen: false })
+        {
+            // Nothing to pull apart: show its card on the grid instead.
+            FilterText = OpenCard.Name;
+            OpenCard = null;
+        }
+    }
+
+    /// <summary>Starts editing a card or a part: fills the form with what the person can change.</summary>
+    [RelayCommand]
+    private void Edit(object? target)
+    {
+        var id = target switch
+        {
+            ThingCard card => card.Id,
+            ThingPartRow part => part.Id,
+            _ => null,
+        };
+        if (id is null || !things.TryGetValue(id, out var thing))
+        {
+            return;
+        }
+
+        editing = thing;
+        EditError = null;
+        EditName = thing.Name;
+        EditNote = PersonNote(thing) ?? string.Empty;
+        EditKinds.Clear();
+        if (!Kinds.Any(k => k.Id == thing.KindId))
+        {
+            EditKinds.Add(new ThingKindDto(thing.KindId, thing.KindLabel));
+        }
+
+        foreach (var kind in Kinds)
+        {
+            EditKinds.Add(kind);
+        }
+
+        EditKind = EditKinds.First(k => k.Id == thing.KindId);
+        EditPlaces.Clear();
+        var nowhere = new ThingPlace(null, "Nothing (on its own)");
+        EditPlaces.Add(nowhere);
+        var own = DescendantsOf(thing.Id);
+        foreach (var place in things.Values
+                     .Where(t => t.Id != thing.Id && !own.Contains(t.Id))
+                     .OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            EditPlaces.Add(new ThingPlace(place.Id, place.Name));
+        }
+
+        EditInside = EditPlaces.FirstOrDefault(p => p.Id == thing.InsideId) ?? nowhere;
+        EditingName = thing.Name;
+    }
+
+    [RelayCommand]
+    private void CancelEdit()
+    {
+        editing = null;
+        EditingName = null;
+        EditError = null;
+    }
+
+    /// <summary>Sends only what changed; the model records it as entered by this person.</summary>
+    [RelayCommand]
+    private async Task SaveEditAsync()
+    {
+        if (Source is not { } source || editing is not { } thing)
+        {
+            return;
+        }
+
+        var name = EditName.Trim();
+        var note = EditNote.Trim();
+        var edit = new ThingEditDto(
+            thing.Id,
+            name == thing.Name ? null : name,
+            EditKind is { } kind && kind.Id != thing.KindId ? kind.Id : null,
+            note == (PersonNote(thing) ?? string.Empty) ? null : note,
+            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null);
+        if (edit is { Name: null, KindId: null, Note: null, InsideId: null })
+        {
+            CancelEdit();
+            return;
+        }
+
+        try
+        {
+            await source.EditThingAsync(edit);
+        }
+        catch (ApiValidationException exception)
+        {
+            EditError = exception.Message;
+            return;
+        }
+        catch (LocalApiException exception)
+        {
+            EditError = exception.Message;
+            return;
+        }
+
+        CancelEdit();
+        StatusMessage = $"Saved {name}.";
+        await RefreshAsync();
+    }
+
+    /// <summary>The note the person wrote themselves (other sources' notes are not theirs to edit here).</summary>
+    private static string? PersonNote(ThingDto thing) =>
+        thing.Facts.FirstOrDefault(f => f.Key == "note.text" && f.Evidence == "Entered")?.Value;
+
+    private HashSet<string> DescendantsOf(string id)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<string>([id]);
+        while (queue.TryDequeue(out var next))
+        {
+            if (!things.TryGetValue(next, out var thing))
+            {
+                continue;
+            }
+
+            foreach (var part in thing.PartIds.Where(found.Add))
+            {
+                queue.Enqueue(part);
+            }
+        }
+
+        return found;
+    }
 
     [RelayCommand]
     private async Task AddAsync()
@@ -246,7 +494,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     null,
                     [.. Readings(t.ReadingSubjects, bySubject, id => !claimed.Any(c => id.StartsWith(c, StringComparison.Ordinal))), .. Facts(t)],
                     parts.Select(p => ToPart(p, bySubject)).ToArray(),
-                    t.KindId);
+                    t.KindId,
+                    NodeIdOf(t.ReadingSubjects));
             })
             .ToArray();
     }
@@ -273,7 +522,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
 
                 var source = point.Freshness == "Stale" ? "monitoring, not recent" : "monitoring";
-                yield return new ThingValueRow(reading.Label, reading.DisplayValue, "Measured", source, IsLive: true);
+                yield return new ThingValueRow(reading.Label, reading.DisplayValue, "Measured", source, IsLive: true,
+                    ThingValueGroup.ForReading(SignalCatalog.Describe(point.SignalId).Kind));
             }
         }
     }
@@ -306,12 +556,21 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     private static ThingPartRow ToPart(ThingDto part, Dictionary<string, List<HistoryPointDto>> bySubject)
     {
-        ThingValueRow[] values = part.SignalPrefix is { } prefix
-            ? [.. Readings(part.ReadingSubjects, bySubject, id => id.StartsWith(prefix, StringComparison.Ordinal)), .. Facts(part)]
-            : [.. Readings(part.ReadingSubjects, bySubject, _ => true), .. Facts(part)];
+        Func<string, bool> mine = part.SignalPrefix is { } prefix ? id => id.StartsWith(prefix, StringComparison.Ordinal) : _ => true;
+        ThingValueRow[] values = [.. Readings(part.ReadingSubjects, bySubject, mine), .. Facts(part)];
         var detail = values.Length == 0 ? null : string.Join(" · ", values.Take(2).Select(v => $"{v.Label} {v.Value}"));
-        return new ThingPartRow(part.Id, part.Name, part.KindLabel, part.KindId, detail, values);
+        // The Ecosystem shows readings by layer; the part's first reading says which layer holds it.
+        var first = part.ReadingSubjects.SelectMany(s => bySubject.GetValueOrDefault(s) ?? []).FirstOrDefault(p => mine(p.SignalId));
+        var node = first is null ? null : NodeIdOf(part.ReadingSubjects);
+        var layer = first is null ? null : SignalCatalog.Describe(first.SignalId).Kind.ToString().ToLowerInvariant();
+        return new ThingPartRow(part.Id, part.Name, part.KindLabel, part.KindId, detail, values, node, layer);
     }
+
+    /// <summary>The Ecosystem node of a peer subject ("peer:abc" is node "abc"); other subjects have no node of their own.</summary>
+    private static string? NodeIdOf(IReadOnlyList<string> subjects) =>
+        subjects.FirstOrDefault(s => s.StartsWith(PeerSubject, StringComparison.Ordinal)) is { } peer ? peer[PeerSubject.Length..] : null;
+
+    private const string PeerSubject = "peer:";
 
     internal static string LifecycleText(string lifecycle) => lifecycle switch
     {
@@ -346,16 +605,35 @@ public sealed partial class ThingsViewModel : SectionViewModel
     private void ApplyFilter()
     {
         var filter = FilterText.Trim();
-        Cards.Clear();
-        foreach (var card in all.Where(c => filter.Length == 0 || c.SearchText.Contains(filter, StringComparison.CurrentCultureIgnoreCase)))
+        var shown = all.Where(c => filter.Length == 0 || c.SearchText.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        // Rebuilding every card's visuals on each visit made switching to Things stutter; replace only cards that changed.
+        if (shown.Count != Cards.Count || shown.Where((card, i) => card.Id != Cards[i].Id).Any())
         {
-            Cards.Add(card);
+            Cards.Clear();
+            foreach (var card in shown)
+            {
+                Cards.Add(card);
+            }
+        }
+        else
+        {
+            for (var i = 0; i < shown.Count; i++)
+            {
+                if (shown[i].Signature != Cards[i].Signature)
+                {
+                    Cards[i] = shown[i];
+                }
+            }
         }
 
-        // Keep an opened thing open across refreshes, with its new readings.
+        // Keep an opened thing open across refreshes, with its new readings; unchanged, it is left alone so it does not fly apart again.
         if (OpenCard is { } open)
         {
-            OpenCard = all.FirstOrDefault(c => c.Id == open.Id);
+            var fresh = all.FirstOrDefault(c => c.Id == open.Id);
+            if (fresh is null || fresh.Signature != open.Signature)
+            {
+                OpenCard = fresh;
+            }
         }
 
         OnPropertyChanged(nameof(HasCards));

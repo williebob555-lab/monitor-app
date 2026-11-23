@@ -259,6 +259,10 @@
               <TextBlock Text="{Binding KindText}" Classes="label" VerticalAlignment="Center" Margin="0,0,0,4" />
             </WrapPanel>
             <TextBlock Name="DiveProvenance" Text="{Binding Provenance}" Classes="meta" />
+            <Button Classes="action" Content="Open it up in Things" HorizontalAlignment="Left" Margin="0,4,0,0"
+                    IsVisible="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanOpenInThings}"
+                    Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenInThingsCommand}" CommandParameter="{Binding}"
+                    AutomationProperties.Name="Open this device in Things, pulled apart into its parts" />
           </StackPanel>
 
           <Border Classes="panelbox critical" IsVisible="{Binding HasProblem}">

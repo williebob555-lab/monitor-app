@@ -53,6 +53,12 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool outlineOpen;
 
+    /// <summary>The ecosystem as the map: every device as a card, joined by its typed connections, with pan and zoom.</summary>
+    [ObservableProperty]
+    private bool mapOpen;
+
+    private ThingsViewModel? thingsLens;
+
     public ShellViewModel(MainViewModel main, NodeConnection connection, EnvironmentViewModel environment)
     {
         this.main = main;
@@ -100,6 +106,15 @@ public sealed partial class ShellViewModel : ObservableObject
             }
         };
         Activity.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
+
+        // Things and the Ecosystem are two lenses on the same objects: each can open the other on the thing you picked.
+        if (main.Sections.OfType<ThingsViewModel>().SingleOrDefault() is { } things)
+        {
+            thingsLens = things;
+            things.DiveRequested += (_, target) => DiveTo(target.NodeId, target.LayerId);
+            Dive.CanOpenInThings = true;
+            Dive.ThingRequested += (_, nodeId) => OpenInThings(nodeId);
+        }
 
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
@@ -180,7 +195,13 @@ public sealed partial class ShellViewModel : ObservableObject
     /// True when the ecosystem is shown as the Dive: on by default, off while the outline (the accessible alternative, with the
     /// inspector) is open, and off when a head plugs in its own workspace template (see WorkspaceShell.WorkspaceTemplate).
     /// </summary>
-    public bool IsDive => Mode == ShellMode.Ecosystem && DiveEnabled && !OutlineOpen;
+    public bool IsDive => Mode == ShellMode.Ecosystem && DiveEnabled && !OutlineOpen && !MapOpen;
+
+    /// <summary>True when the ecosystem is shown as the map (the node-and-connection graph) with the inspector.</summary>
+    public bool IsMap => Mode == ShellMode.Ecosystem && DiveEnabled && MapOpen && !OutlineOpen;
+
+    /// <summary>The map's "Open it up in Things" button: only when a Things lens exists.</summary>
+    public bool CanOpenInThings => thingsLens is not null;
 
     public bool IsNotDive => !IsDive;
 
@@ -209,6 +230,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         // Move first, then switch: the switch refreshes the environment, which keeps the place as long as the node still exists.
         OutlineOpen = false;
+        MapOpen = false;
         if (DiveEnabled)
         {
             Dive.GoTo(nodeId, layerId);
@@ -262,9 +284,54 @@ public sealed partial class ShellViewModel : ObservableObject
 
     /// <summary>Switches the ecosystem between the Dive and the outline with the inspector (the keyboard and screen-reader path).</summary>
     [RelayCommand]
-    public void ToggleOutline() => OutlineOpen = !OutlineOpen;
+    public void ToggleOutline()
+    {
+        MapOpen = false;
+        OutlineOpen = !OutlineOpen;
+    }
+
+    /// <summary>Switches the ecosystem between the Dive and the map.</summary>
+    [RelayCommand]
+    public void ToggleMap()
+    {
+        OutlineOpen = false;
+        MapOpen = !MapOpen;
+    }
+
+    /// <summary>From the map: dives into the selected device.</summary>
+    [RelayCommand]
+    public void DiveIntoSelected()
+    {
+        if (Environment.SelectedNodeId is { } node)
+        {
+            DiveTo(node);
+        }
+    }
+
+    /// <summary>From the map: opens the selected device in Things, pulled apart into its parts.</summary>
+    [RelayCommand]
+    public void OpenSelectedInThings()
+    {
+        if (Environment.SelectedNodeId is { } node)
+        {
+            OpenInThings(node);
+        }
+    }
+
+    private void OpenInThings(string nodeId)
+    {
+        if (thingsLens is not { } things)
+        {
+            return;
+        }
+
+        Mode = ShellMode.Things;
+        _ = things.OpenNodeAsync(nodeId);
+    }
 
     partial void OnOutlineOpenChanged(bool value) => RaiseDive();
+
+    partial void OnMapOpenChanged(bool value) => RaiseDive();
 
     partial void OnDiveEnabledChanged(bool value) => RaiseDive();
 
@@ -599,6 +666,7 @@ public sealed partial class ShellViewModel : ObservableObject
     private void RaiseDive()
     {
         OnPropertyChanged(nameof(IsDive));
+        OnPropertyChanged(nameof(IsMap));
         OnPropertyChanged(nameof(IsNotDive));
         OnPropertyChanged(nameof(ShowOutlineToggle));
         OnPropertyChanged(nameof(ShowInspectorToggle));

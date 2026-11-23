@@ -249,4 +249,10 @@ public interface IThingsSource
 
     /// <summary>Adds a thing; the first line is its name and the rest a note. Throws <see cref="ApiValidationException"/> with a plain message when refused.</summary>
     Task AddThingAsync(string text, string? kindId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Changes a thing's name, kind, note or container; null fields stay as they are, an empty note removes it and an empty
+    /// <see cref="ThingEditDto.InsideId"/> takes the thing out. Throws <see cref="ApiValidationException"/> when refused.
+    /// </summary>
+    Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default);
 }
