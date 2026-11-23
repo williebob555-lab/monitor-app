@@ -65,13 +65,16 @@ public sealed class LocalPresenceService
     public const string UpdateApproveAction = "update.approve";
     public const string NetworkReachAction = "network.reach";
 
+    /// <summary>Revoking a device removes it from the whole mesh (T080), so it is high risk.</summary>
+    public const string PeerRevokeAction = "peer.revoke";
+
     private const int MaxPendingChallenges = 64;
     private const int MaxSubjectLength = 256;
 
     private static readonly HashSet<string> KnownActions = new(StringComparer.Ordinal)
     {
         EnrollAction, RemoveAction, PairingApproveAction, PresenceEnrollmentApproveAction, ControlGrantAction,
-        UpdateApproveAction, NetworkReachAction,
+        UpdateApproveAction, NetworkReachAction, PeerRevokeAction,
     };
 
     private readonly object gate = new();

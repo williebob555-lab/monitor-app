@@ -444,6 +444,8 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
             var deadAfter = options.HeartbeatInterval * 3 + options.OperationTimeout;
             while (!token.IsCancellationRequested)
             {
+                if (live.RenewRequested)
+                    throw new PeerTransportException("Mesh membership changed; renewing the session to exchange it.");
                 var progressed = false;
                 while (await live.TryNextBatchAsync(token).ConfigureAwait(false) is { } batch)
                 {

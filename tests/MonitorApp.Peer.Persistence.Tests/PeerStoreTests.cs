@@ -148,7 +148,7 @@ public sealed class PeerStoreTests : IDisposable
         await check.OpenAsync();
         await using var versions = check.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(5L, (long)(await versions.ExecuteScalarAsync())!);
         await using var plan = check.CreateCommand();
         plan.CommandText = "EXPLAIN QUERY PLAN SELECT sequence FROM origin_records WHERE observed_at >= 'a' AND observed_at < 'b' ORDER BY observed_at, origin_peer_id, origin_stream_id, sequence;";
         var detail = string.Empty;
@@ -482,7 +482,49 @@ public sealed class PeerStoreTests : IDisposable
         await verify.OpenAsync();
         await using var versions = verify.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(4L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(5L, (long)(await versions.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task SchemaV4DatabaseMigratesToV5WithMeshTablesAndKeepsTrust()
+    {
+        var store = await CreateStoreAsync();
+        var remote = CreateIdentityMaterial();
+        await store.UpsertTrustedPeerAsync(new TrustedPeer("peer-b", remote.PublicKey, remote.Fingerprint, "B", PeerTrustState.Active, now, null));
+
+        // Reduce the real file to what a v4 database holds: no mesh tables, latest recorded version 4.
+        var databasePath = Path.Combine(directory, "peer.db");
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString()))
+        {
+            await connection.OpenAsync();
+            await using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = """
+                DROP TABLE mesh_statements;
+                DROP TABLE mesh_trust_marks;
+                DELETE FROM schema_migrations WHERE version >= 5;
+                INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, '2026-11-01T00:00:00.0000000+00:00');
+                """;
+            await downgrade.ExecuteNonQueryAsync();
+        }
+
+        var migrated = await CreateStoreAsync();
+
+        Assert.Equal(PeerTrustState.Active, (await migrated.ReadTrustedPeerAsync("peer-b"))?.TrustState);
+        Assert.Empty(await migrated.ReadMeshStatementsAsync());
+        Assert.Empty(await migrated.ReadMeshTrustMarksAsync());
+        var other = CreateIdentityMaterial();
+        Assert.True(await migrated.AdmitPeerViaMeshAsync(
+            new TrustedPeer("peer-c", other.PublicKey, other.Fingerprint, "C", PeerTrustState.Active, now, null), "peer-b", []));
+        // The mesh never rebinds a known peer id.
+        Assert.False(await migrated.AdmitPeerViaMeshAsync(
+            new TrustedPeer("peer-b", other.PublicKey, other.Fingerprint, "B", PeerTrustState.Active, now, null), "peer-c", []));
+        Assert.Equal(remote.Fingerprint, (await migrated.ReadTrustedPeerAsync("peer-b"))!.PublicKeyFingerprint);
+        await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString());
+        await verify.OpenAsync();
+        await using var versions = verify.CreateCommand();
+        versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
+        Assert.Equal(5L, (long)(await versions.ExecuteScalarAsync())!);
     }
 
     private async Task<PeerStore> CreateStoreAsync()

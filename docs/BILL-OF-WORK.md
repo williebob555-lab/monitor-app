@@ -43,6 +43,27 @@ Done items stay listed so progress is visible.
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Later |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 
+## Mesh pairing (started 2026-11-23)
+
+**Goal.** Your devices form one mesh. Add a new device from *any* device you already have (computer, laptop, tablet or phone, including phone to phone) and every other device trusts it. Remove it on any device and it is removed everywhere. Readings reach every device through whichever devices are online.
+
+**Where it stands.** Today a phone or tablet can only pair with a computer, by scanning that computer's QR code. Four things in the code cause this:
+
+1. The phone can only dial out. The server part the computers use to accept connections does not run on Android, so nothing can connect *to* a phone or tablet.
+2. Trust is strictly pairwise. Every pair of devices is approved separately (`docs/SECURITY.md`: "transitive trust ... out of scope").
+3. Readings are never passed along. A device only sends the readings it collected itself (`OriginReplicationCoordinator`: "relayed origin records are not supported").
+4. Only computers show a pairing QR code.
+
+**Your decision (2026-11-23):** add once, trusted everywhere. The device you add from asks for your fingerprint, every device alerts you when someone joins, and the right to *control* a device still stays off until you grant it on that device.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| M1 | **Shared member list** (T080): every device keeps a list of signed "joined" and "removed" notes and swaps it whenever two devices talk. Pairing anything to any device spreads to all of them, and so does removing one. Existing pairings are carried over automatically. | L | Pair the phone with one computer and it appears on, and connects to, every computer. Remove a device in one place and it disappears everywhere. | In progress |
+| M2 | **Add a device from a phone or tablet** (T085): "Add a device" on the phone scans the new device's code, asks for your fingerprint, then shows a code back. Works phone to phone, phone to tablet, tablet to phone. | M | Phone and tablet can bring each other (and new computers) into the mesh face to face | Next |
+| M3 | **Mesh screen** (T086): who is in the mesh, who added whom and when, last seen, and Remove (with fingerprint) | M | A clear list instead of per-device pairings | Queued |
+| M4 | **Pass readings along** (T087): readings travel through any device that is online, still signed by the device that took them, so a relay cannot change them | L | The phone sees the tablet, and a laptop it can't reach directly, through any computer | Queued |
+| M5 | **Phones accept connections** (T088): investigate running a listener on Android so two phones can sync with no computer on | L, uncertain | Phone and tablet sync with each other when no computer is on | Later; may not be possible on Android |
+
 ## How progress is reported
 
 - Each finished item ships in a signed release. You get a short note saying what you'll see.

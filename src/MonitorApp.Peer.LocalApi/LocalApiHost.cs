@@ -678,6 +678,12 @@ public sealed class LocalApiHost : IAsyncDisposable
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
+            var blocked = RequirePresence(context, LocalPresenceService.PeerRevokeAction, peerId);
+            if (blocked is not null)
+            {
+                return blocked;
+            }
+
             await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });

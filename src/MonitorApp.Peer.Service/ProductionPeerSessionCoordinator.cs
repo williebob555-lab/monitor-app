@@ -165,15 +165,22 @@ public sealed class ProductionPeerSessionCoordinator(
     IPeerAdvertisementProvider advertisement,
     LiveInterestRegistry? interests = null,
     AlertDeliveryService? alerts = null,
-    ControlService? control = null) : IPeerSessionCoordinator
+    ControlService? control = null,
+    MeshMembership? mesh = null) : IPeerSessionCoordinator
 {
-    public IPeerLiveSession? OpenLiveSession(string remotePeerId) => new PeerLiveSession(new PeerLiveSessionOptions(
-        store,
-        remotePeerId,
-        (request, token) => ReadOriginRangeForPushAsync(remotePeerId, request, token),
-        async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
-        interests,
-        RequestRemotePush: false));
+    public IPeerLiveSession? OpenLiveSession(string remotePeerId)
+    {
+        // Membership changed after this session swapped statements: end it so the dialer reconnects and swaps again.
+        var meshVersion = mesh?.Version ?? 0;
+        return new PeerLiveSession(new PeerLiveSessionOptions(
+            store,
+            remotePeerId,
+            (request, token) => ReadOriginRangeForPushAsync(remotePeerId, request, token),
+            async token => await RequireActiveAsync(remotePeerId, token).ConfigureAwait(false),
+            interests,
+            RequestRemotePush: false,
+            RenewRequested: mesh is null ? null : () => mesh.Version != meshVersion));
+    }
 
     public async ValueTask<PeerSessionOpenResult> OpenAsync(
         PeerHello remoteHello,
@@ -270,6 +277,12 @@ public sealed class ProductionPeerSessionCoordinator(
         var response = new CapabilityExchange();
         response.Capabilities.Add((await advertisement.GetCapabilitiesAsync(cancellationToken)
             .ConfigureAwait(false)).Select(item => item.Clone()));
+        if (mesh is not null)
+        {
+            await MeshExchange.ApplyAsync(mesh, remotePeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
+            await MeshExchange.AddLocalAsync(mesh, response, cancellationToken).ConfigureAwait(false);
+        }
+
         return response;
     }
 
