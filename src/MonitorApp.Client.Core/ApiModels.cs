@@ -200,7 +200,10 @@ public sealed record LiveInterestLeaseDto(string LeaseId, DateTimeOffset Expires
 /// <summary>One value of a thing. <see cref="Evidence"/> is Measured, Specified, Imported, Entered, Estimated or Unknown.</summary>
 public sealed record ThingFactDto(string Key, string Label, string Value, string Evidence, string Source, DateTimeOffset RecordedAt, int Others);
 
-/// <summary>A thing in the shared model. <see cref="ReadingSubjects"/> are the monitoring subjects whose live readings belong to it.</summary>
+/// <summary>
+/// A thing in the shared model. <see cref="ReadingSubjects"/> are the monitoring subjects whose live readings belong to it; for a part,
+/// <see cref="SignalPrefix"/> narrows them to the part's own readings ("system.memory.").
+/// </summary>
 public sealed record ThingDto(
     string Id,
     string Name,
@@ -213,7 +216,8 @@ public sealed record ThingDto(
     IReadOnlyList<ThingFactDto> Facts,
     string? InsideId,
     IReadOnlyList<string> PartIds,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? SignalPrefix = null);
 
 public sealed record ThingKindDto(string Id, string Label);
 

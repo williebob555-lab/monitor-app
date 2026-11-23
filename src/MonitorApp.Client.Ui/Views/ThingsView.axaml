@@ -1,11 +1,13 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
              xmlns:core="using:MonitorApp.Client.Core"
+             xmlns:views="using:MonitorApp.Client.Ui.Views"
              xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
              x:Class="MonitorApp.Client.Ui.Views.ThingsView" x:DataType="vm:ThingsViewModel">
   <!--
-    Things (bill of work items 5 and 6): every object in the shared model as a card. Each value carries a badge that says how it is known
+    Things (bill of work items 5 to 7): every object in the shared model as a card. Each value carries a badge that says how it is known
     (measured, spec, entered, estimated, unknown), in words and colour. Parts sit inside their card. "Add" takes a few words.
+    "Open" pulls a thing apart into its parts (ExplodedPanel), each with its own live readings.
   -->
   <UserControl.Styles>
     <StyleInclude Source="avares://MonitorApp.Client.Ui/Views/DiveStyles.axaml" />
@@ -15,107 +17,190 @@
     <Style Selector="Border.tile">
       <Setter Property="Padding" Value="16,14" />
     </Style>
+    <Style Selector="Border.body">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.LineStrong}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
     <Style Selector="TextBlock.badgetext">
       <Setter Property="FontSize" Value="{DynamicResource Size.Caption}" />
     </Style>
+    <Style Selector="Path.kind">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.Transfer}" />
+      <Setter Property="StrokeThickness" Value="1.5" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+    </Style>
   </UserControl.Styles>
 
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Classes="page" Spacing="12" Margin="16">
-      <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Spacing="4">
-          <TextBlock Text="THINGS" Classes="section" />
-          <TextBlock Text="Everything you own, use or plan" Classes="headline" TextWrapping="Wrap" />
-          <TextBlock Text="Each value says how it is known: measured by monitoring, from a spec, entered by you, estimated, or unknown."
+  <UserControl.DataTemplates>
+    <!-- One value with its evidence badge; shared by cards, parts and the opened view. -->
+    <DataTemplate DataType="vm:ThingValueRow">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+        <StackPanel Spacing="0">
+          <TextBlock Text="{Binding Label}" Classes="meta" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Value}" TextWrapping="Wrap" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="badge" Margin="8,0,0,0" VerticalAlignment="Top"
+                BorderBrush="{Binding BadgeBrushKey, Converter={x:Static ctl:ShellIcons.BrushByKey}}"
+                ToolTip.Tip="{Binding SourceText, StringFormat='From {0}'}">
+          <TextBlock Text="{Binding Badge}" Classes="badgetext"
+                     Foreground="{Binding BadgeBrushKey, Converter={x:Static ctl:ShellIcons.BrushByKey}}" />
+        </Border>
+      </Grid>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Panel>
+    <!-- The card grid. -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding IsGrid}">
+      <StackPanel Classes="page" Spacing="12" Margin="16">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="4">
+            <TextBlock Text="THINGS" Classes="section" />
+            <TextBlock Text="Everything you own, use or plan" Classes="headline" TextWrapping="Wrap" />
+            <TextBlock Text="Each value says how it is known: measured by monitoring, from a spec, entered by you, estimated, or unknown. Open a computer to see its parts."
+                       Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="action" Content="Refresh" Command="{Binding ReloadCommand}" VerticalAlignment="Top"
+                  AutomationProperties.Name="Refresh things" />
+        </Grid>
+
+        <!-- Quick capture: a name, or a name and a note on the next lines. -->
+        <Border Classes="tile">
+          <StackPanel Spacing="8">
+            <TextBlock Text="ADD A THING" Classes="section" />
+            <TextBox Text="{Binding NewThingText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="160"
+                     Watermark="A name is enough, like &quot;Focusrite 2i2&quot;. Put a note on the next line if you like."
+                     AutomationProperties.Name="New thing: name, then an optional note on the next lines" />
+            <WrapPanel>
+              <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding NewThingKind}" MinWidth="200" Margin="0,0,8,0"
+                        AutomationProperties.Name="Kind of thing">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="core:ThingKindDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Classes="action" Content="Add" Command="{Binding AddCommand}" AutomationProperties.Name="Add this thing" />
+            </WrapPanel>
+            <TextBlock Text="{Binding AddError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                       IsVisible="{Binding AddError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock Text="{Binding StatusMessage}" Classes="meta" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                       IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Text="{Binding FilterText}" Watermark="Filter by name, kind or value" AutomationProperties.Name="Filter things" />
+          <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="meta" VerticalAlignment="Center" Margin="12,0,0,0" />
+        </Grid>
+        <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <TextBlock Text="{Binding EmptyText}" Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasCards}" />
+
+        <ItemsControl ItemsSource="{Binding Cards}" AutomationProperties.Name="Things">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="3" MinColumnWidth="300" Gap="12" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ThingCard">
+              <Border Classes="tile" AutomationProperties.Name="{Binding Name}">
+                <StackPanel Spacing="8">
+                  <Grid ColumnDefinitions="Auto,*">
+                    <Path Classes="kind" Width="26" Height="26" Margin="0,2,10,0" VerticalAlignment="Top"
+                          Data="{Binding KindId, Converter={x:Static ctl:ShellIcons.KindIcon}}" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                      <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" />
+                      <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+
+                  <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
+                  <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
+
+                  <StackPanel Spacing="4" IsVisible="{Binding HasParts}">
+                    <TextBlock Text="{Binding PartsHeading}" Classes="section" />
+                    <ItemsControl ItemsSource="{Binding Parts}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ThingPartRow">
+                          <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                            <Path Classes="kind" Width="16" Height="16" Margin="0,2,8,0" VerticalAlignment="Top"
+                                  Data="{Binding KindId, Converter={x:Static ctl:ShellIcons.KindIcon}}" />
+                            <StackPanel Grid.Column="1">
+                              <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                              <TextBlock Text="{Binding Detail}" Classes="meta" TextWrapping="Wrap"
+                                         IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Classes="action" Content="Open it up" HorizontalAlignment="Left" Margin="0,4,0,0"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).OpenCommand}"
+                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding OpenLabel}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Open the machine: the thing in the middle, its parts pulled out around it, each with its own readings. -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding IsOpen}">
+      <StackPanel Classes="page" Spacing="12" Margin="16">
+        <Grid ColumnDefinitions="*,Auto">
+          <Button Classes="action" Content="Back to things" Command="{Binding CloseCommand}" HorizontalAlignment="Left"
+                  AutomationProperties.Name="Back to all things" />
+          <Button Grid.Column="1" Classes="action" Content="Refresh" Command="{Binding ReloadCommand}"
+                  AutomationProperties.Name="Refresh readings" />
+        </Grid>
+        <StackPanel Spacing="2">
+          <TextBlock Text="OPENED UP" Classes="section" />
+          <TextBlock Text="{Binding OpenCard.Name, FallbackValue=''}" Classes="headline" TextWrapping="Wrap" />
+          <TextBlock Text="Every part this device's own readings prove, each with its live values."
                      Classes="muted" TextWrapping="Wrap" />
         </StackPanel>
-        <Button Grid.Column="1" Classes="action" Content="Refresh" Command="{Binding ReloadCommand}" VerticalAlignment="Top"
-                AutomationProperties.Name="Refresh things" />
-      </Grid>
 
-      <!-- Quick capture: a name, or a name and a note on the next lines. -->
-      <Border Classes="tile">
-        <StackPanel Spacing="8">
-          <TextBlock Text="ADD A THING" Classes="section" />
-          <TextBox Text="{Binding NewThingText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="160"
-                   Watermark="A name is enough, like &quot;Focusrite 2i2&quot;. Put a note on the next line if you like."
-                   AutomationProperties.Name="New thing: name, then an optional note on the next lines" />
-          <WrapPanel>
-            <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding NewThingKind}" MinWidth="200" Margin="0,0,8,0"
-                      AutomationProperties.Name="Kind of thing">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="core:ThingKindDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-            <Button Classes="action" Content="Add" Command="{Binding AddCommand}" AutomationProperties.Name="Add this thing" />
-          </WrapPanel>
-          <TextBlock Text="{Binding AddError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
-                     IsVisible="{Binding AddError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="{Binding StatusMessage}" Classes="meta" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
-                     IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-        </StackPanel>
-      </Border>
-
-      <Grid ColumnDefinitions="*,Auto">
-        <TextBox Text="{Binding FilterText}" Watermark="Filter by name, kind or value" AutomationProperties.Name="Filter things" />
-        <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="meta" VerticalAlignment="Center" Margin="12,0,0,0" />
-      </Grid>
-      <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
-                 IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-      <TextBlock Text="{Binding EmptyText}" Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasCards}" />
-
-      <ItemsControl ItemsSource="{Binding Cards}" AutomationProperties.Name="Things">
-        <ItemsControl.ItemsPanel>
-          <ItemsPanelTemplate><ctl:DiveTileGrid MaxColumns="3" MinColumnWidth="300" Gap="12" /></ItemsPanelTemplate>
-        </ItemsControl.ItemsPanel>
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:ThingCard">
-            <Border Classes="tile" AutomationProperties.Name="{Binding Name}">
-              <StackPanel Spacing="8">
-                <StackPanel Spacing="2">
-                  <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" />
-                  <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" />
+        <ItemsControl ItemsSource="{Binding OpenItems}" AutomationProperties.Name="Parts">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><ctl:ExplodedPanel Gap="14" LineBrush="{DynamicResource Brush.Transfer}" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
+            <DataTemplate DataType="vm:ThingCard">
+              <Border Classes="tile body" AutomationProperties.Name="{Binding Name}">
+                <StackPanel Spacing="10">
+                  <Path Classes="kind" Width="56" Height="56" HorizontalAlignment="Center"
+                        Data="{Binding KindId, Converter={x:Static ctl:ShellIcons.KindIcon}}" />
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" HorizontalAlignment="Center" TextAlignment="Center" />
+                    <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+                  </StackPanel>
+                  <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
                 </StackPanel>
-
-                <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ThingValueRow">
-                      <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                        <StackPanel Spacing="0">
-                          <TextBlock Text="{Binding Label}" Classes="meta" />
-                          <TextBlock Text="{Binding Value}" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <Border Grid.Column="1" Classes="badge" Margin="8,0,0,0" VerticalAlignment="Top"
-                                BorderBrush="{Binding BadgeBrushKey, Converter={x:Static ctl:ShellIcons.BrushByKey}}"
-                                ToolTip.Tip="{Binding SourceText, StringFormat='From {0}'}">
-                          <TextBlock Text="{Binding Badge}" Classes="badgetext"
-                                     Foreground="{Binding BadgeBrushKey, Converter={x:Static ctl:ShellIcons.BrushByKey}}" />
-                        </Border>
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
-
-                <StackPanel Spacing="4" IsVisible="{Binding HasParts}">
-                  <TextBlock Text="{Binding PartsHeading}" Classes="section" />
-                  <ItemsControl ItemsSource="{Binding Parts}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:ThingPartRow">
-                        <StackPanel Margin="0,2">
-                          <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
-                          <TextBlock Text="{Binding Detail}" Classes="meta" TextWrapping="Wrap"
-                                     IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+              </Border>
+            </DataTemplate>
+            <DataTemplate DataType="vm:ThingPartRow">
+              <Border Classes="tile" AutomationProperties.Name="{Binding Name}">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="Auto,*">
+                    <Path Classes="kind" Width="24" Height="24" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Data="{Binding KindId, Converter={x:Static ctl:ShellIcons.KindIcon}}" />
+                    <StackPanel Grid.Column="1">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding KindText}" Classes="meta"
+                                 IsVisible="{Binding KindText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                  </Grid>
+                  <ItemsControl ItemsSource="{Binding Values}" IsVisible="{Binding HasValues}" />
+                  <TextBlock Text="No readings for this part yet." Classes="muted" IsVisible="{Binding !HasValues}" />
                 </StackPanel>
-              </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </StackPanel>
-  </ScrollViewer>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+  </Panel>
 </UserControl>

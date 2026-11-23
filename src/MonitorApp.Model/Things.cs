@@ -10,7 +10,9 @@ public sealed record ThingFact(string Key, string Label, string Value, string Ev
 /// <summary>
 /// A model object as the Things screen shows it: plain names, its values with evidence, where it sits and what it holds.
 /// <paramref name="ReadingSubjects"/> are the monitoring subject ids whose live readings belong to this thing
-/// ("peer:&lt;id&gt;" for a computer or phone), so a screen can join readings without knowing the bridge.
+/// ("peer:&lt;id&gt;" for a computer or phone), so a screen can join readings without knowing the bridge. For a part,
+/// they are its container's subjects and <paramref name="SignalPrefix"/> says which of those readings are the part's
+/// ("system.memory." for Memory).
 /// </summary>
 public sealed record ThingSummary(
     string Id,
@@ -24,7 +26,8 @@ public sealed record ThingSummary(
     IReadOnlyList<ThingFact> Facts,
     string? InsideId,
     IReadOnlyList<string> PartIds,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? SignalPrefix = null);
 
 /// <summary>A kind a person can pick when adding a thing.</summary>
 public sealed record ThingKindChoice(string Id, string Label);
@@ -65,7 +68,7 @@ public static class Things
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(thing);
         var facts = thing.Properties
-            .Where(p => p.Scope is null)
+            .Where(p => p.Scope is null && !p.Key.StartsWith("monitoring.", StringComparison.Ordinal))
             .GroupBy(p => p.Key, StringComparer.Ordinal)
             .Select(g =>
             {
@@ -75,7 +78,9 @@ public static class Things
             .OrderBy(f => f.Key == "note.text" ? 0 : 1)
             .ThenBy(f => f.Label, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
-        var subjects = thing.MonitoringBindings
+        var prefix = thing.Strongest(MonitoringBridge.SignalsKey)?.Value.Text;
+        var container = model.ContainerOf(thing.Id)?.SourceId is { } holder ? model.Find(holder) : null;
+        var subjects = (prefix is not null && container is not null ? container : thing).MonitoringBindings
             .Select(b => b.Kind == MonitoringSubjectKind.Peer ? "peer:" + b.SubjectId : b.SubjectId)
             .ToArray();
         return new ThingSummary(
@@ -90,7 +95,8 @@ public static class Things
             facts,
             model.ContainerOf(thing.Id)?.SourceId,
             model.ChildrenOf(thing.Id).Select(r => r.TargetId).ToArray(),
-            thing.CreatedAt);
+            thing.CreatedAt,
+            prefix);
     }
 
     /// <summary>

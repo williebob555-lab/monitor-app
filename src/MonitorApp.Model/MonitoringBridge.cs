@@ -130,7 +130,73 @@ public static class MonitoringBridge
             subjects.Add(new MonitoredSubject(MonitoringSubjectKind.ObservedDevice, entity.EntityId, shape.Value.Name, shape.Value.Kind, strong, inside));
         }
 
-        return await EnsureAsync(store, subjects, cancellationToken).ConfigureAwait(false);
+        var result = await EnsureAsync(store, subjects, cancellationToken).ConfigureAwait(false);
+        await EnsureMeasuredPartsAsync(peers, store, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>The property that names which of the container's readings belong to a part (a signal id prefix).</summary>
+    public const string SignalsKey = "monitoring.signals";
+
+    /// <summary>
+    /// Parts whose existence a device's own readings prove: a device that reports processor load has a processor. Each rule is a
+    /// signal id prefix and the part it shows. Data, not per-device code: a new collector adds a row.
+    /// </summary>
+    public static IReadOnlyList<(string SignalPrefix, string Slot, string KindId, string Name)> MeasuredPartRules { get; } =
+    [
+        ("system.cpu.", "processor", "part.processor", "Processor"),
+        ("system.memory.", "memory", "part.memory", "Memory"),
+        ("system.storage.", "storage", "part.storage", "Storage"),
+        ("android.battery.", "battery", "part.battery", "Battery"),
+    ];
+
+    /// <summary>
+    /// Adds the parts that readings prove (processor, memory, storage, battery) inside each monitored device, and tags every
+    /// part with the readings that belong to it (<see cref="SignalsKey"/>), so a screen can show live values per part.
+    /// Idempotent: ids are derived from the device's object id, and nothing is re-asserted once present.
+    /// </summary>
+    private static async Task EnsureMeasuredPartsAsync(PeerStore peers, ModelStore store, CancellationToken cancellationToken)
+    {
+        var signalsBySubject = (await peers.ReadCurrentObservationsAsync(cancellationToken).ConfigureAwait(false))
+            .GroupBy(o => o.SubjectEntityId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(o => o.SignalId).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        var model = await store.LoadAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        var changes = new List<ModelChange>();
+        foreach (var device in model.Objects.Where(o => o.CreatedInLayer is null))
+        {
+            foreach (var binding in device.MonitoringBindings)
+            {
+                if (binding.Kind == MonitoringSubjectKind.Peer
+                    && signalsBySubject.TryGetValue(PeerEntityPrefix + binding.SubjectId, out var signals))
+                {
+                    foreach (var rule in MeasuredPartRules.Where(r => signals.Any(id => id.StartsWith(r.SignalPrefix, StringComparison.Ordinal))))
+                    {
+                        var partId = $"{device.Id}/{rule.Slot}";
+                        if (model.Find(partId) is not null) continue;
+                        var evidence = new Evidence(EvidenceLevel.Measured, Origin, binding.SubjectId);
+                        changes.Add(new ObjectCreated(partId, rule.Name, rule.KindId, Lifecycle.Installed));
+                        changes.Add(new PropertyAsserted(partId, SignalsKey, PropertyValue.Of(rule.SignalPrefix), evidence));
+                        changes.Add(new RelationshipAdded($"bridge:{device.Id}>{partId}", RelationshipTypes.Contains, device.Id, partId));
+                    }
+                }
+                else if (binding.Kind == MonitoringSubjectKind.ObservedDevice && device.Strongest(SignalsKey) is null
+                    && InterfaceName(binding.SubjectId) is { } name)
+                {
+                    changes.Add(new PropertyAsserted(device.Id, SignalsKey, PropertyValue.Of($"lan.link.{name}."),
+                        new Evidence(EvidenceLevel.Measured, Origin, binding.SubjectId)));
+                }
+            }
+        }
+
+        if (changes.Count > 0)
+            await store.AppendAsync(changes, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>"lan:peer:if:wlan0" gives "wlan0"; anything that is not an interface gives null.</summary>
+    private static string? InterfaceName(string entityId)
+    {
+        var parts = entityId.Split(':');
+        return parts.Length >= 4 && parts[0] == "lan" && parts[2] == "if" ? string.Join(':', parts[3..]) : null;
     }
 
     private const string PeerEntityPrefix = "peer:";

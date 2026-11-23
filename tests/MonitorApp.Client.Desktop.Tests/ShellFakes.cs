@@ -47,8 +47,12 @@ internal class FakeEnvironmentSource : IPeerDataSource
             Number(ServerId, SignalIds.MemoryUsed, 12.4e9, "Bytes", at, 6),
             Number(ServerId, SignalIds.MemoryTotal, 32e9, "Bytes", at, 6),
         };
+        points.AddRange(ExtraState.Select(extra => Number(LocalId, extra.Signal, extra.Value, extra.Unit, at, 3)));
         return Task.FromResult(new StateDto(at, at.AddHours(-1), 1000, "raw", false, points));
     }
+
+    /// <summary>More current readings of this device, added to <see cref="GetStateAsync"/>.</summary>
+    public List<(string Signal, double Value, string Unit)> ExtraState { get; } = [];
 
     /// <summary>Points served by <see cref="GetHistoryAsync"/>, filtered by the query's signal, subject and time range.</summary>
     public List<HistoryPointDto> History { get; } = [];

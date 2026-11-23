@@ -31,8 +31,15 @@ public sealed record ThingValueRow(string Label, string Value, string Evidence, 
     };
 }
 
-/// <summary>A part shown inside its card ("Network adapter wlan0").</summary>
-public sealed record ThingPartRow(string Id, string Name, string KindLabel, string? Detail);
+/// <summary>A part shown inside its card ("Memory", "Network adapter wlan0") with its own live readings and values.</summary>
+/// <param name="Detail">A one-line summary for the card: its first readings, or an identifying value such as the MAC address.</param>
+public sealed record ThingPartRow(string Id, string Name, string KindLabel, string KindId, string? Detail, IReadOnlyList<ThingValueRow> Values)
+{
+    public bool HasValues => Values.Count > 0;
+
+    /// <summary>The kind under the name, left out when it only repeats the name ("Memory", "Memory").</summary>
+    public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
+}
 
 /// <summary>One thing as a card: name, what kind it is, where it is in its life, its values with evidence, and its parts.</summary>
 public sealed record ThingCard(
@@ -43,13 +50,19 @@ public sealed record ThingCard(
     bool Monitored,
     string? InsideName,
     IReadOnlyList<ThingValueRow> Values,
-    IReadOnlyList<ThingPartRow> Parts)
+    IReadOnlyList<ThingPartRow> Parts,
+    string KindId = "thing")
 {
     public bool HasValues => Values.Count > 0;
 
     public bool HasParts => Parts.Count > 0;
 
     public string PartsHeading => Parts.Count == 1 ? "1 part" : $"{Parts.Count} parts";
+
+    /// <summary>Only things with parts can be opened into them.</summary>
+    public bool CanOpen => Parts.Count > 0;
+
+    public string OpenLabel => $"Open {Name}";
 
     public string Subtitle => InsideName is null ? $"{KindLabel} · {LifecycleText}" : $"{KindLabel} · {LifecycleText} · inside {InsideName}";
 
@@ -80,6 +93,18 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     [ObservableProperty]
     private bool available = true;
+
+    /// <summary>The thing opened into its parts ("open the machine"), or null on the card grid.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsGrid), nameof(OpenItems))]
+    private ThingCard? openCard;
+
+    public bool IsOpen => OpenCard is not null;
+
+    /// <summary>What the opened view draws: the thing itself first, then each of its parts.</summary>
+    public IReadOnlyList<object> OpenItems => OpenCard is { } card ? [card, .. card.Parts] : [];
+
+    public bool IsGrid => OpenCard is null;
 
     public ThingsViewModel(NodeConnection connection)
         : base(connection, "Things")
@@ -154,6 +179,13 @@ public sealed partial class ThingsViewModel : SectionViewModel
     [RelayCommand]
     private Task Reload() => RefreshAsync();
 
+    /// <summary>Opens a thing into its parts, each with its own live readings.</summary>
+    [RelayCommand]
+    private void Open(ThingCard? card) => OpenCard = card is { CanOpen: true } ? card : null;
+
+    [RelayCommand]
+    private void Close() => OpenCard = null;
+
     [RelayCommand]
     private async Task AddAsync()
     {
@@ -200,28 +232,39 @@ public sealed partial class ThingsViewModel : SectionViewModel
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         return things
             .Where(t => t.InsideId is null || !byId.ContainsKey(t.InsideId))
-            .Select(t => new ThingCard(
-                t.Id,
-                t.Name,
-                t.KindLabel,
-                LifecycleText(t.Lifecycle),
-                t.Monitored,
-                null,
-                [.. Readings(t, bySubject), .. t.Facts.Where(f => f.Key != "identity.peer-key-fingerprint").Select(ToRow)],
-                t.PartIds.Where(byId.ContainsKey).Select(id => byId[id]).Select(ToPart).ToArray()))
+            .Select(t =>
+            {
+                var parts = t.PartIds.Where(byId.ContainsKey).Select(id => byId[id]).OrderBy(PartOrder).ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+                // Readings a part claims (by its signal prefix) are shown on that part, not repeated on the device.
+                var claimed = parts.Select(p => p.SignalPrefix).OfType<string>().ToArray();
+                return new ThingCard(
+                    t.Id,
+                    t.Name,
+                    t.KindLabel,
+                    LifecycleText(t.Lifecycle),
+                    t.Monitored,
+                    null,
+                    [.. Readings(t.ReadingSubjects, bySubject, id => !claimed.Any(c => id.StartsWith(c, StringComparison.Ordinal))), .. Facts(t)],
+                    parts.Select(p => ToPart(p, bySubject)).ToArray(),
+                    t.KindId);
+            })
             .ToArray();
     }
 
-    private static IEnumerable<ThingValueRow> Readings(ThingDto thing, Dictionary<string, List<HistoryPointDto>> bySubject)
+    private static IEnumerable<ThingValueRow> Facts(ThingDto thing) =>
+        thing.Facts.Where(f => f.Key != "identity.peer-key-fingerprint").Select(ToRow);
+
+    private static IEnumerable<ThingValueRow> Readings(
+        IReadOnlyList<string> subjects, Dictionary<string, List<HistoryPointDto>> bySubject, Func<string, bool> include)
     {
-        foreach (var subject in thing.ReadingSubjects)
+        foreach (var subject in subjects)
         {
             if (!bySubject.TryGetValue(subject, out var points))
             {
                 continue;
             }
 
-            foreach (var point in points.Where(p => SignalCatalog.Describe(p.SignalId).IsKnown).OrderBy(p => Order(p.SignalId)))
+            foreach (var point in points.Where(p => include(p.SignalId) && SignalCatalog.Describe(p.SignalId).IsKnown).OrderBy(p => Order(p.SignalId)))
             {
                 var reading = SignalCatalog.ToReading(point);
                 if (!SignalCatalog.IsAvailable(reading))
@@ -234,6 +277,17 @@ public sealed partial class ThingsViewModel : SectionViewModel
             }
         }
     }
+
+    /// <summary>Parts in the order a person reads a machine: processor, memory, storage, battery, network, then the rest.</summary>
+    private static int PartOrder(ThingDto part) => part.KindId switch
+    {
+        "part.processor" => 0,
+        "part.memory" => 1,
+        "part.storage" or "part.drive" => 2,
+        "part.battery" => 3,
+        _ when part.KindId.StartsWith("part.network", StringComparison.Ordinal) => 4,
+        _ => 5,
+    };
 
     /// <summary>The facts a person most wants first: processor, memory, storage, then everything else.</summary>
     private static int Order(string signalId) => signalId switch
@@ -250,10 +304,13 @@ public sealed partial class ThingsViewModel : SectionViewModel
     private static ThingValueRow ToRow(ThingFactDto fact) =>
         new(fact.Label, fact.Value, fact.Evidence, fact.Others > 0 ? $"{fact.Source} (+{fact.Others} other)" : fact.Source, IsLive: false);
 
-    private static ThingPartRow ToPart(ThingDto part)
+    private static ThingPartRow ToPart(ThingDto part, Dictionary<string, List<HistoryPointDto>> bySubject)
     {
-        var mac = part.Facts.FirstOrDefault(f => f.Key == "identity.lan.interface.mac");
-        return new ThingPartRow(part.Id, part.Name, part.KindLabel, mac is null ? null : $"{mac.Label} {mac.Value}");
+        ThingValueRow[] values = part.SignalPrefix is { } prefix
+            ? [.. Readings(part.ReadingSubjects, bySubject, id => id.StartsWith(prefix, StringComparison.Ordinal)), .. Facts(part)]
+            : [.. Readings(part.ReadingSubjects, bySubject, _ => true), .. Facts(part)];
+        var detail = values.Length == 0 ? null : string.Join(" · ", values.Take(2).Select(v => $"{v.Label} {v.Value}"));
+        return new ThingPartRow(part.Id, part.Name, part.KindLabel, part.KindId, detail, values);
     }
 
     internal static string LifecycleText(string lifecycle) => lifecycle switch
@@ -293,6 +350,12 @@ public sealed partial class ThingsViewModel : SectionViewModel
         foreach (var card in all.Where(c => filter.Length == 0 || c.SearchText.Contains(filter, StringComparison.CurrentCultureIgnoreCase)))
         {
             Cards.Add(card);
+        }
+
+        // Keep an opened thing open across refreshes, with its new readings.
+        if (OpenCard is { } open)
+        {
+            OpenCard = all.FirstOrDefault(c => c.Id == open.Id);
         }
 
         OnPropertyChanged(nameof(HasCards));
