@@ -58,6 +58,10 @@ public static class ShellIcons
         _ => "Brush.Muted",
     });
 
+    /// <summary>Binds a brush key ("Brush.Healthy") from a view model to the theme brush.</summary>
+    public static IValueConverter BrushByKey { get; } =
+        new FuncValueConverter<string?, IBrush?>(key => key is null ? null : Brush(key));
+
     /// <summary>A semantic brush from Theme/Tokens.axaml by key ("Brush.Fault").</summary>
     public static IBrush? Brush(string key) =>
         Application.Current is { } app && app.TryFindResource(key, out var value) ? value as IBrush : null;

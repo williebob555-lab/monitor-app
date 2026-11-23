@@ -11,6 +11,7 @@
     <DataTemplate DataType="vm:EnvironmentViewModel"><views:EcosystemView /></DataTemplate>
     <DataTemplate DataType="shell:SearchViewModel"><views:SearchPageView /></DataTemplate>
     <DataTemplate DataType="vm:DevicesViewModel"><views:DevicesView /></DataTemplate>
+    <DataTemplate DataType="vm:ThingsViewModel"><views:ThingsView /></DataTemplate>
     <DataTemplate DataType="vm:AlertsViewModel"><views:AlertsView /></DataTemplate>
     <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
     <DataTemplate DataType="vm:StateViewModel"><views:StateView /></DataTemplate>

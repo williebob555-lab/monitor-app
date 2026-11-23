@@ -196,3 +196,25 @@ public sealed record HistoryResult(
 
 /// <summary>A lease on live (fast) sampling granted by the node; renew it before it lapses.</summary>
 public sealed record LiveInterestLeaseDto(string LeaseId, DateTimeOffset ExpiresAt, int RenewAfterSeconds);
+
+/// <summary>One value of a thing. <see cref="Evidence"/> is Measured, Specified, Imported, Entered, Estimated or Unknown.</summary>
+public sealed record ThingFactDto(string Key, string Label, string Value, string Evidence, string Source, DateTimeOffset RecordedAt, int Others);
+
+/// <summary>A thing in the shared model. <see cref="ReadingSubjects"/> are the monitoring subjects whose live readings belong to it.</summary>
+public sealed record ThingDto(
+    string Id,
+    string Name,
+    string KindId,
+    string KindLabel,
+    string Lifecycle,
+    IReadOnlyList<string> Tags,
+    bool Monitored,
+    IReadOnlyList<string> ReadingSubjects,
+    IReadOnlyList<ThingFactDto> Facts,
+    string? InsideId,
+    IReadOnlyList<string> PartIds,
+    DateTimeOffset CreatedAt);
+
+public sealed record ThingKindDto(string Id, string Label);
+
+public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds);

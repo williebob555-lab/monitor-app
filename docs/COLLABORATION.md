@@ -50,20 +50,17 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 
 | ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| T072 | 1 | Phone pairing inside the desktop app: draw the pairing QR in Settings > Pairings, plus a "Let my phone reach this computer" switch that binds the peer listener to the Tailscale address (private only, never wildcard) with a Tailscale-only firewall rule | Pair a phone from the app alone, no PowerShell; tests for the bind choice and the QR | none | Claude | Done in PR (this branch), 2026-11-23 | Bill of work item 3. Windows firewall rule: install-service.ps1 for new installs; for existing installs the SYSTEM update task adds it when the switch is turned on (from 0.1.14) |
-| T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | none (T061 done) | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-23 | Bill of work item 4 |
-| T073 | 2 | "Things" lens: the first screen on the model. Cards for every model object, with each value's evidence level shown (measured / spec / entered / estimated / unknown) | Things visible in the desktop and phone app, read from `model.db` | T065 | Claude | | Bill of work item 5 |
-| T074 | 2 | Quick capture: add a thing with only a name or note; add properties, tags and links later | Add, edit and link from the Things screen; changes go through the model change log | T073 | either | | Bill of work item 6 |
+| T076 | 2 | Things on the phone: the phone opens its own `model.db`, runs the bridge over its peer store, and implements `IThingsSource` in `InProcessPeerDataSource` | Things mode visible on the phone with the same cards | T073 (done) | Claude | | Desktop Things shipped in 0.1.15; `Things` and `MonitoringBridge` in `MonitorApp.Model` are head-neutral |
+| T074 | 2 | Quick capture, part 2: edit a thing (rename, kind, lifecycle, values with evidence), tag it and link it to other things from its card | Edit and link from the Things screen; changes go through the model change log | T073 (done) | either | | Adding from a few words shipped in 0.1.15 (`POST /api/v1/things`) |
 | T075 | 2 | "Open the machine": exploded view of a computer from its model parts, with live readings per part | Tap a computer in Things and see its parts with readings | T073 | Claude | | Bill of work item 7 |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
 | T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
 | T300 | 1 | SG250 switch adapter spike (PR #8) | PR #8 merged with CI green, or closed with a reason | none | ChatGPT | ChatGPT, `chatgpt/T300-sg250-adapter` | |
 | T064 | 1 | Put T301 on the model: `ConnectionPort`, `RackEquipment`, `PlanPart` built from model objects, ports and placement; connector ids on model ports come from `ConnectorCatalog`; remove T301's separate JSON persistence | Planning tests run against model objects; no planning-only ids remain | T061, T301 | ChatGPT | | See section 9 of `docs/ARCHITECTURE-MODEL.md` |
-| T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | T061 | Claude | | |
 | T066 | 2 | Findings with evidence levels (verified problem / estimate / unknown / OK as declared) as the single result type of every engine; adapt T301 evaluators to return them | All engines return the shared finding type | T064 | either | | `ARCHITECTURE-MODEL.md` 3.13 |
 | T067 | 2 | Connection chain evaluation over the model: walk port to cable to adapter to port, evaluate each layer, report where a chain fails | Scenario 8 examples pass as tests (USB-C alt mode, 1/4-inch level mismatch, DC polarity) | T064, T066 | either | | |
-| T068 | 2 | Local web API for the model: read objects, ports, connections, relationships, history as-of; write changes with validation | API tests over a real `model.db` | T061 | ChatGPT | | Follow `docs/SECURITY.md` loopback and antiforgery rules |
+| T068 | 2 | Local web API for the model: read objects, ports, connections, relationships, history as-of; write changes with validation | API tests over a real `model.db` | T061 | ChatGPT | | `GET/POST /api/v1/things` exists (LocalApiThings.cs); extend it rather than adding a second API. Follow `docs/SECURITY.md` loopback and antiforgery rules |
 | T069 | 2 | "What's missing" derivation: unconnected required inputs, missing cables (with connector ends and length estimate), power shortfalls, as requirement objects | Tests on rack and pedalboard fixtures | T067 | either | | |
 | T070 | 2 | Lens shell: one selection shared by every view; switching view keeps the object | Selecting a device and switching between system, physical and inventory keeps it selected | T061 | Claude | | UI; coordinate with any open UI task |
 
@@ -128,6 +125,8 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T065 model in the running node, T073 Things screen (desktop), T074 add a thing | Claude | #21 | 2026-11-23 |
+| T072 phone pairing inside the desktop app | Claude | #20 | 2026-11-23 |
 | T061 shared model core, MSI; release on purpose only; hourly update checks + Check now; Android in-app updates; alert noise fix | Claude | #16, #17, #18 | 2026-11-23 |
 | T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
 | T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
@@ -142,6 +141,8 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 Use this section for anything that does not fit in a PR description: requests to the other agent, or work left for anyone to pick up. Newest first. Delete a note once it is answered.
 
 Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
+
+- 2026-11-23, Claude to anyone: the model now runs in every desktop node (`<data>/model.db`, bridge every minute in `PeerNodeRuntime`). LAN entities map to things in `MonitoringBridge.Describe`: adapters become `part.network` inside their computer, segments `network.segment`, gateways routers; `lan.peer` and unknown-upstream placeholders are skipped. Gateways seen by two computers stay two objects (weak identity, by design); a "possibly the same" hint is a good later task.
 
 - 2026-11-23, Claude to anyone: Wilson wants visible progress and a bill of work before big efforts; `docs/BILL-OF-WORK.md` is that list. Favor items he can see. Cut a release (run the Preview workflow by hand) at each finished item and tell him in plain words what he will see. The Android updater (`MobileUpdater`, `AndroidApkInstaller`) is only verified by CI build; first real-phone install is 0.1.13 to the next release.
 

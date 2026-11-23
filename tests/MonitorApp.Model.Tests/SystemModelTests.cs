@@ -209,6 +209,76 @@ public sealed class SystemModelTests : IDisposable
         Assert.Null(model.FindBound(MonitoringSubjectKind.Peer, "peer-old"));
     }
 
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task LanAdaptersBecomePartsOfTheirComputerAndPlaceholdersAreSkipped()
+    {
+        var now = clock.GetUtcNow();
+        var peers = new PeerStore(PeerStoreOptions.Create(Path.Combine(directory, "peer.db")));
+        await peers.InitializeAsync();
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var spki = ecdsa.ExportSubjectPublicKeyInfo();
+        await peers.SetLocalIdentityAsync(new LocalPeerIdentity("laptop", spki, System.Security.Cryptography.SHA256.HashData(spki), "key-ref", "origin-laptop", 1, now));
+        // What the LAN collector stores about the laptop itself (LanTopologyBuilder).
+        await peers.UpsertObservedEntityAsync(new ObservedEntity("peer:laptop", "lan.peer", now));
+        await peers.UpsertObservedEntityAsync(new ObservedEntity("lan:laptop:if:wlan0", "lan.network_interface", now));
+        await peers.UpsertObservedEntityAsync(new ObservedEntity("lan:laptop:seg:192.168.1.0/24", "lan.segment", now));
+        await peers.UpsertObservedEntityAsync(new ObservedEntity("lan:laptop:upstream:192.168.1.0/24", "lan.unknown_upstream_segment", now));
+        await peers.UpsertObservedEntityAsync(new ObservedEntity("lan:laptop:gw:192.168.1.1", "lan.gateway", now));
+        await peers.AddIdentityClaimAsync(new IdentityClaim("lan:laptop:if:wlan0", "lan.interface.mac", "aa:bb:cc:dd:ee:ff", IdentityStrength.Strong, "laptop", RelationshipEvidenceKind.Reported, 0.95, now));
+        await peers.UpsertRelationshipAsync(new RelationshipObservation("lan:laptop:if:wlan0|AttachedTo|peer:laptop", "lan:laptop:if:wlan0", "peer:laptop",
+            RelationshipKind.AttachedTo, RelationshipEvidenceKind.Reported, "laptop", 0.95, now, null));
+
+        await using var store = await OpenAsync();
+        var first = await MonitoringBridge.SyncFromPeerStoreAsync(peers, store, "Wilson-laptop");
+        var second = await MonitoringBridge.SyncFromPeerStoreAsync(peers, store, "Wilson-laptop");
+
+        Assert.Equal(new BridgeResult(Created: 4, BoundExisting: 0, AlreadyBound: 0), first);
+        Assert.Equal(new BridgeResult(0, 0, 4), second);
+        var model = await store.LoadAsync();
+        Assert.Equal(4, model.Objects.Count);
+        var laptop = model.Get("peer:laptop");
+        Assert.Equal("Wilson-laptop", laptop.Name);
+        var adapter = model.FindBound(MonitoringSubjectKind.ObservedDevice, "lan:laptop:if:wlan0")!;
+        Assert.Equal("Network adapter wlan0", adapter.Name);
+        Assert.Equal("part.network", adapter.KindId);
+        Assert.Equal("peer:laptop", model.ContainerOf(adapter.Id)!.SourceId);
+        Assert.Equal("Network 192.168.1.0/24", model.FindBound(MonitoringSubjectKind.ObservedDevice, "lan:laptop:seg:192.168.1.0/24")!.Name);
+        Assert.Equal("device.network.router", model.FindBound(MonitoringSubjectKind.ObservedDevice, "lan:laptop:gw:192.168.1.1")!.KindId);
+
+        var things = Things.List(model);
+        Assert.Equal("Wilson-laptop", things[0].Name);
+        Assert.Equal([adapter.Id], things[0].PartIds);
+        Assert.Equal(["peer:laptop"], things[0].ReadingSubjects);
+        var mac = Things.Summarize(model, adapter).Facts.Single();
+        Assert.Equal(("Hardware address (MAC)", "Measured", "monitoring"), (mac.Label, mac.Evidence, mac.Source));
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task QuickCaptureTakesAFewWordsAndMarksTheNoteAsEntered()
+    {
+        await using var store = await OpenAsync();
+
+        var amp = await Things.CaptureAsync(store, "  Focusrite 2i2  \r\nbought used, needs a 12 V supply ", "device.audio");
+        var bare = await Things.CaptureAsync(store, "Spare SSD");
+
+        Assert.Equal("Focusrite 2i2", amp.Name);
+        Assert.Equal("Audio equipment", amp.KindLabel);
+        Assert.Equal("Owned", amp.Lifecycle);
+        var note = Assert.Single(amp.Facts);
+        Assert.Equal(("Note", "bought used, needs a 12 V supply", "Entered", "you"), (note.Label, note.Value, note.Evidence, note.Source));
+        Assert.Equal(("thing", "Thing"), (bare.KindId, bare.KindLabel));
+        Assert.Empty(bare.Facts);
+        Assert.Equal(2, Things.List(await store.LoadAsync()).Count);
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.CaptureAsync(store, "   "));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.CaptureAsync(store, "Thing", "no.such.kind"));
+        var longLine = new string('x', 200);
+        var trimmed = await Things.CaptureAsync(store, longLine);
+        Assert.Equal(Things.MaxNameLength + 1, trimmed.Name.Length);
+        Assert.Equal(longLine, trimmed.Facts.Single().Value);
+    }
+
     private sealed class ManualClock(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset now = start;

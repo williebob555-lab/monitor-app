@@ -489,6 +489,13 @@
           "Grpc.Core.Api": "[2.85.0, )"
         }
       },
+      "monitorapp.model": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Data.Sqlite": "[10.0.0, )",
+          "MonitorApp.Peer.Persistence": "[1.0.0, )"
+        }
+      },
       "monitorapp.peer.alerts": {
         "type": "Project",
         "dependencies": {
@@ -535,6 +542,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.0, )",
+          "MonitorApp.Model": "[1.0.0, )",
           "MonitorApp.Peer.Alerts": "[1.0.0, )",
           "MonitorApp.Peer.Application": "[1.0.0, )",
           "MonitorApp.Peer.Control": "[1.0.0, )",
@@ -567,6 +575,7 @@
           "Microsoft.Extensions.Hosting.Systemd": "[10.0.0, )",
           "Microsoft.Extensions.Hosting.WindowsServices": "[10.0.0, )",
           "MonitorApp.Agent.Core": "[1.0.0, )",
+          "MonitorApp.Model": "[1.0.0, )",
           "MonitorApp.Peer.Application": "[1.0.0, )",
           "MonitorApp.Peer.Collection": "[1.0.0, )",
           "MonitorApp.Peer.Core": "[1.0.0, )",

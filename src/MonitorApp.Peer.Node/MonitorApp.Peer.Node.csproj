@@ -14,6 +14,7 @@
     <ProjectReference Include="..\MonitorApp.Peer.Collection\MonitorApp.Peer.Collection.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Core\MonitorApp.Peer.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.LocalApi\MonitorApp.Peer.LocalApi.csproj" />
+    <ProjectReference Include="..\MonitorApp.Model\MonitorApp.Model.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Replication\MonitorApp.Peer.Replication.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Service\MonitorApp.Peer.Service.csproj" />

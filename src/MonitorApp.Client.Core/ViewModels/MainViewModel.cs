@@ -60,6 +60,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             sections.Add(Security);
         }
 
+        // Sources that hold the shared model get the Things mode.
+        if (connection.Source is IThingsSource)
+        {
+            sections.Add(new ThingsViewModel(connection));
+        }
+
         // Only a computer's own node can report and install its updates.
         if (connection.Source is ILocalUpdatesSource)
         {

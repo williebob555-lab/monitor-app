@@ -410,7 +410,8 @@ public sealed class LocalApiHostTests : IDisposable
             ILocalUpdateController? updates = null,
             LocalPresenceService? presence = null,
             bool withControl = false,
-            IPeerReachController? reach = null)
+            IPeerReachController? reach = null,
+            MonitorApp.Model.ModelStore? model = null)
         {
             Directory.CreateDirectory(directory);
             var databasePath = Path.Combine(directory, "peer.db");
@@ -492,7 +493,8 @@ public sealed class LocalApiHostTests : IDisposable
                 updates: updates,
                 control: control,
                 localPresence: presence,
-                reach: reach);
+                reach: reach,
+                model: model);
             await host.StartAsync();
             var handler = new HttpClientHandler
             {

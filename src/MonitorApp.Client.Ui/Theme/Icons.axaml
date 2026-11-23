@@ -2,6 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <!-- 24 x 24 stroked line icons; looked up by key ("Icon.<key>") for mode items, or with StaticResource in markup. -->
   <StreamGeometry x:Key="Icon.ecosystem">M4,4 H10 V10 H4 Z M14,4 H20 V10 H14 Z M9,14 H15 V20 H9 Z M7,10 V12 H17 V10 M12,12 V14</StreamGeometry>
+  <StreamGeometry x:Key="Icon.things">M4,8 L12,4 L20,8 V16 L12,20 L4,16 Z M4,8 L12,12 L20,8 M12,12 V20</StreamGeometry>
   <StreamGeometry x:Key="Icon.alerts">M6,17 V11 A6,6 0 0 1 18,11 V17 L20,19 H4 Z M10,21 H14</StreamGeometry>
   <StreamGeometry x:Key="Icon.history">M12,4 A8,8 0 1 1 11.99,4 Z M12,8 V12 L15,14</StreamGeometry>
   <StreamGeometry x:Key="Icon.search">M4,10 A6,6 0 1 1 16,10 A6,6 0 1 1 4,10 Z M14.5,14.5 L20,20</StreamGeometry>
