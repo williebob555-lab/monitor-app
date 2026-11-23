@@ -299,7 +299,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             controlService,
             monitoring,
             LocalPresenceService.Create(
-                Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock));
+                Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock),
+            new PeerReachController(options, ensureFirewall: PeerReachSetting.WindowsFirewallHelper()));
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);

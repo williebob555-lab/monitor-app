@@ -63,6 +63,7 @@ public sealed class LocalPresenceService
     public const string PresenceEnrollmentApproveAction = "presence-enrollment.approve";
     public const string ControlGrantAction = "control.grant";
     public const string UpdateApproveAction = "update.approve";
+    public const string NetworkReachAction = "network.reach";
 
     private const int MaxPendingChallenges = 64;
     private const int MaxSubjectLength = 256;
@@ -70,7 +71,7 @@ public sealed class LocalPresenceService
     private static readonly HashSet<string> KnownActions = new(StringComparer.Ordinal)
     {
         EnrollAction, RemoveAction, PairingApproveAction, PresenceEnrollmentApproveAction, ControlGrantAction,
-        UpdateApproveAction,
+        UpdateApproveAction, NetworkReachAction,
     };
 
     private readonly object gate = new();

@@ -68,6 +68,25 @@ internal sealed class PhonePairingService(PhonePairingOptions? options, PeerStor
         return true;
     }
 
+    /// <summary>The state an app needs to show the phone QR: advertisable addresses and the still-valid invitation, if any.</summary>
+    public PhonePairingView View()
+    {
+        PhoneInvitationIssue? current;
+        lock (gate)
+        {
+            current = last;
+        }
+
+        var addresses = Advertisable.Select(address => address.ToString()).ToArray();
+        if (options is null || current is null || (options.Time ?? TimeProvider.System).GetUtcNow() >= current.ExpiresAt)
+        {
+            return new PhonePairingView(options is not null, addresses, null);
+        }
+
+        return new PhonePairingView(true, addresses, new PhoneInvitationView(
+            current.Address.ToString(), current.Port, current.ShortCode, current.Payload, current.ExpiresAt, QrSvg.Rows(current.Payload)));
+    }
+
     public string RenderSection(string csrf, HtmlEncoder html)
     {
         var builder = new StringBuilder("<section aria-labelledby=\"phone\"><h2 id=\"phone\">Add a phone</h2>");
@@ -82,11 +101,7 @@ internal sealed class PhonePairingService(PhonePairingOptions? options, PeerStor
         {
             builder.Append("<p role=\"alert\"><strong>This peer cannot be reached by a phone yet.</strong> Its listener is bound to ")
                 .Append(html.Encode(string.Join(", ", options.AdvertiseAddresses)))
-                .Append(", which a phone cannot use. Tell Monitor App to listen on this computer's Tailscale (or other private) address, then restart it and reload this page. ")
-                .Append("Windows, in an administrator PowerShell: <code>Set-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\MonitorApp -Name Environment -Type MultiString -Value \"MONITOR_APP_PEER_BIND=$(tailscale ip -4)\"; New-NetFirewallRule -DisplayName 'Monitor App peer (Tailscale)' -Direction Inbound -Protocol TCP -LocalPort ")
-                .Append(options.PeerPort.ToString(System.Globalization.CultureInfo.InvariantCulture))
-                .Append(" -RemoteAddress 100.64.0.0/10 -Action Allow; Restart-Service MonitorApp</code>. ")
-                .Append("Fedora or Ubuntu: set <code>MONITOR_APP_PEER_BIND=</code> followed by the output of <code>tailscale ip -4</code> in <code>/etc/monitor-app/node.conf</code>, then <code>sudo systemctl restart monitor-app</code>. ")
+                .Append(", which a phone cannot use. In the Monitor App window, open Settings, then Pairings, and turn on <strong>Let my phone reach this computer</strong> (needs Tailscale on this computer and the phone). ")
                 .Append("Monitor App never binds a public or wildcard address for you.</p></section>");
             return builder.ToString();
         }
@@ -144,6 +159,27 @@ internal sealed class PhonePairingService(PhonePairingOptions? options, PeerStor
 /// <summary>Server-side QR rendering to an inline SVG (no scripts, no external requests, no style attributes).</summary>
 internal static class QrSvg
 {
+    /// <summary>The QR modules as rows of '1' (dark) and '0' (light), quiet zone included, for apps that draw it themselves.</summary>
+    public static IReadOnlyList<string> Rows(string text)
+    {
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(text, QRCodeGenerator.ECCLevel.M);
+        var matrix = data.ModuleMatrix;
+        var rows = new string[matrix.Count];
+        for (var y = 0; y < matrix.Count; y++)
+        {
+            var row = new char[matrix.Count];
+            for (var x = 0; x < matrix.Count; x++)
+            {
+                row[x] = matrix[y][x] ? '1' : '0';
+            }
+
+            rows[y] = new string(row);
+        }
+
+        return rows;
+    }
+
     public static string Render(string text)
     {
         using var generator = new QRCodeGenerator();

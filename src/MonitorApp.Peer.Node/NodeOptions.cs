@@ -8,7 +8,8 @@ public sealed record NodeOptions(
     IPAddress PeerBindAddress,
     int PeerPort,
     int AdminPort,
-    LocalPresencePolicy LocalPresence = LocalPresencePolicy.RequiredWhenEnrolled)
+    LocalPresencePolicy LocalPresence = LocalPresencePolicy.RequiredWhenEnrolled,
+    string PeerBindSource = "default")
 {
     public const string LocalPresenceVariable = "MONITOR_APP_LOCAL_PRESENCE";
     public const string DataDirectoryVariable = "MONITOR_APP_DATA_DIR";
@@ -52,10 +53,27 @@ public sealed record NodeOptions(
             "data-dir",
             DataDirectoryVariable,
             serviceMode ? ServiceDataDirectory(environment) : DefaultDataDirectory()));
-        var bindText = Pick("peer-bind", PeerBindVariable, IPAddress.Loopback.ToString());
-        if (!IPAddress.TryParse(bindText, out var bindAddress))
+        // Precedence for the peer listener: --peer-bind, then MONITOR_APP_PEER_BIND, then the in-app "let my phone reach this
+        // computer" choice (a Tailscale address only), then 127.0.0.1.
+        string bindSource;
+        IPAddress bindAddress;
+        if (values.ContainsKey("peer-bind") || !string.IsNullOrWhiteSpace(environment(PeerBindVariable)))
         {
-            throw new ArgumentException("--peer-bind must be an IP address.", nameof(args));
+            bindSource = values.ContainsKey("peer-bind") ? "argument" : "environment";
+            if (!IPAddress.TryParse(Pick("peer-bind", PeerBindVariable, string.Empty), out bindAddress!))
+            {
+                throw new ArgumentException("--peer-bind must be an IP address.", nameof(args));
+            }
+        }
+        else if (PeerReachSetting.ReadWantsReach(dataDirectory))
+        {
+            bindSource = "setting";
+            bindAddress = PeerReachSetting.ResolveSaved(dataDirectory, serviceMode ? TimeSpan.FromSeconds(60) : TimeSpan.Zero);
+        }
+        else
+        {
+            bindSource = "default";
+            bindAddress = IPAddress.Loopback;
         }
 
         var peerPort = ParsePort(Pick("peer-port", PeerPortVariable, "55431"), "peer-port", allowZero: false);
@@ -67,7 +85,7 @@ public sealed record NodeOptions(
             "required" => LocalPresencePolicy.Required,
             _ => throw new ArgumentException("--local-presence must be off, when-enrolled, or required.", nameof(args)),
         };
-        return new NodeOptions(dataDirectory, bindAddress, peerPort, adminPort, presence);
+        return new NodeOptions(dataDirectory, bindAddress, peerPort, adminPort, presence, bindSource);
     }
 
     /// <summary>

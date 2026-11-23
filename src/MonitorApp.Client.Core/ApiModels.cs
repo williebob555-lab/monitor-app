@@ -102,6 +102,22 @@ public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IRead
 public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
 
 /// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+/// <summary>Whether paired phones can reach this computer (GET /api/v1/network/reach).</summary>
+public sealed record PeerReachDto(
+    bool ReachableByPhone,
+    string ListeningOn,
+    string? TailscaleAddress,
+    string ConfiguredBy,
+    bool CanChange,
+    bool RestartPending,
+    string Explanation);
+
+/// <summary>The current phone invitation; <see cref="QrRows"/> are rows of '1' (dark) and '0' (light) modules.</summary>
+public sealed record PhoneInvitationDto(
+    string Address, int Port, string ShortCode, string Payload, DateTimeOffset ExpiresAt, IReadOnlyList<string> QrRows);
+
+public sealed record PhonePairingDto(bool Configured, IReadOnlyList<string> Addresses, PhoneInvitationDto? Invitation);
+
 /// <summary>This computer's own update state (GET /api/v1/update).</summary>
 public sealed record LocalUpdateStatusDto(
     string Policy,

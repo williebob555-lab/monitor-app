@@ -27,8 +27,8 @@ Done items stay listed so progress is visible.
 |---|------|------|-------------------|--------|
 | 1 | Updates that work: hourly checks, Check for updates button, last checked time, and the phone updating itself | M | Settings > Updates on every device. New versions arrive on their own and install when you press Install. | Done, 0.1.13 |
 | 2 | Alert noise fix, plus an admin page that leads with Updates, Add a phone and pairings | S | A short alert summary instead of 100 rows | Done, 0.1.13 |
-| 3 | **Phone pairing inside the app**: the QR code drawn in the desktop app, plus a "Let my phone reach this computer" switch that picks the Tailscale address. No PowerShell. | M | Settings > Pairings shows the QR; the phone scans it; you approve | Next |
-| 4 | **Model in the running app** (T065): each computer builds its model from what it monitors (itself, its parts, paired devices, observed network devices) | M | Groundwork for 5; nothing new on screen by itself | Queued |
+| 3 | **Phone pairing inside the app**: the QR code drawn in the desktop app, plus a "Let my phone reach this computer" switch that picks the Tailscale address. No PowerShell. | M | Settings > Pairings shows the QR; the phone scans it; you approve | Done, 0.1.14 |
+| 4 | **Model in the running app** (T065): each computer builds its model from what it monitors (itself, its parts, paired devices, observed network devices) | M | Groundwork for 5; nothing new on screen by itself | Next |
 | 5 | **Things**: the first screen on the shared model. Every object the app knows (computers, phone, parts, network devices, anything you add) as cards, each value tagged measured, spec, entered, estimated or unknown | L | A new "Things" area in the app | Queued |
 | 6 | **Quick capture**: add a thing with just a name or a note, fill in details later, link it to other things, no forced folders | M | An "Add" button that takes a few words | Queued |
 | 7 | **Open the machine**: an exploded view of a computer from the model (board, processor, memory, drives, network, battery), each part with its live reading | L | Tap a computer and it opens into its parts | Queued |

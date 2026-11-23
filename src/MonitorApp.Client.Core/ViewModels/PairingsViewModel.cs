@@ -7,15 +7,10 @@ namespace MonitorApp.Client.Core.ViewModels;
 /// <summary>Pending pairing decisions and trust revocation. Revocation needs an explicit second step.</summary>
 public sealed partial class PairingsViewModel : SectionViewModel
 {
-    /// <summary>
-    /// On a computer (connected to its own node's loopback admin API) the phone QR code lives on the node's admin page; the view
-    /// offers a button that opens it at the Add a phone section. Null when not connected to a loopback node.
-    /// </summary>
-    public Uri? PhonePairingPage => Client is LocalApiClient local && local.Address.IsLoopback
-        ? new Uri(local.Address, "/#phone")
-        : null;
+    /// <summary>"Add a phone" (reach switch and in-app QR); null when the source is not a computer's own node.</summary>
+    public AddPhoneViewModel? AddPhone { get; }
 
-    public bool CanShowPhonePairing => PhonePairingPage is not null;
+    public bool CanAddPhone => AddPhone is not null;
 
     [ObservableProperty]
     private TrustedPeerRow? pendingRevocation;
@@ -23,6 +18,29 @@ public sealed partial class PairingsViewModel : SectionViewModel
     public PairingsViewModel(NodeConnection connection)
         : base(connection, "Pairing and trust")
     {
+        if (Client is IPhonePairingHost)
+        {
+            AddPhone = new AddPhoneViewModel(() => Client as IPhonePairingHost);
+            AddPhone.CodeShown += (_, _) => _ = WatchForPhoneAsync();
+        }
+    }
+
+    /// <summary>After a code is shown, look for the phone's request every few seconds for ten minutes so it appears without a refresh.</summary>
+    private async Task WatchForPhoneAsync()
+    {
+        var before = Pending.Count;
+        for (var attempt = 0; attempt < 200 && Pending.Count <= before; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            try
+            {
+                await ReloadAsync(CancellationToken.None);
+            }
+            catch (LocalApiException)
+            {
+                return;
+            }
+        }
     }
 
     public ObservableCollection<PendingPairingRow> Pending { get; } = [];
@@ -51,6 +69,10 @@ public sealed partial class PairingsViewModel : SectionViewModel
     public override async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         await RunAsync(() => ReloadAsync(cancellationToken));
+        if (AddPhone is not null)
+        {
+            await AddPhone.RefreshAsync(cancellationToken);
+        }
     }
 
     [RelayCommand]

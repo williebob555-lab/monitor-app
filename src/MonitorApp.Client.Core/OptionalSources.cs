@@ -195,6 +195,20 @@ public interface IControlSource
 /// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
 /// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
 /// </summary>
+/// <summary>A computer's own node: lets a phone reach it and shows the phone pairing QR.</summary>
+public interface IPhonePairingHost
+{
+    Task<PeerReachDto> GetPeerReachAsync(CancellationToken ct = default);
+
+    /// <summary>Moves the peer listener to Tailscale (or back to this computer only); the node restarts. Fingerprint when enforced.</summary>
+    Task<PeerReachDto> SetPeerReachAsync(bool reachableByPhone, CancellationToken ct = default);
+
+    Task<PhonePairingDto> GetPhonePairingAsync(CancellationToken ct = default);
+
+    /// <summary>Issues a new one-time phone invitation (QR and short code), valid for ten minutes.</summary>
+    Task<PhonePairingDto> CreatePhoneInvitationAsync(CancellationToken ct = default);
+}
+
 /// <summary>A source connected to this computer's own node, which can report and drive its updates.</summary>
 public interface ILocalUpdatesSource
 {

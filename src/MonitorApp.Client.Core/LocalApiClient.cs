@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -142,6 +142,23 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
 
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) =>
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/approve", ct, presenceAction: "pairing.approve", presenceSubject: pairingId);
+
+    public Task<PeerReachDto> GetPeerReachAsync(CancellationToken ct = default) => GetAsync<PeerReachDto>("api/v1/network/reach", ct);
+
+    public async Task<PeerReachDto> SetPeerReachAsync(bool reachableByPhone, CancellationToken ct = default)
+    {
+        await PostAsync("api/v1/network/reach", ct, body: new { reachableByPhone },
+            presenceAction: "network.reach", presenceSubject: reachableByPhone ? "tailscale" : "local").ConfigureAwait(false);
+        return await GetPeerReachAsync(ct).ConfigureAwait(false);
+    }
+
+    public Task<PhonePairingDto> GetPhonePairingAsync(CancellationToken ct = default) => GetAsync<PhonePairingDto>("api/v1/phone-pairing", ct);
+
+    public async Task<PhonePairingDto> CreatePhoneInvitationAsync(CancellationToken ct = default)
+    {
+        await PostAsync("api/v1/phone-pairing", ct, body: new { }).ConfigureAwait(false);
+        return await GetPhonePairingAsync(ct).ConfigureAwait(false);
+    }
 
     public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
     {

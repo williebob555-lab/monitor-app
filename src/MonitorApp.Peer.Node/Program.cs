@@ -8,7 +8,7 @@ if (args.Length >= 2 && args[0] == ApplyHelper.HelperArgument)
     if (OperatingSystem.IsWindows())
     {
         return args.Length >= 4 && args[2] == WindowsApplyHelper.InstallRootArgument
-            ? await WindowsApplyHelper.RunAsync(
+            ? await WindowsApplyHelper.RunWithHousekeepingAsync(
                 args[1],
                 args[3],
                 NodeUpdateOptions.DefaultKeyFile(),
