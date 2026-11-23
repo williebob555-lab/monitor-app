@@ -218,7 +218,47 @@ public sealed record ThingDto(
     IReadOnlyList<string> PartIds,
     DateTimeOffset CreatedAt,
     string? SignalPrefix = null,
-    IReadOnlyList<ThingLinkDto>? Links = null);
+    IReadOnlyList<ThingLinkDto>? Links = null,
+    IReadOnlyList<ThingPortDto>? Ports = null);
+
+/// <summary>A port of a thing: connector, plug or socket, direction, signals, its own values, and what it is plugged into.</summary>
+public sealed record ThingPortDto(
+    string PortId,
+    string Name,
+    string? ConnectorTypeId,
+    string Gender,
+    string Direction,
+    IReadOnlyList<string> Signals,
+    IReadOnlyList<ThingFactDto> Values,
+    string? ConnectionId = null,
+    string? OtherId = null,
+    string? OtherName = null,
+    string? OtherPortName = null);
+
+/// <summary>A port to add; quantities carry their unit ("9 V", "500 mA").</summary>
+public sealed record ThingPortEditDto(
+    string Name,
+    string? ConnectorTypeId = null,
+    string? Gender = null,
+    string? Direction = null,
+    IReadOnlyList<string>? Signals = null,
+    string? Level = null,
+    string? Voltage = null,
+    string? Polarity = null,
+    string? CurrentMax = null,
+    string? CurrentDraw = null,
+    bool FromSpec = false);
+
+/// <summary>Plug a port of this thing (by id, or by the name of a port added in the same edit) into another thing's port.</summary>
+public sealed record ThingConnectEditDto(string PortId, string OtherId, string OtherPortId);
+
+/// <summary>A connector from the shared connector library.</summary>
+public sealed record ConnectorChoiceDto(string Id, string Label, string Domain);
+
+public sealed record WiringFindingDto(string Code, string Certainty, string Explanation);
+
+/// <summary>A connection path at a thing with the connection engine's verdict and its reasons.</summary>
+public sealed record ThingWiringDto(string ThingId, string Route, string Verdict, string VerdictText, IReadOnlyList<WiringFindingDto> Findings);
 
 public sealed record ThingKindDto(string Id, string Label);
 
@@ -233,12 +273,18 @@ public sealed record ThingEditDto(
     IReadOnlyList<string>? Tags = null,
     IReadOnlyList<ThingValueEditDto>? Values = null,
     IReadOnlyList<ThingLinkEditDto>? AddLinks = null,
-    IReadOnlyList<string>? RemoveLinks = null);
+    IReadOnlyList<string>? RemoveLinks = null,
+    IReadOnlyList<ThingPortEditDto>? AddPorts = null,
+    IReadOnlyList<string>? RemovePorts = null,
+    IReadOnlyList<ThingConnectEditDto>? Connect = null,
+    IReadOnlyList<string>? Disconnect = null);
 
 /// <summary>A value the person adds ("Max power" = "5 W"); an empty value removes theirs. FromSpec marks it as read from a spec sheet.</summary>
 public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpec = false);
 
-public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null);
+public sealed record ThingsDto(
+    IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null,
+    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null);
 
 /// <summary>A link on a thing, phrased from its side ("Powered by" Studio PSU).</summary>
 public sealed record ThingLinkDto(string RelationshipId, string TypeId, string Phrase, string OtherId, string OtherName, bool Outgoing);

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
 using MonitorApp.Model;
+using MonitorApp.Planning.Model;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Control;
 using MonitorApp.Peer.Mobile;
@@ -80,7 +81,10 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         return new ThingsDto(
             Things.List(current).Select(ToDto).ToArray(),
             Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray(),
-            Things.LinkTypes.Select(t => new ThingKindDto(t.Id, t.Label)).ToArray());
+            Things.LinkTypes.Select(t => new ThingKindDto(t.Id, t.Label)).ToArray(),
+            ThingsWiring.Connectors().Select(c => new ConnectorChoiceDto(c.Id, c.Label, c.Domain)).ToArray(),
+            ThingsWiring.For(current).Select(w => new ThingWiringDto(w.ThingId, w.Route, w.Verdict, w.VerdictText,
+                w.Findings.Select(f => new WiringFindingDto(f.Code, f.Certainty, f.Explanation)).ToArray())).ToArray());
     }
 
     public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);
@@ -110,7 +114,11 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         try
         {
             await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId, edit.Lifecycle, edit.Tags, edit.Values?.Select(v => new ThingValueEdit(v.Label, v.Value, v.FromSpec)).ToArray(),
-                edit.AddLinks?.Select(l => new ThingLinkEdit(l.TypeId, l.OtherId)).ToArray(), edit.RemoveLinks), ct).ConfigureAwait(false);
+                edit.AddLinks?.Select(l => new ThingLinkEdit(l.TypeId, l.OtherId)).ToArray(), edit.RemoveLinks,
+                edit.AddPorts?.Select(p => new ThingPortEdit(p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals, p.Level, p.Voltage, p.Polarity, p.CurrentMax, p.CurrentDraw, p.FromSpec)).ToArray(),
+                edit.RemovePorts,
+                edit.Connect?.Select(c => new ThingConnectEdit(c.PortId, c.OtherId, c.OtherPortId)).ToArray(),
+                edit.Disconnect), ThingsWiring.IsKnownConnector, ct).ConfigureAwait(false);
         }
         catch (ModelValidationException exception)
         {
@@ -148,7 +156,10 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         thing.Id, thing.Name, thing.KindId, thing.KindLabel, thing.Lifecycle, thing.Tags, thing.Monitored, thing.ReadingSubjects,
         thing.Facts.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
         thing.InsideId, thing.PartIds, thing.CreatedAt, thing.SignalPrefix,
-        thing.Links?.Select(l => new ThingLinkDto(l.RelationshipId, l.TypeId, l.Phrase, l.OtherId, l.OtherName, l.Outgoing)).ToArray());
+        thing.Links?.Select(l => new ThingLinkDto(l.RelationshipId, l.TypeId, l.Phrase, l.OtherId, l.OtherName, l.Outgoing)).ToArray(),
+        thing.Ports?.Select(p => new ThingPortDto(p.PortId, p.Name, p.ConnectorTypeId, p.Gender, p.Direction, p.Signals,
+            p.Values.Select(f => new ThingFactDto(f.Key, f.Label, f.Value, f.Evidence, f.Source, f.RecordedAt, f.Others)).ToArray(),
+            p.ConnectionId, p.OtherId, p.OtherName, p.OtherPortName)).ToArray());
 
     public Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default) => Task.FromResult(UpdateStatus());
 

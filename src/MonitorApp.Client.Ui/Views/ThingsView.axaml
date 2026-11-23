@@ -157,6 +157,43 @@
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
 
+                  <StackPanel Spacing="2" IsVisible="{Binding HasPorts}" AutomationProperties.Name="Ports">
+                    <TextBlock Text="Ports" Classes="section" />
+                    <ItemsControl ItemsSource="{Binding PortTexts}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <TextBlock Text="{Binding}" Classes="meta" TextWrapping="Wrap" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+
+                  <!-- Each connection path at this thing, followed through cables and adapters, with the engine's verdict and why. -->
+                  <ItemsControl ItemsSource="{Binding WiringRows}" IsVisible="{Binding HasWiring}" AutomationProperties.Name="Connections">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ThingWiringRow">
+                        <Border Classes="panelbox" Padding="8,6" Margin="0,2">
+                          <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding Route}" Classes="meta" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsOk}" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Fault}" IsVisible="{Binding IsProblem}" />
+                            <TextBlock Text="{Binding VerdictText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.Warning}" IsVisible="{Binding IsUnknown}" />
+                            <ItemsControl ItemsSource="{Binding Reasons}" IsVisible="{Binding HasReasons}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                  <TextBlock Text="{Binding}" Classes="meta" TextWrapping="Wrap" />
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
 
@@ -329,6 +366,63 @@
                         PlaceholderText="Pick a thing to link to" AutomationProperties.Name="Thing to link to">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <TextBlock Text="Ports" Classes="meta" />
+            <ItemsControl ItemsSource="{Binding EditPorts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="core:ThingPortDto">
+                  <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
+                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+                      <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="{Binding OtherName, Mode=OneWay, StringFormat=' → {0}'}" /><Run Text="{Binding OtherPortName, Mode=OneWay, StringFormat=' {0}'}" />
+                    </TextBlock>
+                    <Button Grid.Column="1" Classes="flat" Content="Unplug" IsVisible="{Binding ConnectionId, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).UnplugPortCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Name, StringFormat='Unplug {0}'}" />
+                    <Button Grid.Column="2" Classes="flat" Content="Remove"
+                            Command="{Binding $parent[views:ThingsView].((vm:ThingsViewModel)DataContext).RemovePortCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Name, StringFormat='Remove the port {0}'}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Add a port" Classes="meta" />
+            <TextBox Name="NewPortName" Text="{Binding NewPortName}" Watermark="Name, like DC in or Line out L" AutomationProperties.Name="Name of the new port" />
+            <ComboBox ItemsSource="{Binding Connectors}" SelectedItem="{Binding NewPortConnector}" HorizontalAlignment="Stretch"
+                      PlaceholderText="Connector" AutomationProperties.Name="Connector of the new port">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="core:ConnectorChoiceDto"><TextBlock Text="{Binding Label}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Grid ColumnDefinitions="*,8,*">
+              <ComboBox ItemsSource="{Binding Genders}" SelectedItem="{Binding NewPortGender}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Plug or socket" AutomationProperties.Name="Plug or socket" />
+              <ComboBox Grid.Column="2" ItemsSource="{Binding Directions}" SelectedItem="{Binding NewPortDirection}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Output or input" AutomationProperties.Name="Which way it goes" />
+            </Grid>
+            <TextBox Text="{Binding NewPortSignals}" Watermark="What it carries, like usb-3, dp-alt or analog-audio" AutomationProperties.Name="What the port carries" />
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewPortVoltage}" Watermark="Voltage, like 9 V" AutomationProperties.Name="Voltage" />
+              <TextBox Grid.Column="2" Text="{Binding NewPortPolarity}" Watermark="Polarity, like center-negative" AutomationProperties.Name="Polarity" />
+            </Grid>
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewPortCurrent}" Watermark="Current, like 500 mA" AutomationProperties.Name="Current it supplies or draws" />
+              <TextBox Grid.Column="2" Text="{Binding NewPortLevel}" Watermark="Level, like line or instrument" AutomationProperties.Name="Signal level" />
+            </Grid>
+            <CheckBox IsChecked="{Binding NewPortFromSpec}" Content="These port values come from a spec sheet" />
+            <TextBlock Text="Plug in" Classes="meta" />
+            <Grid ColumnDefinitions="*,8,*">
+              <ComboBox ItemsSource="{Binding ConnectFromChoices}" SelectedItem="{Binding ConnectFrom}" HorizontalAlignment="Stretch"
+                        PlaceholderText="This thing's port" AutomationProperties.Name="Port to plug in">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPortChoice"><TextBlock Text="{Binding Text}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox Grid.Column="2" ItemsSource="{Binding ConnectToChoices}" SelectedItem="{Binding ConnectTo}" HorizontalAlignment="Stretch"
+                        PlaceholderText="Into" AutomationProperties.Name="Port to plug it into">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThingPortChoice"><TextBlock Text="{Binding Text}" /></DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
             </Grid>

@@ -167,6 +167,53 @@ public sealed class ThingsViewTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void PortsAndConnectionsShowOnTheCardAndTheFormAddsAPortAndPlugsItIn()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var amp = things.Cards.Single(c => c.Name == "Focusrite 2i2");
+        Assert.Equal(["DC in · DC barrel 5.5/2.1 mm socket · input · 12 V · dc-fixed → Pedal power DC out 1"], amp.PortTexts);
+        var wiring = Assert.Single(amp.WiringRows);
+        Assert.Equal(("Won't work", true), (wiring.VerdictText, wiring.IsProblem));
+        Assert.Equal(["Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V."], wiring.Reasons);
+
+        // The power supply: unplug the 9 V port from the amp, add a 12 V port and plug that one into the amp instead.
+        var psu = things.Cards.Single(c => c.Name == "Pedal power");
+        things.EditCommand.Execute(psu);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["DC out 2"], things.ConnectFromChoices.Select(c => c.Text));
+        Assert.DoesNotContain(things.ConnectToChoices, c => c.Text == "Focusrite 2i2 · DC in");
+        things.UnplugPortCommand.Execute(things.EditPorts.Single(p => p.Name == "DC out 1"));
+        Assert.Contains(things.ConnectToChoices, c => c.Text == "Focusrite 2i2 · DC in");
+        things.NewPortName = "DC out 3";
+        things.NewPortConnector = things.Connectors.Single(c => c.Id == "dc-barrel-5521");
+        things.NewPortGender = "Plug";
+        things.NewPortDirection = "Output";
+        things.NewPortSignals = "dc-fixed";
+        things.NewPortVoltage = "12 V";
+        things.NewPortCurrent = "1 A";
+        things.NewPortFromSpec = true;
+        things.ConnectFrom = things.ConnectFromChoices.Single(c => c.Text == "The new port");
+        things.ConnectTo = things.ConnectToChoices.Single(c => c.Text == "Focusrite 2i2 · DC in");
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var sent = Assert.Single(source.Edits);
+        Assert.Equal(["conn:psu-amp"], sent.Disconnect);
+        var port = Assert.Single(sent.AddPorts!);
+        Assert.Equal(new ThingPortEditDto("DC out 3", "dc-barrel-5521", "Plug", "Output", null, null, "12 V", null, "1 A", null, true), port with { Signals = null });
+        Assert.Equal(["dc-fixed"], port.Signals);
+        Assert.Equal(new ThingConnectEditDto("DC out 3", "thing:amp", "port:amp-dc"), Assert.Single(sent.Connect!));
+        Assert.Null(sent.Name);
+        window.Close();
+    }
+
     [Trait("Category", "Manual")]
 #if MANUAL_SHOTS
     [AvaloniaFact]
@@ -185,6 +232,7 @@ public sealed class ThingsViewTests
         Shot(model, 390, 844, dir, "things-open-phone-390x844", () => things.OpenCommand.Execute(things.Cards.Single(c => c.Name == "Wilson-laptop")));
         Shot(model, 1400, 900, dir, "things-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
         Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
+        Shot(model, 1400, 900, dir, "things-ports-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Pedal power")));
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -268,12 +316,22 @@ public sealed class ThingsViewTests
                 new("thing:amp", "Focusrite 2i2", "device.audio", "Audio equipment", "Owned", [], false, [],
                     [new ThingFactDto("note.text", "Note", "Bought used. Needs a 12 V supply.", "Entered", "you", At, 0),
                      new ThingFactDto("electrical.power.max", "Max", "5 W", "Specified", "datasheet", At, 0)], null, [], At,
-                    Links: [new ThingLinkDto("rel:amp-router", "connects-to", "Connected to", "observed:gw", "Router at 192.168.1.1", true)]),
+                    Links: [new ThingLinkDto("rel:amp-router", "connects-to", "Connected to", "observed:gw", "Router at 192.168.1.1", true)],
+                    Ports: [new ThingPortDto("port:amp-dc", "DC in", "dc-barrel-5521", "Socket", "Input", ["dc-fixed"],
+                        [new ThingFactDto("electrical.voltage", "Voltage", "12 V", "Specified", "datasheet", At, 0)],
+                        "conn:psu-amp", "thing:psu", "Pedal power", "DC out 1")]),
+                new("thing:psu", "Pedal power", "device.power.supply", "Power supply", "Owned", [], false, [], [], null, [], At,
+                    Ports: [new ThingPortDto("port:psu-1", "DC out 1", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"],
+                                [new ThingFactDto("electrical.voltage", "Voltage", "9 V", "Specified", "datasheet", At, 0)], "conn:psu-amp", "thing:amp", "Focusrite 2i2", "DC in"),
+                            new ThingPortDto("port:psu-2", "DC out 2", "dc-barrel-5521", "Plug", "Output", ["dc-fixed"], [])]),
                 new("thing:rack", "Studio rack", "assembly.rack", "Rack", "Idea", [], false, [],
                     [new ThingFactDto("mechanical.rack-units", "Rack units", "Unknown", "Unknown", "you", At, 0)], null, [], At),
             ];
             return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")],
-                [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")]));
+                [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")],
+                [new ConnectorChoiceDto("dc-barrel-5521", "DC barrel 5.5/2.1 mm", "Power"), new ConnectorChoiceDto("usb-c", "USB Type-C", "Usb")],
+                [new ThingWiringDto("thing:amp", "Pedal power DC out 1 → Focusrite 2i2 DC in", "WillNotWork", "Won't work",
+                    [new WiringFindingDto("voltage-mismatch", "VerifiedProblem", "Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V.")])]));
         }
 
         public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.CompletedTask;

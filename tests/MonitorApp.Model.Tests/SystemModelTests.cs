@@ -280,6 +280,42 @@ public sealed class SystemModelTests : IDisposable
     }
 
     [Fact]
+    public async Task APersonAddsPortsWithTheirValuesPlugsThingsTogetherAndUnplugsThem()
+    {
+        await using var store = await OpenAsync();
+        var psu = await Things.CaptureAsync(store, "Pedal power", "device.power.supply");
+        var pedal = await Things.CaptureAsync(store, "Delay", "device.audio.effect");
+        psu = await Things.EditAsync(store, psu.Id, new ThingEdit(AddPorts:
+            [new ThingPortEdit("DC out 1", "dc-barrel-5521", "plug", "output", ["dc-fixed"], Voltage: "9 V", Polarity: "center-negative", CurrentMax: "500 mA", FromSpec: true)]));
+        var port = Assert.Single(psu.Ports!);
+        Assert.Equal(("DC out 1", "dc-barrel-5521", "Plug", "Output"), (port.Name, port.ConnectorTypeId, port.Gender, port.Direction));
+        Assert.Equal(["9 V", "center-negative", "500 mA"], port.Values.Select(v => v.Value));
+        Assert.All(port.Values, v => Assert.Equal("Specified", v.Evidence));
+
+        // A new port can be plugged in by name in the same edit.
+        pedal = await Things.EditAsync(store, pedal.Id, new ThingEdit(
+            AddPorts: [new ThingPortEdit("DC in", "dc-barrel-5521", "socket", "input", ["dc-fixed"], Voltage: "9 V", CurrentDraw: "100 mA")],
+            Connect: [new ThingConnectEdit("DC in", psu.Id, port.PortId)]));
+        var dcIn = Assert.Single(pedal.Ports!);
+        Assert.Equal(("Pedal power", "DC out 1"), (dcIn.OtherName, dcIn.OtherPortName));
+
+        // Bad input is refused and changes nothing.
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("Out", Voltage: "nine")])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("DC IN")])));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(AddPorts: [new ThingPortEdit("Out", "usb-z")]), id => id == "usb-c"));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, pedal.Id, new ThingEdit(Connect: [new ThingConnectEdit("nope", psu.Id, port.PortId)])));
+
+        // Unplugging, then removing a port that is still plugged in unplugs it too.
+        pedal = await Things.EditAsync(store, pedal.Id, new ThingEdit(Disconnect: [dcIn.ConnectionId!]));
+        Assert.Null(Assert.Single(pedal.Ports!).ConnectionId);
+        await Things.EditAsync(store, pedal.Id, new ThingEdit(Connect: [new ThingConnectEdit(dcIn.PortId, psu.Id, port.PortId)]));
+        psu = await Things.EditAsync(store, psu.Id, new ThingEdit(RemovePorts: [port.PortId]));
+        Assert.Empty(psu.Ports!);
+        var model = await store.LoadAsync();
+        Assert.Empty(model.Connections);
+    }
+
+    [Fact]
     public async Task APersonCanMoveAThingThroughItsLifeTagItAndAddValuesWithHowTheyKnowThem()
     {
         await using var store = await OpenAsync();

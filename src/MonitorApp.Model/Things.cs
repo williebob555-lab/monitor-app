@@ -28,7 +28,8 @@ public sealed record ThingSummary(
     IReadOnlyList<string> PartIds,
     DateTimeOffset CreatedAt,
     string? SignalPrefix = null,
-    IReadOnlyList<ThingLink>? Links = null);
+    IReadOnlyList<ThingLink>? Links = null,
+    IReadOnlyList<ThingPort>? Ports = null);
 
 /// <summary>
 /// A link a person can see and change on a thing, phrased from this thing's side: "Powered by" Studio PSU, or "Powers" the amp
@@ -55,7 +56,11 @@ public sealed record ThingEdit(
     IReadOnlyList<string>? Tags = null,
     IReadOnlyList<ThingValueEdit>? Values = null,
     IReadOnlyList<ThingLinkEdit>? AddLinks = null,
-    IReadOnlyList<string>? RemoveLinks = null);
+    IReadOnlyList<string>? RemoveLinks = null,
+    IReadOnlyList<ThingPortEdit>? AddPorts = null,
+    IReadOnlyList<string>? RemovePorts = null,
+    IReadOnlyList<ThingConnectEdit>? Connect = null,
+    IReadOnlyList<string>? Disconnect = null);
 
 /// <summary>A value the person types, such as "Max power" = "5 W". <paramref name="FromSpec"/> marks it as read from a spec sheet or datasheet.</summary>
 public sealed record ThingValueEdit(string Label, string? Value, bool FromSpec = false);
@@ -129,7 +134,8 @@ public static class Things
             model.ChildrenOf(thing.Id).Select(r => r.TargetId).ToArray(),
             thing.CreatedAt,
             prefix,
-            Links(model, thing.Id));
+            Links(model, thing.Id),
+            ThingPorts.Describe(model, thing));
     }
 
     /// <summary>
@@ -164,7 +170,12 @@ public static class Things
     /// takes the thing out of whatever holds it. Readings and other sources' values are never touched. All of it is one
     /// change set, so a bad move (into itself, into one of its own parts) leaves the thing as it was.
     /// </summary>
-    public static async Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, CancellationToken cancellationToken = default)
+    public static Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, CancellationToken cancellationToken = default) =>
+        EditAsync(store, thingId, edit, null, cancellationToken);
+
+    /// <param name="knownConnector">Whether a connector id is in the shared connector library; the model itself does not
+    /// hold the library, so callers that have it pass it. Without it any short id is accepted.</param>
+    public static async Task<ThingSummary> EditAsync(ModelStore store, string thingId, ThingEdit edit, Func<string, bool>? knownConnector, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(edit);
@@ -307,6 +318,7 @@ public static class Things
             changes.Add(new RelationshipAdded($"user:{Guid.NewGuid():N}", added.TypeId, thing.Id, added.OtherId));
         }
 
+        changes.AddRange(ThingPorts.Changes(model, thing, edit, knownConnector ?? (id => id.Length <= 40)));
         if (changes.Count == 0)
         {
             return Summarize(model, thing);
@@ -451,7 +463,7 @@ public static class Things
         return last.Length == 0 ? key : char.ToUpperInvariant(last[0]) + last[1..];
     }
 
-    private static string SourceText(Evidence evidence) => evidence.Source switch
+    internal static string SourceText(Evidence evidence) => evidence.Source switch
     {
         "user" => "you",
         SpecSource => "you, from a spec",
