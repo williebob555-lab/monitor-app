@@ -48,11 +48,12 @@ public sealed class MobileMeshTests
                 (await PhoneStore(roots[2]).ReadTrustedPeerAsync(server.Identity.PeerId))?.TrustState == PeerTrustState.Active &&
                 (await server.Store.ReadTrustedPeerAsync(phoneId))?.TrustState == PeerTrustState.Active);
 
-            // And the phone syncs with the server directly: the server receives the phone's readings from the phone itself.
+            // And the phone syncs with the server directly: the server accepts the phone's readings from the phone itself
+            // (they may also arrive first through the desk, which forwards them, T087).
             await phone.CollectOnceAsync();
             var phoneStream = (await PhoneStore(roots[2]).ReadLocalIdentityAsync())!.OriginStreamId;
-            await WaitAsync(async () => (await server.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1))
-                .SingleOrDefault()?.ReceivedFromPeerId == phoneId);
+            await WaitAsync(async () => (await server.Store.ReadReplicationCursorAsync(phoneId, phoneId, phoneStream))
+                .Cursor?.AcceptedThrough >= 1);
 
             // Removing the server on the phone removes it on the desk, which paired it by hand.
             await phone.RevokeAsync(server.Identity.PeerId);
