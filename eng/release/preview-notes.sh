@@ -49,10 +49,10 @@ while IFS= read -r line; do
 done < <(grep -E '^- \[ \] ' "$root/TODO.md" || true)
 [ "$count" -gt 0 ] || echo "- (none listed)"
 echo
-echo "### Install"
+echo "### Install details"
 echo
 echo "- Ubuntu: \`sudo dpkg -i monitorapp-node-ubuntu-x64-$version.deb\`; Fedora: \`sudo rpm -U monitorapp-node-fedora-x64-$version.rpm\`; then review \`/etc/monitor-app/node.conf\` and \`sudo systemctl enable --now monitor-app\`."
 echo "- Desktop app on Linux: extract \`monitorapp-desktop-<ubuntu|fedora>-x64-$version.tar.gz\` and run \`MonitorApp.Client.Desktop\`."
-echo "- Windows: extract \`monitorapp-node-windows-x64-$version.zip\`, then in an elevated PowerShell 7 run \`.\\Install-MonitorApp.ps1\` (node service and desktop app)."
+echo "- Windows: double-click \`monitorapp-windows-x64-$version-setup.msi\`. It installs the node service and desktop app; uninstalling keeps your data. (The zip with \`Install-MonitorApp.ps1\` still works from Windows PowerShell for manual installs.)"
 echo "- Android: sideload \`monitorapp-mobile-android-universal-$version.apk\`."
 echo "- Updates: installed nodes download and verify new previews automatically and wait for your approval (\`/api/v1/update\`). \`update-manifest.json\` is the signed manifest; \`SHA256SUMS\` lists every file."
