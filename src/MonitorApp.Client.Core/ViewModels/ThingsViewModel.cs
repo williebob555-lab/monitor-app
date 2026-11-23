@@ -79,6 +79,12 @@ public sealed record ThingCard(
 
     public string Subtitle => InsideName is null ? $"{KindLabel} · {LifecycleText}" : $"{KindLabel} · {LifecycleText} · inside {InsideName}";
 
+    /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
+    internal string Signature => string.Join('\u001f', [
+        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty,
+        .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
+        .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
+
     /// <summary>Text used by the filter box.</summary>
     internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
 }
@@ -552,16 +558,35 @@ public sealed partial class ThingsViewModel : SectionViewModel
     private void ApplyFilter()
     {
         var filter = FilterText.Trim();
-        Cards.Clear();
-        foreach (var card in all.Where(c => filter.Length == 0 || c.SearchText.Contains(filter, StringComparison.CurrentCultureIgnoreCase)))
+        var shown = all.Where(c => filter.Length == 0 || c.SearchText.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        // Rebuilding every card's visuals on each visit made switching to Things stutter; replace only cards that changed.
+        if (shown.Count != Cards.Count || shown.Where((card, i) => card.Id != Cards[i].Id).Any())
         {
-            Cards.Add(card);
+            Cards.Clear();
+            foreach (var card in shown)
+            {
+                Cards.Add(card);
+            }
+        }
+        else
+        {
+            for (var i = 0; i < shown.Count; i++)
+            {
+                if (shown[i].Signature != Cards[i].Signature)
+                {
+                    Cards[i] = shown[i];
+                }
+            }
         }
 
-        // Keep an opened thing open across refreshes, with its new readings.
+        // Keep an opened thing open across refreshes, with its new readings; unchanged, it is left alone so it does not fly apart again.
         if (OpenCard is { } open)
         {
-            OpenCard = all.FirstOrDefault(c => c.Id == open.Id);
+            var fresh = all.FirstOrDefault(c => c.Id == open.Id);
+            if (fresh is null || fresh.Signature != open.Signature)
+            {
+                OpenCard = fresh;
+            }
         }
 
         OnPropertyChanged(nameof(HasCards));

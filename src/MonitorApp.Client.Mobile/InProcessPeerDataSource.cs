@@ -56,7 +56,9 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
     private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
 
-    public async Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+    public Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(ct), ct);
+
+    private async Task<ThingsDto?> ReadThingsAsync(CancellationToken ct)
     {
         var store = await ModelAsync(ct).ConfigureAwait(false);
         if (Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks))
@@ -79,7 +81,9 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
             Things.KindChoices(store.Library).Select(k => new ThingKindDto(k.Id, k.Label)).ToArray());
     }
 
-    public async Task AddThingAsync(string text, string? kindId, CancellationToken ct = default)
+    public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) => Task.Run(() => CaptureAsync(text, kindId, ct), ct);
+
+    private async Task CaptureAsync(string text, string? kindId, CancellationToken ct)
     {
         var store = await ModelAsync(ct).ConfigureAwait(false);
         try
@@ -92,9 +96,14 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         }
     }
 
-    public async Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
+    public Task EditThingAsync(ThingEditDto edit, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(edit);
+        return Task.Run(() => ApplyEditAsync(edit, ct), ct);
+    }
+
+    private async Task ApplyEditAsync(ThingEditDto edit, CancellationToken ct)
+    {
         var store = await ModelAsync(ct).ConfigureAwait(false);
         try
         {
@@ -644,7 +653,9 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
     {
         try
         {
-            return await read().ConfigureAwait(false);
+            // SQLite's async calls complete synchronously, so without this every read ran on the UI thread and each menu tap
+            // waited for the phone's own database.
+            return await Task.Run(read).ConfigureAwait(false);
         }
         catch (PeerQueryException exception)
         {

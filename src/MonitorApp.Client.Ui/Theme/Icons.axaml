@@ -22,6 +22,7 @@
   <StreamGeometry x:Key="Icon.timeline">M4,12 H20 M8,8 V16 M12,6 V18 M16,9 V15</StreamGeometry>
   <StreamGeometry x:Key="Icon.back">M15,6 L9,12 L15,18</StreamGeometry>
   <StreamGeometry x:Key="Icon.forward">M9,6 L15,12 L9,18</StreamGeometry>
+  <StreamGeometry x:Key="Icon.map">M7,7 L17,6 M7,7 L12,18 M17,6 L12,18 M5,7 A2,2 0 1 0 9,7 A2,2 0 1 0 5,7 M15,6 A2,2 0 1 0 19,6 A2,2 0 1 0 15,6 M10,18 A2,2 0 1 0 14,18 A2,2 0 1 0 10,18</StreamGeometry>
   <StreamGeometry x:Key="Icon.outline">M4,6 H6 M9,6 H20 M7,12 H9 M12,12 H20 M7,18 H9 M12,18 H20</StreamGeometry>
   <StreamGeometry x:Key="Icon.live">M12,6 A6,6 0 1 1 11.99,6 Z</StreamGeometry>
 </ResourceDictionary>

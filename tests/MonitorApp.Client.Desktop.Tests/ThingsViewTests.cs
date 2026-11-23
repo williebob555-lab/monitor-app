@@ -37,6 +37,12 @@ public sealed class ThingsViewTests
         Assert.Equal(1 + laptop.Parts.Count, panel.Children.Count);
         Assert.True(panel.Bounds.Width > 0);
 
+        // A refresh that changed nothing leaves the cards and the opened view as they are (no rebuild, no second explosion).
+        var opened = things.OpenCard;
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Same(laptop, things.Cards.Single(c => c.Name == "Wilson-laptop"));
+        Assert.Same(opened, things.OpenCard);
+
         things.CloseCommand.Execute(null);
         Assert.True(things.IsGrid);
         window.Close();

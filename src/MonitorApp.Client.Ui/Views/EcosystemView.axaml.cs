@@ -10,7 +10,7 @@ namespace MonitorApp.Client.Ui.Views;
 
 /// <summary>
 /// The ecosystem mode's page; see the slot description in the markup. A head's <see cref="WorkspaceShell.WorkspaceTemplate"/> (a canvas)
-/// wins; otherwise the host shows the Dive, or the outline while the shell's outline switch is on.
+/// wins; otherwise the host shows the Dive, the map while the shell's map switch is on, or the outline while its outline switch is on.
 /// </summary>
 public sealed partial class EcosystemView : UserControl
 {
@@ -59,7 +59,7 @@ public sealed partial class EcosystemView : UserControl
 
     private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ShellViewModel.IsDive))
+        if (e.PropertyName is nameof(ShellViewModel.IsDive) or nameof(ShellViewModel.IsMap))
         {
             ApplyPresentation();
         }
@@ -78,7 +78,8 @@ public sealed partial class EcosystemView : UserControl
         var dive = current.IsDive;
         this.FindControl<StackPanel>("Header")!.IsVisible = !dive;
         diveTemplate ??= new FuncDataTemplate<EnvironmentViewModel>((_, _) => new DiveView { DataContext = current.Dive });
-        var wanted = dive ? diveTemplate : outlineTemplate;
+        var mapTemplate = (IDataTemplate)Resources["MapTemplate"]!;
+        var wanted = dive ? diveTemplate : current.IsMap ? mapTemplate : outlineTemplate;
         if (!ReferenceEquals(host.ContentTemplate, wanted))
         {
             host.ContentTemplate = wanted;

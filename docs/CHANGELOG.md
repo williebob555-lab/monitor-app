@@ -4,6 +4,10 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Fixed
+
+- Menus were laggy again. On the phone every read of its own database (readings, peers, alerts, Things) ran on the screen thread because SQLite's async calls complete synchronously; they now run in the background. The shared model is no longer rebuilt from its whole change log on every read (it is cached until the next change), and Things no longer rebuilds every card, or re-opens the exploded view, when a refresh changed nothing.
+
 ### Fixed (release path)
 
 - The Ubuntu install smoke no longer fails when the update helper's final journal line lands a moment after the node reports the new version.
@@ -14,6 +18,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- The map is back (0.1.17): a Map switch in the Ecosystem toolbar shows every device as a card joined by its typed connections, with pan, zoom and drag-to-pin. Selecting a device fills the inspector, and "Dive in" or "Open it up in Things" opens it in the other lenses. The schematic canvas had been built but left unplugged when the Dive became the default.
 - Things (0.1.15 to 0.1.17): every object in the shared model as a card with evidence badges; quick add; "Open it up" pulls a computer apart into the parts its own readings prove (processor, memory, storage, battery, network adapters); "See it live" and "Open it up in Things" move between Things and the Ecosystem on the same device; "Edit" renames a thing, changes its kind, edits your note and puts it inside another thing (containment loops are refused). Edits go through the model change log as entered by you (`POST /api/v1/things/edit`, CSRF-protected).
 - T301 standalone design-planning suite: revisioned project scenarios and sourcing observations; multi-standard racks, nested subracks, pedalboards, and panel projection; evidence-aware physical, audio/MIDI/CV, pedal-power, connector/protocol/power, and adapter compatibility checks; 30 unit tests; and an explicitly non-authoritative browser interaction prototype. It remains separate from actual inventory, peer runtime, Android, and the Claude-owned Avalonia UI.
 - Shared system model (T061): `src/MonitorApp.Model` with objects, evidence-levelled properties, layered ports, connections, containment and placement, checked lifecycle, design layers with realization, an append-only change log in `model.db` with as-of rebuild, a starter kind/property library, and the monitoring bridge that binds peers and observed devices to model objects. Design in `docs/ARCHITECTURE-MODEL.md`; scenarios in `docs/SCENARIOS.md`. Not yet opened by the running node (queue task T065).

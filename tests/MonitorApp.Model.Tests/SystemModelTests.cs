@@ -280,6 +280,23 @@ public sealed class SystemModelTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadingTheModelTwiceDoesNotReplayTheLogUntilSomethingChanges()
+    {
+        await using var store = await OpenAsync();
+        await Things.CaptureAsync(store, "Studio rack");
+        var first = await store.LoadAsync();
+        Assert.Same(first, await store.LoadAsync());
+
+        await Things.CaptureAsync(store, "Focusrite");
+        var after = await store.LoadAsync();
+        Assert.NotSame(first, after);
+        Assert.Equal(2, Things.List(after).Count);
+        Assert.Single(Things.List(first));
+        // As-of reads are still rebuilt from the log.
+        Assert.NotSame(after, await store.LoadAsync(asOf: DateTimeOffset.UtcNow.AddYears(1)));
+    }
+
+    [Fact]
     public async Task EditingAThingChangesOnlyWhatThePersonOwnsAndKeepsContainmentSound()
     {
         await using var store = await OpenAsync();
