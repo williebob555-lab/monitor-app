@@ -9,6 +9,9 @@ public sealed record PeerTransportEndpoint(Uri Address, string ExpectedPeerId, P
 public sealed record PeerTransportOptions(PeerTransportEndpoint Endpoint, TimeSpan ConnectTimeout, TimeSpan OperationTimeout,
     TimeSpan HeartbeatInterval, TimeSpan InitialReconnectDelay, TimeSpan MaximumReconnectDelay, int MaximumMessageBytes)
 {
+    /// <summary>How often a live session pulls other devices' readings that the remote forwards (T087).</summary>
+    public TimeSpan RelayPullInterval { get; init; } = TimeSpan.FromSeconds(15);
+
     public static PeerTransportOptions Create(PeerTransportEndpoint endpoint) => new(endpoint, TimeSpan.FromSeconds(10),
         TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(1), 1024 * 1024);
 
@@ -30,7 +33,7 @@ public sealed record PeerTransportOptions(PeerTransportEndpoint Endpoint, TimeSp
             throw new InvalidOperationException("Tailscale endpoints require http or https.");
         if (Endpoint.Security == PeerTransportSecurity.LoopbackDevelopment && (Endpoint.Address.Scheme != Uri.UriSchemeHttp || !IPAddress.IsLoopback(address)))
             throw new InvalidOperationException("Plaintext development transport is restricted to explicit loopback endpoints.");
-        if (ConnectTimeout <= TimeSpan.Zero || OperationTimeout <= TimeSpan.Zero || HeartbeatInterval <= TimeSpan.Zero || InitialReconnectDelay <= TimeSpan.Zero || MaximumReconnectDelay < InitialReconnectDelay)
+        if (ConnectTimeout <= TimeSpan.Zero || OperationTimeout <= TimeSpan.Zero || HeartbeatInterval <= TimeSpan.Zero || RelayPullInterval <= TimeSpan.Zero || InitialReconnectDelay <= TimeSpan.Zero || MaximumReconnectDelay < InitialReconnectDelay)
             throw new ArgumentOutOfRangeException(nameof(PeerTransportOptions));
         if (MaximumMessageBytes is < 4096 or > 16 * 1024 * 1024) throw new ArgumentOutOfRangeException(nameof(MaximumMessageBytes));
     }

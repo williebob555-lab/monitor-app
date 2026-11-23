@@ -18,6 +18,13 @@ public interface IPeerLiveSession : IDisposable
     /// </summary>
     bool RenewRequested => false;
 
+    /// <summary>
+    /// Client side: range requests for other devices' readings to pull through the remote (relay). Asked periodically;
+    /// each answer arrives as an ordinary origin batch carrying the request id.
+    /// </summary>
+    ValueTask<IReadOnlyList<OriginRangeRequest>> NextRelayRequestsAsync(CancellationToken cancellationToken) =>
+        ValueTask.FromResult<IReadOnlyList<OriginRangeRequest>>([]);
+
     /// <summary>Maximum unacknowledged origin batches this side keeps in flight.</summary>
     int MaximumInFlightBatches { get; }
 

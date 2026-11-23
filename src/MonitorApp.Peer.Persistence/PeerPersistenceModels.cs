@@ -196,6 +196,9 @@ public sealed record ReplicationCursor(
 
 public sealed record ReplicationGap(ulong FirstSequence, ulong LastSequence);
 
+/// <summary>How far this device holds another device's origin stream without gaps, over every peer it came from.</summary>
+public sealed record HeldOrigin(string OriginPeerId, string OriginStreamId, ulong HeldThrough);
+
 public sealed record CapabilityCatalogEntry(
     string CapabilityId,
     string Namespace,

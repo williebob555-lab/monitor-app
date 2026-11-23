@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
@@ -48,6 +49,11 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     private PeerHello? authenticatedRemoteHello;
     // The membership version the statements sent in this session reflect; a later change renews the session.
     private long exchangedMeshVersion;
+    // Requests for other devices' readings this session asked the remote to forward, by request id.
+    private readonly ConcurrentDictionary<string, (string OriginPeerId, string OriginStreamId)> relayRequests = new(StringComparer.Ordinal);
+
+    /// <summary>How many other devices' streams one session pulls through the remote.</summary>
+    public const int MaximumRelayedStreams = 64;
 
     public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
         AlertStore? alerts = null, PeerSyncLiveOptions? live = null, MeshMembership? mesh = null)
@@ -116,6 +122,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
     {
         ArgumentNullException.ThrowIfNull(remoteHello);
         authenticatedRemoteHello = remoteHello.Clone();
+        relayPullsWithUnknownDevices = 0;
+        Volatile.Write(ref relayRediscoveryDue, false);
         if (mesh is not null)
         {
             var before = mesh.Version;
@@ -160,6 +168,25 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             };
         }
 
+        // Readings of other trusted devices that the remote holds and this device lacks (T087): pulled through the
+        // remote, each record still verified against its origin's own key. Stops when a pull makes no progress (the
+        // remote lacks the next record too); the next session or the origin itself fills the gap.
+        foreach (var relayed in await RelayableCursorsAsync(remote, local.PeerId, cancellationToken).ConfigureAwait(false))
+        {
+            var held = await store.ReadHeldThroughAsync(relayed.OriginPeerId, relayed.OriginStreamId, cancellationToken).ConfigureAwait(false);
+            while (held < relayed.AcceptedThroughSequence)
+            {
+                EnsureOperationBound(++operations);
+                yield return new PeerSessionRequest
+                {
+                    OriginRangeRequest = RelayRequest(relayed.OriginPeerId, relayed.OriginStreamId, checked(held + 1), relayed.AcceptedThroughSequence),
+                };
+                var now = await store.ReadHeldThroughAsync(relayed.OriginPeerId, relayed.OriginStreamId, cancellationToken).ConfigureAwait(false);
+                if (now <= held) break;
+                held = now;
+            }
+        }
+
         var localHead = local.NextSequence - 1;
         while (true)
         {
@@ -185,9 +212,109 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
 
     public async ValueTask<OriginAck> AcceptOriginBatchAsync(string remotePeerId, OriginRecordBatch batch, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (relayRequests.TryRemove(batch.RequestId, out var asked))
+        {
+            if (batch.Records.Count > 0 && (batch.Records[0].OriginPeerId != asked.OriginPeerId || batch.Records[0].OriginStreamId != asked.OriginStreamId))
+                throw new PeerSyncException("Remote answered a relay request with another stream.");
+            if (batch.Records.Count == 0)
+            {
+                // The remote holds nothing more from there: nothing to store. The acknowledgement is informational.
+                var held = await store.ReadHeldThroughAsync(asked.OriginPeerId, asked.OriginStreamId, cancellationToken).ConfigureAwait(false);
+                return new OriginAck
+                {
+                    Cursor = new OriginCursor
+                    {
+                        OriginPeerId = asked.OriginPeerId,
+                        OriginStreamId = asked.OriginStreamId,
+                        AcceptedThroughSequence = held,
+                        UpdatedAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
+                    },
+                };
+            }
+        }
+
         if (batch.Records.Count == 0 && batch.PrunedRange is null) throw new PeerSyncException("Remote advertised records but returned an empty batch.");
         return (await replication.ApplyAsync(remotePeerId, batch, cancellationToken).ConfigureAwait(false)).Acknowledgement;
     }
+
+    /// <summary>
+    /// The other devices' streams the remote advertised holding that this device may pull through it: never its own or
+    /// the remote's, and only devices actively trusted here.
+    /// </summary>
+    private async Task<IReadOnlyList<OriginCursor>> RelayableCursorsAsync(PeerHello remote, string localPeerId, CancellationToken cancellationToken)
+    {
+        var candidates = remote.Cursors
+            .Where(cursor => cursor.OriginPeerId != localPeerId && cursor.OriginPeerId != remote.PeerId &&
+                             !string.IsNullOrWhiteSpace(cursor.OriginStreamId) && cursor.AcceptedThroughSequence > 0)
+            .ToArray();
+        if (candidates.Length == 0) return [];
+        var active = (await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
+            .Where(peer => peer.TrustState == PeerTrustState.Active)
+            .Select(peer => peer.PeerId)
+            .ToHashSet(StringComparer.Ordinal);
+        return candidates
+            .Where(cursor => active.Contains(cursor.OriginPeerId))
+            .DistinctBy(cursor => (cursor.OriginPeerId, cursor.OriginStreamId))
+            .OrderBy(cursor => cursor.OriginPeerId, StringComparer.Ordinal)
+            .ThenBy(cursor => cursor.OriginStreamId, StringComparer.Ordinal)
+            .Take(MaximumRelayedStreams)
+            .ToArray();
+    }
+
+    private OriginRangeRequest RelayRequest(string originPeerId, string originStreamId, ulong first, ulong last)
+    {
+        var request = new OriginRangeRequest
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            OriginPeerId = originPeerId,
+            OriginStreamId = originStreamId,
+            FirstSequence = first,
+            LastSequence = last,
+            MaximumRecordCount = (uint)options.MaximumBatchRecords,
+            MaximumBatchBytes = (uint)options.MaximumBatchBytes,
+        };
+        relayRequests[request.RequestId] = (originPeerId, originStreamId);
+        return request;
+    }
+
+    /// <summary>
+    /// Live freshness for relayed readings: open-ended pulls, each starting after the newest record held from that
+    /// stream, for every stream the remote advertised at session start or this device already holds. A trusted device
+    /// whose stream is known on neither side (it had no readings yet when the session started) renews the session
+    /// after a few pulls, so the remote's next hello can advertise it.
+    /// </summary>
+    private async ValueTask<IReadOnlyList<OriginRangeRequest>> LiveRelayRequestsAsync(CancellationToken cancellationToken)
+    {
+        var remote = authenticatedRemoteHello;
+        if (remote is null) return [];
+        var local = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
+        var known = new PeerHello { PeerId = remote.PeerId };
+        known.Cursors.Add(remote.Cursors);
+        foreach (var held in await store.ReadHeldOriginStreamsAsync(local.PeerId, MaximumRelayedStreams, cancellationToken).ConfigureAwait(false))
+            known.Cursors.Add(new OriginCursor { OriginPeerId = held.OriginPeerId, OriginStreamId = held.OriginStreamId, AcceptedThroughSequence = held.HeldThrough });
+
+        var streams = await RelayableCursorsAsync(known, local.PeerId, cancellationToken).ConfigureAwait(false);
+        var requests = new List<OriginRangeRequest>();
+        foreach (var relayed in streams)
+        {
+            var held = await store.ReadHeldThroughAsync(relayed.OriginPeerId, relayed.OriginStreamId, cancellationToken).ConfigureAwait(false);
+            var newest = await store.ReadHighestOriginSequenceAsync(relayed.OriginPeerId, relayed.OriginStreamId, cancellationToken).ConfigureAwait(false);
+            requests.Add(RelayRequest(relayed.OriginPeerId, relayed.OriginStreamId, checked(Math.Max(held, newest) + 1), 0));
+        }
+
+        var unknown = (await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
+            .Any(peer => peer.TrustState == PeerTrustState.Active && peer.PeerId != local.PeerId && peer.PeerId != remote.PeerId &&
+                         streams.All(stream => stream.OriginPeerId != peer.PeerId));
+        if (!unknown) relayPullsWithUnknownDevices = 0;
+        else if (++relayPullsWithUnknownDevices >= RelayPullsBeforeRediscovery) Volatile.Write(ref relayRediscoveryDue, true);
+        return requests;
+    }
+
+    // Pulls with a trusted device whose stream is unknown here, before the session renews to learn it (about a minute).
+    private const int RelayPullsBeforeRediscovery = 4;
+    private int relayPullsWithUnknownDevices;
+    private bool relayRediscoveryDue;
 
     public async ValueTask<OriginAck?> AcceptRangePrunedAsync(string remotePeerId, PrunedRange range, CancellationToken cancellationToken)
     {
@@ -232,7 +359,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             options.MaximumBatchRecords,
             options.MaximumBatchBytes,
             LocallyInitiated: true,
-            RenewRequested: mesh is null ? null : () => mesh.Version != meshVersion));
+            RenewRequested: () => Volatile.Read(ref relayRediscoveryDue) || (mesh is not null && mesh.Version != meshVersion),
+            RelayRequests: LiveRelayRequestsAsync));
     }
 
     public async ValueTask<IReadOnlyList<CapabilityDescriptor>> GetCapabilitiesAsync(CancellationToken cancellationToken)

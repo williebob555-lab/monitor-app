@@ -101,6 +101,71 @@ public sealed class OriginReplicationCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task ATrustedDeviceCanRelayAnOriginsRecordsOnlyUnalteredAndOnlyWhileTheOriginIsTrusted()
+    {
+        using var relayKey = EcdsaPeerIdentityKey.Create();
+        var store = await CreateStoreAsync();
+        var relay = PeerPublicIdentity.Create("relay-peer", relayKey);
+        await store.UpsertTrustedPeerAsync(new TrustedPeer(relay.PeerId, relay.PublicKeySpki, relay.PublicKeyFingerprint, "Relay",
+            PeerTrustState.Active, Now, null));
+        var coordinator = Coordinator(store);
+
+        // Forwarded by the relay, verified against the origin's key.
+        var (one, two) = (Record(1, [1]), Record(2, [2]));
+        var forwarded = await coordinator.ApplyAsync("relay-peer", Batch(one, two));
+        Assert.Equal(2, forwarded.InsertedCount);
+        Assert.Equal<ulong>(2, forwarded.Acknowledgement.Cursor.AcceptedThroughSequence);
+        Assert.Equal("relay-peer", (await store.ReadOriginRangeAsync("origin-peer", "stream-1", 1, 1))[0].ReceivedFromPeerId);
+
+        // The relay cannot sign in the origin's name, nor declare the origin's records pruned.
+        var forged = OriginRecordCryptography.CreateSigned(relayKey, "origin-peer", "stream-1", 3, "device-1", "adapter-1",
+            "cpu.utilization", ByteString.CopyFrom([3]), Timestamp.FromDateTimeOffset(Now.AddSeconds(3)), ObservationQuality.Valid);
+        await Assert.ThrowsAsync<OriginReplicationValidationException>(() => coordinator.ApplyAsync("relay-peer", Batch(forged)));
+        var pruning = Batch(Record(5, [5]));
+        pruning.PrunedRange = new PrunedRange { OriginPeerId = "origin-peer", OriginStreamId = "stream-1", FirstSequence = 3, LastSequence = 4 };
+        await Assert.ThrowsAsync<OriginReplicationTrustException>(() => coordinator.ApplyAsync("relay-peer", pruning));
+        Assert.Equal(2, (await store.ReadOriginRangeAsync("origin-peer", "stream-1", 1, 10)).Count);
+
+        // The origin delivering the same records later is a retry, not a conflict, and its cursor starts where the relay's is.
+        var direct = await coordinator.ApplyAsync("origin-peer", Batch(one, two, Record(3, [3])));
+        Assert.Equal((1, 2), (direct.InsertedCount, direct.IdenticalRetryCount));
+        Assert.Equal<ulong>(3, direct.Acknowledgement.Cursor.AcceptedThroughSequence);
+        Assert.Equal<ulong>(3, await store.ReadHeldThroughAsync("origin-peer", "stream-1"));
+        Assert.Equal("origin-peer", Assert.Single(await store.ReadHeldOriginStreamsAsync("relay-peer", 10)).OriginPeerId);
+
+        // Once the origin is removed, nobody can relay its records.
+        await store.RevokeTrustedPeerAsync("origin-peer", Now.AddMinutes(1));
+        await Assert.ThrowsAsync<OriginReplicationTrustException>(() => coordinator.ApplyAsync("relay-peer", Batch(Record(4, [4]))));
+    }
+
+    [Fact]
+    public async Task ARelayForwardsOnlyContiguousRecordsItHolds()
+    {
+        var store = await CreateStoreAsync();
+        var coordinator = Coordinator(store);
+        await coordinator.ApplyAsync("origin-peer", Batch(Record(1, [1]), Record(2, [2])));
+        await coordinator.ApplyAsync("origin-peer", Batch(Record(4, [4])));
+        OriginRangeRequest From(ulong first) => new()
+        {
+            RequestId = "relay-" + first,
+            OriginPeerId = "origin-peer",
+            OriginStreamId = "stream-1",
+            FirstSequence = first,
+            MaximumRecordCount = 10,
+            MaximumBatchBytes = 65536,
+        };
+
+        var head = await coordinator.ReadRelayAsync(From(1));
+        Assert.Equal([1UL, 2UL], head.Records.Select(record => record.Sequence));
+        Assert.True(head.HasMore);
+        Assert.Equal([4UL], (await coordinator.ReadRelayAsync(From(3))).Records.Select(record => record.Sequence));
+        var past = await coordinator.ReadRelayAsync(From(5));
+        Assert.Empty(past.Records);
+        Assert.False(past.HasMore);
+        Assert.Null(past.PrunedRange);
+    }
+
+    [Fact]
     public async Task BatchRecordAndByteLimitsAreEnforced()
     {
         var store = await CreateStoreAsync();

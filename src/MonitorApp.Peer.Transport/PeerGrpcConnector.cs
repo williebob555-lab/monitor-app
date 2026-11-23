@@ -441,11 +441,13 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         {
             var nextHeartbeat = DateTime.UtcNow + options.HeartbeatInterval;
             var nextAlertPull = DateTime.UtcNow;
+            // The session-start sync already pulled relayed readings; keep them fresh from here.
+            var nextRelayPull = DateTime.UtcNow + options.RelayPullInterval;
             var deadAfter = options.HeartbeatInterval * 3 + options.OperationTimeout;
             while (!token.IsCancellationRequested)
             {
                 if (live.RenewRequested)
-                    throw new PeerTransportException("Mesh membership changed; renewing the session to exchange it.");
+                    throw new PeerTransportException("Mesh membership or relayed devices changed; renewing the session to exchange it.");
                 var progressed = false;
                 while (await live.TryNextBatchAsync(token).ConfigureAwait(false) is { } batch)
                 {
@@ -476,6 +478,17 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
                         },
                     }).ConfigureAwait(false);
                     progressed = true;
+                }
+
+                if (now >= nextRelayPull)
+                {
+                    nextRelayPull = now + options.RelayPullInterval;
+                    foreach (var relay in await live.NextRelayRequestsAsync(token).ConfigureAwait(false))
+                    {
+                        RequireValid(PeerContractValidator.Validate(relay), "Local relay request is invalid.");
+                        await SendAsync(new PeerSessionRequest { OriginRangeRequest = relay }).ConfigureAwait(false);
+                        progressed = true;
+                    }
                 }
 
                 if (now >= nextHeartbeat)

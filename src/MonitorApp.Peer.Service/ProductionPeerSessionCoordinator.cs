@@ -121,6 +121,30 @@ public sealed class PeerStoreAdvertisementProvider(
             }
         }
 
+        if (local is not null)
+        {
+            // Other trusted devices' readings held here, so a peer that cannot reach them can pull them through this one.
+            var active = (await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
+                .Where(peer => peer.TrustState == PeerTrustState.Active)
+                .Select(peer => peer.PeerId)
+                .ToHashSet(StringComparer.Ordinal);
+            var held = await store.ReadHeldOriginStreamsAsync(local.PeerId, options.MaximumRemoteOriginStreams + 1, cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var stream in held
+                         .Where(stream => !string.Equals(stream.OriginPeerId, remoteHello.PeerId, StringComparison.Ordinal) &&
+                                          active.Contains(stream.OriginPeerId))
+                         .Take(options.MaximumRemoteOriginStreams))
+            {
+                cursors.Add(new OriginCursor
+                {
+                    OriginPeerId = stream.OriginPeerId,
+                    OriginStreamId = stream.OriginStreamId,
+                    AcceptedThroughSequence = stream.HeldThrough,
+                    UpdatedAt = Timestamp.FromDateTimeOffset(RequireUtc(clock.GetUtcNow())),
+                });
+            }
+        }
+
         return cursors
             .OrderBy(cursor => cursor.OriginPeerId, StringComparer.Ordinal)
             .ThenBy(cursor => cursor.OriginStreamId, StringComparer.Ordinal)
@@ -324,16 +348,25 @@ public sealed class ProductionPeerSessionCoordinator(
         CancellationToken cancellationToken)
     {
         await RequireActiveAsync(remotePeerId, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(request.OriginPeerId, localIdentity.PublicIdentity.PeerId, StringComparison.Ordinal))
+        var relayed = !string.Equals(request.OriginPeerId, localIdentity.PublicIdentity.PeerId, StringComparison.Ordinal);
+        if (relayed)
         {
-            throw new PeerSessionOperationException(
-                ProtocolErrorCode.Unauthorized,
-                "Relayed origin range requests are not supported.");
+            // Forward another device's readings only when that device is actively trusted here, and never hand a peer
+            // its own stream back.
+            var origin = string.Equals(request.OriginPeerId, remotePeerId, StringComparison.Ordinal)
+                ? null
+                : await store.ReadTrustedPeerAsync(request.OriginPeerId, cancellationToken).ConfigureAwait(false);
+            if (origin is null || origin.TrustState != PeerTrustState.Active)
+            {
+                throw new PeerSessionOperationException(ProtocolErrorCode.Unauthorized, "That origin is not relayed here.");
+            }
         }
 
         try
         {
-            return await replication.ReadAsync(request, cancellationToken).ConfigureAwait(false);
+            return relayed
+                ? await replication.ReadRelayAsync(request, cancellationToken).ConfigureAwait(false)
+                : await replication.ReadAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (OriginRangePrunedException pruned)
         {
@@ -399,7 +432,8 @@ public sealed class ProductionPeerSessionCoordinator(
         var cursor = acknowledgement.Cursor;
         if (!string.Equals(cursor.OriginPeerId, localIdentity.PublicIdentity.PeerId, StringComparison.Ordinal))
         {
-            throw new PeerSessionOperationException(ProtocolErrorCode.InvalidMessage, "Acknowledgement origin is invalid.");
+            // The acknowledgement of records this device relayed: the origin, not the relay, tracks delivery of them.
+            return;
         }
 
         var existing = await store.ReadReplicationCursorAsync(
