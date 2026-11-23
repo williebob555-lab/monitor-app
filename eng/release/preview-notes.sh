@@ -9,7 +9,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 echo "## Monitor App preview $version"
 echo
-echo "Test build for Windows, Fedora, Ubuntu and Android. Not a stable release; expect gaps. See the install notes at the end."
+echo "Test build for Windows, Fedora, Ubuntu and Android. Not a stable release; expect gaps."
+echo
+echo "### Which file do I need?"
+echo
+echo "| Device | Download | How |"
+echo "| --- | --- | --- |"
+echo "| Android phone or tablet | \`monitorapp-mobile-android-universal-$version.apk\` | Open it on the device and allow the install. |"
+echo "| Windows PC | \`monitorapp-windows-x64-$version-setup.msi\` | Double-click it. |"
+echo "| Fedora | \`monitorapp-node-fedora-x64-$version.rpm\` (+ \`monitorapp-desktop-fedora-x64-$version.tar.gz\` for the desktop app) | \`sudo dnf install ./<file>.rpm\` |"
+echo "| Ubuntu | \`monitorapp-node-ubuntu-x64-$version.deb\` (+ \`monitorapp-desktop-ubuntu-x64-$version.tar.gz\` for the desktop app) | \`sudo apt install ./<file>.deb\` |"
+echo
+echo "Everything else is used by the apps themselves, so you don't need to download it: \`update-manifest.json\` and \`SHA256SUMS\` (the signed update list and checksums) and \`monitorapp-node-windows-x64-$version.zip\` (what installed Windows PCs download when they update). Devices that already have Monitor App offer this version as an update and install it only after you approve it."
 echo
 echo "### Changes since the previous preview"
 echo
