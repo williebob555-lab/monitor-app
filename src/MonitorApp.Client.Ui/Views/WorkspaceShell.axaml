@@ -18,6 +18,7 @@
     <DataTemplate DataType="vm:AsOfViewModel"><views:AsOfView /></DataTemplate>
     <DataTemplate DataType="vm:PairingsViewModel"><views:PairingsView /></DataTemplate>
     <DataTemplate DataType="vm:SecurityViewModel"><views:SecurityView /></DataTemplate>
+    <DataTemplate DataType="vm:UpdatesViewModel"><views:UpdatesView /></DataTemplate>
     <DataTemplate DataType="vm:AlertPreferencesViewModel"><views:AlertPreferencesView /></DataTemplate>
     <DataTemplate DataType="vm:PairDeviceViewModel"><views:PairDeviceView /></DataTemplate>
     <DataTemplate DataType="vm:OverviewViewModel"><views:OverviewView /></DataTemplate>

@@ -42,6 +42,31 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckNowStagesWithoutInstallingAndRecordsWhenItLooked()
+    {
+        var applier = new RecordingApplier();
+        using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, applier);
+        Assert.Null(agent.GetStatus().LastCheckedUtc);
+
+        await agent.CheckNowAsync(default);
+
+        var status = agent.GetStatus();
+        Assert.NotNull(status.LastCheckedUtc);
+        Assert.Equal("Staged", status.Stage);
+        Assert.True(status.ApprovalPending);
+        Assert.Equal(0, applier.Calls);
+    }
+
+    [Fact]
+    public void PeriodicCheckDefaultsToHourly()
+    {
+        var options = NodeUpdateOptions.FromEnvironment(
+            new NodeOptions(directory, System.Net.IPAddress.Loopback, 55431, 55432, MonitorApp.Peer.LocalApi.LocalPresencePolicy.RequiredWhenEnrolled),
+            name => name == "MONITOR_APP_UPDATE_PACKAGE" ? (OperatingSystem.IsWindows() ? "zip" : "deb") : null);
+        Assert.Equal(TimeSpan.FromHours(1), options.Interval);
+    }
+
+    [Fact]
     public async Task UpdateHistoryListsOnlyInstallOutcomesWithVersionOldestFirstWithinTheRange()
     {
         var applier = new RecordingApplier(ApplyOutcomeKind.RolledBack);

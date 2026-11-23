@@ -195,6 +195,18 @@ public interface IControlSource
 /// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
 /// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
 /// </summary>
+/// <summary>A source connected to this computer's own node, which can report and drive its updates.</summary>
+public interface ILocalUpdatesSource
+{
+    Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default);
+
+    /// <summary>Asks the node to look for a new release now. Never installs; a found release waits for approval.</summary>
+    Task<LocalUpdateStatusDto> CheckForUpdatesAsync(CancellationToken ct = default);
+
+    /// <summary>Installs the staged update; needs the fingerprint when the node enforces it.</summary>
+    Task ApproveUpdateAsync(string targetVersion, CancellationToken ct = default);
+}
+
 public interface ISecuritySource
 {
     Task<LocalPresenceStatusDto> GetLocalPresenceStatusAsync(CancellationToken ct = default);

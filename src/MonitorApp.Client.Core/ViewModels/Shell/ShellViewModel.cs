@@ -412,8 +412,8 @@ public sealed partial class ShellViewModel : ObservableObject
         switch (target)
         {
             case ShellMode.Settings:
-                return main.Sections.Where(s => s is DevicesViewModel or PairingsViewModel or SecurityViewModel or AlertPreferencesViewModel or PairDeviceViewModel or OverviewViewModel)
-                    .OrderBy(s => s switch { DevicesViewModel => 0, PairingsViewModel => 1, SecurityViewModel => 2, AlertPreferencesViewModel => 3, PairDeviceViewModel => 4, _ => 5 });
+                return main.Sections.Where(s => s is DevicesViewModel or UpdatesViewModel or PairingsViewModel or SecurityViewModel or AlertPreferencesViewModel or PairDeviceViewModel or OverviewViewModel)
+                    .OrderBy(s => s switch { DevicesViewModel => 0, UpdatesViewModel => 1, PairingsViewModel => 2, SecurityViewModel => 3, AlertPreferencesViewModel => 4, PairDeviceViewModel => 5, _ => 6 });
             default:
                 return [];
         }

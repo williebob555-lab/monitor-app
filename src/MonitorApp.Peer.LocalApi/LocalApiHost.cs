@@ -572,6 +572,25 @@ public sealed class LocalApiHost : IAsyncDisposable
             context.RequestServices.GetService<ILocalUpdateController>() is { } updates
                 ? Results.Json(updates.GetStatus())
                 : Results.NotFound());
+        application.MapPost("/api/v1/update/check", async (
+            HttpContext context,
+            IAntiforgery antiforgery,
+            CancellationToken token) =>
+        {
+            if (!await IsValidMutationAsync(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (context.RequestServices.GetService<ILocalUpdateController>() is not { } updates)
+            {
+                return Results.NotFound();
+            }
+
+            // Checking only downloads and verifies; installing still needs approval, so no presence check is needed here.
+            await updates.CheckNowAsync(token).ConfigureAwait(false);
+            return Results.Json(updates.GetStatus());
+        });
         application.MapPost("/api/v1/update/approve", async (
             HttpContext context,
             IAntiforgery antiforgery,
@@ -1221,8 +1240,9 @@ public sealed class LocalApiHost : IAsyncDisposable
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Monitor App local administration</title><style nonce="{{nonce}}">
             body{font:1rem system-ui,sans-serif;max-width:72rem;margin:auto;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.5rem;text-align:left}code{overflow-wrap:anywhere}form{display:inline}button{padding:.45rem .7rem}a:focus,button:focus,input:focus,select:focus{outline:3px solid #06c;outline-offset:2px}.status{padding:.75rem;background:#eef;color:#111}.scroll{overflow-x:auto}.sr{position:absolute;left:-10000px}fieldset{border:1px solid #777}.err{font-weight:bold}td input[type=number]{width:7rem}
-            </style></head><body><header><h1>Monitor App local administration</h1><nav aria-label="On this page"><a href="#phone">Add a phone</a> · <a href="#pairings">Pending pairings</a> · <a href="#alerts">Alerts</a> · <a href="#peers">Trusted devices</a></nav></header>
+            </style></head><body><header><h1>Monitor App local administration</h1><nav aria-label="On this page"><a href="#updates">Updates</a> · <a href="#phone">Add a phone</a> · <a href="#pairings">Pending pairings</a> · <a href="#alerts">Alerts</a> · <a href="#peers">Trusted devices</a></nav></header>
             <main data-csrf="{{encode(csrf)}}"><section aria-labelledby="runtime"><h2 id="runtime">Runtime</h2><p>Status: <strong>{{encode(runtime.Status)}}</strong></p><p>Local peer: {{localIdentity}}</p></section>
+            {{LocalApiAdminSections.Updates(context.RequestServices, clock.UtcNow.ToUniversalTime(), HtmlEncoder.Default)}}
             {{phonePairing.RenderSection(csrf, HtmlEncoder.Default)}}
             <section aria-labelledby="pairings"><h2 id="pairings">Pending pairings</h2>{{(pairings.Count == 0 ? "<p>No devices are waiting for approval.</p>" : $"<table><thead><tr><th>Peer</th><th>Fingerprint</th><th>State</th><th>Decision</th></tr></thead><tbody>{pairingRows}</tbody></table>")}}</section>
             {{adminSections}}

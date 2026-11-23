@@ -102,6 +102,18 @@ public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IRead
 public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
 
 /// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+/// <summary>This computer's own update state (GET /api/v1/update).</summary>
+public sealed record LocalUpdateStatusDto(
+    string Policy,
+    string InstalledVersion,
+    string Stage,
+    string? TargetVersion,
+    string? Detail,
+    DateTimeOffset? LastCheckedUtc,
+    string? LastError,
+    bool ApprovalPending,
+    string? TargetDigest = null);
+
 public sealed record UpdateEventDto(string Version, string Outcome, DateTimeOffset At, string? Detail = null);
 
 public sealed record AlertDto(

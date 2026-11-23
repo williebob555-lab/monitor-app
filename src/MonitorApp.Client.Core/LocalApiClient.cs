@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -142,6 +142,27 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
 
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) =>
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/approve", ct, presenceAction: "pairing.approve", presenceSubject: pairingId);
+
+    public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
+    {
+        // A node started without its update agent (development runs, some tests) has no update API: say so plainly.
+        using (var probe = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, "api/v1/update"), ct).ConfigureAwait(false))
+        {
+            if (probe.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new LocalUpdateStatusDto("approve", "unknown", "Disabled", null,
+                    "this Monitor App was not installed with automatic updates.", null, null, false);
+            }
+        }
+
+        return await GetAsync<LocalUpdateStatusDto>("api/v1/update", ct).ConfigureAwait(false);
+    }
+
+    public async Task<LocalUpdateStatusDto> CheckForUpdatesAsync(CancellationToken ct = default)
+    {
+        await PostAsync("api/v1/update/check", ct, body: new { }).ConfigureAwait(false);
+        return await GetLocalUpdateStatusAsync(ct).ConfigureAwait(false);
+    }
 
     /// <summary>Approves the staged update; needs presence verification when the node enforces it. <paramref name="targetVersion"/> is the staged version the node reports.</summary>
     public Task ApproveUpdateAsync(string targetVersion, CancellationToken ct = default) =>

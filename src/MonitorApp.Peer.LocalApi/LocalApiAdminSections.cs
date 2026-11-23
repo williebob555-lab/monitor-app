@@ -35,7 +35,6 @@ internal static class LocalApiAdminSections
         builder.Append(await GrantsAsync(services, trusted, names, html, token).ConfigureAwait(false));
         builder.Append(await RecentHistoryAsync(services, peers, names, now, html, token).ConfigureAwait(false));
         builder.Append(await PinsAsync(peers, now, html, token).ConfigureAwait(false));
-        builder.Append(Updates(services, html));
         return builder.ToString();
     }
 
@@ -277,7 +276,11 @@ internal static class LocalApiAdminSections
         return section.ToString();
     }
 
-    private static string Updates(IServiceProvider services, HtmlEncoder html)
+    /// <summary>
+    /// This computer's updates in plain words: installed version, when it last looked, what it found, and the two things a
+    /// person can do (check now, approve). Rendered near the top of the page.
+    /// </summary>
+    public static string Updates(IServiceProvider services, DateTimeOffset now, HtmlEncoder html)
     {
         var section = new StringBuilder("<section aria-labelledby=\"updates\"><h2 id=\"updates\">Updates</h2>");
         if (services.GetService<ILocalUpdateController>() is not { } controller)
@@ -286,20 +289,53 @@ internal static class LocalApiAdminSections
         }
 
         var status = controller.GetStatus();
+        var checkedText = status.LastCheckedUtc is { } checkedAt
+            ? $"{Ago(now - checkedAt)} ({Utc(checkedAt)})"
+            : "not yet since Monitor App started";
         section.Append(CultureInfo.InvariantCulture,
-            $"<table><caption class=\"sr\">Update status</caption><tbody><tr><th scope=\"row\">Policy</th><td>{html.Encode(status.Policy)}</td></tr><tr><th scope=\"row\">Installed version</th><td>{html.Encode(status.InstalledVersion)}</td></tr><tr><th scope=\"row\">Stage</th><td>{html.Encode(status.Stage)}</td></tr><tr><th scope=\"row\">Target version</th><td>{html.Encode(status.TargetVersion ?? "none")}</td></tr><tr><th scope=\"row\">Detail</th><td>{html.Encode(status.Detail ?? string.Empty)}</td></tr><tr><th scope=\"row\">Last checked (UTC)</th><td>{(status.LastCheckedUtc is { } checkedAt ? Utc(checkedAt) : "never")}</td></tr><tr><th scope=\"row\">Last error</th><td>{html.Encode(status.LastError ?? "none")}</td></tr></tbody></table>");
-        if (status.ApprovalPending)
+            $"<p>Installed version <strong>{html.Encode(status.InstalledVersion)}</strong>. Last checked for updates: <strong>{html.Encode(checkedText)}</strong>. It checks by itself every hour and never installs without your approval.</p>");
+        if (status.Stage == "Disabled")
+        {
+            section.Append(CultureInfo.InvariantCulture, $"<p class=\"err\">Updates are turned off: {html.Encode(status.Detail ?? string.Empty)}</p>");
+        }
+        else if (status.ApprovalPending)
         {
             section.Append(CultureInfo.InvariantCulture,
-                $"<p>Version <strong>{html.Encode(status.TargetVersion ?? string.Empty)}</strong> is staged and waiting for approval{(status.TargetDigest is null ? string.Empty : $" (artifact SHA-256 <code>{html.Encode(status.TargetDigest)}</code>)")}. Approval needs desktop presence verification when it is enabled; this page cannot supply it and reports the refusal.</p><p>{Action("post", "/api/v1/update/approve", "Approve update", html, "Approve staged update " + status.TargetVersion)}<span class=\"err\" role=\"alert\" data-message></span></p>");
+                $"<p><strong>Version {html.Encode(status.TargetVersion ?? string.Empty)} is downloaded, verified and ready to install.</strong>{(status.TargetDigest is null ? string.Empty : $" <small>(SHA-256 <code>{html.Encode(status.TargetDigest)}</code>)</small>")}</p><p>{Action("post", "/api/v1/update/approve", "Install " + (status.TargetVersion ?? "update"), html, "Approve staged update " + status.TargetVersion)}</p><p><small>If fingerprint approval is turned on for this computer, approve from the Monitor App window instead; this page cannot read a fingerprint.</small></p>");
+        }
+        else if (status.Stage is "Staged")
+        {
+            section.Append(CultureInfo.InvariantCulture,
+                $"<p>Version {html.Encode(status.TargetVersion ?? string.Empty)} is downloaded and verified, but this installation cannot install updates by itself. Install it from the release page.</p>");
+        }
+        else if (status.Stage is "Failed" or "RolledBack")
+        {
+            section.Append(CultureInfo.InvariantCulture,
+                $"<p class=\"err\">Installing {html.Encode(status.TargetVersion ?? "the last update")} did not work ({html.Encode(status.Stage)}): {html.Encode(status.Detail ?? string.Empty)}. It will try again when a newer version is published.</p>");
         }
         else
         {
-            section.Append("<p>No staged update is awaiting approval.</p>");
+            section.Append("<p>You have the newest version.</p>");
         }
 
+        if (status.LastError is { } error)
+        {
+            section.Append(CultureInfo.InvariantCulture, $"<p class=\"err\">The last check did not finish: {html.Encode(error)}</p>");
+        }
+
+        section.Append(CultureInfo.InvariantCulture, $"<p>{Action("post", "/api/v1/update/check", "Check for updates now", html, "Check for updates now")}</p>");
         return section.Append("</section>").ToString();
     }
+
+    private static string Ago(TimeSpan elapsed) => elapsed switch
+    {
+        { TotalMinutes: < 1 } => "just now",
+        { TotalMinutes: < 2 } => "1 minute ago",
+        { TotalHours: < 1 } => string.Create(CultureInfo.InvariantCulture, $"{(int)elapsed.TotalMinutes} minutes ago"),
+        { TotalHours: < 2 } => "1 hour ago",
+        { TotalDays: < 1 } => string.Create(CultureInfo.InvariantCulture, $"{(int)elapsed.TotalHours} hours ago"),
+        _ => string.Create(CultureInfo.InvariantCulture, $"{(int)elapsed.TotalDays} days ago"),
+    };
 
     private static string Action(string kind, string url, string label, HtmlEncoder html, string accessibleName) =>
         $"<form data-admin=\"{kind}\" data-url=\"{html.Encode(url)}\"><button type=\"submit\" aria-label=\"{html.Encode(accessibleName)}\">{html.Encode(label)}</button><span class=\"err\" role=\"alert\" data-message></span></form>";

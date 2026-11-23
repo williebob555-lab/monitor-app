@@ -30,6 +30,12 @@ public interface ILocalUpdateController
     Task<bool> ApproveAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Check for a new release now (the person pressed "Check for updates") instead of waiting for the next periodic check.
+    /// Never installs anything: a found update is downloaded, verified and staged for approval as usual.
+    /// </summary>
+    Task CheckNowAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
     /// Approve only when the staged update is exactly <paramref name="version"/> with artifact SHA-256 <paramref name="digestHex"/>
     /// (hex, case-insensitive). Returns false when nothing matching is staged and awaiting approval.
     /// </summary>

@@ -60,6 +60,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             sections.Add(Security);
         }
 
+        // Only a computer's own node can report and install its updates.
+        if (connection.Source is ILocalUpdatesSource)
+        {
+            sections.Add(new UpdatesViewModel(connection));
+        }
+
         // Only sources that can send controls (the phone) can set this device's alert preferences.
         if (connection.Source is IControlSource)
         {
