@@ -110,6 +110,7 @@ public sealed class PeerSystemMetricsIngestionBridge
             }
 
             var firstSequence = nextSequence;
+            var writes = new List<OriginRecordWrite>(envelopes.Count);
             foreach (var envelope in envelopes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -128,7 +129,7 @@ public sealed class PeerSystemMetricsIngestionBridge
                     envelope.ToByteString(),
                     snapshot.ObservedAt.Clone(),
                     quality);
-                await store.AppendOriginRecordAsync(new OriginRecordWrite(
+                writes.Add(new OriginRecordWrite(
                     record.OriginPeerId,
                     record.OriginStreamId,
                     record.Sequence,
@@ -141,9 +142,12 @@ public sealed class PeerSystemMetricsIngestionBridge
                     receivedAt,
                     null,
                     RecordProvenance.LocalOrigin,
-                    quality.ToString()), cancellationToken).ConfigureAwait(false);
+                    quality.ToString()));
                 nextSequence++;
             }
+
+            // One transaction for the whole collection: all of its records are stored, or none are.
+            await store.AppendOriginRecordsAsync(writes, cancellationToken).ConfigureAwait(false);
 
             return new PeerCollectionRunResult(
                 PeerCollectionRunStatus.Completed,
