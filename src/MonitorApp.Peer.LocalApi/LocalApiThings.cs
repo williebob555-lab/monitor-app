@@ -11,7 +11,9 @@ public sealed record ThingsResponse(IReadOnlyList<ThingSummary> Things, IReadOnl
 
 internal sealed record ThingCaptureRequest(string? Text, string? KindId);
 
-internal sealed record ThingEditRequest(string? Id, string? Name, string? KindId, string? Note, string? InsideId);
+internal sealed record ThingEditRequest(
+    string? Id, string? Name, string? KindId, string? Note, string? InsideId,
+    string? Lifecycle = null, IReadOnlyList<string>? Tags = null, IReadOnlyList<ThingValueEdit>? Values = null);
 
 /// <summary>
 /// The shared model over the loopback API (T073, T074). Reading is open to the local app like every other read; adding a
@@ -94,7 +96,7 @@ internal static class LocalApiThings
             var request = await context.Request.ReadFromJsonAsync<ThingEditRequest>(token).ConfigureAwait(false);
             try
             {
-                var thing = await Things.EditAsync(store, request?.Id ?? string.Empty, new ThingEdit(request?.Name, request?.KindId, request?.Note, request?.InsideId), token).ConfigureAwait(false);
+                var thing = await Things.EditAsync(store, request?.Id ?? string.Empty, new ThingEdit(request?.Name, request?.KindId, request?.Note, request?.InsideId, request?.Lifecycle, request?.Tags, request?.Values), token).ConfigureAwait(false);
                 return Results.Json(thing);
             }
             catch (ModelValidationException exception)

@@ -18,6 +18,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Added
 
+- Editing a thing also sets its stage (lifecycle rules apply), its tags, and values you type in, marked as entered by you or as read from a spec sheet (0.1.18).
 - Things follows the timeline (0.1.18, T083): drag back and Things shows what the model held then (which things existed, what sat inside what, their values and the readings recorded then), marked RECORDED, with adding and editing off. `GET /api/v1/things?asOf=`.
 - Things groups a device's readings under System, Network, Power and Monitoring headings; on a busy computer the big groups start folded, so cards stay short.
 - The map is back (0.1.17): a Map switch in the Ecosystem toolbar shows every device as a card joined by its typed connections, with pan, zoom and drag-to-pin. Selecting a device fills the inspector, and "Dive in" or "Open it up in Things" opens it in the other lenses. The schematic canvas had been built but left unplugged when the Dive became the default.

@@ -108,7 +108,7 @@ public sealed class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHi
         var store = await ModelAsync(ct).ConfigureAwait(false);
         try
         {
-            await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId), ct).ConfigureAwait(false);
+            await Things.EditAsync(store, edit.Id, new ThingEdit(edit.Name, edit.KindId, edit.Note, edit.InsideId, edit.Lifecycle, edit.Tags, edit.Values?.Select(v => new ThingValueEdit(v.Label, v.Value, v.FromSpec)).ToArray()), ct).ConfigureAwait(false);
         }
         catch (ModelValidationException exception)
         {

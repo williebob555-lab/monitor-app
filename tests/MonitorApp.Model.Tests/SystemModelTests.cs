@@ -280,6 +280,31 @@ public sealed class SystemModelTests : IDisposable
     }
 
     [Fact]
+    public async Task APersonCanMoveAThingThroughItsLifeTagItAndAddValuesWithHowTheyKnowThem()
+    {
+        await using var store = await OpenAsync();
+        var amp = await Things.CaptureAsync(store, "Focusrite 2i2", "device.audio");
+
+        var edited = await Things.EditAsync(store, amp.Id, new ThingEdit(
+            Lifecycle: "installed",
+            Tags: ["studio", "#spare", "Studio"],
+            Values: [new ThingValueEdit("Max power", "5 W", FromSpec: true), new ThingValueEdit("Bought from", "a friend")]));
+        Assert.Equal("Installed", edited.Lifecycle);
+        Assert.Equal(["studio", "spare"], edited.Tags);
+        var power = edited.Facts.Single(f => f.Label == "Max power");
+        Assert.Equal(("5 W", "Specified", "you, from a spec"), (power.Value, power.Evidence, power.Source));
+        Assert.Equal("Entered", edited.Facts.Single(f => f.Label == "Bought from").Evidence);
+
+        // Moves the lifecycle rules forbid are refused; tags and values can be taken away again.
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(Lifecycle: "Idea")));
+        await Assert.ThrowsAsync<ModelValidationException>(() => Things.EditAsync(store, amp.Id, new ThingEdit(Lifecycle: "Broken")));
+        edited = await Things.EditAsync(store, amp.Id, new ThingEdit(Tags: ["spare"], Values: [new ThingValueEdit("Max power", "")]));
+        Assert.Equal(["spare"], edited.Tags);
+        Assert.DoesNotContain(edited.Facts, f => f.Label == "Max power");
+        Assert.Contains(edited.Facts, f => f.Label == "Bought from");
+    }
+
+    [Fact]
     public async Task ReadingTheModelTwiceDoesNotReplayTheLogUntilSomethingChanges()
     {
         await using var store = await OpenAsync();

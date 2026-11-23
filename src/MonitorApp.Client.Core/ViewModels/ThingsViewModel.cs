@@ -90,6 +90,9 @@ public sealed record ThingPartRow(
     public string? KindText => string.Equals(KindLabel, Name, StringComparison.OrdinalIgnoreCase) ? null : KindLabel;
 }
 
+/// <summary>A lifecycle stage offered while editing ("Owned" shown as "owned").</summary>
+public sealed record ThingStage(string Id, string Text);
+
 /// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
 public sealed record ThingPlace(string? Id, string Name);
 
@@ -104,8 +107,13 @@ public sealed record ThingCard(
     IReadOnlyList<ThingValueRow> Values,
     IReadOnlyList<ThingPartRow> Parts,
     string KindId = "thing",
-    string? LiveNodeId = null)
+    string? LiveNodeId = null,
+    IReadOnlyList<string>? Tags = null)
 {
+    public string TagsText => Tags is { Count: > 0 } tags ? string.Join("  ", tags.Select(t => "#" + t)) : string.Empty;
+
+    public bool HasTags => Tags is { Count: > 0 };
+
     /// <summary>Monitored things can be seen live in the Ecosystem.</summary>
     public bool CanSeeLive => LiveNodeId is not null;
 
@@ -127,12 +135,12 @@ public sealed record ThingCard(
 
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
-        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty,
+        Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText,
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
     /// <summary>Text used by the filter box.</summary>
-    internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
+    internal string SearchText => string.Join(' ', [Name, KindLabel, LifecycleText, TagsText, .. Values.Select(v => v.Value), .. Parts.Select(p => p.Name)]);
 }
 
 /// <summary>
@@ -202,6 +210,26 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
     [ObservableProperty]
     private string? editError;
+
+    [ObservableProperty]
+    private ThingStage? editStage;
+
+    /// <summary>Tags, separated by commas or spaces ("studio, spare").</summary>
+    [ObservableProperty]
+    private string editTags = string.Empty;
+
+    [ObservableProperty]
+    private string newValueLabel = string.Empty;
+
+    [ObservableProperty]
+    private string newValueText = string.Empty;
+
+    [ObservableProperty]
+    private bool newValueFromSpec;
+
+    /// <summary>Every lifecycle stage; the model refuses moves that make no sense (an owned thing back to an idea).</summary>
+    public IReadOnlyList<ThingStage> Stages { get; } =
+        [.. new[] { "Idea", "Candidate", "Planned", "Ordered", "Owned", "Installed", "Retired", "Disposed" }.Select(id => new ThingStage(id, LifecycleText(id)))];
 
     public bool IsEditing => EditingName is not null;
 
@@ -382,6 +410,11 @@ public sealed partial class ThingsViewModel : SectionViewModel
         }
 
         EditInside = EditPlaces.FirstOrDefault(p => p.Id == thing.InsideId) ?? nowhere;
+        EditStage = Stages.FirstOrDefault(st => st.Id == thing.Lifecycle);
+        EditTags = string.Join(", ", thing.Tags);
+        NewValueLabel = string.Empty;
+        NewValueText = string.Empty;
+        NewValueFromSpec = false;
         EditingName = thing.Name;
     }
 
@@ -404,13 +437,19 @@ public sealed partial class ThingsViewModel : SectionViewModel
 
         var name = EditName.Trim();
         var note = EditNote.Trim();
+        var tags = EditTags.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => t.TrimStart('#')).Where(t => t.Length > 0).ToArray();
+        var tagsChanged = !tags.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(thing.Tags);
+        ThingValueEditDto[]? values = NewValueLabel.Trim().Length > 0 ? [new ThingValueEditDto(NewValueLabel.Trim(), NewValueText.Trim(), NewValueFromSpec)] : null;
         var edit = new ThingEditDto(
             thing.Id,
             name == thing.Name ? null : name,
             EditKind is { } kind && kind.Id != thing.KindId ? kind.Id : null,
             note == (PersonNote(thing) ?? string.Empty) ? null : note,
-            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null);
-        if (edit is { Name: null, KindId: null, Note: null, InsideId: null })
+            EditInside is { } place && place.Id != thing.InsideId ? place.Id ?? string.Empty : null,
+            EditStage is { } stage && stage.Id != thing.Lifecycle ? stage.Id : null,
+            tagsChanged ? tags : null,
+            values);
+        if (edit is { Name: null, KindId: null, Note: null, InsideId: null, Lifecycle: null, Tags: null, Values: null })
         {
             CancelEdit();
             return;
@@ -521,7 +560,8 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     [.. Readings(t.ReadingSubjects, bySubject, id => !claimed.Any(c => id.StartsWith(c, StringComparison.Ordinal))), .. Facts(t)],
                     parts.Select(p => ToPart(p, bySubject)).ToArray(),
                     t.KindId,
-                    NodeIdOf(t.ReadingSubjects));
+                    NodeIdOf(t.ReadingSubjects),
+                    t.Tags);
             })
             .ToArray();
     }

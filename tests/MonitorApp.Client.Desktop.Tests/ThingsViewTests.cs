@@ -136,6 +136,21 @@ public sealed class ThingsViewTests
         var sent = Assert.Single(source.Edits);
         Assert.Equal(new ThingEditDto("thing:amp", InsideId: "thing:rack"), sent);
         Assert.False(things.IsEditing);
+
+        // Stage, tags and a value from a spec sheet travel in one edit.
+        things.EditCommand.Execute(amp);
+        things.EditStage = things.Stages.Single(s => s.Id == "Installed");
+        things.EditTags = "studio, #spare";
+        things.NewValueLabel = "Max power";
+        things.NewValueText = "5 W";
+        things.NewValueFromSpec = true;
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var second = source.Edits[1];
+        Assert.Equal("Installed", second.Lifecycle);
+        Assert.Equal(["studio", "spare"], second.Tags);
+        Assert.Equal(new ThingValueEditDto("Max power", "5 W", true), Assert.Single(second.Values!));
+        Assert.Null(second.Name);
         window.Close();
     }
 

@@ -30,7 +30,20 @@ public sealed record ThingSummary(
     string? SignalPrefix = null);
 
 /// <summary>What a person changed on a thing; null fields are left alone (see <see cref="Things.EditAsync"/>).</summary>
-public sealed record ThingEdit(string? Name = null, string? KindId = null, string? Note = null, string? InsideId = null);
+/// <param name="Lifecycle">A lifecycle stage name ("Idea", "Owned", "Retired", ...); moves follow <see cref="LifecycleRules"/>.</param>
+/// <param name="Tags">The complete set of tags the thing should have (null: leave them).</param>
+/// <param name="Values">Values the person adds or replaces; an empty value removes theirs.</param>
+public sealed record ThingEdit(
+    string? Name = null,
+    string? KindId = null,
+    string? Note = null,
+    string? InsideId = null,
+    string? Lifecycle = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<ThingValueEdit>? Values = null);
+
+/// <summary>A value the person types, such as "Max power" = "5 W". <paramref name="FromSpec"/> marks it as read from a spec sheet or datasheet.</summary>
+public sealed record ThingValueEdit(string Label, string? Value, bool FromSpec = false);
 
 /// <summary>A kind a person can pick when adding a thing.</summary>
 public sealed record ThingKindChoice(string Id, string Label);
@@ -217,6 +230,36 @@ public static class Things
             }
         }
 
+        if (edit.Lifecycle is { } stageText && stageText.Trim().Length > 0)
+        {
+            if (!Enum.TryParse<Lifecycle>(stageText.Trim(), ignoreCase: true, out var stage) || !Enum.IsDefined(stage))
+            {
+                throw new ModelValidationException($"'{stageText}' is not a lifecycle stage.");
+            }
+
+            if (stage != thing.Lifecycle)
+            {
+                changes.Add(new LifecycleMoved(thing.Id, stage));
+            }
+        }
+
+        if (edit.Tags is { } tags)
+        {
+            var wanted = tags.Select(t => t.Trim().TrimStart('#')).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (wanted.Any(t => t.Length > MaxTagLength))
+            {
+                throw new ModelValidationException($"Keep each tag under {MaxTagLength} characters.");
+            }
+
+            changes.AddRange(thing.Tags.Where(t => !wanted.Contains(t, StringComparer.OrdinalIgnoreCase)).Select(t => (ModelChange)new ObjectUntagged(thing.Id, t)));
+            changes.AddRange(wanted.Where(t => !thing.Tags.Contains(t, StringComparer.OrdinalIgnoreCase)).Select(t => (ModelChange)new ObjectTagged(thing.Id, t)));
+        }
+
+        foreach (var value in edit.Values ?? [])
+        {
+            changes.AddRange(ValueChanges(thing, value));
+        }
+
         if (changes.Count == 0)
         {
             return Summarize(model, thing);
@@ -224,6 +267,47 @@ public static class Things
 
         model = await store.AppendAsync(changes, EditOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Summarize(model, model.Get(thing.Id));
+    }
+
+    /// <summary>Where a person's own values live: "user.Max-power" shows as "Max power".</summary>
+    public const string PersonValuePrefix = "user.";
+
+    /// <summary>The source of values a person read from a spec sheet.</summary>
+    public const string SpecSource = "user-spec";
+
+    public const int MaxTagLength = 40;
+
+    private static IEnumerable<ModelChange> ValueChanges(ModelObject thing, ThingValueEdit value)
+    {
+        var label = (value.Label ?? string.Empty).Trim();
+        if (label.Length == 0 || label.Length > MaxNameLength)
+        {
+            throw new ModelValidationException("Give the value a short name, like \"Max power\".");
+        }
+
+        var key = PersonValuePrefix + string.Join('-', label.Replace('.', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        var text = (value.Value ?? string.Empty).Trim();
+        if (text.Length > MaxNoteLength)
+        {
+            throw new ModelValidationException($"Keep the value under {MaxNoteLength} characters.");
+        }
+
+        if (text.Length == 0)
+        {
+            // Removes only the person's own values for this name; values from other sources stay.
+            foreach (var source in new[] { Evidence.UserEntered.Source, SpecSource })
+            {
+                if (thing.Properties.Any(p => p.Key == key && p.Scope is null && p.Evidence.Source == source))
+                {
+                    yield return new PropertyRetracted(thing.Id, key, source);
+                }
+            }
+
+            yield break;
+        }
+
+        var evidence = value.FromSpec ? new Evidence(EvidenceLevel.Specified, SpecSource) : Evidence.UserEntered;
+        yield return new PropertyAsserted(thing.Id, key, PropertyValue.Of(text), evidence);
     }
 
     internal static (string Name, string? Note) Split(string? text)
@@ -282,6 +366,7 @@ public static class Things
     private static string SourceText(Evidence evidence) => evidence.Source switch
     {
         "user" => "you",
+        SpecSource => "you, from a spec",
         MonitoringBridge.Origin => "monitoring",
         var other => other,
     };

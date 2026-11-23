@@ -145,6 +145,7 @@
                     <StackPanel Grid.Column="1" Spacing="2">
                       <TextBlock Text="{Binding Name}" Classes="tiletitle" TextWrapping="Wrap" TextTrimming="None" />
                       <TextBlock Text="{Binding Subtitle}" Classes="meta" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding TagsText}" Classes="meta" Foreground="{DynamicResource Brush.Planned}" TextWrapping="Wrap" IsVisible="{Binding HasTags}" />
                     </StackPanel>
                   </Grid>
 
@@ -283,9 +284,24 @@
                 <DataTemplate x:DataType="vm:ThingPlace"><TextBlock Text="{Binding Name}" /></DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
+            <TextBlock Text="Stage" Classes="meta" />
+            <ComboBox ItemsSource="{Binding Stages}" SelectedItem="{Binding EditStage}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="Where it is in its life">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ThingStage"><TextBlock Text="{Binding Text}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Tags" Classes="meta" />
+            <TextBox Text="{Binding EditTags}" Watermark="studio, spare, needs repair" AutomationProperties.Name="Tags, separated by commas" />
             <TextBlock Text="Note" Classes="meta" />
             <TextBox Text="{Binding EditNote}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
                      Watermark="Anything worth remembering" AutomationProperties.Name="Note" />
+            <TextBlock Text="Add a value" Classes="meta" />
+            <Grid ColumnDefinitions="*,8,*">
+              <TextBox Text="{Binding NewValueLabel}" Watermark="Name, like Max power" AutomationProperties.Name="Name of the value" />
+              <TextBox Grid.Column="2" Text="{Binding NewValueText}" Watermark="Value, like 5 W" AutomationProperties.Name="The value; leave empty to remove yours" />
+            </Grid>
+            <CheckBox IsChecked="{Binding NewValueFromSpec}" Content="I read this from a spec sheet or datasheet" />
             <TextBlock Text="{Binding EditError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
                        IsVisible="{Binding EditError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <WrapPanel>

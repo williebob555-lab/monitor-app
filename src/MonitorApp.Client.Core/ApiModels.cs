@@ -222,6 +222,17 @@ public sealed record ThingDto(
 public sealed record ThingKindDto(string Id, string Label);
 
 /// <summary>A change to one thing; null fields are left alone.</summary>
-public sealed record ThingEditDto(string Id, string? Name = null, string? KindId = null, string? Note = null, string? InsideId = null);
+public sealed record ThingEditDto(
+    string Id,
+    string? Name = null,
+    string? KindId = null,
+    string? Note = null,
+    string? InsideId = null,
+    string? Lifecycle = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<ThingValueEditDto>? Values = null);
+
+/// <summary>A value the person adds ("Max power" = "5 W"); an empty value removes theirs. FromSpec marks it as read from a spec sheet.</summary>
+public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpec = false);
 
 public sealed record ThingsDto(IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds);
