@@ -53,9 +53,8 @@ Each task is about one sitting of work and has a clear "done when". Bigger work 
 | T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge; plus the Windows MSI and release-smoke fixes | PR #16 merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Code and 4 tests done in PR #16; design in `docs/ARCHITECTURE-MODEL.md` |
 | T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
 | T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
-| T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
 | T300 | 1 | SG250 switch adapter spike (PR #8) | PR #8 merged with CI green, or closed with a reason | none | ChatGPT | ChatGPT, `chatgpt/T300-sg250-adapter` | |
-| T064 | 1 | Put T301 on the model: `ConnectionPort`, `RackEquipment`, `PlanPart` built from model objects, ports and placement; connector ids on model ports come from `ConnectorCatalog`; remove T301's separate JSON persistence | Planning tests run against model objects; no planning-only ids remain | T061, T301 | ChatGPT | | See section 9 of `docs/ARCHITECTURE-MODEL.md` |
+| T064 | 1 | Put T301 on the model: `ConnectionPort`, `RackEquipment`, `PlanPart` built from model objects, ports and placement; connector ids on model ports come from `ConnectorCatalog`; remove T301's separate JSON persistence | Planning tests run against model objects; no planning-only ids remain | T061, T301 | ChatGPT | ChatGPT, `chatgpt/T064-planning-model-integration`, 2026-11-22 | See section 9 of `docs/ARCHITECTURE-MODEL.md` |
 | T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | T061 | Claude | | |
 | T066 | 2 | Findings with evidence levels (verified problem / estimate / unknown / OK as declared) as the single result type of every engine; adapt T301 evaluators to return them | All engines return the shared finding type | T064 | either | | `ARCHITECTURE-MODEL.md` 3.13 |
 | T067 | 2 | Connection chain evaluation over the model: walk port to cable to adapter to port, evaluate each layer, report where a chain fails | Scenario 8 examples pass as tests (USB-C alt mode, 1/4-inch level mismatch, DC polarity) | T064, T066 | either | | |
@@ -124,6 +123,7 @@ Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T301 equipment-design planning foundation | ChatGPT | #12 | 2026-11-22 |
 | T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
 | T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
 | Work board: shared queue | Claude | #15 | 2026-11-22 |
