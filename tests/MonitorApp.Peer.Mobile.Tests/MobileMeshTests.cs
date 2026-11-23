@@ -323,6 +323,42 @@ public sealed class MobileMeshTests
         }
     }
 
+    [Fact]
+    public async Task RemovingADeviceOnAPhoneAsksForTheFingerprint()
+    {
+        var root = TestDirectories.Create();
+        try
+        {
+            using var phoneIdentity = new SoftwareIdentity();
+            using var presence = new SoftwarePresenceSigner();
+            await using var phone = await MobilePeerRuntime.CreateAsync(MobileOptions(root, "phone"), phoneIdentity,
+                new ScriptedDeviceReader(), presence);
+            using var tabletKey = MonitorApp.Peer.Core.EcdsaPeerIdentityKey.Create();
+            var tablet = MonitorApp.Peer.Core.PeerPublicIdentity.Create("tablet-peer", tabletKey);
+            await PhoneStore(root).UpsertTrustedPeerAsync(new TrustedPeer(tablet.PeerId, tablet.PublicKeySpki, tablet.PublicKeyFingerprint,
+                "Tablet", PeerTrustState.Active, DateTimeOffset.UtcNow, null));
+
+            presence.Deny = true;
+            await Assert.ThrowsAsync<MonitorApp.Peer.Control.UserPresenceDeniedException>(() => phone.RevokeAsync(tablet.PeerId));
+            Assert.Equal(PeerTrustState.Active, (await PhoneStore(root).ReadTrustedPeerAsync(tablet.PeerId))?.TrustState);
+
+            presence.Deny = false;
+            await phone.RevokeAsync(tablet.PeerId);
+            Assert.Equal(PeerTrustState.Revoked, (await PhoneStore(root).ReadTrustedPeerAsync(tablet.PeerId))?.TrustState);
+            Assert.Equal(2, presence.Prompts);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     private static MobilePeerOptions MobileOptions(string root, string name) =>
         new(root, name, CollectionInterval: TimeSpan.FromHours(1), SyncInterval: TimeSpan.FromMilliseconds(200),
             MaximumSyncBackoff: TimeSpan.FromSeconds(1), HeartbeatInterval: TimeSpan.FromSeconds(5));

@@ -429,7 +429,15 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
     public Task RevokePeerAsync(string peerId, CancellationToken ct = default) => Guard(async () =>
     {
-        await runtime.RevokeAsync(peerId, ct).ConfigureAwait(false);
+        try
+        {
+            await runtime.RevokeAsync(peerId, ct).ConfigureAwait(false);
+        }
+        catch (UserPresenceDeniedException exception)
+        {
+            throw new ApiValidationException("Not removed: " + exception.Message);
+        }
+
         return true;
     });
 
