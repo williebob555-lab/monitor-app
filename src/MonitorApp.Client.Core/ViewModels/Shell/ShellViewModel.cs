@@ -57,7 +57,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         this.main = main;
         Environment = environment;
-        Modes = ModesFor();
+        Modes = ModesFor(main.Sections.OfType<ThingsViewModel>().Any());
         selectedModeItem = Modes[0];
         Search = new SearchViewModel(environment);
         Inspector = new InspectorViewModel(environment, connection);
@@ -389,18 +389,20 @@ public sealed partial class ShellViewModel : ObservableObject
 
     partial void OnTimelineOpenChanged(bool value) => OnPropertyChanged(nameof(ShowTimeline));
 
-    private static IReadOnlyList<ShellModeItem> ModesFor() =>
-        [
-            new(ShellMode.Ecosystem, "Ecosystem", "Ecosystem", "ecosystem", "Ecosystem: your devices and services"),
-            new(ShellMode.Alerts, "Alerts", "Alerts", "alerts", "Alerts"),
-            new(ShellMode.Activity, "Activity and history", "History", "history", "Activity and history"),
-            new(ShellMode.Search, "Search", "Search", "search", "Search (Ctrl+K)"),
-            new(ShellMode.Settings, "Settings", "More", "settings", "Settings: devices, pairing, this device"),
-        ];
+    private static IReadOnlyList<ShellModeItem> ModesFor(bool hasThings) =>
+    [
+        new(ShellMode.Ecosystem, "Ecosystem", "Ecosystem", "ecosystem", "Ecosystem: your devices and services"),
+        .. hasThings ? [new ShellModeItem(ShellMode.Things, "Things", "Things", "things", "Things: everything you own or plan, with how each value is known")] : Array.Empty<ShellModeItem>(),
+        new(ShellMode.Alerts, "Alerts", "Alerts", "alerts", "Alerts"),
+        new(ShellMode.Activity, "Activity and history", "History", "history", "Activity and history"),
+        new(ShellMode.Search, "Search", "Search", "search", "Search (Ctrl+K)"),
+        new(ShellMode.Settings, "Settings", "More", "settings", "Settings: devices, pairing, this device"),
+    ];
 
     private object? ContentFor(ShellMode target) => target switch
     {
         ShellMode.Ecosystem => Environment,
+        ShellMode.Things => main.Sections.OfType<ThingsViewModel>().SingleOrDefault(),
         ShellMode.Alerts => main.Sections.OfType<AlertsViewModel>().Single(),
         ShellMode.Activity => Activity,
         ShellMode.Search => Search,
@@ -449,6 +451,7 @@ public sealed partial class ShellViewModel : ObservableObject
         var section = Mode switch
         {
             ShellMode.Ecosystem => Environment,
+            ShellMode.Things => main.Sections.OfType<ThingsViewModel>().SingleOrDefault(),
             ShellMode.Alerts => main.Sections.OfType<AlertsViewModel>().Single(),
             ShellMode.Activity => Activity.BrowsingSection ?? Activity,
             ShellMode.Search => null,
@@ -471,6 +474,7 @@ public sealed partial class ShellViewModel : ObservableObject
         var target = section switch
         {
             EnvironmentViewModel => ShellMode.Ecosystem,
+            ThingsViewModel => ShellMode.Things,
             AlertsViewModel => ShellMode.Alerts,
             ActivityViewModel or StateViewModel or HistoryViewModel or AsOfViewModel => ShellMode.Activity,
             _ => ShellMode.Settings,

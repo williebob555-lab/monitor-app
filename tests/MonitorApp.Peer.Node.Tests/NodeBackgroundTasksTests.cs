@@ -49,6 +49,16 @@ public sealed class NodeBackgroundTasksTests
             await WaitAsync(() => node.LanCollection.RunCount >= 1 && node.RetentionSchedule.RunCount >= 1);
             Assert.Null(node.LanCollection.LastFailureKind);
             Assert.Null(node.RetentionSchedule.LastFailureKind);
+
+            // The shared model follows monitoring: this computer becomes a thing and its adapter a part of it.
+            Assert.Equal(TimeSpan.FromMinutes(1), node.ModelBridgeSchedule!.Interval);
+            await node.ModelBridgeSchedule.RunNowAsync();
+            Assert.Null(node.ModelBridgeSchedule.LastFailureKind);
+            var model = await node.Model!.LoadAsync();
+            var computer = model.FindBound(MonitorApp.Model.MonitoringSubjectKind.Peer, node.Identity.PeerId)!;
+            Assert.Equal(Environment.MachineName, computer.Name);
+            var adapter = Assert.Single(model.ChildrenOf(computer.Id));
+            Assert.Equal("Network adapter eth0", model.Get(adapter.TargetId).Name);
         }
         finally
         {

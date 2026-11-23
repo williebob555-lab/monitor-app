@@ -59,6 +59,14 @@ public sealed class InProcessPeerDataSourceTests
             Assert.Contains(state.Points, point => point.OriginPeerId == desktopId && point.SignalId == "system.memory.total");
             Assert.Contains(state.Points, point => point.OriginPeerId == phoneId && point.SignalId == "android.battery.level");
 
+            // Things on the phone: its own model, bridged from what it monitors and what it synced.
+            var things = await source.GetThingsAsync();
+            Assert.Contains(things!.Things, t => t.Name == "test-phone" && t.KindId == "device.phone" && t.ReadingSubjects.Contains("peer:" + phoneId));
+            Assert.Contains(things.Things, t => t.ReadingSubjects.Contains("peer:" + desktopId));
+            await source.AddThingAsync("Spare SSD\nin the desk drawer", "part");
+            Assert.Contains((await source.GetThingsAsync())!.Things, t => t.Name == "Spare SSD" && t.Facts.Single().Evidence == "Entered");
+            await Assert.ThrowsAsync<ApiValidationException>(() => source.AddThingAsync("  ", null));
+
             var catalog = await source.GetCatalogAsync();
             Assert.Contains(desktopId, catalog.OriginPeers);
             Assert.Contains(phoneId, catalog.OriginPeers);

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, IThingsSource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -159,6 +159,28 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
         await PostAsync("api/v1/phone-pairing", ct, body: new { }).ConfigureAwait(false);
         return await GetPhonePairingAsync(ct).ConfigureAwait(false);
     }
+
+    public async Task<ThingsDto?> GetThingsAsync(CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, "api/v1/things"), ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<ThingsDto>(Json, ct).ConfigureAwait(false);
+        }
+        catch (JsonException exception)
+        {
+            throw new IncompatibleApiException("The node returned a response this client cannot read.", exception);
+        }
+    }
+
+    public Task AddThingAsync(string text, string? kindId, CancellationToken ct = default) =>
+        PostAsync("api/v1/things", ct, body: new { text, kindId });
 
     public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
     {

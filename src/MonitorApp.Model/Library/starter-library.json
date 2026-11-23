@@ -29,6 +29,8 @@
     { "id": "part", "parent": "thing", "label": "Part" },
     { "id": "part.drive", "parent": "part", "label": "Drive" },
     { "id": "part.controller", "parent": "part", "label": "Controller / expansion card" },
+    { "id": "part.network", "parent": "part", "label": "Network adapter" },
+    { "id": "part.network.virtual", "parent": "part.network", "label": "Virtual network adapter" },
     { "id": "part.battery", "parent": "part", "label": "Battery" },
     { "id": "part.fan", "parent": "part", "label": "Fan" },
     { "id": "part.board", "parent": "part", "label": "Board" },

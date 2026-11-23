@@ -9,6 +9,7 @@ namespace MonitorApp.Client.Core.ViewModels.Shell;
 public enum ShellMode
 {
     Ecosystem,
+    Things,
     Alerts,
     Activity,
     Search,

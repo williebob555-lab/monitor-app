@@ -59,7 +59,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         ControlService? control = null,
         MonitoringControlState? monitoring = null,
         LocalPresenceService? localPresence = null,
-        IPeerReachController? reach = null)
+        IPeerReachController? reach = null,
+        MonitorApp.Model.ModelStore? model = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -107,6 +108,11 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (reach is not null)
         {
             builder.Services.AddSingleton(reach);
+        }
+
+        if (model is not null)
+        {
+            builder.Services.AddSingleton(model);
         }
 
         if (monitoring is not null)
@@ -677,6 +683,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         MapControlEndpoints(application);
         MapPhoneReachEndpoints(application);
+        LocalApiThings.Map(application);
         MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>
             Results.Json((await store.ReadPinnedIncidentsAsync(token).ConfigureAwait(false)).Select(PinnedIncidentView.Of)));
@@ -1336,7 +1343,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         <form method="post" action="{HtmlEncoder.Default.Encode(action)}"><input type="hidden" name="__RequestVerificationToken" value="{HtmlEncoder.Default.Encode(csrf)}"><button type="submit">{HtmlEncoder.Default.Encode(label)}</button></form>
         """;
 
-    private static async Task<bool> IsValidMutationAsync(HttpContext context, IAntiforgery antiforgery)
+    internal static async Task<bool> IsValidMutationAsync(HttpContext context, IAntiforgery antiforgery)
     {
         try
         {

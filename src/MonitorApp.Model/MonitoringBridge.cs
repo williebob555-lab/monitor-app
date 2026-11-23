@@ -4,12 +4,15 @@ namespace MonitorApp.Model;
 
 /// <summary>Something monitoring already knows, described by its existing monitoring identity.</summary>
 /// <param name="StrongIdentity">Exact identity facts (for example a serial number) as library property key to value.</param>
+/// <param name="InsidePeerId">When monitoring reports the subject as part of a peer (a computer's network adapter), that peer's id;
+/// the bridge then places the object inside the peer's object.</param>
 public sealed record MonitoredSubject(
     MonitoringSubjectKind Kind,
     string SubjectId,
     string DisplayName,
     string? KindHint,
-    IReadOnlyDictionary<string, string> StrongIdentity);
+    IReadOnlyDictionary<string, string> StrongIdentity,
+    string? InsidePeerId = null);
 
 public sealed record BridgeResult(int Created, int BoundExisting, int AlreadyBound);
 
@@ -35,9 +38,12 @@ public static class MonitoringBridge
         foreach (var subject in subjects)
         {
             var model = await store.LoadAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (model.FindBound(subject.Kind, subject.SubjectId) is not null)
+            if (model.FindBound(subject.Kind, subject.SubjectId) is { } existing)
             {
                 already++;
+                // The container may have been bridged after the part, so placement is checked on every pass.
+                if (Placement(model, subject, existing.Id) is { } late)
+                    await store.AppendAsync(late, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -68,18 +74,35 @@ public static class MonitoringBridge
             foreach (var fact in subject.StrongIdentity)
                 changes.Add(new PropertyAsserted(objectId, fact.Key, PropertyValue.Of(fact.Value), evidence));
             changes.Add(new MonitoringBound(objectId, subject.Kind, subject.SubjectId));
-            await store.AppendAsync(changes, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
+            model = await store.AppendAsync(changes, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (Placement(model, subject, objectId) is { } placement)
+                await store.AppendAsync(placement, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         return new BridgeResult(created, bound, already);
     }
 
-    /// <summary>Reads this peer, its active trusted peers and its observed devices from the monitoring store and bridges them.</summary>
-    public static async Task<BridgeResult> SyncFromPeerStoreAsync(PeerStore peers, ModelStore store, CancellationToken cancellationToken = default)
+    /// <summary>Containment for a part monitoring reports inside a peer, unless the object is already placed somewhere (a person may have moved it).</summary>
+    private static RelationshipAdded? Placement(SystemModel model, MonitoredSubject subject, string objectId)
+    {
+        if (subject.InsidePeerId is null || model.ContainerOf(objectId) is not null) return null;
+        if (model.FindBound(MonitoringSubjectKind.Peer, subject.InsidePeerId) is not { } parent || parent.Id == objectId) return null;
+        return new RelationshipAdded($"bridge:{parent.Id}>{objectId}", RelationshipTypes.Contains, parent.Id, objectId);
+    }
+
+    /// <summary>
+    /// Reads this peer, its active trusted peers and what they observed from the monitoring store and bridges them.
+    /// Network adapters become parts inside their computer, networks become network segments and gateways become routers.
+    /// A peer's own LAN record and the "unknown upstream" placeholders are not things and are skipped.
+    /// </summary>
+    /// <param name="localName">Name for this device's object, such as the machine name; "This device" when null.</param>
+    /// <param name="localKind">Kind for this device's object ("device.phone" on a phone); a computer when null.</param>
+    public static async Task<BridgeResult> SyncFromPeerStoreAsync(
+        PeerStore peers, ModelStore store, string? localName = null, string? localKind = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peers);
         var subjects = new List<MonitoredSubject>();
         if (await peers.ReadLocalIdentityAsync(cancellationToken).ConfigureAwait(false) is { } local)
-            subjects.Add(PeerSubject(local.PeerId, "This device", local.PublicKeyFingerprint));
+            subjects.Add(PeerSubject(local.PeerId, string.IsNullOrWhiteSpace(localName) ? "This device" : localName, local.PublicKeyFingerprint, localKind));
 
         foreach (var peer in await peers.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false))
             if (peer.TrustState == PeerTrustState.Active)
@@ -87,18 +110,58 @@ public static class MonitoringBridge
 
         foreach (var entity in await peers.ReadObservedEntitiesAsync(cancellationToken).ConfigureAwait(false))
         {
+            var shape = Describe(entity);
+            if (shape is null) continue;
             var claims = await peers.ReadIdentityClaimsAsync(entity.EntityId, cancellationToken).ConfigureAwait(false);
             var strong = claims.Where(c => c.Strength == IdentityStrength.Strong)
                 .GroupBy(c => "identity." + c.ClaimType, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.First().NormalizedValue, StringComparer.Ordinal);
-            subjects.Add(new MonitoredSubject(MonitoringSubjectKind.ObservedDevice, entity.EntityId, entity.EntityId, KindFor(entity.EntityKind), strong));
+            string? inside = null;
+            if (shape.Value.IsPart)
+            {
+                var attached = (await peers.ReadRelationshipsAsync(entity.EntityId, cancellationToken).ConfigureAwait(false))
+                    .Where(r => r.Kind == RelationshipKind.AttachedTo && r.SourceEntityId == entity.EntityId
+                        && r.TargetEntityId.StartsWith(PeerEntityPrefix, StringComparison.Ordinal))
+                    .OrderByDescending(r => r.ValidFrom)
+                    .FirstOrDefault();
+                inside = attached?.TargetEntityId[PeerEntityPrefix.Length..];
+            }
+
+            subjects.Add(new MonitoredSubject(MonitoringSubjectKind.ObservedDevice, entity.EntityId, shape.Value.Name, shape.Value.Kind, strong, inside));
         }
 
         return await EnsureAsync(store, subjects, cancellationToken).ConfigureAwait(false);
     }
 
-    private static MonitoredSubject PeerSubject(string peerId, string name, byte[] fingerprint) =>
-        new(MonitoringSubjectKind.Peer, peerId, name, "device.computer",
+    private const string PeerEntityPrefix = "peer:";
+
+    /// <summary>Name and kind for an observed entity, or null when it is not a thing of its own.</summary>
+    private static (string Name, string Kind, bool IsPart)? Describe(ObservedEntity entity)
+    {
+        var tail = LastIdPart(entity.EntityId);
+        return entity.EntityKind switch
+        {
+            "lan.peer" or "lan.unknown_upstream_segment" => null,
+            "lan.network_interface" => ($"Network adapter {tail}", "part.network", true),
+            "lan.overlay_interface" => ($"Virtual network adapter {tail}", "part.network.virtual", true),
+            "lan.segment" => ($"Network {tail}", "network.segment", false),
+            "lan.vlan" => ($"VLAN {tail}", "network.segment", false),
+            "lan.gateway" => ($"Router at {tail}", "device.network.router", false),
+            "lan.switch" => ($"Network switch {tail}", "device.network.switch", false),
+            "lan.peripheral" => ($"Device {tail}", "device", false),
+            _ => (entity.EntityId, KindFor(entity.EntityKind), false),
+        };
+    }
+
+    /// <summary>The readable end of a LAN entity id ("lan:peer:if:eth0" gives "eth0"; a CIDR keeps its slash).</summary>
+    private static string LastIdPart(string entityId)
+    {
+        var parts = entityId.Split(':');
+        return parts.Length >= 4 && parts[0] == "lan" ? string.Join(':', parts[3..]) : entityId;
+    }
+
+    private static MonitoredSubject PeerSubject(string peerId, string name, byte[] fingerprint, string? kind = null) =>
+        new(MonitoringSubjectKind.Peer, peerId, name, kind ?? "device.computer",
             new Dictionary<string, string>(StringComparer.Ordinal) { ["identity.peer-key-fingerprint"] = Convert.ToHexString(fingerprint) });
 
     private static string KindFor(string monitoringKind) => monitoringKind.ToUpperInvariant() switch

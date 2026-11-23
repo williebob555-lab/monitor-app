@@ -11,6 +11,7 @@
     <ProjectReference Include="..\MonitorApp.Peer.Alerts\MonitorApp.Peer.Alerts.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Application\MonitorApp.Peer.Application.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Control\MonitorApp.Peer.Control.csproj" />
+    <ProjectReference Include="..\MonitorApp.Model\MonitorApp.Model.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Persistence\MonitorApp.Peer.Persistence.csproj" />
     <ProjectReference Include="..\MonitorApp.Peer.Transport\MonitorApp.Peer.Transport.csproj" />
   </ItemGroup>

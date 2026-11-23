@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MonitorApp.Agent.Core;
+using MonitorApp.Model;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Application;
 using MonitorApp.Peer.Collection;
@@ -49,6 +50,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly PeerRetentionService retention;
     private readonly NodePeriodicTask peerStateTask;
     private readonly PeerStateTracker peerStates;
+    private NodePeriodicTask? modelTask;
+    private ModelStore? model;
 
     private PeerNodeRuntime(
         WebApplication peerApplication,
@@ -104,6 +107,12 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     public PeerStateTracker PeerStates => peerStates;
 
     public NodePeriodicTask PeerStateSchedule => peerStateTask;
+
+    /// <summary>Keeps the shared model in step with what monitoring knows (this computer, its parts, paired devices, networks).</summary>
+    public NodePeriodicTask? ModelBridgeSchedule => modelTask;
+
+    /// <summary>The shared system model (model.db) the Things screen reads and quick capture writes.</summary>
+    public ModelStore? Model => model;
 
     /// <summary>The retention service the schedule runs (policy in force).</summary>
     public PeerRetentionService Retention => retention;
@@ -256,6 +265,16 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 time);
         }
 
+        // The shared model (T065): monitoring's peers, parts and networks become things; people add the rest.
+        var modelStore = new ModelStore(Path.Combine(options.DataDirectory, "model.db"), timeProvider: time);
+        await modelStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var machineName = System.Environment.MachineName;
+        var modelTask = new NodePeriodicTask(
+            "model-bridge",
+            TimeSpan.FromMinutes(1),
+            async token => await MonitoringBridge.SyncFromPeerStoreAsync(peerStore, modelStore, machineName, cancellationToken: token).ConfigureAwait(false),
+            time);
+
         var peerArgs = new[]
         {
             "--MonitorApp:Peer:BindAddress", options.PeerBindAddress.ToString(),
@@ -300,7 +319,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             monitoring,
             LocalPresenceService.Create(
                 Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock),
-            new PeerReachController(options, ensureFirewall: PeerReachSetting.WindowsFirewallHelper()));
+            new PeerReachController(options, ensureFirewall: PeerReachSetting.WindowsFirewallHelper()),
+            modelStore);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -311,10 +331,16 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             lanTask?.Start();
             retentionTask.Start();
             peerStateTask.Start();
-            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine, lanTask, retentionTask, retentionService, peerStateTask, peerStateTracker);
+            modelTask.Start();
+            return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine, lanTask, retentionTask, retentionService, peerStateTask, peerStateTracker)
+            {
+                modelTask = modelTask,
+                model = modelStore,
+            };
         }
         catch
         {
+            await modelTask.DisposeAsync().ConfigureAwait(false);
             await peerStateTask.DisposeAsync().ConfigureAwait(false);
             await retentionTask.DisposeAsync().ConfigureAwait(false);
             if (lanTask is not null)
@@ -326,6 +352,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             await collection.DisposeAsync().ConfigureAwait(false);
             await connections.DisposeAsync().ConfigureAwait(false);
             await localApi.DisposeAsync().ConfigureAwait(false);
+            await modelStore.DisposeAsync().ConfigureAwait(false);
             await peerApplication.DisposeAsync().ConfigureAwait(false);
             identity.Dispose();
             throw;
@@ -351,6 +378,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
         await Step(() => new ValueTask(peerStates.SuspendAsync())).ConfigureAwait(false);
         await Step(() => peerStateTask.DisposeAsync()).ConfigureAwait(false);
+        if (modelTask is not null)
+        {
+            await Step(() => modelTask.DisposeAsync()).ConfigureAwait(false);
+        }
         await Step(() => retentionTask.DisposeAsync()).ConfigureAwait(false);
         if (lanTask is not null)
         {
@@ -361,6 +392,10 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         await Step(() => collection.DisposeAsync()).ConfigureAwait(false);
         await Step(() => connections.DisposeAsync()).ConfigureAwait(false);
         await Step(() => localApi.DisposeAsync()).ConfigureAwait(false);
+        if (model is not null)
+        {
+            await Step(() => model.DisposeAsync()).ConfigureAwait(false);
+        }
         await Step(async () =>
         {
             using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(3));
