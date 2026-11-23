@@ -16,6 +16,7 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
     private readonly OriginReplicationCoordinator replication;
     private readonly LiveInterestRegistry? interests;
     private readonly TimeSpan? heartbeatInterval;
+    private readonly MeshMembership? mesh;
     private readonly CancellationTokenSource lifetime = new();
     private readonly ConcurrentDictionary<string, string> permanentFailures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> connections = new(StringComparer.Ordinal);
@@ -27,8 +28,10 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
         PeerStore store,
         OriginReplicationCoordinator replication,
         LiveInterestRegistry? interests = null,
-        TimeSpan? heartbeatInterval = null)
+        TimeSpan? heartbeatInterval = null,
+        MeshMembership? mesh = null)
     {
+        this.mesh = mesh;
         this.interests = interests;
         this.heartbeatInterval = heartbeatInterval;
         this.identity = identity ?? throw new ArgumentNullException(nameof(identity));
@@ -55,6 +58,38 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
         {
             var locators = await store.ReadPeerLocatorsAsync(peer.PeerId, cancellationToken)
                 .ConfigureAwait(false);
+            if (locators.Count > 0)
+            {
+                StartConnection(peer, locators[0]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dials every actively trusted peer that has a locator and no running session: peers the mesh admitted since the
+    /// last pass, and peers whose session ended (for example refused because the mesh had not reached them yet).
+    /// </summary>
+    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        lock (gate)
+        {
+            if (!started || lifetime.IsCancellationRequested) return;
+        }
+
+        var peers = await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var peer in peers.Where(item => item.TrustState == PeerTrustState.Active))
+        {
+            lock (gate)
+            {
+                if (connections.TryGetValue(peer.PeerId, out var running))
+                {
+                    if (!running.IsCompleted) continue;
+                    connections.Remove(peer.PeerId);
+                    permanentFailures.TryRemove(peer.PeerId, out _);
+                }
+            }
+
+            var locators = await store.ReadPeerLocatorsAsync(peer.PeerId, cancellationToken).ConfigureAwait(false);
             if (locators.Count > 0)
             {
                 StartConnection(peer, locators[0]);
@@ -156,7 +191,8 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             var synchronization = new PeerSyncApplication(
                 store,
                 replication,
-                live: new PeerSyncLiveOptions(interests, RequestRemotePush: true));
+                live: new PeerSyncLiveOptions(interests, RequestRemotePush: true),
+                mesh: mesh);
             var transport = PeerTransportOptions.Create(endpoint);
             if (heartbeatInterval is { } heartbeat)
             {

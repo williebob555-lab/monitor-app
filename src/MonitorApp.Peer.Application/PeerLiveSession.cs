@@ -15,7 +15,8 @@ public sealed record PeerLiveSessionOptions(
     int MaximumInFlightBatches = 4,
     int MaximumBatchRecords = 256,
     int MaximumBatchBytes = 1024 * 1024,
-    bool LocallyInitiated = false)
+    bool LocallyInitiated = false,
+    Func<bool>? RenewRequested = null)
 {
     internal void Validate()
     {
@@ -61,6 +62,8 @@ public sealed class PeerLiveSession : IPeerLiveSession
     }
 
     public bool RequestRemotePush => options.RequestRemotePush;
+
+    public bool RenewRequested => options.RenewRequested?.Invoke() ?? false;
 
     public int MaximumInFlightBatches => options.MaximumInFlightBatches;
 
