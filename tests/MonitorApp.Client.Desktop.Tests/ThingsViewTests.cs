@@ -215,6 +215,35 @@ public sealed class ThingsViewTests
     }
 
     [AvaloniaFact]
+    public void ARackIsDrawnOnItsCardAndAThingIsPlacedAtAUnit()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+
+        var rack = things.Cards.Single(c => c.Name == "Studio rack").Rack!;
+        Assert.Equal("6U rack", rack.SizeText);
+        Assert.Equal(["U6:", "U5–4:Focusrite 2i2", "U3:DSP (height unknown)", "U2:", "U1:", "U3:EQ"], rack.Rows.Select(r => $"{r.UnitText}:{r.Label}"));
+        Assert.Equal(2 * ThingRackRow.UnitHeight, rack.Rows[1].Height);
+        Assert.True(rack.Rows[2].IsProblem);
+        Assert.Equal(["DSP (U3, 1U) and EQ (U3, 1U) take the same space."], rack.Notes);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "U5–4" && t.IsEffectivelyVisible);
+
+        // Put the amp in the rack at U5 from the edit form.
+        things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2"));
+        things.EditInside = things.EditPlaces.Single(p => p.Name == "Studio rack");
+        things.EditSlot = "U5";
+        things.SaveEditCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var sent = Assert.Single(source.Edits);
+        Assert.Equal(("thing:rack", "U5"), (sent.InsideId, sent.Slot));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void WhatsMissingListsNeedsAndAddsOneToTheListAsARequirement()
     {
         var source = new FakeThingsSource();
@@ -261,6 +290,7 @@ public sealed class ThingsViewTests
         Shot(model, 1400, 900, dir, "things-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
         Shot(model, 390, 844, dir, "things-edit-phone-390x844", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Focusrite 2i2")));
         Shot(model, 1400, 900, dir, "things-ports-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Pedal power")));
+        Shot(model, 1400, 1500, dir, "things-rack-wide-1400x1500", () => things.FilterText = "rack");
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -362,7 +392,12 @@ public sealed class ThingsViewTests
                     [new WiringFindingDto("voltage-mismatch", "VerifiedProblem", "Pedal power DC out 1 supplies 9 V, but Focusrite 2i2 DC in accepts 12 V.")])],
                 asOf is not null ? [] :
                 [new MissingItemDto("supply-too-weak", "A stronger supply than Pedal power", "Focusrite 2i2 DC in draws 0.5 A, more than the 0.3 A Pedal power DC out 1 can supply.", "VerifiedProblem", ["thing:psu"]),
-                 new MissingItemDto("input-unconnected", "Something into Focusrite 2i2 Input 1", "Focusrite 2i2 Input 1 has nothing plugged in; it takes analog-audio.", "Unknown", ["thing:amp"])]));
+                 new MissingItemDto("input-unconnected", "Something into Focusrite 2i2 Input 1", "Focusrite 2i2 Input 1 has nothing plugged in; it takes analog-audio.", "Unknown", ["thing:amp"])],
+                [new RackLayoutDto("thing:rack", 6, true,
+                    [new RackBlockDto(6, 1, null, null, true, false), new RackBlockDto(5, 2, "thing:amp", "Focusrite 2i2", true, false),
+                     new RackBlockDto(3, 1, "thing:dsp", "DSP", false, true), new RackBlockDto(2, 1, null, null, true, false), new RackBlockDto(1, 1, null, null, true, false),
+                     new RackBlockDto(3, 1, "thing:eq", "EQ", true, true)],
+                    [], [new WiringFindingDto("overlap", "LikelyProblem", "DSP (U3, 1U) and EQ (U3, 1U) take the same space.")])]));
         }
 
         public List<(string Text, string? Kind)> Added { get; } = [];

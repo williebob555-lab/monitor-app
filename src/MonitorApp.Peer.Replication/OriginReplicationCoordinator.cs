@@ -126,13 +126,13 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
             }
         }
 
-        var inserted = 0;
-        var retried = 0;
+        // One transaction for the whole batch: a commit per record held the database for seconds on Windows, delaying
+        // everything else that writes (alerts, live readings) behind a routine sync.
         var receivedAt = RequireUtc(utcNow());
-        foreach (var record in batch.Records)
+        var writes = batch.Records.Select(record =>
         {
             existingBySequence.TryGetValue(record.Sequence, out var existing);
-            var outcome = await store.AppendOriginRecordAsync(new OriginRecordWrite(
+            return new OriginRecordWrite(
                 record.OriginPeerId,
                 record.OriginStreamId,
                 record.Sequence,
@@ -145,9 +145,11 @@ public sealed class OriginReplicationCoordinator : IOriginBatchReceiver, IOrigin
                 existing?.ReceivedAt ?? receivedAt,
                 existing?.ReceivedFromPeerId ?? sourcePeerId,
                 RecordProvenance.Replicated,
-                record.Quality.ToString()), cancellationToken).ConfigureAwait(false);
-            if (outcome == RecordInsertOutcome.Inserted) inserted++; else retried++;
-        }
+                record.Quality.ToString());
+        }).ToList();
+        var outcomes = await store.AppendOriginRecordsAsync(writes, cancellationToken).ConfigureAwait(false);
+        var inserted = outcomes.Count(o => o == RecordInsertOutcome.Inserted);
+        var retried = outcomes.Count - inserted;
 
         var cursorState = await RecalculateCursorAsync(sourcePeerId, first.OriginPeerId, first.OriginStreamId, receivedAt, cancellationToken).ConfigureAwait(false);
         var ack = new OriginAck

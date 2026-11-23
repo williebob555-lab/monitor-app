@@ -219,7 +219,8 @@ public sealed record ThingDto(
     DateTimeOffset CreatedAt,
     string? SignalPrefix = null,
     IReadOnlyList<ThingLinkDto>? Links = null,
-    IReadOnlyList<ThingPortDto>? Ports = null);
+    IReadOnlyList<ThingPortDto>? Ports = null,
+    string? Slot = null);
 
 /// <summary>A port of a thing: connector, plug or socket, direction, signals, its own values, and what it is plugged into.</summary>
 public sealed record ThingPortDto(
@@ -277,14 +278,20 @@ public sealed record ThingEditDto(
     IReadOnlyList<ThingPortEditDto>? AddPorts = null,
     IReadOnlyList<string>? RemovePorts = null,
     IReadOnlyList<ThingConnectEditDto>? Connect = null,
-    IReadOnlyList<string>? Disconnect = null);
+    IReadOnlyList<string>? Disconnect = null,
+    string? Slot = null);
 
 /// <summary>A value the person adds ("Max power" = "5 W"); an empty value removes theirs. FromSpec marks it as read from a spec sheet.</summary>
 public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpec = false);
 
 public sealed record ThingsDto(
     IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null);
+    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null, IReadOnlyList<RackLayoutDto>? Racks = null);
+
+/// <summary>A rack drawn top down: blocks of equipment or empty units, what is inside but not placed, and fit findings.</summary>
+public sealed record RackLayoutDto(string RackId, int Units, bool UnitsKnown, IReadOnlyList<RackBlockDto> Blocks, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFindingDto> Findings);
+
+public sealed record RackBlockDto(int TopUnit, int Units, string? ThingId, string? Name, bool HeightKnown, bool Problem);
 
 /// <summary>Something a setup still needs ("Power for Tuner"), with how sure the app is and the things involved.</summary>
 public sealed record MissingItemDto(string Code, string Need, string Explanation, string Certainty, IReadOnlyList<string> Things);
