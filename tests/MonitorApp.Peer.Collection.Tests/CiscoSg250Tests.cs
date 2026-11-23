@@ -146,7 +146,7 @@ public sealed class CiscoSg250Tests
         {
             var conf = Path.Combine(dir, "snmp.conf");
             await File.WriteAllTextAsync(conf, "defAuthPassphrase test");
-            var reader = new NetSnmpV3Sg250Reader(IPAddress.Parse("192.168.1.2"), "monitor", dir, "/nonexistent/snmpbulkwalk", "/nonexistent/snmpget");
+            var reader = new NetSnmpV3Sg250Reader(IPAddress.Parse("192.168.1.2"), "monitor", dir, Path.Combine(dir, "missing", "snmpbulkwalk"), Path.Combine(dir, "missing", "snmpget"));
             if (!OperatingSystem.IsWindows())
             {
                 File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
