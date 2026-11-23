@@ -651,6 +651,31 @@ This log separates confirmed product constraints from working technical decision
   6. Retire the controller-era messages in `Contracts` and `contracts/monitor/v1` only after steps 2 to 4, keeping field numbers reserved.
 - Consequences: The solution still builds two release artifact families that are not part of the peer architecture; that is intended until step 1. `MonitorApp.Update` and the P-256 proof code in `Contracts`/`Peer.Core` need no extraction.
 - Revisit condition: Release publishing stops emitting controller or agent archives, or a Peer project stops using `Agent.Core` or `Android.Core`.
+
+### T058 Dual-boot machines: one machine, several OS installs
+
+- Status: Accepted (design; implementation tracked in `TODO.md`).
+- Decision: A physical machine that dual-boots keeps one peer identity per OS install. Keys are never shared between installs: the Windows key stays DPAPI-protected and the Linux key stays a 0600 file, and neither OS can read the other's. Machines are a viewer-side grouping on top of peer trust:
+  - Every node publishes a signed `host.descriptor` origin record about itself on start and when it changes: hardware id, OS family (`windows`, `linux`), OS name and version, host name, boot id and boot time. The hardware id is `SHA-256("monitorapp-machine-v1|" + SMBIOS system UUID)`, lowercase hex, never the raw UUID. Windows reads it from `Win32_ComputerSystemProduct`; on Linux `/sys/class/dmi/id/product_uuid` is root-only, so the `.deb`/`.rpm` maintainer script (root) writes only the hash to `/var/lib/monitor-app/hardware-id` (0644, root-owned). A missing or all-zero UUID gives no hardware id and the install is never suggested for linking.
+  - The hardware id is a hint, never trust. When two actively trusted peers report the same hardware id, a viewer offers "these look like one machine" and the owner confirms the link once, gated by presence (fingerprint on the phone, desktop presence where enabled). Unlinking needs no presence. Each install must already be individually paired: linking never adds trust.
+  - A linked machine is shown as one device with its OS installs. The install that is online is "running"; the others are "booted into <other OS>", not offline, and raise nothing. The machine is offline only when no install is online.
+  - Red flags stay strict. Two installs of one machine online at the same time with different boot ids for more than 2 minutes (longer than a reboot handover) mark the machine `conflict`: a single computer cannot run both, so it suggests a copied identity or a wrong link. An install whose reported hardware id no longer matches the one recorded at link time is shown as `hardware_changed`, its link is suspended (it is shown and classified as a separate device) until the owner confirms again.
+- Reason: Dual-boot is normal for the owner's machines. Treating the absent OS as a failed device would cause false alarms, and sharing one key across OSes would weaken key protection on both.
+- Consequences: Each viewer stores its own links (`machine_links`), so a link confirmed on the phone is not yet known to the laptop. Per-peer data (history, alerts, rules, grants) stays keyed by peer id, so grants are given per install.
+- Revisit condition: Links should replicate between the owner's devices, or a hardware attestation (TPM) becomes available to bind installs.
+
+### T059 Remote OS switching for dual-boot machines
+
+- Status: Accepted (design; implementation tracked in `TODO.md`).
+- Decision: The owner can restart a dual-boot machine into a chosen OS install from any of their devices. It is a high-risk `SwitchBootTarget` control command: the issuer needs a new `power_control` grant on the target and a presence signature (fingerprint), like update approval.
+  - Only one-time boots. On Linux the root update helper pattern is reused: the unprivileged node writes a request, a root helper started by a systemd path unit re-checks the signed command result, then runs `grub2-reboot`/`grub-reboot <entry>` and `systemctl reboot`. The GRUB default (`saved_entry`, `GRUB_DEFAULT`) is never written, so the next boot after that, or any failed boot, returns to the default entry (Fedora on the owner's laptop).
+  - Supported only where it can be done safely. Linux needs `GRUB_DEFAULT=saved` (Fedora's default) and a grubenv the helper can write; otherwise the install reports `unsupported` with the reason, and the app never edits GRUB configuration. Windows usually cannot write GRUB's grubenv (Fedora keeps it under `/boot`), so a Windows install offers "restart to the default entry" only, which reaches Fedora on the owner's laptop. Choosing any other entry from Windows is reported as unsupported.
+  - The target re-reads its own boot menu and refuses when the entry id is missing or its title differs from `expected_title`.
+  - Wake-on-LAN: a peer on the same LAN as a machine that is off can send a magic packet to the MACs from the machine's last descriptor. That only powers it on into its default entry. Waking into a non-default OS is not possible without the OS running first, so the UI says so.
+- Reason: The owner dual-boots and wants to switch OS from the phone without being at the machine, without the risk of leaving a machine stuck in a non-default OS or with an edited boot configuration.
+- Consequences: A switch always means a restart, so all sessions on that install drop and the machine is then shown "booted into <other OS>" when the sibling install connects. Waking a machine needs another peer awake on its LAN.
+- Revisit condition: Writing a shared-ESP grubenv from Windows, UEFI `BootNext` support, or the owner wants a persistent default change.
+
 ### T300 — Bounded Cisco SG250 read-only collection spike
 
 - Status: Working technical decision, scoped to a separately provisioned collector; no hardware support claim.

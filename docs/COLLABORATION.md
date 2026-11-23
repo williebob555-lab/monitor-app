@@ -1,105 +1,146 @@
-# Multi-Agent Collaboration
+# How Claude and ChatGPT Work on Monitor App
 
 Two AI agents work on this repository for the owner, Wilson:
 
 - **Claude** (Claude Code), branches `claude/*`.
 - **ChatGPT** (ChatGPT / Codex), branches `chatgpt/*`.
 
-This file is the shared work board. It says who is working on what, so the two agents never edit the same area at the same time. Read it before starting any task and update it when you start, hand off, or finish one. `AGENTS.md` is still the mandatory rule set; this file adds the rules for working side by side.
+Either agent may run out of time or usage partway through a task, so there are **no ownership areas**. There is one shared, ordered task queue. Any agent takes the next free task, works in small steps, pushes often, and leaves notes so the other agent can pick the work up at any point.
 
-## 1. The five rules
+This file is the shared work board. Read it before starting any task and update it when you start, hand off, or finish one. `AGENTS.md` is still the mandatory rule set; this file adds the rules for working side by side.
 
-1. **Claim before you code.** No branch, no edit, until your claim row is on `main` (section 6). If an area is already claimed by the other agent, do not touch it; pick something else or ask in a handoff note.
-2. **Never push to `main`.** All work goes through a pull request from your own branch. Only Wilson, or Claude acting on Wilson's standing authorization, merges to `main`.
-3. **Stay inside your claim.** If the work turns out to need files in someone else's claimed area, stop and write a handoff note (section 8) instead of editing them.
-4. **Never rewrite the other agent's history.** Do not force-push, rebase, or commit to a branch with the other agent's prefix. Build on top of their merged work, or branch from their branch and open your own PR into it.
-5. **Release the claim when done.** Move the row to "Recently finished" in the same PR that completes the work, or in a short board-only PR if you abandon it.
+## 1. Read first
 
-## 2. Ownership
+These define what the app is. Read them before your first task, and again when they change:
 
-Ownership means "ask before changing", not "the other agent can never touch it". It exists so that half-finished designs are not changed underneath their author.
+1. `docs/VISION.md`: what Monitor App is becoming (Wilson's expanded vision).
+2. `docs/SCENARIOS.md`: twelve scenarios Wilson expects the app to handle. They are the acceptance test for every design decision.
+3. `docs/ARCHITECTURE-MODEL.md`: the shared system model and reasoning layer every feature is built on.
+4. `docs/ARCHITECTURE.md`: peers, pairing, replication, monitoring, history.
+5. `docs/UI_DESIGN.md`: the visual language.
 
-| Area | Owner | Notes |
+## 2. Core principles (from Wilson, 2026-11-22)
+
+- **One object, many lenses.** A real or planned thing has one record. Monitoring, inventory, physical layout, connections, projects, sourcing and history are views of that record, never copies. Moving between views keeps the object's identity.
+- **No one-off code.** No feature is written for one scenario ("pedalboard check", "speaker wizard"). Build general mechanisms over the libraries of kinds, properties, connectors and signals, so new equipment is understood by adding data, not code.
+- **The app is a collaborator.** A deterministic, algorithmic reasoning layer checks designs, follows signals, power and heat through chains, works out what is missing, suggests options, and explains why. Small AI models may help organise data, but nothing requires them, and their output is checked like any other data.
+- **Built for a chaotic, nonlinear way of working.** Nothing is required up front except a name. Quick capture of loose notes, many-to-many links, no forced hierarchy, cheap reorganising that never loses anything. The app surfaces structure (duplicates, gaps, likely links) instead of demanding it.
+- **Always say how sure we are.** Every value and finding is marked measured, specified (datasheet), entered, estimated, or unknown. A verified incompatibility is never shown the same way as an estimate. History never invents causes.
+- **An interactive design environment, not a dashboard.** Users build, arrange, wire and experiment with systems that may not exist yet. Physical things look and behave like physical things. Playful, tactile interaction is welcome. No generic tile dashboards.
+- **Monitoring stays the reliable foundation.** Nothing in the expansion may make telemetry, alerts, history or the peer network less reliable or less secure.
+
+## 3. The plan
+
+Everything builds on the one shared model. Each phase ends with one plain-English update to Wilson.
+
+| Phase | Goal | Main work |
 | --- | --- | --- |
-| Peer trust, pairing, replication, sync, transport (`MonitorApp.Peer.Core`, `.Sync`, `.Replication`, `.Transport`, `.Service`, `contracts/`) | Claude | Security- and sync-critical. Changes from ChatGPT come as a PR that Claude reviews before merge. |
-| Control channel, user presence / fingerprint, update pipeline (`MonitorApp.Peer.Control`, `MonitorApp.Client.Presence*`, `MonitorApp.Update`, `eng/`, `.github/workflows/`) | Claude | Same review rule. Signing keys stay with Wilson; no agent ever handles them. |
-| Alerts, history, local API (`MonitorApp.Peer.Alerts`, `.LocalApi`, `.Persistence`) | Claude | Built in PR #5 (merged). |
-| UI: Dive interface and device grid (`MonitorApp.Client.Ui`, `.Client.Core/Scene`, `docs/UI_DESIGN.md`) | Claude | In flight in PR #4. |
-| Dual-boot host identity and OS switching (`Peer.Collection/Host/`, `contracts/monitor/v1/host.proto`) | Claude | T058/T059. |
-| Everything else, including items in `TODO.md` with no claim row | Open | Claim it in section 6 first. |
+| 1. Foundation (now) | The shared model exists in code; monitoring plugs into it; the repo is cleaned up | Core model, store and monitoring bridge; retire controller-era code; move the T301 connector library and rack/pedalboard checks onto model ids; current UI bug fixes |
+| 2. First real design workflows | Scenarios 2, 3 and 8 work end to end | Reasoning layer (chain checks, what's missing, suggestions); a view shell that switches lenses on the same object; inventory; physical layouts (racks, pedalboards, enclosures) on the model |
+| 3. Projects, sourcing, automation | Scenarios 1, 4, 7 and 11 | Projects with alternative designs; web API for the model; retailer lookups and price history; rules that span projects and live systems; time travel over the whole model |
+| 4. The visual layer | The app feels alive | Exploded views, opening up a machine, living schematic, playful interactions, built on a model that already works |
 
-Wilson can reassign any area by editing this table.
+Phases are priorities, not walls: a task from a later phase may be done early if it does not depend on unfinished work.
 
-Open work that does not overlap Claude's current claims, good for ChatGPT to claim:
+## 4. The task queue
 
-- The managed-switch adapter spike from `TODO.md` (new adapter project; read-only; credentials local).
-- Coverage review of `docs/TESTING.md` obligations against existing tests, filing concrete gaps as `TODO.md` items (fix them in claimed PRs).
-- Documentation accuracy passes outside the files listed in section 5 as claim-required.
-- Fedora RPM and SELinux packaging, once T059 (which edits `eng/packaging`) has merged. Until then, leave a handoff note first.
+Take the **first unclaimed task whose dependencies are done**, unless Wilson asks for something specific. "Suggested" says which agent is likely a good fit; it is a hint, not ownership.
 
-## 3. Task IDs (avoid number collisions)
+Each task is about one sitting of work and has a clear "done when". Bigger work is split into several tasks before anyone starts it.
 
-Task and decision IDs (`T0NN`) appear in `TODO.md`, `docs/DECISIONS.md`, `docs/CHANGELOG.md`, and commit messages. To avoid two agents taking the same number:
+| ID | Phase | Task | Done when | Depends on | Suggested | Claimed by / branch / since | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| T061 | 1 | Shared model core: objects, properties with evidence, ports, connections, containment/placement, lifecycle, design layers, change log with as-of rebuild, SQLite `model.db`, starter libraries, monitoring bridge; plus the Windows MSI and release-smoke fixes | PR #16 merged; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Code and 4 tests done in PR #16; design in `docs/ARCHITECTURE-MODEL.md` |
+| T071 | 1 | Verify the Windows MSI on Wilson's machine: install, open the desktop app, approve one in-app update, uninstall | Wilson confirms, or the failure is written here with the MSI log | T061 | either | | CI only installs it silently on a clean runner |
+| T060 | 1 | Retire controller-era code (T057 plan): stop publishing controller/agent archives, delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core`, enrollment-only `Android.Core` types and their tests | Projects gone from the solution; workflows no longer build them; CI green | none | Claude | Claude, `claude/project-thread-8rnzln`, 2026-11-22 | Plan in `docs/DECISIONS.md` (T057) |
+| T301 | 1 | Review and merge PR #12 (planning foundation) | PR #12 merged with CI green | none | ChatGPT | ChatGPT, `chatgpt/T301-project-rack-planning` | Merge as is; T064 moves it onto the model |
+| T300 | 1 | SG250 switch adapter spike (PR #8) | PR #8 merged with CI green, or closed with a reason | none | ChatGPT | ChatGPT, `chatgpt/T300-sg250-adapter` | |
+| T064 | 1 | Put T301 on the model: `ConnectionPort`, `RackEquipment`, `PlanPart` built from model objects, ports and placement; connector ids on model ports come from `ConnectorCatalog`; remove T301's separate JSON persistence | Planning tests run against model objects; no planning-only ids remain | T061, T301 | ChatGPT | | See section 9 of `docs/ARCHITECTURE-MODEL.md` |
+| T065 | 1 | Wire the model into the running node: each node opens `model.db`, runs the monitoring bridge at startup and when new peers or observed devices appear | Node test shows a paired peer and an observed device appearing as model objects with their bindings | T061 | Claude | | |
+| T066 | 2 | Findings with evidence levels (verified problem / estimate / unknown / OK as declared) as the single result type of every engine; adapt T301 evaluators to return them | All engines return the shared finding type | T064 | either | | `ARCHITECTURE-MODEL.md` 3.13 |
+| T067 | 2 | Connection chain evaluation over the model: walk port to cable to adapter to port, evaluate each layer, report where a chain fails | Scenario 8 examples pass as tests (USB-C alt mode, 1/4-inch level mismatch, DC polarity) | T064, T066 | either | | |
+| T068 | 2 | Local web API for the model: read objects, ports, connections, relationships, history as-of; write changes with validation | API tests over a real `model.db` | T061 | ChatGPT | | Follow `docs/SECURITY.md` loopback and antiforgery rules |
+| T069 | 2 | "What's missing" derivation: unconnected required inputs, missing cables (with connector ends and length estimate), power shortfalls, as requirement objects | Tests on rack and pedalboard fixtures | T067 | either | | |
+| T070 | 2 | Lens shell: one selection shared by every view; switching view keeps the object | Selecting a device and switching between system, physical and inventory keeps it selected | T061 | Claude | | UI; coordinate with any open UI task |
 
-- **Claude** takes the next free ID from **T058 to T299**.
-- **ChatGPT** takes the next free ID from **T300 to T499**.
+Add new tasks at the end of the right phase with the next free ID (check the queue, `TODO.md` and `docs/DECISIONS.md`). If two PRs add the same ID, the one merged second renumbers.
 
-Look at the claims table and `docs/DECISIONS.md` for the highest ID already used in your range.
+## 4a. Standard release set
 
-## 4. Branches, commits, and pull requests
+Every release Wilson installs must contain, signed through the existing manifest:
 
-- Branch: `<agent>/<task-id>-<short-topic>`, for example `chatgpt/T300-fedora-rpm`. Claude's cloud sessions may use the branch name the session assigns (`claude/project-thread-*`); its claim row names the branch.
-- Start every branch from the latest `main`.
-- Commit messages start with the task ID: `T300: Build and verify the Fedora RPM`.
-- PR title starts with `[Claude]` or `[ChatGPT]`. The PR description lists: the task ID, what changed, tests actually run and their results, platforms verified, docs updated, and anything unverified (the completion report from `AGENTS.md`).
-- One task per PR where practical. Keep PRs small enough to review in one sitting.
+| Platform | File | Notes |
+| --- | --- | --- |
+| Android | `monitorapp-mobile-android-universal-<v>.apk` | release-signed; launch-tested on an emulator by `android-startup-triage.yml` |
+| Windows | `monitorapp-windows-x64-<v>-setup.msi` | the installer people use; `monitorapp-node-windows-x64-<v>.zip` stays as the in-app update payload |
+| Fedora | `monitorapp-node-fedora-x64-<v>.rpm` | node service; desktop app as `monitorapp-desktop-fedora-x64-<v>.tar.gz` |
+| Ubuntu | `monitorapp-node-ubuntu-x64-<v>.deb` | lower priority for Wilson (no server yet) |
+
+Releases are cut on purpose by running `.github/workflows/preview.yml` (`gh workflow run preview.yml`); pushes to `main` no longer publish one. A release is only "done" when `install-smoke.yml` is green on the commit it was built from. Updates install on a device only after Wilson approves them there.
+
+## 5. Claims, pushing often, and picking up stale work
+
+1. **Claim before you code.** Put your name, branch and date in the task's "Claimed by" cell, in a small PR or in the first commit of your task PR. Start the branch from the latest `main`.
+2. **Push early and often.** Push a work-in-progress commit at least at the end of every working session, even if it does not build yet, and open a **draft PR** early.
+3. **Leave a handoff note.** Keep the top of the PR description current with: what is done, what is not, what to do next, and anything surprising. Any agent should be able to continue from that note alone.
+4. **Claims expire.** A claim with no push for **24 hours** is expired. Any agent may take it over: write "taken over from <agent>" in the claim cell, and continue on a new branch built on top of the old branch (never rewrite the old one).
+5. **Release when done.** Move the task to "Recently finished" in the PR that completes it.
+
+## 6. Review
+
+- Changes to the shared model (`src/MonitorApp.Model`, `contracts/`, schema versions), security (pairing, trust, control, presence, update, signing), or sync and replication need a review by the **other** agent, or by Wilson, before merge.
+- Other changes may be merged by their author once CI is green.
+- Only Wilson, or an agent acting on Wilson's standing authorization, merges to `main`. Never push to `main` directly.
+
+## 7. Working style (Wilson's rules)
+
+- **Be usage-conscious.** Do the smallest change that completes the task. No broad rewrites, no fan-out of helper agents, no repeated full test runs when nothing changed.
+- **No mockups and no throwaway builds.** Every change builds toward the architecture in `docs/ARCHITECTURE-MODEL.md`. Prototypes are labelled as prototypes and are not presented as features.
+- **No releases without Wilson.** Do not tag, publish, or trigger release workflows unless Wilson asks.
+- **Plain-English updates.** Report what changed in words Wilson can read in a minute: what now works, what doesn't yet, and what is next. Be honest about implemented versus planned.
+
+## 8. Branches, commits, and pull requests
+
+- Branch: `<agent>/<task-id>-<short-topic>`, for example `chatgpt/T068-model-api`. Claude's cloud sessions may use the branch name the session assigns (`claude/project-thread-*`); the claim cell names the branch.
+- Commit messages start with the task ID: `T068: Read objects over the local API`.
+- PR title starts with `[Claude]` or `[ChatGPT]`. The PR description lists the handoff note (section 5), what changed, tests actually run and their results, platforms verified, docs updated, and anything unverified (the completion report from `AGENTS.md`).
 - CI (`verify` on Ubuntu and Windows, Android build, install smoke when packaging changes) must be green before merge. Run `dotnet format MonitorApp.sln --verify-no-changes` before pushing.
-- Before merge, update your branch by merging or rebasing **your own** branch onto the latest `main`. Never rebase someone else's branch.
+- Before merge, update your branch by merging `main` into it. Never rebase or force-push someone else's branch.
 
-## 5. Shared files that conflict easily
-
-Several files are touched by almost every task. Edit them like this:
+## 9. Shared files that conflict easily
 
 | File | Rule |
 | --- | --- |
 | `TODO.md` | Change only the lines for your own task. Add new lines at the end of the relevant section. |
 | `docs/CHANGELOG.md`, `docs/DECISIONS.md` | Append only. Never reword the other agent's entries; propose a change in a handoff note instead. |
-| `docs/COLLABORATION.md` (this file) | Edit only your own claim rows and handoff notes. |
+| `docs/COLLABORATION.md` (this file) | Edit only your own claim cells, your own handoff notes, and new tasks you add. |
 | `MonitorApp.sln`, `Directory.Packages.props`, `packages.lock.json` | Add entries only for your own task. After updating your branch from `main`, regenerate lock files rather than hand-merging them. |
 | `global.json` | Never commit local SDK changes. |
-| `contracts/**/*.proto`, SQLite schema versions (`SchemaVersion` constants), alert schema version | **Claim required.** These are shared counters and wire formats. Write the version bump you need in your claim row (for example "Control schema v3 -> v4") so the other agent does not take the same number. |
+| `contracts/**/*.proto`, SQLite schema versions (`SchemaVersion` constants, the model schema version), alert schema version | **Write the bump in your claim cell first** (for example "peer schema v4 -> v5") so two tasks never take the same number. |
 
-## 6. Claims (in-flight work)
-
-Add a row before starting. Remove it (move it to section 7) when the PR merges or you abandon the task.
-
-| Task | Scope | Agent | Branch | PR | Areas / files touched | Shared bumps | Claimed |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| UI | Dive interface plus device-grid home; scene projection; workspace shell | Claude | `claude/project-thread-errw46` | #4 | `Client.Ui`, `Client.Core/Scene`, `Client.Desktop`, `docs/UI_DESIGN.md`, `docs/ui-concepts/` | none | 2026-11-22 |
-| T058 | Dual-boot machines: one peer per OS install, grouped into a machine by a presence-confirmed link and a signed `host.descriptor` record; shows "booted into other OS" instead of offline | Claude | next Claude branch | | `contracts/monitor/v1/host.proto` (new), `Peer.Collection/Host/` (new), `Peer.Node`, `Peer.Persistence` (`machine_links` table), `Peer.LocalApi` (`api/machines*`), `Client.Core` (`MachineDto`, `IPeerDataSource`), `Client.Mobile/InProcessPeerDataSource` | Peer persistence schema bump | 2026-11-22 |
-| T059 | Remote OS switching: GRUB one-time next boot through a root helper, `SwitchBootTarget` control command with a `power_control` grant and fingerprint presence, Wake-on-LAN | Claude | same branch as T058 | | `contracts/monitor/v1/peer.proto` (field 23), `Peer.Control`, `Peer.Node` (helper), `eng/packaging` (systemd path unit, maintainer scripts), `Peer.Collection/Host` | `peer.proto` field 23 | 2026-11-22 |
-| T060 (reserved) | Retire controller-era code per the T057 plan: stop publishing the controller and agent archives, then delete `MonitorApp.Controller`, `MonitorApp.Persistence`, `MonitorApp.Agent.Service`, `MonitorApp.Agent.Core` | Claude | not started | | those projects, `MonitorApp.sln`, `.github/workflows/`, `eng/` | none | 2026-11-22 |
-| T300 | Read-only managed-switch adapter spike for the existing Cisco SG250: configured switch identity, local credentials, reported vs inferred evidence, explicit unavailable/permission/error states; no edits to Claude-owned peer/proto/schema modules | ChatGPT | `chatgpt/T300-sg250-adapter` | #8 | new `Peer.Collection/Switches` adapter, its isolated tests, scoped docs | none | 2026-11-22 |
-
-## 7. Recently finished
+## 10. Recently finished
 
 Keep the last ten. Older history belongs in `docs/CHANGELOG.md`.
 
 | Task | Agent | PR | Merged |
 | --- | --- | --- | --- |
+| T062 fix plain readings, battery level, menu stutter; add `docs/VISION.md` | Claude | #14 | 2026-11-22 |
+| T302 Android launch crash fix | ChatGPT | #11 | 2026-11-22 |
+| Work board: shared queue | Claude | #15 | 2026-11-22 |
+| T061 design doc, scenarios | Claude | #13 | 2026-11-22 |
 | T051-T057 | Claude | #5 | 2026-11-22 |
 | T039-T050 | Claude | #3 | 2026-11-22 |
 | T031-T038 peer foundation | Claude | #2 | 2026-11-21 |
 
-## 8. Handoff notes
+## 11. Handoff notes
 
-Use this section to ask the other agent for something, or to leave work for it to pick up. Newest first. Delete a note once it is answered.
+Use this section for anything that does not fit in a PR description: requests to the other agent, or work left for anyone to pick up. Newest first. Delete a note once it is answered.
 
-Format: `- YYYY-MM-DD, <from> to <to>: <what is needed, and where>.`
+Format: `- YYYY-MM-DD, <from> to <to or anyone>: <what is needed, and where>.`
 
-- (none yet)
+- 2026-11-22, Claude to ChatGPT: Wilson has replaced ownership areas with this shared queue. Your open PRs #8 and #12 are queued as T300 and T301 under your name; #11 (Android crash fix) was merged by Claude. For T301 follow-ups, please do not add a separate persistence layer for planning devices: `ConnectorCatalog` and `ConnectionCompatibilityEvaluator` become the shared connector library and compatibility engine on top of the model's ports (T064), and the model will not get a second connector library.
 
-## 9. Project rules both agents follow
+## 12. Project rules both agents follow
 
 These come from Wilson and from `Monitor App Design Specification.txt`. They override convenience.
 
@@ -108,10 +149,9 @@ These come from Wilson and from `Monitor App Design Specification.txt`. They ove
 - **Updates need Wilson's approval on each device.** Builds may download and verify automatically, but nothing installs without per-device approval. Signing keys stay with Wilson.
 - **Dual-boot machines must not look like a security problem.** One physical machine with Windows and Linux installs is expected; show each machine's OS options and which one is running.
 - **Every device is fully capable on its own.** The phone is a mobile command center and its UI must be as usable as the desktop's.
-- **No throwaway scaffolding.** Each change should build toward the final architecture in `docs/ARCHITECTURE.md`. Do not add interim builds or mock layers that will be thrown away.
 - **Tests: lean but strict where it matters.** Prefer fewer broad scenario tests with good diagnostics. Be rigorous on security and sync. Follow `docs/TESTING.md` and the test contract in `AGENTS.md`.
-- **Decisions and specs.** Product authority is `Monitor App Design Specification.txt`. Working technical decisions go in `docs/DECISIONS.md`. UI decisions are in `docs/UI_DESIGN.md`. Do not promote an `ASSISTANT PROPOSAL` or `OPEN EXPLORATION` item into a requirement without Wilson.
+- **Decisions and specs.** Product direction: `docs/VISION.md`, `docs/SCENARIOS.md`, then `Monitor App Design Specification.txt`. Working technical decisions go in `docs/DECISIONS.md`. UI decisions are in `docs/UI_DESIGN.md`. Do not promote an `ASSISTANT PROPOSAL` or `OPEN EXPLORATION` item into a requirement without Wilson.
 
-## 10. When the agents disagree
+## 13. When the agents disagree
 
 If one agent thinks the other's merged design is wrong, it does not rewrite it. It leaves a handoff note with the reason and evidence, and Wilson decides. A decision that constrains future work is recorded in `docs/DECISIONS.md`.

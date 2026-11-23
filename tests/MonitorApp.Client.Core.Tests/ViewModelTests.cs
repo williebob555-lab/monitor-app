@@ -48,7 +48,9 @@ public sealed class ViewModelTests
         Assert.Equal(string.Empty, cpu.Unit);
         var memory = state.Rows.Single(row => row.Signal == "memory.used");
         Assert.True(memory.HasValue);
-        Assert.Equal("0.5", memory.Value);
+        Assert.Equal("50%", memory.Value);
+        Assert.Equal("Updated 60s ago", memory.Status);
+        Assert.Equal("Not available on this device", cpu.Status);
         Assert.Equal("Fresh", memory.Freshness);
     }
 
@@ -144,7 +146,7 @@ public sealed class ViewModelTests
         await asOf.LoadAsync();
 
         Assert.Null(asOf.ErrorMessage);
-        Assert.Equal("10", Assert.Single(asOf.Rows).Value);
+        Assert.Equal("1000%", Assert.Single(asOf.Rows).Value);
 
         asOf.LookbackHoursText = "0";
         await asOf.LoadAsync();
@@ -261,7 +263,7 @@ public sealed class ViewModelTests
         await cts.CancelAsync();
         await live;
 
-        Assert.Equal("3", state.Rows[0].Value);
+        Assert.Equal("300%", state.Rows[0].Value);
         Assert.Equal("Manual refresh", state.UpdateMode);
     }
 
@@ -284,7 +286,7 @@ public sealed class ViewModelTests
         await cts.CancelAsync();
         await live;
 
-        Assert.Equal("8", state.Rows[0].Value);
+        Assert.Equal("800%", state.Rows[0].Value);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken token)

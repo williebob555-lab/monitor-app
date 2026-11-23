@@ -93,11 +93,11 @@ Every change must leave the documentation set accurate.
 
 Two AI agents, Claude and ChatGPT, work on this repository in parallel. Before any change, read [`docs/COLLABORATION.md`](docs/COLLABORATION.md), the shared work board, and follow it:
 
-- Claim the task in its claims table, on `main`, before creating a branch or editing files. Do not edit an area the other agent has claimed.
-- Work on your own branch (`claude/...` or `chatgpt/<task-id>-<topic>`) and open a pull request. Never push to `main`, and never force-push, rebase, or commit to the other agent's branch.
-- Use your own task-ID range (Claude T058-T299, ChatGPT T300-T499) and claim shared version numbers (`.proto` fields, schema versions) in your claim row.
-- Edit shared logs (`TODO.md`, `docs/CHANGELOG.md`, `docs/DECISIONS.md`) only for your own task, append-only.
-- Ask the other agent for changes through a handoff note in `docs/COLLABORATION.md`, and release your claim when the work merges.
+- Read the required documents it lists (`docs/VISION.md`, `docs/SCENARIOS.md`, `docs/ARCHITECTURE-MODEL.md`) and follow its core principles.
+- There are no ownership areas. Take the next free task from its single ordered queue, claim it there, and work on your own branch (`claude/...` or `chatgpt/<task-id>-<topic>`) with a pull request. Never push to `main`, and never force-push, rebase, or commit to the other agent's branch.
+- Push work in progress often, keep a handoff note at the top of the PR description, and treat claims with no push for 24 hours as expired.
+- Shared model, security and sync changes need review by the other agent or Wilson before merge.
+- Edit shared logs (`TODO.md`, `docs/CHANGELOG.md`, `docs/DECISIONS.md`) only for your own task, append-only. Write any `.proto` field or schema version bump in your claim first.
 
 ## Delegation within one agent
 

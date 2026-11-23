@@ -41,7 +41,10 @@ public sealed record PendingPairingRow(
         Format.Time(pairing.ExpiresAt));
 }
 
-/// <summary>One observation as shown in tables. Unavailable values show a state, never a number.</summary>
+/// <summary>
+/// One observation as shown in tables: a plain label and a formatted value with its unit ("Wi-Fi link: Up", "Battery level: 96%").
+/// <see cref="Signal"/> keeps the raw id for filtering; it is not shown.
+/// </summary>
 public sealed record ObservationRow(
     string Subject,
     string Signal,
@@ -54,14 +57,26 @@ public sealed record ObservationRow(
     string Detail,
     bool HasValue)
 {
+    public string Label => Scene.SignalCatalog.Describe(Signal).Label;
+
+    /// <summary>"Updated 12s ago", "Out of date · 3h ago" or "Not available": the freshness and quality codes in plain words.</summary>
+    public string Status => !HasValue
+        ? Quality switch
+        {
+            "PermissionDenied" => "No permission to read this",
+            "Error" => "Could not be read",
+            _ => "Not available on this device",
+        }
+        : Freshness is "Stale" or "Offline" ? $"Out of date · {Age} ago" : $"Updated {Age} ago";
+
     public static ObservationRow From(HistoryPointDto point)
     {
         var hasValue = ValueFormatter.HasValue(point);
         return new ObservationRow(
             point.SubjectEntityId,
             point.SignalId,
-            ValueFormatter.Format(point),
-            hasValue ? point.Unit ?? string.Empty : string.Empty,
+            Scene.SignalCatalog.Format(point),
+            string.Empty, // the formatted value already carries its unit
             point.Freshness,
             point.Quality,
             Format.Time(point.ObservedAt),
@@ -83,9 +98,12 @@ public static class ValueFormatter
     {
         if (!HasValue(point))
         {
-            return string.Equals(point.Quality, "Valid", StringComparison.Ordinal) || string.IsNullOrEmpty(point.Quality)
-                ? Unavailable
-                : $"{Unavailable} ({point.Quality})";
+            return point.Quality switch
+            {
+                "PermissionDenied" => Unavailable + " (no permission)",
+                "Error" => Unavailable + " (read error)",
+                _ => Unavailable,
+            };
         }
 
         var value = point.Value!;

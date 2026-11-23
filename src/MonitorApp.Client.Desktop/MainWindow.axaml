@@ -3,5 +3,5 @@
         xmlns:views="using:MonitorApp.Client.Ui.Views"
         x:Class="MonitorApp.Client.Desktop.MainWindow"
         Title="Monitor App" Width="1100" Height="760" MinWidth="360" MinHeight="480">
-  <views:MainView />
+  <views:WorkspaceShell />
 </Window>

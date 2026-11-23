@@ -9,13 +9,10 @@ name: Preview build
 # Artifacts move between jobs as assets of a DRAFT release (no third-party actions); the draft is published only
 # after the manifest is signed, and deleted if anything fails.
 
+# Releases are cut deliberately (Actions > Preview build > Run workflow, or `gh workflow run preview.yml`),
+# not on every push to main, so the releases list only holds builds someone chose to publish.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
 
 permissions:
   contents: write
@@ -33,11 +30,38 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The release environment is the single trusted source of the signing key.
+    # It must be unlocked before building any package that embeds the matching public key.
+    environment: release
     outputs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
       previous: ${{ steps.v.outputs.previous }}
+      signing_key_id: ${{ steps.signing.outputs.key_id }}
+      signing_public_key: ${{ steps.signing.outputs.public_key }}
     steps:
+      - name: Derive the trusted public key from the protected signer
+        id: signing
+        env:
+          PRIVATE_KEY: ${{ secrets.MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64 }}
+          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PRIVATE_KEY" ] || [ -z "$KEY_ID" ]; then
+            echo "::error::Configure the release environment signing secret and MONITOR_UPDATE_SIGNING_KEY_ID before building a preview."
+            exit 1
+          fi
+          # The public key, unlike the private key, can safely travel as a job output.
+          # Deriving it once eliminates mismatched keys between release signatures and the
+          # key embedded in Linux/Windows packages. No secret is persisted or printed.
+          public_key="$(printf '%s' "$PRIVATE_KEY" | base64 -d | openssl pkey -inform DER -pubout -outform DER | base64 -w0)"
+          if [ -z "$public_key" ]; then
+            echo "::error::The release signing secret is not a readable PKCS#8 signing key."
+            exit 1
+          fi
+          echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          echo "public_key=$public_key" >> "$GITHUB_OUTPUT"
+
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -80,15 +104,15 @@ jobs:
 
       - name: Write the trusted update key
         env:
-          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
-          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+          KEY_ID: ${{ needs.prepare.outputs.signing_key_id }}
+          PUBLIC_KEY: ${{ needs.prepare.outputs.signing_public_key }}
         run: |
           set -euo pipefail
           missing=""
-          [ -n "${KEY_ID}" ] || missing="${missing} MONITOR_UPDATE_SIGNING_KEY_ID"
-          [ -n "${PUBLIC_KEY}" ] || missing="${missing} MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64"
+          [ -n "${KEY_ID}" ] || missing="${missing} derived signing key ID"
+          [ -n "${PUBLIC_KEY}" ] || missing="${missing} derived signing public key"
           if [ -n "$missing" ]; then
-            echo "::error::Missing repository/environment variable(s):${missing}. See docs/RELEASES.md (first preview checklist)."
+            echo "::error::Missing trusted signing-key outputs from prepare:${missing}. See docs/RELEASES.md."
             exit 1
           fi
           printf '{"keyId":"%s","publicKeySpkiBase64":"%s","repository":"%s"}\n' "$KEY_ID" "$PUBLIC_KEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/update-key.json"
@@ -155,15 +179,15 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
-          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+          KEY_ID: ${{ needs.prepare.outputs.signing_key_id }}
+          PUBLIC_KEY: ${{ needs.prepare.outputs.signing_public_key }}
         run: |
           $ErrorActionPreference = 'Stop'
           $missing = @()
           if (-not $env:KEY_ID) { $missing += 'MONITOR_UPDATE_SIGNING_KEY_ID' }
           if (-not $env:PUBLIC_KEY) { $missing += 'MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64' }
           if ($missing) {
-              Write-Host "::error::Missing repository/environment variable(s): $($missing -join ', '). See docs/RELEASES.md (first preview checklist)."
+              Write-Host "::error::Missing trusted signing-key outputs from prepare: $($missing -join ', '). See docs/RELEASES.md."
               exit 1
           }
           $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
@@ -178,6 +202,8 @@ jobs:
           Set-Content -LiteralPath (Join-Path $stage 'node/update-key.json') -Value $key -Encoding utf8NoBOM
           Copy-Item eng/packaging/windows/*.ps1 $stage
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "out/monitorapp-node-windows-x64-$($env:VERSION).zip"
+          # The installer for people: the same files, installed by double-clicking (no PowerShell 7 needed).
+          ./eng/packaging/windows/build-msi.ps1 -StageDirectory $stage -Version $env:VERSION -OutputPath "out/monitorapp-windows-x64-$($env:VERSION)-setup.msi"
 
       - name: Upload to the draft pre-release
         shell: pwsh
@@ -271,8 +297,8 @@ jobs:
       - name: Require manifest signing secret and variables
         env:
           KEY: ${{ secrets.MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64 }}
-          KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
-          PUBLIC_KEY: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+          KEY_ID: ${{ needs.prepare.outputs.signing_key_id }}
+          PUBLIC_KEY: ${{ needs.prepare.outputs.signing_public_key }}
         run: |
           missing=""
           [ -n "$KEY" ] || missing="${missing} secret:MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64"
@@ -303,8 +329,8 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
           MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64: ${{ secrets.MONITOR_UPDATE_SIGNING_KEY_PKCS8_BASE64 }}
-          MONITOR_UPDATE_SIGNING_KEY_ID: ${{ vars.MONITOR_UPDATE_SIGNING_KEY_ID }}
-          MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64: ${{ vars.MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64 }}
+          MONITOR_UPDATE_SIGNING_KEY_ID: ${{ needs.prepare.outputs.signing_key_id }}
+          MONITOR_UPDATE_PUBLIC_KEY_SPKI_BASE64: ${{ needs.prepare.outputs.signing_public_key }}
         run: |
           set -euo pipefail
           # Expect all five platform families; a missing artifact must not produce a partial manifest.

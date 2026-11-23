@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 #Requires -RunAsAdministrator
 <#
 Installs the Monitor App peer node as an always-on Windows service running as the virtual account
@@ -64,8 +63,11 @@ if ($PeerBind) { $arguments += @('--peer-bind', $PeerBind) }
 $binaryPath = "`"$exe`" $($arguments -join ' ')"
 
 # sc.exe create registers the virtual account NT SERVICE\MonitorApp implicitly when obj= is that name.
-& sc.exe create $name binPath= $binaryPath start= delayed-auto obj= $account DisplayName= 'Monitor App peer node' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "sc.exe create failed ($LASTEXITCODE)" }
+# binPath contains quotes. Windows PowerShell 5.1 and PowerShell 7 quote native arguments differently, so the
+# command line is passed verbatim through Start-Process (sc.exe parses it with the standard rules: \" is a quote).
+$scArguments = "create $name binPath= `"$($binaryPath -replace '"', '\"')`" start= delayed-auto obj= `"$account`" DisplayName= `"Monitor App peer node`""
+$sc = Start-Process -FilePath sc.exe -ArgumentList $scArguments -Wait -PassThru -NoNewWindow
+if ($sc.ExitCode -ne 0) { throw "sc.exe create failed ($($sc.ExitCode))" }
 & sc.exe description $name 'Monitor App peer node (loopback admin page, DPAPI-protected identity).' | Out-Null
 # Recovery: restart after 5s, 30s, 60s; reset the failure count after a day; also act on non-crash failures.
 & sc.exe failure $name reset= 86400 actions= restart/5000/restart/30000/restart/60000 | Out-Null
@@ -95,7 +97,7 @@ $scheduler = New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $scheduler.GetFolder('\').GetTask($taskName).SetSecurityDescriptor($taskSddl, 0)
 # Presence of this admin-owned marker is what lets the node offer "approve and install".
-Set-Content -LiteralPath (Join-Path $InstallDirectory 'update-helper.json') -Value (@{ taskName = $taskName; version = $Version } | ConvertTo-Json -Compress) -Encoding utf8NoBOM
+[System.IO.File]::WriteAllText((Join-Path $InstallDirectory 'update-helper.json'), (@{ taskName = $taskName; version = $Version } | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host "Installed version $Version side by side; update helper task '$taskName' registered."
 Write-Host "Installed service '$name' as $account (delayed auto-start). Start it with: Start-Service $name"

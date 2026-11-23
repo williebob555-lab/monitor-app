@@ -209,8 +209,12 @@ internal static partial class Program
             var actualPublicKey = key.ExportSubjectPublicKeyInfo();
             if (!CryptographicOperations.FixedTimeEquals(actualPublicKey, expectedPublicKey))
             {
+                // Both values printed here are public keys (the second is derived from the private key), so the owner can
+                // see which of the two stored values is not the one in the key folder without exposing the secret.
                 throw new CryptographicException(
-                    "Configured update public key does not match the signing key.");
+                    "Configured update public key does not match the signing key. " +
+                    $"Public key of the signing secret ({privateKeyBytes.Length}-byte PKCS#8): {Convert.ToBase64String(actualPublicKey)}. " +
+                    $"Configured {PublicKeyEnvironmentVariable} ({expectedPublicKey.Length} bytes): {Convert.ToBase64String(expectedPublicKey)}.");
             }
 
             return key;

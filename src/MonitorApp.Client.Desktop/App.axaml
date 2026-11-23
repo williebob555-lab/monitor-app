@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:MonitorApp.Client.Ui"
              x:Class="MonitorApp.Client.Desktop.App"
-             RequestedThemeVariant="Default">
+             RequestedThemeVariant="Dark">
   <Application.Styles>
     <ui:MonitorUiStyles />
   </Application.Styles>

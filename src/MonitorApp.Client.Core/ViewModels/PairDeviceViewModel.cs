@@ -23,6 +23,22 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
     {
     }
 
+    /// <summary>Raised after a pairing succeeds so the shell can refresh what depends on the trusted peers.</summary>
+    public event EventHandler? Paired;
+
+    /// <summary>True when the source can scan a pairing QR with a camera; the view shows the Scan QR button only then.</summary>
+    public bool CanScanQr => Client is IQrPairingSource { CanScanQr: true };
+
+    /// <summary>
+    /// On a computer (connected to its own node's loopback admin API) the phone QR lives on the node's admin page;
+    /// the view offers a button that opens it. Null on the phone, which has no admin page.
+    /// </summary>
+    public Uri? PhonePairingPage => Client is LocalApiClient local && local.Address.IsLoopback
+        ? new Uri(local.Address, "/#phone")
+        : null;
+
+    public bool CanShowPhonePairing => PhonePairingPage is not null;
+
     public override Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     [RelayCommand]
@@ -69,5 +85,25 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
         }
 
         StatusMessage = null;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanScanQr))]
+    private async Task ScanQrAsync()
+    {
+        if (Client is not IQrPairingSource scanner)
+        {
+            return;
+        }
+
+        StatusMessage = null;
+        await RunAsync(async () =>
+        {
+            // null means the person backed out of the scanner: no message. ApiValidationException is shown by RunAsync.
+            if (await scanner.ScanAndPairAsync() is { } peer)
+            {
+                StatusMessage = $"Paired with {peer}.";
+                Paired?.Invoke(this, EventArgs.Empty);
+            }
+        });
     }
 }
