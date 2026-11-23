@@ -236,6 +236,60 @@ public sealed class MobileMeshTests
     }
 
     [Fact]
+    public async Task APhoneAndATabletSeeEachOthersReadingsThroughTheComputerTheyBothReach()
+    {
+        var roots = new[] { TestDirectories.Create(), TestDirectories.Create(), TestDirectories.Create() };
+        try
+        {
+            var deskPort = FreePort();
+            await using var desk = await PeerNodeRuntime.StartAsync(new NodeOptions(roots[0], IPAddress.Loopback, deskPort, 0),
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), CollectSelfLan: false, PeerStateInterval: TimeSpan.FromSeconds(1)));
+            var relayFast = (string root, string name) => MobileOptions(root, name) with { RelayPullInterval = TimeSpan.FromMilliseconds(500) };
+
+            // Neither phone nor tablet listens, so they can never connect to each other: only through the desk.
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(relayFast(roots[1], "phone"), phoneIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(phone, desk, deskPort);
+            using var tabletIdentity = new SoftwareIdentity();
+            await using var tablet = await MobilePeerRuntime.CreateAsync(relayFast(roots[2], "tablet"), tabletIdentity, new ScriptedDeviceReader());
+            await PairPhoneAsync(tablet, desk, deskPort);
+            var (phoneId, tabletId) = (phone.Identity.PeerId, tablet.Identity.PeerId);
+
+            // A reading taken before the tablet connects arrives with its first sync.
+            phone.Start();
+            await phone.CollectOnceAsync();
+            var phoneStream = (await PhoneStore(roots[1]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () => (await desk.Store.ReadOriginRangeAsync(phoneId, phoneStream, 1, 1)).Count == 1);
+            tablet.Start();
+            await WaitAsync(async () =>
+                (await PhoneStore(roots[2]).ReadTrustedPeerAsync(phoneId))?.TrustState == PeerTrustState.Active &&
+                (await PhoneStore(roots[2]).ReadOriginRangeAsync(phoneId, phoneStream, 1, 1))
+                    .SingleOrDefault()?.ReceivedFromPeerId == desk.Identity.PeerId);
+
+            // Readings taken while both stay connected keep arriving, in both directions.
+            await phone.CollectOnceAsync();
+            await tablet.CollectOnceAsync();
+            var tabletStream = (await PhoneStore(roots[2]).ReadLocalIdentityAsync())!.OriginStreamId;
+            await WaitAsync(async () =>
+                await PhoneStore(roots[2]).ReadHeldThroughAsync(phoneId, phoneStream) >= 2 &&
+                (await PhoneStore(roots[1]).ReadOriginRangeAsync(tabletId, tabletStream, 1, 1)).Count == 1);
+        }
+        finally
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task AddingADeviceFailsClosedWithoutAFingerprintReader()
     {
         var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };

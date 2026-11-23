@@ -775,6 +775,58 @@ public sealed partial class PeerStore
         return (cursor, gaps);
     }
 
+    /// <summary>
+    /// The other devices' origin streams this device holds, each with how far it holds it without gaps over every peer
+    /// it received it from (directly from the origin or relayed). The local stream is left out: its cursors are what
+    /// remotes acknowledged, not what this device holds.
+    /// </summary>
+    public async Task<IReadOnlyList<HeldOrigin>> ReadHeldOriginStreamsAsync(string localPeerId, int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(localPeerId);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT origin_peer_id, origin_stream_id, MAX(accepted_through)
+            FROM replication_cursors
+            WHERE origin_peer_id <> $local
+            GROUP BY origin_peer_id, origin_stream_id
+            HAVING MAX(accepted_through) > 0
+            ORDER BY origin_peer_id, origin_stream_id
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$local", localPeerId);
+        command.Parameters.AddWithValue("$limit", limit);
+        var result = new List<HeldOrigin>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            result.Add(new HeldOrigin(reader.GetString(0), reader.GetString(1), ToUInt64(reader.GetInt64(2))));
+        return result;
+    }
+
+    /// <summary>How far another device's origin stream is held without gaps, over every peer it came from.</summary>
+    public async Task<ulong> ReadHeldThroughAsync(string originPeerId, string originStreamId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COALESCE(MAX(accepted_through), 0) FROM replication_cursors WHERE origin_peer_id = $origin AND origin_stream_id = $stream;";
+        command.Parameters.AddWithValue("$origin", originPeerId);
+        command.Parameters.AddWithValue("$stream", originStreamId);
+        return ToUInt64(Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>The highest stored sequence of an origin stream (gaps below it allowed), or 0 when none is stored.</summary>
+    public async Task<ulong> ReadHighestOriginSequenceAsync(string originPeerId, string originStreamId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM origin_records WHERE origin_peer_id = $origin AND origin_stream_id = $stream;";
+        command.Parameters.AddWithValue("$origin", originPeerId);
+        command.Parameters.AddWithValue("$stream", originStreamId);
+        return ToUInt64(Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     public async Task UpsertObservedEntityAsync(ObservedEntity entity, CancellationToken cancellationToken = default)
     {
         EnsureIdentifier(entity.EntityId, nameof(entity.EntityId)); EnsureIdentifier(entity.EntityKind, nameof(entity.EntityKind)); EnsureUtc(entity.CreatedAt, nameof(entity.CreatedAt));

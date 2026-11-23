@@ -21,7 +21,8 @@ public sealed record MobilePeerOptions(
     TimeSpan SyncInterval,
     TimeSpan MaximumSyncBackoff,
     TimeSpan? HeartbeatInterval = null,
-    LiveInterestPolicy? InterestPolicy = null)
+    LiveInterestPolicy? InterestPolicy = null,
+    TimeSpan? RelayPullInterval = null)
 {
     public static MobilePeerOptions Default(string dataDirectory, string displayName) => new(
         dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5));
@@ -884,6 +885,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             var transport = PeerTransportOptions.Create(endpoint) with
             {
                 HeartbeatInterval = options.HeartbeatInterval ?? TimeSpan.FromSeconds(15),
+                RelayPullInterval = options.RelayPullInterval ?? TimeSpan.FromSeconds(15),
                 InitialReconnectDelay = options.SyncInterval,
                 MaximumReconnectDelay = options.MaximumSyncBackoff,
             };

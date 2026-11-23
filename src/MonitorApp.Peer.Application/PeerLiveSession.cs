@@ -16,7 +16,8 @@ public sealed record PeerLiveSessionOptions(
     int MaximumBatchRecords = 256,
     int MaximumBatchBytes = 1024 * 1024,
     bool LocallyInitiated = false,
-    Func<bool>? RenewRequested = null)
+    Func<bool>? RenewRequested = null,
+    Func<CancellationToken, ValueTask<IReadOnlyList<OriginRangeRequest>>>? RelayRequests = null)
 {
     internal void Validate()
     {
@@ -66,6 +67,9 @@ public sealed class PeerLiveSession : IPeerLiveSession
     public bool RenewRequested => options.RenewRequested?.Invoke() ?? false;
 
     public int MaximumInFlightBatches => options.MaximumInFlightBatches;
+
+    public ValueTask<IReadOnlyList<OriginRangeRequest>> NextRelayRequestsAsync(CancellationToken cancellationToken) =>
+        options.RelayRequests?.Invoke(cancellationToken) ?? ValueTask.FromResult<IReadOnlyList<OriginRangeRequest>>([]);
 
     public async ValueTask<OriginRecordBatch?> TryNextBatchAsync(CancellationToken cancellationToken)
     {
