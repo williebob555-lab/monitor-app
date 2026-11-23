@@ -164,7 +164,10 @@ public sealed class AlertEvaluator(
     {
         var rule = AlertRulesConfig.ObservationUnavailableRuleId;
         var subject = $"{latest.SubjectEntityId}#{latest.SignalId}";
-        if (IsGood(latest.Quality))
+        // "Unavailable" means the device does not provide this reading (unsupported capability, no battery, no Wi-Fi link):
+        // that is a fact about the hardware, not a fault, so it never raises and it resolves an alert raised under the
+        // older rule. Only explicit collection failures (Error, PermissionDenied) are problems.
+        if (IsGood(latest.Quality) || latest.Quality == "Unavailable")
         {
             return new Outcome(Verdict.Healthy, rule, subject, latest.ObservedAt);
         }
@@ -179,7 +182,7 @@ public sealed class AlertEvaluator(
         var start = TrailingRunStart(samples, sample => IsBad(sample.Quality));
         return start is { } begin && latest.ObservedAt - begin >= config.UnavailableAfter
             ? new Outcome(Verdict.Breach, rule, subject, begin, AlertSeverity.Warning,
-                $"Observation {latest.QualityLabel()}: {latest.SignalId}",
+                latest.Quality == "PermissionDenied" ? $"No permission to read {latest.SignalId}" : $"Cannot read {latest.SignalId}",
                 $"{latest.SignalId} on {latest.SubjectEntityId} has reported {latest.Quality} since {begin:O}.")
             : new Outcome(Verdict.Unknown, rule, subject, latest.ObservedAt);
     }
@@ -336,7 +339,7 @@ public sealed class AlertEvaluator(
 
     private static bool IsGood(string quality) => quality is "Valid" or "Estimated";
 
-    private static bool IsBad(string quality) => quality is "Unavailable" or "Error";
+    private static bool IsBad(string quality) => quality is "Error" or "PermissionDenied";
 }
 
 internal static class CurrentObservationExtensions

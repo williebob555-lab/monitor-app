@@ -51,14 +51,32 @@ internal static class LocalApiAdminSections
         var acknowledgements = (await store.ReadOperatorAcknowledgementsAsync(token).ConfigureAwait(false))
             .ToDictionary(item => item.AlertId, StringComparer.Ordinal);
         var escalations = await store.ReadEscalationsAsync(token).ConfigureAwait(false);
-        section.Append("<p>Active and recently resolved alerts (last 7 days). Acknowledging records this desktop as the acknowledger; the first acknowledgement is kept.</p>");
+        var active = found.Where(item => item.ResolvedAt is null).ToList();
+        var resolvedCount = found.Count - active.Count;
         if (found.Count == 0)
         {
             return section.Append("<p>No alerts in the last 7 days.</p></section>").ToString();
         }
 
+        // A short grouped summary first (what kinds of problems, how many); the full list stays one click away.
+        section.Append(CultureInfo.InvariantCulture, $"<p><strong>{(active.Count == 0 ? "Nothing needs attention." : $"{active.Count} need attention.")}</strong> {resolvedCount} cleared in the last 7 days.</p>");
+        if (active.Count > 0)
+        {
+            section.Append("<ul>");
+            foreach (var group in active.GroupBy(item => item.RuleId, StringComparer.Ordinal).OrderByDescending(item => item.Max(alert => alert.Severity)).ThenByDescending(item => item.Count()))
+            {
+                var first = group.First();
+                section.Append(CultureInfo.InvariantCulture,
+                    $"<li><strong>{html.Encode(GroupLabel(group.Key, first.Title))}</strong>: {group.Count()} ({html.Encode(first.Severity.ToString().ToLowerInvariant())})</li>");
+            }
+
+            section.Append("</ul>");
+        }
+
+        section.Append(CultureInfo.InvariantCulture, $"<details><summary>Show all {found.Count} alerts</summary>");
+        section.Append("<p>Acknowledging records this desktop as the acknowledger; the first acknowledgement is kept.</p>");
         section.Append("<div class=\"scroll\"><table><caption class=\"sr\">Alerts</caption><thead><tr><th scope=\"col\">Severity</th><th scope=\"col\">State</th><th scope=\"col\">Alert</th><th scope=\"col\">Subject</th><th scope=\"col\">Raised (UTC)</th><th scope=\"col\">Acknowledgement</th></tr></thead><tbody>");
-        foreach (var alert in found)
+        foreach (var alert in active.Concat(found.Where(item => item.ResolvedAt is not null)))
         {
             string ack;
             if (acknowledgements.TryGetValue(alert.AlertId, out var recorded))
@@ -76,8 +94,18 @@ internal static class LocalApiAdminSections
                 $"<tr><td>{html.Encode(alert.Severity.ToString())}</td><td>{html.Encode(alert.State.ToString())}</td><td><strong>{html.Encode(alert.Title)}</strong><br>{html.Encode(alert.Detail)}</td><td>{html.Encode(alert.SubjectId)}<br><small>origin {html.Encode(alert.OriginPeerId)}</small></td><td>{Utc(alert.RaisedAt)}</td><td>{ack}{escalated}</td></tr>");
         }
 
-        return section.Append("</tbody></table></div></section>").ToString();
+        return section.Append("</tbody></table></div></details></section>").ToString();
     }
+
+    private static string GroupLabel(string ruleId, string fallback) => ruleId switch
+    {
+        AlertRulesConfig.ObservationUnavailableRuleId => "Readings that could not be collected",
+        AlertRulesConfig.PeerSilentRuleId => "Devices not heard from",
+        AlertRuleCatalog.CpuRuleId => "Processor busy",
+        AlertRuleCatalog.MemoryRuleId => "Memory nearly full",
+        AlertRuleCatalog.DiskRuleId => "Disk nearly full",
+        _ => fallback,
+    };
 
     private static async Task<string> RulesAsync(
         IServiceProvider services,

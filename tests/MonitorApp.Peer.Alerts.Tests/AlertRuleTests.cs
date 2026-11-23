@@ -95,13 +95,13 @@ public sealed class AlertRuleTests
     }
 
     [Fact]
-    public async Task UnavailableObservationRaisesAfterGraceAndResolvesWhenValidAgain()
+    public async Task FailingObservationRaisesAfterGraceAndResolvesWhenValidAgain()
     {
         await using var peer = await TestPeer.CreateAsync(T0);
         var evaluator = peer.Evaluator(Config(TimeSpan.FromMinutes(2)));
-        await peer.CollectAsync(T0, cpu: 0.1, quality: ObservationQuality.Unavailable);
+        await peer.CollectAsync(T0, cpu: 0.1, quality: ObservationQuality.Error);
         Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
-        await peer.CollectAsync(T0.AddMinutes(1), cpu: 0.1, quality: ObservationQuality.Unavailable);
+        await peer.CollectAsync(T0.AddMinutes(1), cpu: 0.1, quality: ObservationQuality.PermissionDenied);
         Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
         await peer.CollectAsync(T0.AddMinutes(2), cpu: 0.1, quality: ObservationQuality.Error);
         Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Raised);
@@ -111,6 +111,27 @@ public sealed class AlertRuleTests
         Assert.Equal(T0, alert.RaisedAt);
 
         await peer.CollectAsync(T0.AddMinutes(3), cpu: 0.1);
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Resolved);
+    }
+
+    [Fact]
+    public async Task ReadingTheDeviceDoesNotProvideNeverRaisesAndClearsAnOlderAlert()
+    {
+        await using var peer = await TestPeer.CreateAsync(T0);
+        var evaluator = peer.Evaluator(Config(TimeSpan.FromMinutes(2)));
+        for (var minute = 0; minute <= 5; minute++)
+        {
+            await peer.CollectAsync(T0.AddMinutes(minute), cpu: 0.1, quality: ObservationQuality.Unavailable);
+            Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
+        }
+
+        Assert.Empty(await peer.Alerts.ReadActiveAsync());
+
+        // An alert raised by a failure clears once the device reports the reading as simply not provided.
+        await peer.CollectAsync(T0.AddMinutes(6), cpu: 0.1, quality: ObservationQuality.Error);
+        await peer.CollectAsync(T0.AddMinutes(9), cpu: 0.1, quality: ObservationQuality.Error);
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Raised);
+        await peer.CollectAsync(T0.AddMinutes(10), cpu: 0.1, quality: ObservationQuality.Unavailable);
         Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Resolved);
     }
 
