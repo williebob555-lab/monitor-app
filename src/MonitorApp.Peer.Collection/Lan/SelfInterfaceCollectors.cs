@@ -1,3 +1,4 @@
+using MonitorApp.Agent.Core;
 using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -143,23 +144,9 @@ public sealed class WindowsSelfInterfaceCollector : ISelfInterfaceCollector
         }
     }
 
-    /// <summary>
-    /// Windows lists driver plumbing alongside real adapters: a copy of each adapter per filter driver bound to it
-    /// ("Wi-Fi-QoS Packet Scheduler-0000", "...-WFP Native MAC Layer LightWeight Filter-0000"), the hidden Wi-Fi Direct
-    /// adapters ("Local Area Connection* 6"), IPv6 transition tunnels (6to4, Teredo, ISATAP) and the kernel debugger.
-    /// None of them is a link a person has or can act on, so they are not collected at all.
-    /// </summary>
-    public static bool IsWindowsPlumbing(NetworkInterfaceType type, string name, string description)
-    {
-        var text = $"{name} {description}";
-        string[] markers =
-        [
-            "QoS Packet Scheduler", "LightWeight Filter", "WFP ", "Native WiFi Filter", "Virtual WiFi Filter", "Npcap Packet Driver",
-            "Local Area Connection*", "6to4", "Teredo", "isatap", "IP-HTTPS", "Kernel Debug", "WAN Miniport",
-        ];
-        return markers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase))
-            || (type == NetworkInterfaceType.Tunnel && ClassifyWindows(type, name, description) != InterfaceMedium.Overlay);
-    }
+    /// <summary>Driver filters, hidden Wi-Fi Direct adapters and transition tunnels are not links; see <see cref="WindowsNetworkPlumbing"/>.</summary>
+    public static bool IsWindowsPlumbing(NetworkInterfaceType type, string name, string description) =>
+        WindowsNetworkPlumbing.IsPlumbing(type, name, description);
 
     public static InterfaceMedium ClassifyWindows(NetworkInterfaceType type, string name, string description)
     {
