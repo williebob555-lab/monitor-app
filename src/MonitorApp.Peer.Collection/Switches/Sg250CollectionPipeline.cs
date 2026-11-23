@@ -25,23 +25,15 @@ public sealed class Sg250CollectionPipeline
     public async Task<Sg250Snapshot> CollectAndPersistAsync(CancellationToken cancellationToken = default)
     {
         // Check before contacting the device. Knowing a switch or its management IP is not a grant.
-        var configured = await store.ReadAdapterReplicationDescriptorAsync(adapterInstanceId, cancellationToken)
-            .ConfigureAwait(false);
-        var assignment = await store.ReadCollectorAssignmentAsync(adapter.SwitchEntityId, cancellationToken)
-            .ConfigureAwait(false);
-        if (configured is null || !configured.Enabled ||
-            configured.AdapterId != AdapterId ||
-            configured.ObservedEntityId != adapter.SwitchEntityId ||
-            configured.CollectorPeerId != adapter.CollectorPeerId ||
-            assignment is null ||
-            assignment.AdapterInstanceId != adapterInstanceId ||
-            assignment.ObservedEntityId != adapter.SwitchEntityId ||
-            assignment.CollectorPeerId != adapter.CollectorPeerId)
-        {
+        if (!await IsAuthorizedAsync(cancellationToken).ConfigureAwait(false))
             throw new InvalidOperationException("Switch collection requires an enabled adapter and current explicit collector assignment.");
-        }
 
         var snapshot = await adapter.CollectAsync(cancellationToken).ConfigureAwait(false);
+        // Ownership or adapter enablement can change while the network request is running.
+        // A stale collector may finish its read, but it must not persist status or topology.
+        if (!await IsAuthorizedAsync(cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("Switch collector assignment changed during collection.");
+
         if (snapshot.Status != Sg250CollectionStatus.Available)
         {
             await RecordStatusAsync(snapshot, cancellationToken).ConfigureAwait(false);
@@ -71,6 +63,15 @@ public sealed class Sg250CollectionPipeline
             }
         }
 
+        var storedEntities = (await store.ReadObservedEntitiesAsync(cancellationToken).ConfigureAwait(false))
+            .ToDictionary(entity => entity.EntityId, StringComparer.Ordinal);
+        if (snapshot.Topology.Entities.Any(entity =>
+                storedEntities.TryGetValue(entity.Entity.EntityId, out var stored) &&
+                stored.EntityKind != entity.Entity.EntityKind))
+        {
+            return await RejectEntityConflictAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        }
+
         foreach (var entity in snapshot.Topology.Entities)
         {
             try
@@ -80,7 +81,12 @@ public sealed class Sg250CollectionPipeline
             catch (PeerPersistenceConflictException)
             {
                 // The object was created during an earlier poll. Creation time is immutable.
-                // This does not override its identity or permit a different collector.
+                // Accept that only when the stored entity still has the same kind. A colliding
+                // id for another kind must not be relabelled and attached as a switch port.
+                var stored = (await store.ReadObservedEntitiesAsync(cancellationToken).ConfigureAwait(false))
+                    .SingleOrDefault(candidate => candidate.EntityId == entity.Entity.EntityId);
+                if (stored is null || stored.EntityKind != entity.Entity.EntityKind)
+                    return await RejectEntityConflictAsync(snapshot, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -118,6 +124,38 @@ public sealed class Sg250CollectionPipeline
 
         await RecordStatusAsync(snapshot, cancellationToken).ConfigureAwait(false);
         return snapshot;
+    }
+
+    private async Task<bool> IsAuthorizedAsync(CancellationToken cancellationToken)
+    {
+        var configured = await store.ReadAdapterReplicationDescriptorAsync(adapterInstanceId, cancellationToken)
+            .ConfigureAwait(false);
+        var assignment = await store.ReadCollectorAssignmentAsync(adapter.SwitchEntityId, cancellationToken)
+            .ConfigureAwait(false);
+        return configured is not null && configured.Enabled &&
+               configured.AdapterId == AdapterId &&
+               configured.ObservedEntityId == adapter.SwitchEntityId &&
+               configured.CollectorPeerId == adapter.CollectorPeerId &&
+               assignment is not null &&
+               assignment.AdapterInstanceId == adapterInstanceId &&
+               assignment.ObservedEntityId == adapter.SwitchEntityId &&
+               assignment.CollectorPeerId == adapter.CollectorPeerId;
+    }
+
+    private async Task<Sg250Snapshot> RejectEntityConflictAsync(
+        Sg250Snapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        var rejected = snapshot with
+        {
+            Status = Sg250CollectionStatus.Error,
+            BridgeMac = null,
+            Ports = [],
+            Topology = new(snapshot.CollectorPeerId, [], [], [], []),
+            SafeReason = "Stored entity identity conflicts with switch topology.",
+        };
+        await RecordStatusAsync(rejected, cancellationToken).ConfigureAwait(false);
+        return rejected;
     }
 
     private Task RecordStatusAsync(Sg250Snapshot snapshot, CancellationToken cancellationToken) =>

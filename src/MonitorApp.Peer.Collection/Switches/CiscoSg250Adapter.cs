@@ -105,7 +105,12 @@ public sealed class CiscoSg250Adapter
         }
         catch (Sg250ReadException ex)
         {
-            return Empty(ex.Status, observedAt);
+            var status = ex.Status is Sg250CollectionStatus.Unavailable or
+                Sg250CollectionStatus.PermissionDenied or
+                Sg250CollectionStatus.Error
+                ? ex.Status
+                : Sg250CollectionStatus.Error;
+            return Empty(status, observedAt);
         }
         catch (Exception)
         {

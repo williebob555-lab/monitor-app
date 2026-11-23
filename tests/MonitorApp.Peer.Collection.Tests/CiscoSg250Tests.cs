@@ -112,6 +112,12 @@ public sealed class CiscoSg250Tests
         Assert.DoesNotContain("do-not-disclose", unexpected.SafeReason);
         Assert.Empty(unexpected.Topology.Claims);
 
+        var invalidSuccess = await new CiscoSg250Adapter(SwitchId, Owner,
+            new StubReader(new Sg250ReadException(Sg250CollectionStatus.Available))).CollectAsync();
+        Assert.Equal(Sg250CollectionStatus.Error, invalidSuccess.Status);
+        Assert.Empty(invalidSuccess.Ports);
+        Assert.Equal("Switch probe failed.", invalidSuccess.SafeReason);
+
         var missing = await CollectAsync(new Sg250SnmpValue(Sg250Oids.IfHighSpeed + ".1", "Gauge32: 1000"));
         Assert.Equal(Sg250CollectionStatus.Unavailable, missing.Status);
         Assert.Empty(missing.Ports);

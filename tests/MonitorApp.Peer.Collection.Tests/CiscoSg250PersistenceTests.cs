@@ -116,6 +116,55 @@ public sealed class CiscoSg250PersistenceTests : IDisposable
         Assert.Equal("00:11:22:33:44:55", strong[0].NormalizedValue);
     }
 
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task CollectorDisabledDuringReadCannotPersistStatusOrTopology()
+    {
+        var store = await NewStoreAsync();
+        var clock = new TestClock();
+        await ProvisionAsync(store, clock);
+        var source = new CallbackReader(Fixture(1), () => store.UpsertAdapterInstanceAsync(new AdapterInstance(
+            AdapterId, "monitor.cisco.sg250", "1", Owner, SwitchId, "local:snmpconfig", false)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NewPipeline(store, source, clock).CollectAndPersistAsync());
+
+        Assert.Equal(1, source.ReadCount);
+        Assert.Null(await store.ReadLatestAdapterStatusAsync(AdapterId));
+        Assert.DoesNotContain(await store.ReadObservedEntitiesAsync(),
+            entity => entity.EntityId == SwitchId + ":if:1");
+        Assert.Empty(await store.ReadIdentityClaimsAsync(SwitchId));
+        Assert.Empty(await store.ReadRelationshipsAsync(SwitchId));
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task CollidingNonPortEntityIdIsRejectedBeforeClaimsOrRelationshipsAreWritten()
+    {
+        var store = await NewStoreAsync();
+        var clock = new TestClock();
+        await ProvisionAsync(store, clock);
+        var newPortId = SwitchId + ":if:1";
+        var collidingPortId = SwitchId + ":if:2";
+        await store.UpsertObservedEntityAsync(new ObservedEntity(
+            collidingPortId, "service", clock.GetUtcNow().AddMinutes(-1)));
+
+        var rejected = await NewPipeline(store, new ScriptedReader(Fixture(1, 2)), clock)
+            .CollectAndPersistAsync();
+
+        Assert.Equal(Sg250CollectionStatus.Error, rejected.Status);
+        Assert.Equal("Stored entity identity conflicts with switch topology.", rejected.SafeReason);
+        var entities = await store.ReadObservedEntitiesAsync();
+        Assert.DoesNotContain(entities, entity => entity.EntityId == newPortId);
+        Assert.Equal("service", Assert.Single(
+            entities, entity => entity.EntityId == collidingPortId).EntityKind);
+        Assert.Empty(await store.ReadIdentityClaimsAsync(SwitchId));
+        Assert.Empty(await store.ReadIdentityClaimsAsync(newPortId));
+        Assert.Empty(await store.ReadIdentityClaimsAsync(collidingPortId));
+        Assert.Empty(await store.ReadRelationshipsAsync(SwitchId));
+        Assert.Equal("error", (await store.ReadLatestAdapterStatusAsync(AdapterId))?.State);
+    }
+
     private async Task<PeerStore> NewStoreAsync()
     {
         Directory.CreateDirectory(directory);
@@ -181,6 +230,19 @@ public sealed class CiscoSg250PersistenceTests : IDisposable
             if (next is Exception failure)
                 return Task.FromException<IReadOnlyList<Sg250SnmpValue>>(failure);
             return Task.FromResult<IReadOnlyList<Sg250SnmpValue>>((Sg250SnmpValue[])next);
+        }
+    }
+
+    private sealed class CallbackReader(Sg250SnmpValue[] snapshot, Func<Task> callback) : ISg250SnmpReader
+    {
+        public int ReadCount { get; private set; }
+
+        public async Task<IReadOnlyList<Sg250SnmpValue>> ReadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            await callback().ConfigureAwait(false);
+            return snapshot;
         }
     }
 }
