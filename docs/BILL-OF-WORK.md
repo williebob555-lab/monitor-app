@@ -43,6 +43,23 @@ Done items stay listed so progress is visible.
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Planned 2026-11-24, see "Projects, parts and sourcing" below. P1 and P2 done |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 
+## Fill the model by itself (started 2026-11-24)
+
+**Goal.** In the morning the Map and Things show your real network, not just two devices: the router, the SG250 switch, printers, TVs, phones, every Tailscale device, and what each computer is made of. Everything found is marked as discovered or measured, can be renamed or confirmed, and is never trusted into the mesh by being found.
+
+**Where it stands.** Each computer reports only its own CPU, memory, disks, network traffic and adapters, plus the phone's battery. Nothing looks at the rest of the network (the security rules forbid reading other devices' addresses), Tailscale and Syncthing are not read at all, and a computer does not know its own maker, model or graphics card.
+
+**Your decision (2026-11-24):** look for other devices with a switch per computer ("Find devices on this network"), off until you turn it on, own subnet only, slow.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| D1 | **Find devices on this network** (switch per computer, off by default): reads the computer's neighbor table, a slow ping of its own subnet only (at most one /22, 16 at a time, every 30 minutes), local names (DNS, mDNS), UPnP/SSDP descriptions (TV, router, printer names and models) and the maker from the MAC prefix. Each device becomes its own subject with signed readings, so it replicates to every device in the mesh | L | Turn the switch on in Settings and, within a minute, dozens of devices appear on the Map around the computer that found them, with names, makers and "answered the last scan" | In progress |
+| D2 | **Discovered devices become Things**: one Thing per device (same MAC on two computers gives one Thing), kind guessed from what it offers (printer, TV, router, phone), marked discovered/estimated; rename and confirm as usual | M | Things lists the router, printers, TVs and phones with their maker and address | Planned |
+| D3 | **Tailscale devices**: `tailscale status --json` on each computer; every tailnet device becomes a device with its Tailscale address, OS and online state; whether this computer is connected | M | All tailnet devices on the Map; "Tailscale connected" on each computer | Planned |
+| D4 | **Hardware self-description**: maker, model, processor, memory, drives, graphics, and installed systems (firmware boot entries on Linux: Fedora running now, Windows Boot Manager also installed; no warnings) as measured readings that fill in the computer's Thing | M | Open a computer in Things and see "Lenovo ... , Intel Core ..., 16 GB, Samsung SSD 1 TB, Windows and Fedora installed" | Planned |
+| D5 | **Services**: Tailscale and Syncthing as services running on their computer (folders up to date, syncing or stuck; devices connected). Syncthing's key is read on the computer and never leaves it | M | Tailscale and Syncthing nodes on the Map, linked to their computer | Planned |
+| D6 | Actions and diagnosis (rescan a folder, reconnect, restart) on the same signed control path, with fingerprint or device PIN | L | One-tap fixes on a stuck folder | After D1-D5 |
+
 ## Projects, parts and sourcing (planned 2026-11-24)
 
 **Goal.** A project is a thing like any other (kind "project"). Its parts list is what the model already knows: things linked "part of" it, or put inside it. The app tells you what you already own, what you still need to buy, what that costs, and where to buy it. Every price and quantity shows whether it was measured, from a listing, entered, estimated or unknown. No separate shopping screen and no code written for one kind of project.
