@@ -333,6 +333,16 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     /// <summary>True when this phone can produce biometric (user-presence) signatures for high-risk commands.</summary>
     public bool CanVerifyUserPresence => presence?.IsAvailable == true;
 
+    /// <summary>How removing a device will be confirmed here, in words for the screen.</summary>
+    public string RemovalCheck => presence switch
+    {
+        { IsAvailable: true } => "Removing asks for your fingerprint.",
+        IDeviceLockConfirmation { CanConfirmWithDeviceLock: true } =>
+            "No fingerprint is set up on this phone, so removing asks for your screen lock (PIN, pattern or password) instead. " +
+            "To use a fingerprint, add one in Android Settings > Security.",
+        _ => "This phone has no fingerprint or screen lock, so removing is not double-checked. Set a screen lock in Android Settings > Security.",
+    };
+
     /// <summary>
     /// Hex SHA-256 of this phone's presence public key (what the desktop administrator compares when approving the
     /// enrollment), or null when the device has no biometric signer.
@@ -506,16 +516,21 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     /// <summary>Revokes a device here and, through the mesh, on every other member.</summary>
     public async Task RevokeAsync(string peerId, CancellationToken cancellationToken = default)
     {
-        // Removing a device removes it from every device in the mesh, for good: ask for the fingerprint when one is set
-        // up, as computers do. Without one, removal still works, so a lost device can always be removed.
+        // Removing a device removes it from every device in the mesh: ask for the fingerprint when one is set up, as
+        // computers do, and otherwise for the screen lock. With neither, removal still works, so a lost device can
+        // always be removed; the screen says beforehand which check will be used (RemovalCheck).
+        var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
+        var name = string.IsNullOrWhiteSpace(peer?.DisplayName) ? "this device" : peer.DisplayName;
+        var challenge = new UserPresenceChallenge($"Remove {name}", $"{name} will be removed from all your devices.");
         if (presence is { IsAvailable: true } signer)
         {
-            var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
-            var name = string.IsNullOrWhiteSpace(peer?.DisplayName) ? "this device" : peer.DisplayName;
             var payload = System.Text.Encoding.UTF8.GetBytes(
                 $"monitor-mesh-local-removal-v1|{identity.PublicIdentity.PeerId}|{peerId}|{Guid.NewGuid():N}");
-            await signer.SignAsync(payload, new UserPresenceChallenge($"Remove {name}",
-                $"{name} will be removed from all your devices and cannot be added back without reinstalling."), cancellationToken).ConfigureAwait(false);
+            await signer.SignAsync(payload, challenge, cancellationToken).ConfigureAwait(false);
+        }
+        else if (presence is IDeviceLockConfirmation { CanConfirmWithDeviceLock: true } deviceLock)
+        {
+            await deviceLock.ConfirmWithDeviceLockAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
 
         await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
@@ -996,7 +1011,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 ? MobileSyncState.Refused
                 : MobileSyncState.Offline;
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
-            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
+            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, PeerLinkErrors.Plain(exception));
             PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
         }
     }
@@ -1016,7 +1031,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             PairingRemoteCandidate candidate,
             DateTimeOffset pairedAt,
             CancellationToken cancellationToken) =>
-            await store.UpsertTrustedPeerAsync(new TrustedPeer(
+            await store.PairTrustedPeerAsync(new TrustedPeer(
                 candidate.Identity.PeerId,
                 candidate.Identity.PublicKeySpki,
                 candidate.Identity.PublicKeyFingerprint,

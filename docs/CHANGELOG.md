@@ -5,6 +5,10 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Added
+- Pairing you can trust (R1 to R6). Remove asks, works and answers on the device's own card. Each device card says whether this device is connected to it right now, through which address, since when, when its last reading arrived, and why it can't connect in plain words. A bar at the bottom answers every action ("Approving Laptop…", then the result or the reason it failed).
+- A removed device can pair again (R3): scan the code as usual and approve it, and it is back on every device. Removing it again still takes effect everywhere at once, whatever the device clocks say. Details in `docs/DECISIONS.md` (R3).
+- Phones without a fingerprint use the screen lock (PIN, pattern or password) to remove or add devices, and the Devices page says which one it will ask for.
+- Navigation: the side rail labels every icon, the first mode is called Home, and More opens on pairing; "Overview" is now "About this device".
 - Projects have a parts list (T084, P1 and P2). A project card in Things lists everything linked "Part of" it or put inside it, each marked to buy, ordered or in hand, with a line like "1 of 5 in hand, 1 ordered, 3 to buy" and what the rest costs ("To buy: $153.50 (1 price unknown)"). Totals stay per currency and nothing is converted; estimated prices say "about".
 - Typed values named Price ($45, 39.99 EUR), Quantity (2), Width and Depth (70 mm) and Rack units (2U) are now stored as real values with units, so parts lists, racks and boards use them. Other names stay your own text values.
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.

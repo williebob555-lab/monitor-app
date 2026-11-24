@@ -33,7 +33,7 @@ public sealed partial class ShellViewModel : ObservableObject
     private SectionViewModel? selectedSubSection;
 
     [ObservableProperty]
-    private bool railExpanded;
+    private bool railExpanded = false; // Labels beside the icons until the person collapses it.
 
     [ObservableProperty]
     private bool inspectorCollapsed;
@@ -184,6 +184,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     /// <summary>The object (or page) the centre of the workspace shows for the current mode.</summary>
     public object? Content => ContentFor(Mode);
+
+    /// <summary>The page on screen when it is a section: its action results and errors are shown in the shell's feedback bar.</summary>
+    public SectionViewModel? ActiveSection => Content as SectionViewModel;
 
     public bool ShowsConnection => Mode == ShellMode.Settings;
 
@@ -413,6 +416,7 @@ public sealed partial class ShellViewModel : ObservableObject
         PushSectionToMain();
         RebuildBreadcrumbs();
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
         OnPropertyChanged(nameof(ShowsConnection));
         OnPropertyChanged(nameof(IsEcosystem));
         OnPropertyChanged(nameof(ShowAlertBack));
@@ -431,6 +435,7 @@ public sealed partial class ShellViewModel : ObservableObject
     partial void OnSelectedSubSectionChanged(SectionViewModel? value)
     {
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
         if (!syncing)
         {
             PushSectionToMain();
@@ -459,7 +464,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
     private static IReadOnlyList<ShellModeItem> ModesFor(bool hasThings) =>
     [
-        new(ShellMode.Ecosystem, "Ecosystem", "Ecosystem", "ecosystem", "Ecosystem: your devices and services"),
+        new(ShellMode.Ecosystem, "Home", "Home", "ecosystem", "Home: your devices and services"),
         .. hasThings ? [new ShellModeItem(ShellMode.Things, "Things", "Things", "things", "Things: everything you own or plan, with how each value is known")] : Array.Empty<ShellModeItem>(),
         new(ShellMode.Alerts, "Alerts", "Alerts", "alerts", "Alerts"),
         new(ShellMode.Activity, "Activity and history", "History", "history", "Activity and history"),
@@ -483,7 +488,7 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             case ShellMode.Settings:
                 return main.Sections.Where(s => s is DevicesViewModel or UpdatesViewModel or PairingsViewModel or SecurityViewModel or AlertPreferencesViewModel or PairDeviceViewModel or OverviewViewModel)
-                    .OrderBy(s => s switch { DevicesViewModel => 0, UpdatesViewModel => 1, PairingsViewModel => 2, SecurityViewModel => 3, AlertPreferencesViewModel => 4, PairDeviceViewModel => 5, _ => 6 });
+                    .OrderBy(s => s switch { PairDeviceViewModel => 0, PairingsViewModel => 1, DevicesViewModel => 2, UpdatesViewModel => 3, SecurityViewModel => 4, AlertPreferencesViewModel => 5, _ => 6 });
             default:
                 return [];
         }
@@ -511,6 +516,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
         OnPropertyChanged(nameof(HasSubSections));
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
     }
 
     /// <summary>Keeps <see cref="MainViewModel.SelectedSection"/> (and its refresh-on-select) in step with what is on screen.</summary>

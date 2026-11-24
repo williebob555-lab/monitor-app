@@ -13,7 +13,10 @@ public sealed partial class PairingsViewModel : SectionViewModel
     public bool CanAddPhone => AddPhone is not null;
 
     [ObservableProperty]
-    private TrustedPeerRow? pendingRevocation;
+    private TrustedPeerCard? pendingRevocation;
+
+    /// <summary>What the last removal said, per device, so the result stays on that device's card across a reload.</summary>
+    private readonly Dictionary<string, (string Text, bool Failed)> removalOutcomes = new(StringComparer.Ordinal);
 
     public PairingsViewModel(NodeConnection connection)
         : base(connection, "Pairing and trust")
@@ -45,22 +48,37 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
     public ObservableCollection<PendingPairingRow> Pending { get; } = [];
 
-    public ObservableCollection<TrustedPeerRow> Peers { get; } = [];
+    public ObservableCollection<TrustedPeerCard> Peers { get; } = [];
 
     /// <summary>Per-phone permission panels; empty and hidden when the source cannot manage grants (the in-process phone runtime).</summary>
     public ObservableCollection<PeerGrantViewModel> Grants { get; } = [];
 
     public bool CanGrant => Client is ISecuritySource;
 
+    /// <summary>How removing a device is confirmed on this device: fingerprint, screen lock, or not at all (and how to change that).</summary>
+    [ObservableProperty]
+    private string removalCheck = string.Empty;
+
+    public bool HasRemovalCheck => RemovalCheck.Length > 0;
+
+    partial void OnRemovalCheckChanged(string value) => OnPropertyChanged(nameof(HasRemovalCheck));
+
     public bool IsRevocationPending => PendingRevocation is not null;
 
-    public string RevocationPrompt => PendingRevocation is null
-        ? string.Empty
-        : $"Remove {PendingRevocation.Name} (fingerprint {PendingRevocation.Fingerprint}) from all your devices? " +
-            "Every device stops trusting it, and it cannot be added back without reinstalling it.";
+    public string RevocationPrompt => PendingRevocation?.Prompt ?? string.Empty;
 
-    partial void OnPendingRevocationChanged(TrustedPeerRow? value)
+    partial void OnPendingRevocationChanged(TrustedPeerCard? oldValue, TrustedPeerCard? newValue)
     {
+        if (oldValue is not null)
+        {
+            oldValue.IsConfirming = false;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.IsConfirming = true;
+        }
+
         OnPropertyChanged(nameof(IsRevocationPending));
         OnPropertyChanged(nameof(RevocationPrompt));
     }
@@ -98,10 +116,12 @@ public sealed partial class PairingsViewModel : SectionViewModel
     }
 
     [RelayCommand]
-    private void RequestRevoke(TrustedPeerRow? peer)
+    private void RequestRevoke(TrustedPeerCard? peer)
     {
-        if (peer is { CanRevoke: true })
+        if (peer is { CanRevoke: true, IsWorking: false })
         {
+            removalOutcomes.Remove(peer.PeerId);
+            peer.SetOutcome(null, false);
             PendingRevocation = peer;
             StatusMessage = null;
         }
@@ -111,26 +131,78 @@ public sealed partial class PairingsViewModel : SectionViewModel
     private void CancelRevoke() => PendingRevocation = null;
 
     [RelayCommand]
-    private async Task ConfirmRevokeAsync()
+    private async Task ConfirmRevokeAsync(TrustedPeerCard? card = null)
     {
-        var peer = PendingRevocation;
-        if (peer is null)
+        var peer = card ?? PendingRevocation;
+        if (peer is null || peer.IsWorking)
         {
             return;
         }
 
         PendingRevocation = null;
-        await RunAsync(async () =>
+        peer.IsWorking = true;
+        peer.SetOutcome($"Removing {peer.Name} from all your devices…", false);
+        string? failure = null;
+        try
         {
             await Client.RevokePeerAsync(peer.PeerId);
-            StatusMessage = $"Removed {peer.Name} from all your devices.";
-            await ReloadAsync(CancellationToken.None);
-        });
+        }
+        catch (LocalApiException exception)
+        {
+            failure = exception.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            failure = "Stopped before anything changed.";
+        }
+        finally
+        {
+            peer.IsWorking = false;
+        }
+
+        var outcome = failure is null
+            ? ($"Removed. Every device stops trusting {peer.Name} as soon as it hears about it.", false)
+            : ($"Not removed: {failure}", true);
+        removalOutcomes[peer.PeerId] = outcome;
+        peer.SetOutcome(outcome.Item1, outcome.Item2);
+        StatusMessage = failure is null ? $"Removed {peer.Name} from all your devices." : null;
+        if (failure is null)
+        {
+            await RunAsync(() => ReloadAsync(CancellationToken.None));
+        }
+    }
+
+    /// <summary>
+    /// Updates each device's connection line in place, every few seconds while the screen is open, without rebuilding the
+    /// cards (a removal in progress or an unsaved permission is never disturbed). Failures are ignored here; the next full
+    /// refresh reports them.
+    /// </summary>
+    public async Task RefreshConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<TrustedPeerDto> peers;
+        try
+        {
+            peers = await Client.GetPeersAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is LocalApiException or OperationCanceledException)
+        {
+            return;
+        }
+
+        foreach (var peer in peers)
+        {
+            if (Peers.FirstOrDefault(card => card.PeerId == peer.PeerId) is { } card)
+            {
+                card.Connection = peer.Connection;
+                card.Connected = peer.Connected;
+            }
+        }
     }
 
     private async Task Decide(PendingPairingRow pairing, bool approve)
     {
-        await RunAsync(async () =>
+        StatusMessage = approve ? $"Approving {pairing.Name}…" : $"Rejecting {pairing.Name}…";
+        var done = await RunAsync(async () =>
         {
             if (approve)
             {
@@ -146,6 +218,10 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
             await ReloadAsync(CancellationToken.None);
         });
+        if (!done)
+        {
+            StatusMessage = null;
+        }
     }
 
     private async Task ReloadAsync(CancellationToken cancellationToken)
@@ -166,7 +242,17 @@ public sealed partial class PairingsViewModel : SectionViewModel
         Grants.Clear();
         foreach (var peer in peers)
         {
-            var row = TrustedPeerRow.From(peer);
+            var row = new TrustedPeerCard(TrustedPeerRow.From(peer));
+            if (removalOutcomes.TryGetValue(row.PeerId, out var outcome))
+            {
+                row.SetOutcome(outcome.Text, outcome.Failed);
+            }
+
+            if (PendingRevocation?.PeerId == row.PeerId && row.CanRevoke)
+            {
+                PendingRevocation = row;
+            }
+
             Peers.Add(row);
             if (CanGrant && row.CanRevoke)
             {
@@ -186,5 +272,32 @@ public sealed partial class PairingsViewModel : SectionViewModel
         }
 
         OnPropertyChanged(nameof(CanGrant));
+        RemovalCheck = await DescribeRemovalCheckAsync(cancellationToken);
+    }
+
+    private async Task<string> DescribeRemovalCheckAsync(CancellationToken cancellationToken)
+    {
+        if (Client is IRemovalCheckSource described)
+        {
+            return described.RemovalCheck;
+        }
+
+        if (Client is not ISecuritySource security)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var status = await security.GetLocalPresenceStatusAsync(cancellationToken);
+            return status.Enrolled
+                ? "Removing a device asks for your fingerprint (or Windows Hello)."
+                : "Fingerprint approval isn't set up on this computer, so removing a device is not double-checked. " +
+                  "Set it up on the Security page; on Windows a Windows Hello PIN works too.";
+        }
+        catch (LocalApiException)
+        {
+            return string.Empty;
+        }
     }
 }

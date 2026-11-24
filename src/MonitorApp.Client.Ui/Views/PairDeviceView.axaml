@@ -17,7 +17,7 @@
       <StackPanel Spacing="8">
         <TextBlock Text="Add a phone or tablet" Classes="subheading" />
         <TextBlock TextWrapping="Wrap"
-                   Text="Phones and tablets add each other face to face. On the new device choose &quot;Show my code&quot;; on a device that is already set up choose &quot;Scan the other device&quot;. Then the new device scans the reply. Both ask for your fingerprint, and every one of your devices then trusts the new one." />
+                   Text="Phones and tablets add each other face to face. On the new device choose &quot;Show my code&quot;; on a device that is already set up choose &quot;Scan the other device&quot;. Then the new device scans the reply. Both ask for your fingerprint (or your screen lock when no fingerprint is set up), and every one of your devices then trusts the new one." />
         <WrapPanel Orientation="Horizontal">
           <Button Name="ShowJoinCode" Content="Show my code" Command="{Binding ShowJoinCodeCommand}" Margin="0,0,8,8" />
           <Button Name="ScanDeviceCode" Content="Scan the other device" Command="{Binding ScanDeviceCodeCommand}" Margin="0,0,8,8" />

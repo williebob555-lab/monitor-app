@@ -72,6 +72,10 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             await AssertSameHistoryAsync(phone.Store, desktop.Store, phoneId);
             await AssertSameHistoryAsync(phone.Store, desktop.Store, desktopId);
             Assert.Equal(MobileSyncState.Synced, Assert.Single(phone.GetStatus().Peers).State);
+
+            // Each side can say when the other's newest reading was taken (the "last reading" line on a device's card).
+            Assert.True((await phone.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(desktopId));
+            Assert.True((await desktop.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(phoneId));
         }
         finally
         {

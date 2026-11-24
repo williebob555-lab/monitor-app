@@ -16,10 +16,12 @@ namespace MonitorApp.Android;
 /// is invalidated by the platform when a new fingerprint is enrolled, which forces a new desktop-approved enrollment.
 /// Uses only framework APIs (no AndroidX package): BiometricPrompt needs API 28, strong-only authenticators API 30.
 /// </summary>
-public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner
+public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner, IDeviceLockConfirmation
 {
     private const string AndroidKeyStore = "AndroidKeyStore";
     private const int BiometricStrongAuthenticators = 0x0000000F;
+    private const int BiometricWeakAuthenticators = 0x000000FF;
+    private const int DeviceCredentialAuthenticator = 0x00008000;
     private const int BiometricSuccess = 0;
     private readonly Context context;
     private readonly string alias;
@@ -113,6 +115,48 @@ public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner
         var payload = data.ToArray();
         prompt.Authenticate(crypto, cancel, executor, new Callback(payload, completion));
         return await completion.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>A screen lock (PIN, pattern, password or biometric) is set, and the prompt can offer it (Android 11+).</summary>
+    public bool CanConfirmWithDeviceLock =>
+        OperatingSystem.IsAndroidVersionAtLeast(30)
+        && context.GetSystemService(Context.KeyguardService) is global::Android.App.KeyguardManager { IsDeviceSecure: true };
+
+    public async Task ConfirmWithDeviceLockAsync(UserPresenceChallenge challenge, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        if (!OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            throw new UserPresenceDeniedException("Confirming with the screen lock needs Android 11 or newer.");
+        }
+
+        var completion = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancel = new CancellationSignal();
+        using var registration = cancellationToken.Register(cancel.Cancel);
+        using var builder = new BiometricPrompt.Builder(context);
+        builder.SetTitle(challenge.Title);
+        builder.SetDescription(challenge.Description);
+        // Weak biometrics or the device credential: no key is used, this only checks that the owner is holding the phone.
+        // A negative button is not allowed together with the device credential; the prompt has its own cancel.
+        builder.SetAllowedAuthenticators(BiometricWeakAuthenticators | DeviceCredentialAuthenticator);
+        using var executor = context.MainExecutor
+            ?? throw new InvalidOperationException("Android main executor is unavailable.");
+        using var prompt = builder.Build();
+        prompt.Authenticate(cancel, executor, new ConfirmCallback(completion));
+        await completion.Task.ConfigureAwait(false);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("android28.0")]
+    private sealed class ConfirmCallback(TaskCompletionSource<byte[]> completion) : BiometricPrompt.AuthenticationCallback
+    {
+        public override void OnAuthenticationSucceeded(BiometricPrompt.AuthenticationResult? result) => completion.TrySetResult([]);
+
+        public override void OnAuthenticationError(BiometricErrorCode errorCode, Java.Lang.ICharSequence? errString) =>
+            completion.TrySetException(new UserPresenceDeniedException("Not confirmed (" + errorCode + ")."));
+
+        public override void OnAuthenticationFailed()
+        {
+        }
     }
 
     private void EnsureKeyExists()

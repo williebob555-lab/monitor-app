@@ -62,11 +62,17 @@
                      SelectedItem="{Binding Shell.SelectedModeItem}" AutomationProperties.Name="Workspace modes">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="shell:ShellModeItem">
-                  <StackPanel Orientation="Horizontal" Spacing="12" Margin="14,0,16,0" Background="Transparent"
-                              ToolTip.Tip="{Binding Tooltip}">
-                    <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" />
-                    <TextBlock Classes="navlabel" Text="{Binding Title}" />
-                  </StackPanel>
+                  <Panel Background="Transparent" ToolTip.Tip="{Binding Tooltip}">
+                    <!-- Expanded: icon and full name side by side. Collapsed: icon over its short name, so no icon is a guess. -->
+                    <StackPanel Classes="railwide" Orientation="Horizontal" Spacing="12" Margin="14,0,16,0">
+                      <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" />
+                      <TextBlock Classes="navlabel" Text="{Binding Title}" />
+                    </StackPanel>
+                    <StackPanel Classes="railnarrow" Spacing="2" Margin="4,6" HorizontalAlignment="Center">
+                      <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" HorizontalAlignment="Center" />
+                      <TextBlock Classes="raillabel" Text="{Binding NarrowTitle}" HorizontalAlignment="Center" />
+                    </StackPanel>
+                  </Panel>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
@@ -219,6 +225,22 @@
               <TextBlock Text="RECORDED VIEW · NOT LIVE" Classes="meta" Foreground="{DynamicResource Brush.Warning}" TextWrapping="NoWrap" />
             </Border>
           </Panel>
+
+          <!-- Feedback bar: the result or error of the last action on this page, always in view, so no button press goes unanswered. -->
+          <Border Name="FeedbackBar" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="12" MaxWidth="720" Padding="12,8"
+                  Classes="panel" BorderThickness="1" CornerRadius="{DynamicResource Radius.Medium}"
+                  IsVisible="{Binding Shell.ActiveSection.HasFeedback, FallbackValue=False}">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Dismiss" Classes="compact flat" Margin="12,0,0,0" VerticalAlignment="Center"
+                      Command="{Binding Shell.ActiveSection.DismissFeedbackCommand, FallbackValue={x:Null}}" AutomationProperties.Name="Dismiss this message" />
+              <Panel>
+                <TextBlock Text="{Binding Shell.ActiveSection.ErrorMessage, FallbackValue={x:Null}}" Classes="error" TextWrapping="Wrap" VerticalAlignment="Center"
+                           IsVisible="{Binding Shell.ActiveSection.HasError, FallbackValue=False}" AutomationProperties.LiveSetting="Assertive" />
+                <TextBlock Text="{Binding Shell.ActiveSection.StatusMessage, FallbackValue={x:Null}}" TextWrapping="Wrap" VerticalAlignment="Center"
+                           IsVisible="{Binding Shell.ActiveSection.HasStatusOnly, FallbackValue=False}" AutomationProperties.LiveSetting="Polite" />
+              </Panel>
+            </DockPanel>
+          </Border>
 
           <!-- Search drop-down for the toolbar box (wide and medium). -->
           <Border Name="SearchDropdown" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,0,12,0" Width="400" MaxHeight="360"

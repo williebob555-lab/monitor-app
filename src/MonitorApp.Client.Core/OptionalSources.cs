@@ -221,6 +221,12 @@ public interface ILocalUpdatesSource
     Task ApproveUpdateAsync(string targetVersion, CancellationToken ct = default);
 }
 
+/// <summary>Optional: a source that can say, in words, how removing a device will be confirmed on this device.</summary>
+public interface IRemovalCheckSource
+{
+    string RemovalCheck { get; }
+}
+
 public interface ISecuritySource
 {
     Task<LocalPresenceStatusDto> GetLocalPresenceStatusAsync(CancellationToken ct = default);

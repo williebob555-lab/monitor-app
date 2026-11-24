@@ -17,6 +17,7 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
     private readonly LiveInterestRegistry? interests;
     private readonly TimeSpan? heartbeatInterval;
     private readonly MeshMembership? mesh;
+    private readonly PeerLinkStatusBoard? links;
     private readonly CancellationTokenSource lifetime = new();
     private readonly ConcurrentDictionary<string, string> permanentFailures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> connections = new(StringComparer.Ordinal);
@@ -29,9 +30,11 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
         OriginReplicationCoordinator replication,
         LiveInterestRegistry? interests = null,
         TimeSpan? heartbeatInterval = null,
-        MeshMembership? mesh = null)
+        MeshMembership? mesh = null,
+        PeerLinkStatusBoard? links = null)
     {
         this.mesh = mesh;
+        this.links = links;
         this.interests = interests;
         this.heartbeatInterval = heartbeatInterval;
         this.identity = identity ?? throw new ArgumentNullException(nameof(identity));
@@ -61,6 +64,11 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             if (locators.Count > 0)
             {
                 StartConnection(peer, locators[0]);
+            }
+            else
+            {
+                // Phones and tablets have no address to call; they connect to this computer.
+                links?.Waiting(peer.PeerId);
             }
         }
     }
@@ -93,6 +101,11 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             if (locators.Count > 0)
             {
                 StartConnection(peer, locators[0]);
+            }
+            else
+            {
+                // Phones and tablets have no address to call; they connect to this computer.
+                links?.Waiting(peer.PeerId);
             }
         }
     }
@@ -226,6 +239,8 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
                 replication,
                 live: new PeerSyncLiveOptions(interests, RequestRemotePush: true),
                 mesh: mesh);
+            var shown = $"{address}:{locator.Port}";
+            links?.Connecting(peer.PeerId, shown);
             var transport = PeerTransportOptions.Create(endpoint);
             if (heartbeatInterval is { } heartbeat)
             {
@@ -239,13 +254,15 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             connector.StateChanged += state =>
             {
                 if (state != PeerTransportState.Authenticated) return;
+                links?.Connected(peer.PeerId, shown);
                 failuresSinceAuthentication = 0;
                 if (authenticated) return;
                 authenticated = true;
                 _ = MarkConnectedAsync(peer.PeerId, locator);
             };
-            connector.SessionFailed += _ =>
+            connector.SessionFailed += failure =>
             {
+                links?.Failed(peer.PeerId, PeerLinkErrors.Plain(failure), retrying: failure is not (PeerAuthenticationException or PeerCompatibilityException));
                 if (hasAlternatives && ++failuresSinceAuthentication >= 3) session.Cancel();
             };
             await connector.RunAsync(session.Token).ConfigureAwait(false);
@@ -265,6 +282,7 @@ public sealed class NodePeerConnectionManager : IAsyncDisposable
             InvalidOperationException)
         {
             permanentFailures[peer.PeerId] = exception.Message;
+            links?.Failed(peer.PeerId, PeerLinkErrors.Plain(exception), retrying: false);
             return null;
         }
     }

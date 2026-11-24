@@ -19,6 +19,9 @@ public static class MeshStatementCryptography
     public const int MaximumLocators = 4;
     public const int MaximumHostLength = 255;
     public const int MaximumSpkiLength = 256;
+
+    /// <summary>Most removals one re-admission may lift.</summary>
+    public const int MaximumLiftedStatements = 32;
     private const string Domain = "monitor-mesh-statement-v1";
 
     public static MeshStatement CreateSigned(
@@ -28,7 +31,8 @@ public static class MeshStatementCryptography
         PeerPublicIdentity subject,
         string? subjectDisplayName,
         IEnumerable<MeshLocator> subjectLocators,
-        DateTimeOffset issuedAt)
+        DateTimeOffset issuedAt,
+        IEnumerable<string>? liftedStatementIds = null)
     {
         ArgumentNullException.ThrowIfNull(issuerKey);
         ArgumentNullException.ThrowIfNull(issuer);
@@ -45,6 +49,7 @@ public static class MeshStatementCryptography
             IssuedAt = Timestamp.FromDateTimeOffset(TruncateToMicroseconds(issuedAt.ToUniversalTime())),
         };
         statement.SubjectLocators.Add(subjectLocators.Take(MaximumLocators).Select(item => item.Clone()));
+        statement.LiftedStatementIds.Add((liftedStatementIds ?? []).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
         var error = ValidateShape(statement);
         if (error is not null) throw new ArgumentException(error);
         statement.IssuerSignature = ByteString.CopyFrom(issuerKey.Sign(BuildSignaturePayload(statement)));
@@ -57,7 +62,20 @@ public static class MeshStatementCryptography
         ArgumentNullException.ThrowIfNull(statement);
         if (!IsIdentifier(statement.StatementId) || !IsIdentifier(statement.IssuerPeerId) || !IsIdentifier(statement.SubjectPeerId))
             return "Statement, issuer and subject ids are required and bounded.";
-        if (statement.Kind is not (MeshStatementKind.Admit or MeshStatementKind.Remove)) return "Unknown statement kind.";
+        if (statement.Kind is not (MeshStatementKind.Admit or MeshStatementKind.Remove or MeshStatementKind.Readmit)) return "Unknown statement kind.";
+        if (statement.Kind == MeshStatementKind.Readmit)
+        {
+            if (statement.LiftedStatementIds.Count is 0 or > MaximumLiftedStatements) return "A re-admission names between 1 and 32 removals.";
+            if (statement.LiftedStatementIds.Any(id => !IsIdentifier(id)) ||
+                statement.LiftedStatementIds.Distinct(StringComparer.Ordinal).Count() != statement.LiftedStatementIds.Count)
+                return "Lifted removal ids must be distinct and bounded.";
+            if (statement.SubjectLocators.Count > 0) return "A re-admission carries no locators.";
+        }
+        else if (statement.LiftedStatementIds.Count > 0)
+        {
+            return "Only a re-admission lifts removals.";
+        }
+
         if (statement.IssuerPublicKeySha256.Length != 32) return "Issuer key hash must be 32 bytes.";
         if (statement.SubjectPublicKeySpki.Length is 0 or > MaximumSpkiLength) return "Subject key is required and bounded.";
         if (statement.SubjectDisplayName.Length > MaximumDisplayNameLength) return "Display name is too long.";
@@ -71,7 +89,7 @@ public static class MeshStatementCryptography
         }
 
         if (string.Equals(statement.IssuerPeerId, statement.SubjectPeerId, StringComparison.Ordinal) &&
-            statement.Kind == MeshStatementKind.Admit)
+            statement.Kind is MeshStatementKind.Admit or MeshStatementKind.Readmit)
             return "A peer cannot admit itself.";
         try
         {
@@ -134,6 +152,16 @@ public static class MeshStatementCryptography
 
         Write(stream, statement.IssuedAt?.Seconds ?? 0);
         Write(stream, statement.IssuedAt?.Nanos ?? 0);
+        if (statement.Kind == MeshStatementKind.Readmit)
+        {
+            // Only re-admissions sign the lifted ids, so admit and remove signatures stay exactly as before.
+            Write(stream, statement.LiftedStatementIds.Count);
+            foreach (var id in statement.LiftedStatementIds)
+            {
+                Write(stream, id);
+            }
+        }
+
         return stream.ToArray();
     }
 
