@@ -43,7 +43,7 @@ Done items stay listed so progress is visible.
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Planned 2026-11-24, see "Projects, parts and sourcing" below. P1 and P2 done |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 
-## Make the app useful on its own (planned 2026-11-24)
+## Make the app useful on its own (planned 2026-11-24, mostly done)
 
 **Your feedback (2026-11-24).** "The app really doesn't do much right now." Tailscale, Syncthing and the other things you run are not monitored, even though the vision promises it.
 
@@ -55,11 +55,28 @@ Done items stay listed so progress is visible.
 
 | # | Item | Size | What you will see | Status |
 |---|------|------|-------------------|--------|
-| D1 | **Services on each computer**: read the running services (systemd on Fedora and Ubuntu, Windows services) and recognise well-known ones such as Tailscale, Syncthing, SSH, Docker and web servers. Each one becomes a thing on its computer, marked measured, with running or stopped and since when | M | A "Services" group on each computer, filled in by itself | Planned |
-| D2 | **Tailscale, read properly**: connected or not, this computer's Tailscale address, which of your devices are online, exit node. Read-only, using `tailscale status --json` | M | "Tailscale: connected, 4 of 5 devices online" on the computer | Planned |
-| D3 | **Syncthing, read properly**: running or not, each folder (up to date, syncing, error, out of sync) and which devices are connected. Read-only, using Syncthing's own local API on 127.0.0.1 with the key from its config file | M | "Syncthing: 3 folders up to date, Laptop and Phone connected" | Planned |
-| D4 | **Alerts for them**: service stopped, Tailscale disconnected, Syncthing folder stuck or in error, each with how long and why | S | An alert when Syncthing stops syncing | Planned |
-| D5 | **What the machine is, found by itself**: maker, model, serial, processor, memory size, drives, operating system and version, as measured values on the computer's card. No typing | M | A computer's card says "Lenovo ThinkPad …, 16 GB, Fedora 41" by itself | Planned |
+| D1 | **Services on each computer**: read the running services (systemd on Fedora and Ubuntu, Windows services) and recognise well-known ones such as Tailscale, Syncthing, SSH, Docker and web servers. Each one becomes a thing on its computer, marked measured, with running or stopped and since when | M | A "Services" group on each computer, filled in by itself | Done, next release (see "Fill the model by itself" D5) |
+| D2 | **Tailscale, read properly**: connected or not, this computer's Tailscale address, which of your devices are online, exit node. Read-only, using `tailscale status --json` | M | "Tailscale: connected, 4 of 5 devices online" on the computer | Done, next release (see D3 and D5 below) |
+| D3 | **Syncthing, read properly**: running or not, each folder (up to date, syncing, error, out of sync) and which devices are connected. Read-only, using Syncthing's own local API on 127.0.0.1 with the key from its config file | M | "Syncthing: 3 folders up to date, Laptop and Phone connected" | Done, next release (key handed over by the desktop app) |
+| D4 | **Alerts for them**: service stopped, Tailscale disconnected, Syncthing folder stuck or in error, each with how long and why | S | An alert when Syncthing stops syncing | In progress (Tailscale disconnected, Syncthing folder in error or behind) |
+| D5 | **What the machine is, found by itself**: maker, model, serial, processor, memory size, drives, operating system and version, as measured values on the computer's card. No typing | M | A computer's card says "Lenovo ThinkPad …, 16 GB, Fedora 41" by itself | Done, next release (see D4 below; serial number not read) |
+
+## Fill the model by itself (started 2026-11-24)
+
+**Goal.** In the morning the Map and Things show your real network, not just two devices: the router, the SG250 switch, printers, TVs, phones, every Tailscale device, and what each computer is made of. Everything found is marked as discovered or measured, can be renamed or confirmed, and is never trusted into the mesh by being found.
+
+**Where it stands.** Each computer reports only its own CPU, memory, disks, network traffic and adapters, plus the phone's battery. Nothing looks at the rest of the network (the security rules forbid reading other devices' addresses), Tailscale and Syncthing are not read at all, and a computer does not know its own maker, model or graphics card.
+
+**Your decision (2026-11-24):** look for other devices with a switch per computer ("Find devices on this network"), off until you turn it on, own subnet only, slow.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| D1 | **Find devices on this network** (switch per computer, off by default): reads the computer's neighbor table, a slow ping of its own subnet only (at most one /22, 16 at a time, every 30 minutes), local names (DNS, mDNS), UPnP/SSDP descriptions (TV, router, printer names and models) and the maker from the MAC prefix. Each device becomes its own subject with signed readings, so it replicates to every device in the mesh | L | Turn the switch on in Settings and, within a minute, dozens of devices appear on the Map around the computer that found them, with names, makers and "answered the last scan" | Done, next release |
+| D2 | **Discovered devices become Things**: one Thing per device (same MAC on two computers gives one Thing), kind guessed from what it offers (printer, TV, router, phone), marked discovered/estimated; rename and confirm as usual | M | Things lists the router, printers, TVs and phones with their maker and address | Done, next release |
+| D3 | **Tailscale devices**: `tailscale status --json` on each computer; every tailnet device becomes a device with its Tailscale address, OS and online state; whether this computer is connected | M | All tailnet devices on the Map; "Tailscale connected" on each computer | Done, next release |
+| D4 | **Hardware self-description**: maker, model, processor, memory, drives, graphics, and installed systems (firmware boot entries on Linux: Fedora running now, Windows Boot Manager also installed; no warnings) as measured readings that fill in the computer's Thing | M | Open a computer in Things and see "Lenovo ... , Intel Core ..., 16 GB, Samsung SSD 1 TB, Windows and Fedora installed" | Done, next release (Windows lists only itself) |
+| D5 | **Services**: Tailscale and Syncthing as services running on their computer (folders up to date, syncing or stuck; devices connected). Syncthing's key is read on the computer and never leaves it | M | Tailscale and Syncthing nodes on the Map, linked to their computer | Done, next release (Syncthing key handed over by the desktop app) |
+| D6 | Actions and diagnosis (rescan a folder, reconnect, restart) on the same signed control path, with fingerprint or device PIN | L | One-tap fixes on a stuck folder | After D1-D5 |
 
 ## Projects, parts and sourcing (planned 2026-11-24)
 

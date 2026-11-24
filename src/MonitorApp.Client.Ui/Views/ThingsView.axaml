@@ -94,6 +94,27 @@
                   AutomationProperties.Name="Refresh things" />
         </Grid>
 
+        <!-- Network discovery (owner decision 2026-11-24): one switch per computer, off until turned on, own home network only. -->
+        <Border Classes="tile" IsVisible="{Binding Discovery.IsAvailable}">
+          <StackPanel Spacing="6" DataContext="{Binding Discovery}" x:DataType="vm:NetworkDiscoveryViewModel">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="2">
+                <TextBlock Text="FIND DEVICES ON THIS NETWORK" Classes="section" />
+                <TextBlock Text="{Binding Headline}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                <Button Classes="action" Content="Turn on" Command="{Binding TurnOnCommand}" IsVisible="{Binding !IsOn}" IsEnabled="{Binding CanTurnOn}"
+                        AutomationProperties.Name="Turn on finding devices on this network" />
+                <Button Classes="action" Content="Turn off" Command="{Binding TurnOffCommand}" IsVisible="{Binding IsOn}" IsEnabled="{Binding CanTurnOff}"
+                        AutomationProperties.Name="Turn off finding devices on this network" />
+              </StackPanel>
+            </Grid>
+            <TextBlock Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Text="{Binding Explanation}" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- Looking back in time: what the model held then; adding and editing are off. -->
         <Border Classes="tile" IsVisible="{Binding IsHistorical}" BorderBrush="{DynamicResource Brush.Warning}">
           <TextBlock Text="{Binding RecordedText}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap"

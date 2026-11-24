@@ -105,6 +105,17 @@ public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IRead
 public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
 
 /// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+/// <summary>This computer's network discovery switch and its last pass (GET /api/v1/network/discovery).</summary>
+public sealed record NetworkDiscoveryDto(
+    bool Enabled,
+    bool Running,
+    DateTimeOffset? LastPassAt,
+    int DevicesFound,
+    int DevicesAnswered,
+    IReadOnlyList<string> Networks,
+    string? Problem,
+    string Explanation);
+
 /// <summary>Whether paired phones can reach this computer (GET /api/v1/network/reach).</summary>
 public sealed record PeerReachDto(
     bool ReachableByPhone,

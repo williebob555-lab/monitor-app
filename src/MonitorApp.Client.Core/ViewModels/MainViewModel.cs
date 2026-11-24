@@ -8,6 +8,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly NodeConnection connection;
 
+    /// <summary>The source the views talk to now (reconnecting replaces it).</summary>
+    public IPeerDataSource CurrentSource => connection.Source;
+
     [ObservableProperty]
     private string addressText;
 

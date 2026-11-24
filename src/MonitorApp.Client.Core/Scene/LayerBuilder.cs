@@ -12,7 +12,7 @@ public static class LayerBuilder
     private static readonly SceneLayerKind[] Order =
     [
         SceneLayerKind.Compute, SceneLayerKind.Memory, SceneLayerKind.Storage,
-        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Other, SceneLayerKind.Collection,
+        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Services, SceneLayerKind.Description, SceneLayerKind.Other, SceneLayerKind.Collection,
     ];
 
     public static IReadOnlyList<SceneLayer> Build(IEnumerable<SceneReading> readings, HealthClassifier classifier)
@@ -111,6 +111,8 @@ public static class LayerBuilder
         {
             case SceneLayerKind.Connectivity:
                 return ConnectivitySummary(available);
+            case SceneLayerKind.Services:
+                return ServicesSummary(available);
             case SceneLayerKind.Collection:
                 {
                     var failing = available.Where(r => r.DisplayValue != "Working").ToList();
@@ -158,6 +160,30 @@ public static class LayerBuilder
         return parts.Count > 0
             ? string.Join(" · ", parts)
             : string.Join(" · ", available.Take(3).Select(Describe));
+    }
+
+    /// <summary>"3 running · Stopped: Syncthing · Syncthing: 1 folder with errors": what stopped and what is wrong first.</summary>
+    private static string ServicesSummary(List<SceneReading> available)
+    {
+        var running = available.Where(r => r.SignalId.StartsWith("service.", StringComparison.Ordinal) && r.SignalId.EndsWith(".running", StringComparison.Ordinal)).ToList();
+        var stopped = running.Where(r => r.DisplayValue != "Running").Select(r => r.Label).ToList();
+        var parts = new List<string> { $"{(running.Count - stopped.Count).ToString(CultureInfo.InvariantCulture)} running" };
+        if (stopped.Count > 0)
+        {
+            parts.Add("Stopped: " + string.Join(", ", stopped));
+        }
+
+        if (Find(available, "service.tailscale.connected") is { DisplayValue: not "Connected" } tailscale)
+        {
+            parts.Add("Tailscale " + tailscale.DisplayValue.ToLowerInvariant());
+        }
+
+        if (Find(available, "service.syncthing.folders_with_errors") is { Number: > 0 } errors)
+        {
+            parts.Add($"Syncthing: {errors.DisplayValue} folder{(errors.Number == 1 ? string.Empty : "s")} with errors");
+        }
+
+        return string.Join(" · ", parts);
     }
 
     private static string Describe(SceneReading reading) =>

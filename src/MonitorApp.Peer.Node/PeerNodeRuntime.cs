@@ -23,6 +23,8 @@ namespace MonitorApp.Peer.Node;
 /// <param name="Retention">Retention thresholds; default 7 days raw, hourly rollups 1 year, events 5 years.</param>
 /// <param name="PeerStateInterval">How often peer-state history is reconciled (pairing, revocation, offline to stale); default 15 seconds.</param>
 /// <param name="Time">Clock for the background schedules; default is the system clock.</param>
+/// <param name="DescribeSelf">Describe this computer by itself (hardware, services, tailnet, network discovery behind its
+/// switch); default on, and only when <paramref name="CollectSelfLan"/> is on.</param>
 public sealed record NodeLiveOptions(
     TimeSpan? CollectionInterval = null,
     LiveInterestPolicy? InterestPolicy = null,
@@ -34,7 +36,8 @@ public sealed record NodeLiveOptions(
     PeerRetentionPolicy? Retention = null,
     TimeProvider? Time = null,
     TimeSpan? PeerStateInterval = null,
-    bool Mesh = true);
+    bool Mesh = true,
+    bool DescribeSelf = true);
 
 public sealed class PeerNodeRuntime : IAsyncDisposable
 {
@@ -52,6 +55,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
     private readonly NodePeriodicTask peerStateTask;
     private readonly PeerStateTracker peerStates;
     private NodePeriodicTask? modelTask;
+    private NodeSelfDiscovery? selfDiscovery;
     private ModelStore? model;
 
     private PeerNodeRuntime(
@@ -323,11 +327,17 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var modelStore = new ModelStore(Path.Combine(options.DataDirectory, "model.db"), timeProvider: time);
         await modelStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var machineName = System.Environment.MachineName;
+        MonitoringBridge.ValueReader ??= MonitorApp.Contracts.ObservationValues.Read;
         var modelTask = new NodePeriodicTask(
             "model-bridge",
             TimeSpan.FromMinutes(1),
             async token => await MonitoringBridge.SyncFromPeerStoreAsync(peerStore, modelStore, machineName, cancellationToken: token).ConfigureAwait(false),
             time);
+
+        // What this computer finds out by itself (hardware, services, tailnet, and network discovery behind its switch).
+        NodeSelfDiscovery? selfDiscovery = (live?.CollectSelfLan ?? true) && (live?.DescribeSelf ?? true)
+            ? new NodeSelfDiscovery(options.DataDirectory, peerStore, identity, live?.LanSource ?? SelfInterfaceCollectorFactory.Create(), time)
+            : null;
 
         var peerArgs = new[]
         {
@@ -376,7 +386,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock),
             new PeerReachController(options, ensureFirewall: PeerReachSetting.WindowsFirewallHelper()),
             modelStore,
-            links);
+            links,
+            selfDiscovery);
         try
         {
             await peerApplication.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -388,14 +399,21 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             retentionTask.Start();
             peerStateTask.Start();
             modelTask.Start();
+            selfDiscovery?.Start();
             return new PeerNodeRuntime(peerApplication, localApi, identity, connections, collection, peerStore, interests, options.PeerPort, alertEngine, lanTask, retentionTask, retentionService, peerStateTask, peerStateTracker)
             {
                 modelTask = modelTask,
                 model = modelStore,
+                selfDiscovery = selfDiscovery,
             };
         }
         catch
         {
+            if (selfDiscovery is not null)
+            {
+                await selfDiscovery.DisposeAsync().ConfigureAwait(false);
+            }
+
             await modelTask.DisposeAsync().ConfigureAwait(false);
             await peerStateTask.DisposeAsync().ConfigureAwait(false);
             await retentionTask.DisposeAsync().ConfigureAwait(false);
@@ -447,6 +465,11 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
 
         await Step(() => new ValueTask(peerStates.SuspendAsync())).ConfigureAwait(false);
         await Step(() => peerStateTask.DisposeAsync()).ConfigureAwait(false);
+        if (selfDiscovery is not null)
+        {
+            await Step(() => selfDiscovery.DisposeAsync()).ConfigureAwait(false);
+        }
+
         if (modelTask is not null)
         {
             await Step(() => modelTask.DisposeAsync()).ConfigureAwait(false);

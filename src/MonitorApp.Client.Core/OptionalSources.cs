@@ -195,6 +195,14 @@ public interface IControlSource
 /// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
 /// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
 /// </summary>
+/// <summary>A computer's own node: its "Find devices on this network" switch (off until turned on) and what the last pass found.</summary>
+public interface INetworkDiscoverySource
+{
+    Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default);
+
+    Task<NetworkDiscoveryDto> SetNetworkDiscoveryAsync(bool enabled, CancellationToken ct = default);
+}
+
 /// <summary>A computer's own node: lets a phone reach it and shows the phone pairing QR.</summary>
 public interface IPhonePairingHost
 {

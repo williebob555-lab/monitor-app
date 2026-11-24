@@ -61,7 +61,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         LocalPresenceService? localPresence = null,
         IPeerReachController? reach = null,
         MonitorApp.Model.ModelStore? model = null,
-        PeerLinkStatusBoard? links = null)
+        PeerLinkStatusBoard? links = null,
+        INetworkDiscoveryController? discovery = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -114,6 +115,15 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (model is not null)
         {
             builder.Services.AddSingleton(model);
+        }
+
+        if (discovery is not null)
+        {
+            builder.Services.AddSingleton(discovery);
+            if (discovery is ISyncthingKeyStore keys)
+            {
+                builder.Services.AddSingleton(keys);
+            }
         }
 
         if (monitoring is not null)
@@ -690,6 +700,8 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         MapControlEndpoints(application);
         MapPhoneReachEndpoints(application);
+        NetworkDiscoveryEndpoints.Map(application, IsValidMutationAsync);
+        SyncthingKeyEndpoints.Map(application, IsValidMutationAsync);
         LocalApiThings.Map(application);
         MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>

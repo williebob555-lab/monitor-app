@@ -425,10 +425,11 @@ public sealed class PeerNodeRuntimeTests
             var targetPort = FreePort();
             await using var viewer = await PeerNodeRuntime.StartAsync(
                 new NodeOptions(viewerRoot, IPAddress.Loopback, FreePort(), 0));
-            // The normal interval is an hour: anything collected during the test is the fast loop's doing.
+            // The normal interval is an hour: anything collected during the test is the fast loop's doing. Self-description
+            // (hardware, services) runs on its own schedule and is not part of the live loop, so it stays off here.
             await using var target = await PeerNodeRuntime.StartAsync(
                 new NodeOptions(targetRoot, IPAddress.Loopback, targetPort, 0),
-                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1)));
+                new NodeLiveOptions(CollectionInterval: TimeSpan.FromHours(1), DescribeSelf: false));
             await PairAsync(viewer, target, targetPort);
             var targetStream = (await target.Store.ReadLocalIdentityAsync())!.OriginStreamId;
 
