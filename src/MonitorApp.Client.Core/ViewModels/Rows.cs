@@ -10,8 +10,12 @@ public sealed record TrustedPeerRow(
     string TrustState,
     string PairedAt,
     string? RevokedAt,
-    string? Provenance = null)
+    string? Provenance = null,
+    string? Connection = null,
+    bool Connected = false)
 {
+    public bool HasConnection => !string.IsNullOrEmpty(Connection);
+
     public bool CanRevoke => string.Equals(TrustState, "Active", StringComparison.Ordinal);
 
     public bool HasProvenance => !string.IsNullOrEmpty(Provenance);
@@ -23,7 +27,9 @@ public sealed record TrustedPeerRow(
         peer.TrustState,
         Format.Time(peer.PairedAt),
         peer.RevokedAt is { } revoked ? Format.Time(revoked) : null,
-        peer.Provenance);
+        peer.Provenance,
+        peer.Connection,
+        peer.Connected);
 }
 
 /// <summary>
@@ -51,6 +57,21 @@ public sealed partial class TrustedPeerCard(TrustedPeerRow row) : ObservableObje
     public bool HasProvenance => Row.HasProvenance;
 
     public bool CanRevoke => Row.CanRevoke;
+
+    /// <summary>Whether the link works right now and, when it doesn't, why; plus when its last reading arrived.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasConnection), nameof(IsConnected), nameof(IsNotConnected))]
+    private string? connection = row.Connection;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConnected), nameof(IsNotConnected))]
+    private bool connected = row.Connected;
+
+    public bool HasConnection => !string.IsNullOrEmpty(Connection);
+
+    public bool IsConnected => Connected && HasConnection;
+
+    public bool IsNotConnected => !Connected && HasConnection;
 
     public string Prompt =>
         $"Remove {Name} from all your devices? Check the fingerprint first: {Fingerprint}. Every device stops trusting it " +

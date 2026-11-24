@@ -1011,7 +1011,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 ? MobileSyncState.Refused
                 : MobileSyncState.Offline;
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
-            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
+            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, PeerLinkErrors.Plain(exception));
             PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
         }
     }

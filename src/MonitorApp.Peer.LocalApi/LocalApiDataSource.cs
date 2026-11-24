@@ -9,10 +9,14 @@ internal sealed class LocalApiDataSource
 {
     private readonly string connectionString;
     private readonly PeerStore peerStore;
+    private readonly PeerLinkStatusBoard? links;
+    private readonly IPeerClock? clock;
 
-    public LocalApiDataSource(string databasePath, PeerStore peerStore)
+    public LocalApiDataSource(string databasePath, PeerStore peerStore, PeerLinkStatusBoard? links = null, IPeerClock? clock = null)
     {
         this.peerStore = peerStore;
+        this.links = links;
+        this.clock = clock;
         connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = Path.GetFullPath(databasePath),
@@ -59,7 +63,20 @@ internal sealed class LocalApiDataSource
         }
 
         var provenance = await MeshProvenance.DescribeAsync(peerStore, cancellationToken).ConfigureAwait(false);
-        return result.Select(peer => peer with { Provenance = provenance.GetValueOrDefault(peer.PeerId) }).ToList();
+        var latest = await peerStore.ReadLatestAcceptedByOriginAsync(cancellationToken).ConfigureAwait(false);
+        var now = clock?.UtcNow ?? DateTimeOffset.UtcNow;
+        return result.Select(peer =>
+        {
+            var link = links?.Get(peer.PeerId);
+            return peer with
+            {
+                Provenance = provenance.GetValueOrDefault(peer.PeerId),
+                Connection = peer.TrustState == nameof(PeerTrustState.Active)
+                    ? PeerLinkStatusBoard.Describe(link, latest.TryGetValue(peer.PeerId, out var at) ? at : null, now, peer.DisplayName)
+                    : null,
+                Connected = link?.State == PeerLinkState.Connected,
+            };
+        }).ToList();
     }
 
     public async Task<IReadOnlyList<PendingPairingView>> ReadPendingPairingsAsync(

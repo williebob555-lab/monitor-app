@@ -185,6 +185,9 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>The object (or page) the centre of the workspace shows for the current mode.</summary>
     public object? Content => ContentFor(Mode);
 
+    /// <summary>The page on screen when it is a section: its action results and errors are shown in the shell's feedback bar.</summary>
+    public SectionViewModel? ActiveSection => Content as SectionViewModel;
+
     public bool ShowsConnection => Mode == ShellMode.Settings;
 
     public bool IsEcosystem => Mode == ShellMode.Ecosystem;
@@ -413,6 +416,7 @@ public sealed partial class ShellViewModel : ObservableObject
         PushSectionToMain();
         RebuildBreadcrumbs();
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
         OnPropertyChanged(nameof(ShowsConnection));
         OnPropertyChanged(nameof(IsEcosystem));
         OnPropertyChanged(nameof(ShowAlertBack));
@@ -431,6 +435,7 @@ public sealed partial class ShellViewModel : ObservableObject
     partial void OnSelectedSubSectionChanged(SectionViewModel? value)
     {
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
         if (!syncing)
         {
             PushSectionToMain();
@@ -511,6 +516,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
         OnPropertyChanged(nameof(HasSubSections));
         OnPropertyChanged(nameof(Content));
+        OnPropertyChanged(nameof(ActiveSection));
     }
 
     /// <summary>Keeps <see cref="MainViewModel.SelectedSection"/> (and its refresh-on-select) in step with what is on screen.</summary>

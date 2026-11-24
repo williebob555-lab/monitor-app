@@ -172,9 +172,37 @@ public sealed partial class PairingsViewModel : SectionViewModel
         }
     }
 
+    /// <summary>
+    /// Updates each device's connection line in place, every few seconds while the screen is open, without rebuilding the
+    /// cards (a removal in progress or an unsaved permission is never disturbed). Failures are ignored here; the next full
+    /// refresh reports them.
+    /// </summary>
+    public async Task RefreshConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<TrustedPeerDto> peers;
+        try
+        {
+            peers = await Client.GetPeersAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is LocalApiException or OperationCanceledException)
+        {
+            return;
+        }
+
+        foreach (var peer in peers)
+        {
+            if (Peers.FirstOrDefault(card => card.PeerId == peer.PeerId) is { } card)
+            {
+                card.Connection = peer.Connection;
+                card.Connected = peer.Connected;
+            }
+        }
+    }
+
     private async Task Decide(PendingPairingRow pairing, bool approve)
     {
-        await RunAsync(async () =>
+        StatusMessage = approve ? $"Approving {pairing.Name}…" : $"Rejecting {pairing.Name}…";
+        var done = await RunAsync(async () =>
         {
             if (approve)
             {
@@ -190,6 +218,10 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
             await ReloadAsync(CancellationToken.None);
         });
+        if (!done)
+        {
+            StatusMessage = null;
+        }
     }
 
     private async Task ReloadAsync(CancellationToken cancellationToken)

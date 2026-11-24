@@ -48,10 +48,26 @@ public abstract partial class SectionViewModel(NodeConnection connection, string
     private bool isBusy;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFeedback), nameof(HasError), nameof(HasStatusOnly))]
     private string? errorMessage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFeedback), nameof(HasStatusOnly))]
     private string? statusMessage;
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
+
+    public bool HasStatusOnly => !HasError && !string.IsNullOrEmpty(StatusMessage);
+
+    /// <summary>True while there is a result or an error the shell's feedback bar should show, wherever the page is scrolled.</summary>
+    public bool HasFeedback => HasError || HasStatusOnly;
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void DismissFeedback()
+    {
+        ErrorMessage = null;
+        StatusMessage = null;
+    }
 
     public string Title { get; } = title;
 

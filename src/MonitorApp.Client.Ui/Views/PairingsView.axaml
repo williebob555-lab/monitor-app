@@ -55,6 +55,10 @@
             <StackPanel Spacing="4">
               <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
               <TextBlock Text="{Binding TrustState, StringFormat='Trust: {0}'}" />
+              <TextBlock Text="{Binding Connection}" TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding IsConnected}"
+                         Foreground="{DynamicResource Brush.Healthy}" AutomationProperties.Name="{Binding Connection}" />
+              <TextBlock Text="{Binding Connection}" TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding IsNotConnected}"
+                         Foreground="{DynamicResource Brush.Warning}" AutomationProperties.Name="{Binding Connection}" />
               <TextBlock Text="{Binding Provenance}" IsVisible="{Binding HasProvenance}" Classes="muted" TextWrapping="Wrap" />
               <TextBlock Text="{Binding PairedAt, StringFormat='Trusted since {0}'}" Classes="muted" />
               <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />

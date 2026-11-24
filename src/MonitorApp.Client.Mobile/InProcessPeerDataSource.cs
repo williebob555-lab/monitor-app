@@ -232,17 +232,47 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
     {
         var peers = await runtime.Store.ReadTrustedPeersAsync(ct).ConfigureAwait(false);
         var provenance = await MeshProvenance.DescribeAsync(runtime.Store, ct).ConfigureAwait(false);
-        return (IReadOnlyList<TrustedPeerDto>)peers
-            .Select(peer => new TrustedPeerDto(
+        var latest = await runtime.Store.ReadLatestAcceptedByOriginAsync(ct).ConfigureAwait(false);
+        var syncs = runtime.GetStatus().Peers.ToDictionary(p => p.PeerId, StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        var result = new List<TrustedPeerDto>();
+        foreach (var peer in peers)
+        {
+            string? connection = null;
+            var connected = false;
+            if (peer.TrustState == PeerTrustState.Active)
+            {
+                var link = syncs.TryGetValue(peer.PeerId, out var sync)
+                    ? LinkOf(sync, now)
+                    : (await runtime.Store.ReadPeerLocatorsAsync(peer.PeerId, ct).ConfigureAwait(false)).Count == 0
+                        ? new PeerLinkStatus(peer.PeerId, PeerLinkState.Indirect, null, now, null, null, null)
+                        : null;
+                connected = link?.State == PeerLinkState.Connected;
+                connection = PeerLinkStatusBoard.Describe(link, latest.TryGetValue(peer.PeerId, out var at) ? at : null, now, peer.DisplayName);
+            }
+
+            result.Add(new TrustedPeerDto(
                 peer.PeerId,
                 peer.DisplayName,
                 Convert.ToHexString(peer.PublicKeyFingerprint),
                 peer.TrustState.ToString(),
                 peer.PairedAt,
                 peer.RevokedAt,
-                provenance.GetValueOrDefault(peer.PeerId)))
-            .ToArray();
+                provenance.GetValueOrDefault(peer.PeerId),
+                connection,
+                connected));
+        }
+
+        return (IReadOnlyList<TrustedPeerDto>)result;
     });
+
+    private static PeerLinkStatus LinkOf(MobilePeerSyncStatus sync, DateTimeOffset now) => sync.State switch
+    {
+        MobileSyncState.Synced => new PeerLinkStatus(sync.PeerId, PeerLinkState.Connected, null, sync.LastSuccess ?? now, sync.LastSuccess, null, null),
+        MobileSyncState.Refused => new PeerLinkStatus(sync.PeerId, PeerLinkState.Stopped, null, now, sync.LastSuccess, sync.LastError, now),
+        MobileSyncState.Offline => new PeerLinkStatus(sync.PeerId, PeerLinkState.Retrying, null, now, sync.LastSuccess, sync.LastError, now),
+        _ => new PeerLinkStatus(sync.PeerId, sync.LastError is null ? PeerLinkState.Connecting : PeerLinkState.Retrying, null, now, null, sync.LastError, null),
+    };
 
     /// <summary>The phone only initiates pairing, so the only pairing it can show is its own in-flight request.</summary>
     public Task<IReadOnlyList<PendingPairingDto>> GetPairingsAsync(CancellationToken ct = default)
