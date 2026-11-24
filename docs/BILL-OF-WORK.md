@@ -77,6 +77,7 @@ Done items stay listed so progress is visible.
 | D4 | **Hardware self-description**: maker, model, processor, memory, drives, graphics, and installed systems (firmware boot entries on Linux: Fedora running now, Windows Boot Manager also installed; no warnings) as measured readings that fill in the computer's Thing | M | Open a computer in Things and see "Lenovo ... , Intel Core ..., 16 GB, Samsung SSD 1 TB, Windows and Fedora installed" | Done, next release (Windows lists only itself) |
 | D5 | **Services**: Tailscale and Syncthing as services running on their computer (folders up to date, syncing or stuck; devices connected). Syncthing's key is read on the computer and never leaves it | M | Tailscale and Syncthing nodes on the Map, linked to their computer | Done, next release (Syncthing key handed over by the desktop app) |
 | D6 | Actions and diagnosis (rescan a folder, reconnect, restart) on the same signed control path, with fingerprint or device PIN | L | One-tap fixes on a stuck folder | Started: Rescan Syncthing from its alert on that computer (next release). Reconnecting Tailscale and fixes from another device wait for the signed control path |
+| D7 | **Quick capture of gear** from a model name or a product link: kind and maker guessed from the words (a data table, nothing fetched), link kept | S | Type "Boss DS-1" or paste a link; it lands as a pedal made by Boss | Done, next release |
 
 ## Projects, parts and sourcing (planned 2026-11-24)
 

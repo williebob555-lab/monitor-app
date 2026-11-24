@@ -261,7 +261,7 @@ public sealed class SystemModelTests : IDisposable
         await using var store = await OpenAsync();
 
         var amp = await Things.CaptureAsync(store, "  Focusrite 2i2  \r\nbought used, needs a 12 V supply ", "device.audio");
-        var bare = await Things.CaptureAsync(store, "Spare SSD");
+        var bare = await Things.CaptureAsync(store, "Box of odds and ends");
 
         Assert.Equal("Focusrite 2i2", amp.Name);
         Assert.Equal("Audio equipment", amp.KindLabel);
@@ -277,6 +277,31 @@ public sealed class SystemModelTests : IDisposable
         var trimmed = await Things.CaptureAsync(store, longLine);
         Assert.Equal(Things.MaxNameLength + 1, trimmed.Name.Length);
         Assert.Equal(longLine, trimmed.Facts.Single().Value);
+    }
+
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task QuickCaptureGuessesKindAndMakerFromAModelNameOrAProductLink()
+    {
+        await using var store = await OpenAsync();
+
+        var pedal = await Things.CaptureAsync(store, "Boss DS-1 distortion pedal");
+        Assert.Equal("device.audio.effect", pedal.KindId);
+        var maker = Assert.Single(pedal.Facts);
+        Assert.Equal(("Boss", "Estimated"), (maker.Value, maker.Evidence));
+
+        var link = await Things.CaptureAsync(store, "https://www.amazon.com/Boss-DS-1-Distortion-Pedal/dp/B0002CZV6E?ref=x");
+        Assert.Equal("Boss DS-1 Distortion Pedal", link.Name);
+        Assert.Equal("device.audio.effect", link.KindId);
+        Assert.Contains(link.Facts, f => f.Label == "Link" && f.Value == "https://www.amazon.com/Boss-DS-1-Distortion-Pedal/dp/B0002CZV6E");
+
+        Assert.Equal("device.network.switch", (await Things.CaptureAsync(store, "Cisco SG250-26P")).KindId);
+        Assert.Equal("device.laptop", (await Things.CaptureAsync(store, "Lenovo ThinkPad T14")).KindId);
+        Assert.Equal("part.drive", (await Things.CaptureAsync(store, "Samsung 990 Pro 2TB")).KindId);
+        Assert.Equal("device.power.ups", (await Things.CaptureAsync(store, "APC Back-UPS 600")).KindId);
+        Assert.Equal("device.audio.effect", (await Things.CaptureAsync(store, "Strymon BigSky", "thing")).KindId);
+        // A kind the person picked always wins over a guess.
+        Assert.Equal("device.audio", (await Things.CaptureAsync(store, "Boss DS-1", "device.audio")).KindId);
     }
 
     [Fact]

@@ -87,7 +87,9 @@ public static class Things
     public static IReadOnlyList<ThingKindChoice> KindChoices(ModelLibrary library)
     {
         ArgumentNullException.ThrowIfNull(library);
-        return CaptureKinds.Select(id => new ThingKindChoice(id, library.TryGetKind(id, out var kind) ? kind!.Label : id)).ToArray();
+        // "Thing" lets the name decide: quick capture guesses the kind from the words or the product link.
+        return CaptureKinds.Select(id => new ThingKindChoice(id,
+            id == "thing" ? "Guess from the name" : library.TryGetKind(id, out var kind) ? kind!.Label : id)).ToArray();
     }
 
     /// <summary>Every object in the actual world, computers first, then by name.</summary>
@@ -149,7 +151,17 @@ public static class Things
     {
         ArgumentNullException.ThrowIfNull(store);
         var (name, note) = Split(text);
-        var kind = string.IsNullOrWhiteSpace(kindId) ? "thing" : kindId.Trim();
+        // With no kind chosen, the words (or the product link) suggest one, and the maker when it is a known one. Both are
+        // marked estimated; nothing is looked up online.
+        var guess = string.IsNullOrWhiteSpace(kindId) || kindId.Trim() == "thing" ? GearRecognizer.Recognize(name) : null;
+        if (guess is not null)
+        {
+            name = guess.Name.Length > 0 ? guess.Name : name;
+        }
+
+        var kind = guess?.KindId is { } guessed && store.Library.IsKnownKind(guessed) ? guessed
+            : !string.IsNullOrWhiteSpace(kindId) ? kindId.Trim()
+            : "thing";
         if (!store.Library.IsKnownKind(kind))
         {
             throw new ModelValidationException($"'{kind}' is not a kind this app knows.");
@@ -161,6 +173,16 @@ public static class Things
         if (note is not null)
         {
             changes.Add(new PropertyAsserted(id, "note.text", PropertyValue.Of(note), Evidence.UserEntered));
+        }
+
+        if (guess?.Maker is { } maker)
+        {
+            changes.Add(new PropertyAsserted(id, "identity.manufacturer", PropertyValue.Of(maker), new Evidence(EvidenceLevel.Estimated, CaptureOrigin)));
+        }
+
+        if (guess?.Link is { } link)
+        {
+            changes.Add(new PropertyAsserted(id, "note.link", PropertyValue.Of(link), Evidence.UserEntered));
         }
 
         var model = await store.AppendAsync(changes, CaptureOrigin, cancellationToken: cancellationToken).ConfigureAwait(false);
