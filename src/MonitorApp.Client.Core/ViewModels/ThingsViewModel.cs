@@ -72,6 +72,7 @@ public sealed record ThingValueGroup(string Title, IReadOnlyList<ThingValueRow> 
         SceneLayerKind.Network or SceneLayerKind.Connectivity => Network,
         SceneLayerKind.Power => Power,
         SceneLayerKind.Services => Services,
+        SceneLayerKind.Description => About,
         SceneLayerKind.Collection => Monitoring,
         _ => Other,
     };
@@ -462,7 +463,11 @@ public sealed partial class ThingsViewModel : SectionViewModel
     public ThingsViewModel(NodeConnection connection)
         : base(connection, "Things")
     {
+        Discovery = new NetworkDiscoveryViewModel(() => Client as INetworkDiscoverySource);
     }
+
+    /// <summary>This computer's "Find devices on this network" switch; hidden on a phone or an older computer.</summary>
+    public NetworkDiscoveryViewModel Discovery { get; }
 
     private IThingsSource? Source => Client as IThingsSource;
 
@@ -513,6 +518,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             return;
         }
 
+        await Discovery.RefreshAsync(cancellationToken);
         await RunAsync(async () =>
         {
             var asOf = AsOf;

@@ -191,6 +191,7 @@ public static class DiveText
             SceneLayerKind.Network => "Network",
             SceneLayerKind.Connectivity => "Connectivity",
             SceneLayerKind.Services => "Services",
+            SceneLayerKind.Description => "About",
             SceneLayerKind.Collection => "Monitoring",
             _ => "Other",
         };

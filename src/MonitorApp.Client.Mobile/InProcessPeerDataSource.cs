@@ -69,6 +69,7 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
             await modelGate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
+                MonitoringBridge.ValueReader ??= MonitorApp.Contracts.ObservationValues.Read;
                 await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
                 Interlocked.Exchange(ref nextBridgeTicks, Environment.TickCount64 + (long)BridgeSpacing.TotalMilliseconds);
             }

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, IThingsSource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IThingsSource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -142,6 +142,15 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
 
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) =>
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/approve", ct, presenceAction: "pairing.approve", presenceSubject: pairingId);
+
+    public Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default) =>
+        GetAsync<NetworkDiscoveryDto>("api/v1/network/discovery", ct);
+
+    public async Task<NetworkDiscoveryDto> SetNetworkDiscoveryAsync(bool enabled, CancellationToken ct = default)
+    {
+        await PostAsync("api/v1/network/discovery", ct, body: new { enabled }).ConfigureAwait(false);
+        return await GetNetworkDiscoveryAsync(ct).ConfigureAwait(false);
+    }
 
     public Task<PeerReachDto> GetPeerReachAsync(CancellationToken ct = default) => GetAsync<PeerReachDto>("api/v1/network/reach", ct);
 

@@ -312,6 +312,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var modelStore = new ModelStore(Path.Combine(options.DataDirectory, "model.db"), timeProvider: time);
         await modelStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         var machineName = System.Environment.MachineName;
+        MonitoringBridge.ValueReader ??= MonitorApp.Contracts.ObservationValues.Read;
         var modelTask = new NodePeriodicTask(
             "model-bridge",
             TimeSpan.FromMinutes(1),

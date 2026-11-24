@@ -87,6 +87,20 @@ public static class SignalCatalog
         ["sync-waiting"] = "Waiting to sync",
     };
 
+    /// <summary>Plain words for the kind a found device looks like (always an estimate).</summary>
+    public static IReadOnlyDictionary<string, string> KindWords { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["device.network.router"] = "Router",
+        ["device.printer"] = "Printer",
+        ["device.media"] = "TV or media player",
+        ["device.audio.speaker"] = "Speaker",
+        ["device.smart-home"] = "Smart home device",
+        ["device.network"] = "Network device",
+        ["device.computer"] = "Computer",
+        ["device.phone"] = "Phone, tablet or laptop",
+        ["device"] = "Device",
+    };
+
     private static readonly object Gate = new();
     private static readonly Dictionary<string, SignalDescriptor> Cache = new(StringComparer.Ordinal);
     private static readonly List<(SignalDefinition Definition, Regex Matcher, string[] Slots)> Definitions = [];
@@ -105,6 +119,8 @@ public static class SignalCatalog
         ["battery"] = "Battery",
         ["network"] = "Network",
         ["lan"] = "Network link",
+        ["hardware"] = "Hardware",
+        ["discovery"] = "Network discovery",
         ["cpu"] = "Processor",
         ["memory"] = "Memory",
         ["storage"] = "Storage",
@@ -171,6 +187,40 @@ public static class SignalCatalog
         Register(new("service.syncthing.devices", SceneLayerKind.Services, "Syncthing devices"));
         Register(new("service.syncthing.devices_connected", SceneLayerKind.Services, "Syncthing devices connected"));
         Register(new("service.syncthing.folder.{folder}.state", SceneLayerKind.Services, "Syncthing folder {folder}") { Words = SyncthingWords });
+
+        // What a computer says about itself (Peer.Collection HardwareSnapshotCollector): measured, from the machine.
+        Register(new("hardware.maker", SceneLayerKind.Description, "Maker"));
+        Register(new("hardware.model", SceneLayerKind.Description, "Model"));
+        Register(new("hardware.cpu.model", SceneLayerKind.Description, "Processor"));
+        Register(new("hardware.cpu.cores", SceneLayerKind.Description, "Processor cores"));
+        Register(new("hardware.cpu.threads", SceneLayerKind.Description, "Processor threads"));
+        Register(new("hardware.memory.installed", SceneLayerKind.Description, "Memory installed"));
+        Register(new("hardware.gpu.{index}.model", SceneLayerKind.Description, "Graphics {index}"));
+        Register(new("hardware.drive.{index}.model", SceneLayerKind.Description, "Drive {index}"));
+        Register(new("hardware.drive.{index}.size", SceneLayerKind.Description, "Drive {index} size"));
+        Register(new("hardware.drive.{index}.kind", SceneLayerKind.Description, "Drive {index} type"));
+        Register(new("host.os.name", SceneLayerKind.Description, "Running system"));
+        Register(new("host.systems", SceneLayerKind.Description, "Installed systems"));
+        Register(new("host.systems.count", SceneLayerKind.Description, "Installed systems (count)"));
+        Register(new("host.boot.default", SceneLayerKind.Description, "Starts by default"));
+        Register(new("host.boot.current", SceneLayerKind.Description, "Started this time"));
+
+        // Devices found on the network or the tailnet (Peer.Collection NetworkDiscovery, Tailscale devices): their own subject.
+        Register(new("net.device.name", SceneLayerKind.Description, "Name on the network"));
+        Register(new("net.device.address", SceneLayerKind.Description, "Address"));
+        Register(new("net.device.mac", SceneLayerKind.Description, "Hardware address (MAC)"));
+        Register(new("net.device.maker", SceneLayerKind.Description, "Maker"));
+        Register(new("net.device.model", SceneLayerKind.Description, "Model"));
+        Register(new("net.device.os", SceneLayerKind.Description, "System"));
+        Register(new("net.device.kind", SceneLayerKind.Description, "Looks like") { Words = KindWords });
+        Register(new("net.device.offers", SceneLayerKind.Description, "Offers"));
+        Register(new("net.device.network", SceneLayerKind.Connectivity, "Network"));
+        Register(new("net.device.found_by", SceneLayerKind.Connectivity, "Found by"));
+        Register(new("net.device.answered", SceneLayerKind.Connectivity, "Answered last check") { Flag = ("Online", "Not answering") });
+        Register(new("net.device.gateway", SceneLayerKind.Connectivity, "Router for this network") { Flag = ("Yes", "No") });
+        Register(new("net.discovery.devices_found", SceneLayerKind.Connectivity, "Devices found on this network"));
+        Register(new("net.discovery.devices_answered", SceneLayerKind.Connectivity, "Devices online on this network"));
+        Register(new("net.discovery.networks", SceneLayerKind.Connectivity, "Networks looked at"));
 
         // Whether each collector is working (PeerSystemMetricsIngestionBridge records collector status as collector.health.{capability}).
         Register(new("collector.health.{collector}", SceneLayerKind.Collection, "{collector} readings") { Words = CollectorWords });
@@ -264,6 +314,7 @@ public static class SignalCatalog
         SceneLayerKind.Power => "Battery and power",
         SceneLayerKind.Connectivity => "Connectivity",
         SceneLayerKind.Services => "Services",
+        SceneLayerKind.Description => "About this device",
         SceneLayerKind.Collection => "Monitoring status",
         _ => "Other readings",
     };

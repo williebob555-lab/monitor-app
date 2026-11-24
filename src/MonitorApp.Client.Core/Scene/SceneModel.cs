@@ -68,6 +68,9 @@ public enum SceneLayerKind
 
     /// <summary>Services this computer runs (Tailscale, Syncthing, SSH, ...): whether each runs, and its own status.</summary>
     Services,
+
+    /// <summary>What a device is: maker, model, processor, drives, installed systems, and for a found device its address and what it offers.</summary>
+    Description,
     Other,
 
     /// <summary>Whether each of the device's own data collectors is working (battery reader, network reader, ...).</summary>

@@ -12,7 +12,7 @@ public static class LayerBuilder
     private static readonly SceneLayerKind[] Order =
     [
         SceneLayerKind.Compute, SceneLayerKind.Memory, SceneLayerKind.Storage,
-        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Services, SceneLayerKind.Other, SceneLayerKind.Collection,
+        SceneLayerKind.Network, SceneLayerKind.Power, SceneLayerKind.Connectivity, SceneLayerKind.Services, SceneLayerKind.Description, SceneLayerKind.Other, SceneLayerKind.Collection,
     ];
 
     public static IReadOnlyList<SceneLayer> Build(IEnumerable<SceneReading> readings, HealthClassifier classifier)
