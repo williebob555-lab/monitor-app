@@ -10,7 +10,8 @@ namespace MonitorApp.Peer.Replication;
 public sealed record MeshTrustChange(string PeerId, string? DisplayName, bool Admitted, string ByPeerId, string? ByDisplayName, bool Restored = false);
 
 /// <summary>Outcome of applying statements received from a peer.</summary>
-public sealed record MeshApplyResult(int Stored, int Ignored, IReadOnlyList<MeshTrustChange> Changes);
+/// <param name="Issued">This peer's own statements issued while applying; the sender has not seen them yet.</param>
+public sealed record MeshApplyResult(int Stored, int Ignored, IReadOnlyList<MeshTrustChange> Changes, int Issued = 0);
 
 /// <summary>
 /// Mesh membership (T080, owner decision 2026-11-23 "add once, trusted everywhere").
@@ -154,6 +155,7 @@ public sealed class MeshMembership
 
         var stored = 0;
         var ignored = 0;
+        var issued = 0;
         IReadOnlyList<MeshTrustChange> changes;
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -175,6 +177,10 @@ public sealed class MeshMembership
 
                 candidates.Add(statement);
             }
+
+            // This device's own statements root the chain of trust: a peer paired directly but not yet vouched for in a
+            // stored statement (nothing issued since pairing) would otherwise be unreachable, and everything it sent dropped.
+            issued = await IssueLocalStatementsAsync(cancellationToken).ConfigureAwait(false);
 
             // Issuers may be introduced by other statements in the same exchange: accept in rounds until nothing new verifies.
             var known = (await ReadVerifiedAsync(cancellationToken).ConfigureAwait(false)).ToList();
@@ -217,9 +223,9 @@ public sealed class MeshMembership
 
             ignored += candidates.Count;
 
-            // Issue first: a device paired again moments ago must have its re-admission in place before the removal
-            // it lifts is applied, or the removal would revoke the new pairing.
-            var issued = await IssueLocalStatementsAsync(cancellationToken).ConfigureAwait(false);
+            // Issue again before deriving: a device paired again moments ago must have its re-admission in place before
+            // a removal it lifts is applied, or the removal would revoke the new pairing.
+            issued += await IssueLocalStatementsAsync(cancellationToken).ConfigureAwait(false);
             changes = await DeriveAndApplyAsync(cancellationToken).ConfigureAwait(false);
             if (stored > 0 || issued > 0 || changes.Count > 0) Interlocked.Increment(ref version);
         }
@@ -229,7 +235,7 @@ public sealed class MeshMembership
         }
 
         if (changes.Count > 0) TrustChanged?.Invoke(changes);
-        return new MeshApplyResult(stored, ignored, changes);
+        return new MeshApplyResult(stored, ignored, changes, issued);
     }
 
     /// <summary>Pure derivation over a statement set, exposed for tests and the mesh screen.</summary>
