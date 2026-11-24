@@ -49,7 +49,7 @@ public sealed class WorkspaceShellTests
         Assert.False(Find<TextBox>(shell, "SearchBox").IsVisible, "phone: toolbar reduced (no search box)");
         Assert.True(Find<TextBlock>(shell, "NarrowTitle").IsVisible, "phone: toolbar shows the title");
         Assert.Equal("LIVE", Find<TextBlock>(shell, "LiveText").Text);
-        Assert.Equal(["Ecosystem", "Alerts", "History", "Search", "More"], model.Shell.Modes.Select(m => m.NarrowTitle));
+        Assert.Equal(["Home", "Alerts", "History", "Search", "More"], model.Shell.Modes.Select(m => m.NarrowTitle));
         foreach (var item in Find<ListBox>(shell, "BottomNav").GetVisualDescendants().OfType<ListBoxItem>())
         {
             Assert.True(item.Bounds.Height >= 44, $"bottom nav item is {item.Bounds.Height} px high");
@@ -265,7 +265,7 @@ public sealed class WorkspaceShellTests
         link.Command!.Execute(link.CommandParameter);
         Pump();
         Assert.Equal(FakeEnvironmentSource.LocalId, model.Environment.SelectedNodeId);
-        Assert.Equal(["Ecosystem", SceneProjector.LocalLabel], model.Shell.Breadcrumbs.Select(b => b.Text));
+        Assert.Equal(["Home", SceneProjector.LocalLabel], model.Shell.Breadcrumbs.Select(b => b.Text));
         Assert.False(model.Shell.Inspector.Controls.IsAvailable, "no controls for this device itself");
         Assert.Equal(
             ["end:" + FakeEnvironmentSource.ServerId, $"begin:local:{liveSignals}"],
@@ -327,7 +327,7 @@ public sealed class WorkspaceShellTests
         // Modes reach every section.
         model.Shell.GoTo(ShellMode.Settings);
         Pump();
-        Assert.Equal(["Devices", "Pairing and trust", "Overview"], model.Shell.SubSections.Select(s => s.Title));
+        Assert.Equal(["Pairing and trust", "Devices", "About this device"], model.Shell.SubSections.Select(s => s.Title));
         Find<TabStrip>(shell, "SubTabs").SelectedItem = model.Shell.SubSections.OfType<PairingsViewModel>().Single();
         Pump();
         Assert.IsType<PairingsViewModel>(model.SelectedSection);

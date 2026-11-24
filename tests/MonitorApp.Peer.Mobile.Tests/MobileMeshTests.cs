@@ -356,8 +356,8 @@ public sealed class MobileMeshTests
             Assert.Equal(tabletId, Assert.Single(joined).Alert.SubjectId);
             Assert.Equal(server.Identity.PeerId, joined[0].Alert.OriginPeerId);
 
-            // The device list says how each device came to be trusted. The alert and the tablet's trust record travel
-            // separately, so wait for the record rather than reading it the moment the alert lands.
+            // The device list says how each device came to be trusted. The server's alert can reach the phone a moment
+            // before the statements that admit the tablet there, so wait for those too.
             await WaitAsync(async () => (await MeshProvenance.DescribeAsync(PhoneStore(roots[2]))).ContainsKey(tabletId));
             var provenance = await MeshProvenance.DescribeAsync(PhoneStore(roots[2]));
             Assert.Equal("Paired on this device", provenance[desk.Identity.PeerId]);

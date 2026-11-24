@@ -1,4 +1,5 @@
 using System.Globalization;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MonitorApp.Client.Core.ViewModels;
 
@@ -9,8 +10,12 @@ public sealed record TrustedPeerRow(
     string TrustState,
     string PairedAt,
     string? RevokedAt,
-    string? Provenance = null)
+    string? Provenance = null,
+    string? Connection = null,
+    bool Connected = false)
 {
+    public bool HasConnection => !string.IsNullOrEmpty(Connection);
+
     public bool CanRevoke => string.Equals(TrustState, "Active", StringComparison.Ordinal);
 
     public bool HasProvenance => !string.IsNullOrEmpty(Provenance);
@@ -22,7 +27,83 @@ public sealed record TrustedPeerRow(
         peer.TrustState,
         Format.Time(peer.PairedAt),
         peer.RevokedAt is { } revoked ? Format.Time(revoked) : null,
-        peer.Provenance);
+        peer.Provenance,
+        peer.Connection,
+        peer.Connected);
+}
+
+/// <summary>
+/// A trusted device's card on the pairing screen. Removing it happens on the card itself: the question, the progress and
+/// the result appear where the person pressed Remove, never somewhere off-screen.
+/// </summary>
+public sealed partial class TrustedPeerCard(TrustedPeerRow row) : ObservableObject
+{
+    public TrustedPeerRow Row { get; } = row;
+
+    public string PeerId => Row.PeerId;
+
+    public string Name => Row.Name;
+
+    public string Fingerprint => Row.Fingerprint;
+
+    public string TrustState => Row.TrustState;
+
+    public string PairedAt => Row.PairedAt;
+
+    public string? RevokedAt => Row.RevokedAt;
+
+    public string? Provenance => Row.Provenance;
+
+    public bool HasProvenance => Row.HasProvenance;
+
+    public bool CanRevoke => Row.CanRevoke;
+
+    /// <summary>Whether the link works right now and, when it doesn't, why; plus when its last reading arrived.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasConnection), nameof(IsConnected), nameof(IsNotConnected))]
+    private string? connection = row.Connection;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConnected), nameof(IsNotConnected))]
+    private bool connected = row.Connected;
+
+    public bool HasConnection => !string.IsNullOrEmpty(Connection);
+
+    public bool IsConnected => Connected && HasConnection;
+
+    public bool IsNotConnected => !Connected && HasConnection;
+
+    public string Prompt =>
+        $"Remove {Name} from all your devices? Check the fingerprint first: {Fingerprint}. Every device stops trusting it " +
+        "and stops sharing readings with it. You can pair it again later the usual way; it waits for your approval like a new device.";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveButton))]
+    private bool isConfirming;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveButton))]
+    private bool isWorking;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOutcome), nameof(IsOutcomeOk))]
+    private string? outcome;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOutcomeOk))]
+    private bool outcomeFailed;
+
+    public bool ShowRemoveButton => CanRevoke && !IsConfirming && !IsWorking;
+
+    public bool HasOutcome => !string.IsNullOrEmpty(Outcome);
+
+    public bool IsOutcomeOk => HasOutcome && !OutcomeFailed;
+
+    public void SetOutcome(string? text, bool failed)
+    {
+        OutcomeFailed = failed;
+        Outcome = text;
+    }
 }
 
 public sealed record PendingPairingRow(

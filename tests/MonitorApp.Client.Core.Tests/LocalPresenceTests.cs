@@ -48,6 +48,12 @@ public sealed class LocalPresenceTests : IDisposable
         Assert.Equal("Approve a pairing request on this computer", verifier.Reasons[^1]);
         Assert.Equal(2, verifier.Reasons.Count);
         Assert.DoesNotContain(await client.GetPairingsAsync(), pairing => pairing.ApprovalState == "PendingApproval");
+
+        // Removing a device carries its own presence action, so the fingerprint is asked for instead of the node refusing.
+        await Assert.ThrowsAsync<LocalPresenceRequiredException>(() => bare.RevokePeerAsync("peer-trusted"));
+        await client.RevokePeerAsync("peer-trusted");
+        Assert.Equal("Remove a device from all your devices", verifier.Reasons[^1]);
+        Assert.Equal("Revoked", (await client.GetPeersAsync()).Single(peer => peer.PeerId == "peer-trusted").TrustState);
     }
 
     [Fact]

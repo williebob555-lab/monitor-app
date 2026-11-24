@@ -213,7 +213,8 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         {
             SelfLocators = MeshSelfLocators(options),
         };
-        var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval, mesh);
+        var links = new PeerLinkStatusBoard(live?.Time);
+        var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval, mesh, links);
         if (mesh is not null) mesh.TrustChanged += changes => _ = Task.Run(async () =>
         {
             try
@@ -272,7 +273,18 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             new TimeProviderPeerClock(time),
             alertRules.PeerSilentAfter,
             peerId => interests.PushChannels.SessionCount(peerId) > 0);
-        interests.PushChannels.ConnectivityChanged += (peerId, up) => peerStateTracker.NotifySession(peerId, up);
+        interests.PushChannels.ConnectivityChanged += (peerId, up) =>
+        {
+            peerStateTracker.NotifySession(peerId, up);
+            if (up)
+            {
+                links.Connected(peerId);
+            }
+            else
+            {
+                links.Disconnected(peerId, canDial: false);
+            }
+        };
         var peerStateTask = new NodePeriodicTask(
             "peer-state",
             live?.PeerStateInterval ?? TimeSpan.FromSeconds(15),
@@ -374,6 +386,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
                 Path.Combine(options.DataDirectory, "local-presence.json"), options.LocalPresence, clock),
             new PeerReachController(options, ensureFirewall: PeerReachSetting.WindowsFirewallHelper()),
             modelStore,
+            links,
             selfDiscovery);
         try
         {

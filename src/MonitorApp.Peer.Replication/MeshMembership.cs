@@ -7,7 +7,7 @@ using MonitorApp.Peer.Persistence;
 namespace MonitorApp.Peer.Replication;
 
 /// <summary>A trust change the mesh made on this peer, for history and notifications.</summary>
-public sealed record MeshTrustChange(string PeerId, string? DisplayName, bool Admitted, string ByPeerId, string? ByDisplayName);
+public sealed record MeshTrustChange(string PeerId, string? DisplayName, bool Admitted, string ByPeerId, string? ByDisplayName, bool Restored = false);
 
 /// <summary>Outcome of applying statements received from a peer.</summary>
 public sealed record MeshApplyResult(int Stored, int Ignored, IReadOnlyList<MeshTrustChange> Changes);
@@ -22,9 +22,13 @@ public sealed record MeshApplyResult(int Stored, int Ignored, IReadOnlyList<Mesh
 /// <list type="number">
 /// <item>Reachable: (peer id, key) pairs reachable from this peer over admit statements with valid signatures,
 /// ignoring removals.</item>
-/// <item>Removed: subjects of remove statements whose issuer is reachable. Removal is final for that key and wins over
-/// any admission, so a removed device stays removed everywhere whoever re-admits it, and a removed device cannot stay
-/// trusted by removing the others first (its removals do remove them, but it is removed too).</item>
+/// <item>Removed: subjects of remove statements whose issuer is reachable, unless a re-admission lifts that exact
+/// statement. A removal wins over any plain admission, and a removed device cannot stay trusted by removing the others
+/// first (its removals do remove them, but it is removed too).</item>
+/// <item>Lifted: a re-admission (issued when the owner pairs a removed device again and approves it) names the removal
+/// statements it lifts by id. It counts only when its issuer is reachable and not itself removed, worked out until
+/// nothing changes, so lifts must trace back to a device that was never removed. A removal it does not name, such as
+/// one made after it, still wins, whatever the clocks say.</item>
 /// <item>Trusted: reachable from this peer over admit statements whose issuer and subject are not removed. Admissions
 /// by a removed device stop counting.</item>
 /// </list>
@@ -188,7 +192,7 @@ public sealed class MeshMembership
                     var subject = MeshStatementCryptography.Subject(statement);
                     var outcome = await store.UpsertMeshStatementAsync(new StoredMeshStatement(
                         statement.StatementId,
-                        statement.Kind == MeshStatementKind.Admit ? StoredMeshStatementKind.Admit : StoredMeshStatementKind.Remove,
+                        StoredKind(statement.Kind),
                         statement.IssuerPeerId,
                         statement.SubjectPeerId,
                         subject.PublicKeyFingerprint,
@@ -212,8 +216,12 @@ public sealed class MeshMembership
             }
 
             ignored += candidates.Count;
+
+            // Issue first: a device paired again moments ago must have its re-admission in place before the removal
+            // it lifts is applied, or the removal would revoke the new pairing.
+            var issued = await IssueLocalStatementsAsync(cancellationToken).ConfigureAwait(false);
             changes = await DeriveAndApplyAsync(cancellationToken).ConfigureAwait(false);
-            if (stored > 0 || changes.Count > 0) Interlocked.Increment(ref version);
+            if (stored > 0 || issued > 0 || changes.Count > 0) Interlocked.Increment(ref version);
         }
         finally
         {
@@ -233,12 +241,41 @@ public sealed class MeshMembership
         ArgumentNullException.ThrowIfNull(statements);
         var valid = statements.Where(item => MeshStatementCryptography.ValidateShape(item) is null).ToArray();
         var reachable = Reachable(root, valid, removed: null);
-        var removed = new Dictionary<string, (PeerPublicIdentity Subject, MeshStatement By)>(StringComparer.Ordinal);
-        foreach (var statement in valid.Where(item => item.Kind == MeshStatementKind.Remove).OrderBy(item => item.StatementId, StringComparer.Ordinal))
+        bool Counts(MeshStatement statement) =>
+            reachable.TryGetValue(IssuerNode(statement), out var issuer) && MeshStatementCryptography.Verify(statement, issuer);
+        var removals = valid.Where(item => item.Kind == MeshStatementKind.Remove && Counts(item))
+            .OrderBy(item => item.StatementId, StringComparer.Ordinal)
+            .Select(item => (Statement: item, Subject: MeshStatementCryptography.Subject(item)))
+            .ToArray();
+        var readmits = valid.Where(item => item.Kind == MeshStatementKind.Readmit && Counts(item))
+            .Select(item => (Statement: item, SubjectNode: Node(MeshStatementCryptography.Subject(item)), Lifts: item.LiftedStatementIds.ToHashSet(StringComparer.Ordinal)))
+            .ToArray();
+
+        // Lifts only shrink the removed set, so repeat until stable: a lift counts once its issuer is no longer removed.
+        var lifted = new HashSet<string>(StringComparer.Ordinal);
+        for (var changed = true; changed;)
         {
-            if (!reachable.TryGetValue(IssuerNode(statement), out var issuer) || !MeshStatementCryptography.Verify(statement, issuer)) continue;
-            var subject = MeshStatementCryptography.Subject(statement);
-            removed.TryAdd(Node(subject), (subject, statement));
+            changed = false;
+            var removedNodes = removals.Where(item => !lifted.Contains(item.Statement.StatementId)).Select(item => Node(item.Subject)).ToHashSet(StringComparer.Ordinal);
+            foreach (var readmit in readmits)
+            {
+                if (removedNodes.Contains(IssuerNode(readmit.Statement))) continue;
+                foreach (var removal in removals)
+                {
+                    if (!lifted.Contains(removal.Statement.StatementId) && readmit.Lifts.Contains(removal.Statement.StatementId) &&
+                        Node(removal.Subject) == readmit.SubjectNode)
+                    {
+                        lifted.Add(removal.Statement.StatementId);
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        var removed = new Dictionary<string, (PeerPublicIdentity Subject, MeshStatement By)>(StringComparer.Ordinal);
+        foreach (var (statement, subject) in removals)
+        {
+            if (!lifted.Contains(statement.StatementId)) removed.TryAdd(Node(subject), (subject, statement));
         }
 
         var rootNode = Node(root);
@@ -249,16 +286,18 @@ public sealed class MeshMembership
             trusted.Values.ToArray(),
             admittedBy,
             removed.Values.Select(item => (item.Subject, item.By)).ToArray(),
-            localRemoval.By);
+            localRemoval.By)
+        {
+            Lifted = lifted,
+        };
     }
 
     private async Task<int> IssueLocalStatementsAsync(CancellationToken cancellationToken)
     {
         var peers = await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false);
         var marks = (await store.ReadMeshTrustMarksAsync(cancellationToken).ConfigureAwait(false)).ToDictionary(item => item.PeerId, StringComparer.Ordinal);
-        var mine = (await store.ReadMeshStatementsAsync(cancellationToken).ConfigureAwait(false))
-            .Where(item => item.IssuerPeerId == local.PeerId)
-            .ToArray();
+        var all = await store.ReadMeshStatementsAsync(cancellationToken).ConfigureAwait(false);
+        var mine = all.Where(item => item.IssuerPeerId == local.PeerId).ToArray();
         var issued = 0;
         var now = utcNow();
         foreach (var peer in peers)
@@ -278,22 +317,44 @@ public sealed class MeshMembership
                     .Select(item => new MeshLocator { Host = item.Host, Port = (uint)item.Port })
                     .ToArray();
                 var existing = Latest(mine, StoredMeshStatementKind.Admit, peer);
+                var unchanged = false;
                 if (existing is not null)
                 {
                     var parsed = MeshStatement.Parser.ParseFrom(existing.StatementBytes);
-                    if (parsed.SubjectLocators.SequenceEqual(locators) && parsed.SubjectDisplayName == (peer.DisplayName ?? string.Empty)) continue;
+                    unchanged = parsed.SubjectLocators.SequenceEqual(locators) && parsed.SubjectDisplayName == (peer.DisplayName ?? string.Empty);
                 }
 
-                await StoreOwnAsync(MeshStatementCryptography.CreateSigned(localKey, local, MeshStatementKind.Admit, subject,
-                    peer.DisplayName, locators, Later(now, existing)), cancellationToken).ConfigureAwait(false);
-                issued++;
+                if (!unchanged)
+                {
+                    await StoreOwnAsync(MeshStatementCryptography.CreateSigned(localKey, local, MeshStatementKind.Admit, subject,
+                        peer.DisplayName, locators, Later(now, existing)), cancellationToken).ConfigureAwait(false);
+                    issued++;
+                }
+
+                // Paired again after a removal: lift every removal of this device that arrived here before the owner
+                // approved the new pairing. Removals that arrive later are not named, so they still win.
+                var lifts = all
+                    .Where(item => item.Kind == StoredMeshStatementKind.Remove && Matches(item, peer) && item.ReceivedAt < peer.PairedAt)
+                    .Select(item => item.StatementId)
+                    .Order(StringComparer.Ordinal)
+                    .Take(MeshStatementCryptography.MaximumLiftedStatements)
+                    .ToArray();
+                var readmitted = Latest(mine, StoredMeshStatementKind.Readmit, peer);
+                if (lifts.Length > 0 &&
+                    (readmitted is null || !lifts.All(MeshStatement.Parser.ParseFrom(readmitted.StatementBytes).LiftedStatementIds.Contains)))
+                {
+                    await StoreOwnAsync(MeshStatementCryptography.CreateSigned(localKey, local, MeshStatementKind.Readmit, subject,
+                        peer.DisplayName, [], Later(now, readmitted), lifts), cancellationToken).ConfigureAwait(false);
+                    issued++;
+                }
             }
             else if (peer.TrustState == PeerTrustState.Revoked && mark is not { RemovedViaMesh: true } &&
-                     Latest(mine, StoredMeshStatementKind.Remove, peer) is null)
+                     Latest(mine, StoredMeshStatementKind.Remove, peer) is var removal && (removal is null || removal.IssuedAt < peer.RevokedAt))
             {
-                // Revoked here by the owner: remove it everywhere.
+                // Revoked here by the owner: remove it everywhere. Removed again after pairing again: a new removal,
+                // which the earlier re-admission does not name, so it wins.
                 await StoreOwnAsync(MeshStatementCryptography.CreateSigned(localKey, local, MeshStatementKind.Remove, subject,
-                    peer.DisplayName, [], now), cancellationToken).ConfigureAwait(false);
+                    peer.DisplayName, [], Later(now, removal)), cancellationToken).ConfigureAwait(false);
                 issued++;
             }
         }
@@ -306,7 +367,7 @@ public sealed class MeshMembership
         var subject = MeshStatementCryptography.Subject(statement);
         await store.UpsertMeshStatementAsync(new StoredMeshStatement(
             statement.StatementId,
-            statement.Kind == MeshStatementKind.Admit ? StoredMeshStatementKind.Admit : StoredMeshStatementKind.Remove,
+            StoredKind(statement.Kind),
             statement.IssuerPeerId,
             statement.SubjectPeerId,
             subject.PublicKeyFingerprint,
@@ -342,7 +403,23 @@ public sealed class MeshMembership
         var trustedNodes = derivation.Trusted.Select(Node).ToHashSet(StringComparer.Ordinal);
         foreach (var subject in derivation.Trusted)
         {
-            if (peers.ContainsKey(subject.PeerId)) continue; // Existing rows are never rebound or revived.
+            if (peers.TryGetValue(subject.PeerId, out var known))
+            {
+                // Existing rows are never rebound. A revoked one comes back only when the removal that revoked it was lifted.
+                if (known.TrustState == PeerTrustState.Revoked &&
+                    CryptographicOperations.FixedTimeEquals(known.PublicKeyFingerprint, subject.PublicKeyFingerprint) &&
+                    MayRestore(known, marks.GetValueOrDefault(known.PeerId), statements, derivation))
+                {
+                    var by = statements
+                        .Where(item => item.Kind == MeshStatementKind.Readmit && Node(MeshStatementCryptography.Subject(item)) == Node(subject))
+                        .MaxBy(item => item.IssuedAt.ToDateTimeOffset())?.IssuerPeerId ?? derivation.AdmittedBy[Node(subject)].IssuerPeerId;
+                    if (await store.RestorePeerViaMeshAsync(known.PeerId, known.PublicKeyFingerprint, by, now, cancellationToken).ConfigureAwait(false))
+                        changes.Add(new MeshTrustChange(known.PeerId, known.DisplayName, true, by, Name(names, by), Restored: true));
+                }
+
+                continue;
+            }
+
             var admission = derivation.AdmittedBy[Node(subject)];
             var locators = admission.SubjectLocators
                 .Select(item => new PeerLocator(subject.PeerId, item.Host, (int)item.Port, now, null))
@@ -368,7 +445,9 @@ public sealed class MeshMembership
 
         foreach (var change in changes)
         {
-            var reason = change.Admitted
+            var reason = change.Restored
+                ? $"Let back in (paired again on {change.ByDisplayName ?? change.ByPeerId})"
+                : change.Admitted
                 ? $"Joined the mesh (added by {change.ByDisplayName ?? change.ByPeerId})"
                 : $"Removed from the mesh by {change.ByDisplayName ?? change.ByPeerId}";
             await store.RecordPeerStateAsync(change.PeerId, change.Admitted ? PeerConnectivityState.Paired : PeerConnectivityState.Revoked,
@@ -396,8 +475,9 @@ public sealed class MeshMembership
         var reached = new Dictionary<string, PeerPublicIdentity>(StringComparer.Ordinal) { [Node(root)] = root };
         admittedBy = new Dictionary<string, MeshStatement>(StringComparer.Ordinal);
         var byIssuer = statements
-            .Where(item => item.Kind == MeshStatementKind.Admit)
-            .OrderByDescending(item => item.IssuedAt.ToDateTimeOffset())
+            .Where(item => item.Kind is MeshStatementKind.Admit or MeshStatementKind.Readmit)
+            .OrderBy(item => item.Kind == MeshStatementKind.Admit ? 0 : 1)
+            .ThenByDescending(item => item.IssuedAt.ToDateTimeOffset())
             .ThenBy(item => item.StatementId, StringComparer.Ordinal)
             .GroupBy(IssuerNode, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
@@ -431,6 +511,31 @@ public sealed class MeshMembership
         return reached;
     }
 
+    /// <summary>
+    /// A revoked row may come back when the mesh revoked it (and now trusts it again), or when this device's own removal
+    /// of it, made for that revocation, was lifted by a re-admission.
+    /// </summary>
+    private bool MayRestore(TrustedPeer peer, MeshTrustMark? mark, IReadOnlyList<MeshStatement> statements, MeshDerivation derivation)
+    {
+        if (mark is { RemovedViaMesh: true }) return true;
+        var own = statements
+            .Where(item => item.Kind == MeshStatementKind.Remove && item.IssuerPeerId == local.PeerId && item.SubjectPeerId == peer.PeerId &&
+                           CryptographicOperations.FixedTimeEquals(MeshStatementCryptography.Subject(item).PublicKeyFingerprint, peer.PublicKeyFingerprint))
+            .MaxBy(item => item.IssuedAt.ToDateTimeOffset());
+        return own is not null && peer.RevokedAt is { } revokedAt && own.IssuedAt.ToDateTimeOffset() >= revokedAt && derivation.Lifted.Contains(own.StatementId);
+    }
+
+    private static StoredMeshStatementKind StoredKind(MeshStatementKind kind) => kind switch
+    {
+        MeshStatementKind.Admit => StoredMeshStatementKind.Admit,
+        MeshStatementKind.Remove => StoredMeshStatementKind.Remove,
+        MeshStatementKind.Readmit => StoredMeshStatementKind.Readmit,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static bool Matches(StoredMeshStatement statement, TrustedPeer peer) =>
+        statement.SubjectPeerId == peer.PeerId && statement.SubjectFingerprint.AsSpan().SequenceEqual(peer.PublicKeyFingerprint);
+
     private static StoredMeshStatement? Latest(IEnumerable<StoredMeshStatement> statements, StoredMeshStatementKind kind, TrustedPeer peer) =>
         statements
             .Where(item => item.Kind == kind && item.SubjectPeerId == peer.PeerId && item.SubjectFingerprint.AsSpan().SequenceEqual(peer.PublicKeyFingerprint))
@@ -455,4 +560,8 @@ public sealed record MeshDerivation(
     IReadOnlyList<PeerPublicIdentity> Trusted,
     IReadOnlyDictionary<string, MeshStatement> AdmittedBy,
     IReadOnlyList<(PeerPublicIdentity Subject, MeshStatement By)> Removed,
-    MeshStatement? LocalRemovedBy);
+    MeshStatement? LocalRemovedBy)
+{
+    /// <summary>Removal statement ids a counted re-admission lifted.</summary>
+    public IReadOnlySet<string> Lifted { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}

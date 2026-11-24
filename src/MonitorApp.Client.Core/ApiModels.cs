@@ -19,7 +19,9 @@ public sealed record TrustedPeerDto(
     string TrustState,
     DateTimeOffset PairedAt,
     DateTimeOffset? RevokedAt,
-    string? Provenance = null);
+    string? Provenance = null,
+    string? Connection = null,
+    bool Connected = false);
 
 public sealed record PendingPairingDto(
     string PairingId,

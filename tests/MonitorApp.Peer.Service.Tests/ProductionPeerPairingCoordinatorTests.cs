@@ -77,7 +77,7 @@ public sealed class ProductionPeerPairingCoordinatorTests
     }
 
     [Fact]
-    public async Task RevokedIdentityCannotStartFreshPairing()
+    public async Task RemovedIdentityMayAskToPairAgainButWaitsForApproval()
     {
         await using var fixture = await PairingFixture.StartAsync();
         await fixture.Store.UpsertTrustedPeerAsync(new TrustedPeer(
@@ -94,9 +94,10 @@ public sealed class ProductionPeerPairingCoordinatorTests
             Hello = fixture.RemoteHello("pairing-revoked"),
         });
 
-        var error = (await ReadAsync(call)).Error;
-        Assert.Equal(ProtocolErrorCode.Unauthorized, error.Code);
-        Assert.DoesNotContain("key", error.SafeMessage, StringComparison.OrdinalIgnoreCase);
+        // Like any new device: it waits for the owner's approval and nothing is trusted until then.
+        Assert.NotNull((await ReadAsync(call)).Hello);
+        Assert.Equal(PairingApprovalDisposition.AwaitingLocalApproval, (await ReadAsync(call)).Approval.Disposition);
+        Assert.Equal(PeerTrustState.Revoked, (await fixture.Store.ReadTrustedPeerAsync(fixture.RemoteIdentity.PeerId))?.TrustState);
     }
 
     [Fact]

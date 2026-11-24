@@ -61,6 +61,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         LocalPresenceService? localPresence = null,
         IPeerReachController? reach = null,
         MonitorApp.Model.ModelStore? model = null,
+        PeerLinkStatusBoard? links = null,
         INetworkDiscoveryController? discovery = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -135,7 +136,7 @@ public sealed class LocalApiHost : IAsyncDisposable
             builder.Services.AddSingleton(localPresence);
         }
 
-        builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
+        builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore, links, clock));
         builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
         var application = builder.Build();

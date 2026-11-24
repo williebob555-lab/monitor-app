@@ -43,6 +43,24 @@ Done items stay listed so progress is visible.
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Planned 2026-11-24, see "Projects, parts and sourcing" below. P1 and P2 done |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 
+## Make the app useful on its own (planned 2026-11-24, mostly done)
+
+**Your feedback (2026-11-24).** "The app really doesn't do much right now." Tailscale, Syncthing and the other things you run are not monitored, even though the vision promises it.
+
+**You are right.** Here is what each computer finds out by itself today: processor load, memory, disk space, network traffic, its own network adapters and links, and the phone's battery. Everything else (Things, projects, racks, values) only knows what you type in. No code reads services at all. Syncthing appears only in the vision documents and the sample scene, and Tailscale is used only for pairing addresses.
+
+**End goal.** You install the app and each computer fills itself in: what it is (maker, model, processor, memory, drives, operating system), what runs on it (services and apps you rely on, running or stopped), and how those are doing, all without typing. Problems raise alerts. Your laptop, phone and tablet see all of it, reliably.
+
+**Order (2026-11-24).** First pairing that just works (R1 to R6 above). Then readings flowing reliably between laptop, phone and tablet (R4 and R5). Then the items below. Projects (P3 onwards) and other new features wait.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| D1 | **Services on each computer**: read the running services (systemd on Fedora and Ubuntu, Windows services) and recognise well-known ones such as Tailscale, Syncthing, SSH, Docker and web servers. Each one becomes a thing on its computer, marked measured, with running or stopped and since when | M | A "Services" group on each computer, filled in by itself | Done, next release (see "Fill the model by itself" D5) |
+| D2 | **Tailscale, read properly**: connected or not, this computer's Tailscale address, which of your devices are online, exit node. Read-only, using `tailscale status --json` | M | "Tailscale: connected, 4 of 5 devices online" on the computer | Done, next release (see D3 and D5 below) |
+| D3 | **Syncthing, read properly**: running or not, each folder (up to date, syncing, error, out of sync) and which devices are connected. Read-only, using Syncthing's own local API on 127.0.0.1 with the key from its config file | M | "Syncthing: 3 folders up to date, Laptop and Phone connected" | Done, next release (key handed over by the desktop app) |
+| D4 | **Alerts for them**: service stopped, Tailscale disconnected, Syncthing folder stuck or in error, each with how long and why | S | An alert when Syncthing stops syncing | In progress (Tailscale disconnected, Syncthing folder in error or behind) |
+| D5 | **What the machine is, found by itself**: maker, model, serial, processor, memory size, drives, operating system and version, as measured values on the computer's card. No typing | M | A computer's card says "Lenovo ThinkPad …, 16 GB, Fedora 41" by itself | Done, next release (see D4 below; serial number not read) |
+
 ## Fill the model by itself (started 2026-11-24)
 
 **Goal.** In the morning the Map and Things show your real network, not just two devices: the router, the SG250 switch, printers, TVs, phones, every Tailscale device, and what each computer is made of. Everything found is marked as discovered or measured, can be renamed or confirmed, and is never trusted into the mesh by being found.
@@ -97,6 +115,29 @@ P1 and P2 ship together as the first release, then P3, then P4 and P5.
 | M3 | **Mesh screen** (T086): who is in the mesh, who added whom and when, last seen, and Remove (with fingerprint) | M | A clear list instead of per-device pairings | Done, next release (alert, who added whom, fingerprint on phone removal) |
 | M4 | **Pass readings along** (T087): readings travel through any device that is online, still signed by the device that took them, so a relay cannot change them | L | The phone sees the tablet, and a laptop it can't reach directly, through any computer | Done, next release |
 | M5 | **Phones accept connections** (T088): investigate running a listener on Android so two phones can sync with no computer on | L, uncertain | Phone and tablet sync with each other when no computer is on | Later; may not be possible on Android |
+
+### Make pairing a complete system (planned 2026-11-24)
+
+**Your feedback (2026-11-24).** Pairing feels like scraps, not a finished system. Remove did nothing on the laptop or the phone. The phone and laptop still don't share readings. A removed device must be able to pair again normally, without a reinstall. Silent stutters destroy trust.
+
+**End goal.** Every pairing action answers on the spot: what it is doing, then whether it worked and, if not, why. Each device's card says whether it is connected right now and, when readings aren't arriving, the reason in plain words. Removing a device takes effect everywhere at once, and the device can come back later through a fresh pairing that you approve.
+
+**What was wrong.**
+- **Remove did nothing.** Remove did work, but its "Are you sure?" box appeared at the top of the device list, usually out of view, so pressing Remove looked like it did nothing.
+- **Fingerprint.** Remove asks for a fingerprint only when one is set up. Nowhere tells you whether one is set up, or what to use instead.
+- **Rejoining.** Removal is permanent by design (`MeshMembership`: a removal "wins over any admission"). A removed device can't rejoin without being reinstalled.
+- **No reason shown.** When readings stop, nothing on screen says why.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| R1 | **Remove where you press it**: the question, a progress bar and the result (or the reason it failed) appear on that device's own card | S | Press Remove and the card asks, works, then says "Removed" or why not | Built, 0.1.28 |
+| R2 | **Fingerprint said plainly**: every action that can use a fingerprint says whether one is set up. When none is, it uses your phone's PIN or your Windows Hello PIN instead and shows how to set a fingerprint up. Nothing fails silently. | M | "Fingerprint not set up: your PIN will be asked instead. Set up fingerprint…" | Built, 0.1.28 (removing and adding devices on phones) |
+| R3 | **Pair again after removal**: a fresh pairing that you approve on a trusted device brings a removed device back, keeping its history. Removal still takes effect everywhere at once. The approval names exactly which removals it lifts, so a newer removal always wins, whatever the device clocks say. | L, security review | Remove the phone, scan the laptop's code again, approve, and it is back | Built, next release |
+| R4 | **Connection state on each device**: connected, trying (and which address), or can't reach (with the error); when the last reading arrived; readings waiting to send | M | "Laptop: can't reach 100.x.y.z (timed out), last reading 2 h ago; trying 192.168.1.20" | Built, 0.1.28 |
+| R5 | **Phone and laptop readings flowing**: find the cause with R4's details and fix it | M, uncertain until R4 shows the reason | Phone and laptop show each other's readings | Planned |
+| R6 | **Every pairing button answers**: Approve, Reject, Show code, Add a phone or tablet, Save permissions each show busy, then success or the reason it failed, on the spot | S | No button press goes unanswered | Built, 0.1.28 |
+
+Order: R1, R2, R6 and R4 ship together first (0.1.28). R3 next, then R5 as soon as R4 shows the cause. The services work (D1 to D5) moved to its own thread on 2026-11-24.
 
 ## How progress is reported
 

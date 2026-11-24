@@ -153,6 +153,9 @@ enum MeshStatementKind {
   MESH_STATEMENT_KIND_UNSPECIFIED = 0;
   MESH_STATEMENT_KIND_ADMIT = 1;
   MESH_STATEMENT_KIND_REMOVE = 2;
+  // "I let device X with key K back in": an admission that also lifts the removals it names by statement id.
+  // A removal it does not name (for example one made after it) still wins.
+  MESH_STATEMENT_KIND_READMIT = 3;
 }
 
 message MeshLocator {
@@ -200,6 +203,8 @@ message MeshStatement {
   bytes issuer_signature = 9;
   // SHA-256 of the issuer's public key: the issuer is the (peer id, key) pair, never the peer id alone.
   bytes issuer_public_key_sha256 = 10;
+  // READMIT only: the statement ids of the removals this admission lifts.
+  repeated string lifted_statement_ids = 11;
 }
 
 message OriginRangeRequest {

@@ -346,7 +346,7 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/reject", ct);
 
     public Task RevokePeerAsync(string peerId, CancellationToken ct = default) =>
-        PostAsync($"api/peers/{Uri.EscapeDataString(peerId)}/revoke", ct);
+        PostAsync($"api/peers/{Uri.EscapeDataString(peerId)}/revoke", ct, presenceAction: "peer.revoke", presenceSubject: peerId);
 
     /// <summary>Asks the node for live (fast) sampling of <paramref name="peerId"/> (null = the node's own data). Renew before the lease lapses.</summary>
     public async Task<LiveInterestLeaseDto> StartLiveInterestAsync(

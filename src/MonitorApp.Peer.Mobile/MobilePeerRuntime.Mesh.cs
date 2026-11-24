@@ -120,29 +120,37 @@ public sealed partial class MobilePeerRuntime
 
     private async Task RequirePresenceAsync(string title, string description, string subject, CancellationToken cancellationToken)
     {
-        // Adding a device to the mesh is high risk: every device will trust it. Fail closed without a fingerprint reader.
-        if (presence is not { IsAvailable: true } signer)
+        // Adding a device to the mesh is high risk: every device will trust it. A fingerprint when one is set up, else the
+        // screen lock (PIN, pattern or password); with neither, fail closed and say what to set up.
+        var challenge = new UserPresenceChallenge(title, description);
+        if (presence is { IsAvailable: true } signer)
         {
-            throw new UserPresenceDeniedException("Set up a fingerprint on this device first; adding devices needs it.");
+            var payload = Encoding.UTF8.GetBytes($"monitor-mesh-local-approval-v1|{identity.PublicIdentity.PeerId}|{subject}|{Guid.NewGuid():N}");
+            await signer.SignAsync(payload, challenge, cancellationToken).ConfigureAwait(false);
         }
-
-        var payload = Encoding.UTF8.GetBytes($"monitor-mesh-local-approval-v1|{identity.PublicIdentity.PeerId}|{subject}|{Guid.NewGuid():N}");
-        await signer.SignAsync(payload, new UserPresenceChallenge(title, description), cancellationToken).ConfigureAwait(false);
+        else if (presence is IDeviceLockConfirmation { CanConfirmWithDeviceLock: true } deviceLock)
+        {
+            await deviceLock.ConfirmWithDeviceLockAsync(challenge, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            throw new UserPresenceDeniedException(
+                "Adding a device needs your fingerprint or screen lock, and this device has neither. Set a screen lock in Android Settings > Security, then try again.");
+        }
     }
 
     private async Task TrustDirectlyAsync(PeerPublicIdentity peer, string name, IEnumerable<MeshLocator> locators, CancellationToken cancellationToken)
     {
         var existing = await store.ReadTrustedPeerAsync(peer.PeerId, cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
+        if (existing is not null && !CryptographicOperations.FixedTimeEquals(existing.PublicKeyFingerprint, peer.PublicKeyFingerprint))
         {
-            if (!CryptographicOperations.FixedTimeEquals(existing.PublicKeyFingerprint, peer.PublicKeyFingerprint))
-                throw new FormatException("A different device already uses that id here; it was not added.");
-            if (existing.TrustState != PeerTrustState.Active)
-                throw new FormatException($"{name} was removed from your devices, and a removed device cannot be added back.");
+            throw new FormatException("A different device already uses that id here; it was not added.");
         }
-        else
+
+        if (existing is not { TrustState: PeerTrustState.Active })
         {
-            await store.UpsertTrustedPeerAsync(new TrustedPeer(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint, name,
+            // New, or removed earlier and now added back face to face (the owner approved it just now).
+            await store.PairTrustedPeerAsync(new TrustedPeer(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint, name,
                 PeerTrustState.Active, DateTimeOffset.UtcNow, null), cancellationToken).ConfigureAwait(false);
         }
 

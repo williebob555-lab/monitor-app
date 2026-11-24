@@ -32,7 +32,7 @@ public sealed partial class PairDeviceViewModel
         ? $"Does the other screen ({device.DeviceName}) show {device.VerificationCode}? Only continue if it does."
         : string.Empty;
 
-    public string PendingDeviceAction => PendingDevice is { IsJoinRequest: true } ? "Add it with fingerprint" : "Join with fingerprint";
+    public string PendingDeviceAction => PendingDevice is { IsJoinRequest: true } ? "Add it (fingerprint or screen lock)" : "Join (fingerprint or screen lock)";
 
     public string ThisDeviceCodeText => Client is IMeshJoinSource source
         ? $"This device's check code is {source.ThisDeviceVerificationCode}. The other device shows it when it scans this one."
