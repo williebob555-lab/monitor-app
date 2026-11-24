@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Discovery\oui.tsv.gz" LogicalName="MonitorApp.Peer.Collection.Discovery.oui.tsv.gz" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MonitorApp.Agent.Core\MonitorApp.Agent.Core.csproj" />
     <ProjectReference Include="..\MonitorApp.Contracts\MonitorApp.Contracts.csproj" />

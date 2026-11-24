@@ -190,6 +190,7 @@ public static class DiveText
             SceneLayerKind.Power => "Battery",
             SceneLayerKind.Network => "Network",
             SceneLayerKind.Connectivity => "Connectivity",
+            SceneLayerKind.Services => "Services",
             SceneLayerKind.Collection => "Monitoring",
             _ => "Other",
         };

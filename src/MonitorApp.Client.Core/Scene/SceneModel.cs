@@ -65,6 +65,9 @@ public enum SceneLayerKind
     Network,
     Power,
     Connectivity,
+
+    /// <summary>Services this computer runs (Tailscale, Syncthing, SSH, ...): whether each runs, and its own status.</summary>
+    Services,
     Other,
 
     /// <summary>Whether each of the device's own data collectors is working (battery reader, network reader, ...).</summary>

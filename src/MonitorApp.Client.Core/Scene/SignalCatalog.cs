@@ -65,6 +65,28 @@ public static class SignalCatalog
         ["Error"] = "Not working",
     };
 
+    private static readonly IReadOnlyDictionary<string, string> TailscaleWords = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Running"] = "Connected",
+        ["Stopped"] = "Turned off",
+        ["NeedsLogin"] = "Needs sign-in",
+        ["NeedsMachineAuth"] = "Waiting for approval in the admin console",
+        ["Starting"] = "Starting",
+        ["NoState"] = "Not started",
+    };
+
+    private static readonly IReadOnlyDictionary<string, string> SyncthingWords = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["up to date"] = "Up to date",
+        ["out of sync"] = "Out of sync",
+        ["error"] = "Error",
+        ["syncing"] = "Syncing",
+        ["scanning"] = "Scanning",
+        ["sync-preparing"] = "Preparing to sync",
+        ["scan-waiting"] = "Waiting to scan",
+        ["sync-waiting"] = "Waiting to sync",
+    };
+
     private static readonly object Gate = new();
     private static readonly Dictionary<string, SignalDescriptor> Cache = new(StringComparer.Ordinal);
     private static readonly List<(SignalDefinition Definition, Regex Matcher, string[] Slots)> Definitions = [];
@@ -87,6 +109,28 @@ public static class SignalCatalog
         ["memory"] = "Memory",
         ["storage"] = "Storage",
         ["system"] = "System",
+
+        // Service ids (KnownServices on the peer) read as their product names.
+        ["tailscale"] = "Tailscale",
+        ["syncthing"] = "Syncthing",
+        ["ssh"] = "SSH server",
+        ["docker"] = "Docker",
+        ["podman"] = "Podman",
+        ["samba"] = "File sharing (Samba)",
+        ["nginx"] = "nginx",
+        ["caddy"] = "Caddy",
+        ["apache"] = "Apache",
+        ["jellyfin"] = "Jellyfin",
+        ["plex"] = "Plex",
+        ["home-assistant"] = "Home Assistant",
+        ["postgres"] = "PostgreSQL",
+        ["mysql"] = "MySQL / MariaDB",
+        ["ollama"] = "Ollama",
+        ["nextcloud"] = "Nextcloud",
+        ["onedrive"] = "OneDrive",
+        ["dropbox"] = "Dropbox",
+        ["steam"] = "Steam",
+        ["discord"] = "Discord",
     };
 
     static SignalCatalog()
@@ -111,6 +155,22 @@ public static class SignalCatalog
         Register(new("lan.link.{interface}.metered", SceneLayerKind.Connectivity, "{interface} data plan") { Flag = ("Metered", "Unmetered") });
         Register(new("lan.link.{interface}.bandwidth_down_mbps", SceneLayerKind.Connectivity, "{interface} download estimate"));
         Register(new("lan.link.{interface}.bandwidth_up_mbps", SceneLayerKind.Connectivity, "{interface} upload estimate"));
+
+        // Services this computer runs (ServiceSnapshotCollector) and their own status (Tailscale, Syncthing readers).
+        Register(new("service.{service}.running", SceneLayerKind.Services, "{service}") { Flag = ("Running", "Stopped") });
+        Register(new("service.{service}.uptime", SceneLayerKind.Services, "{service} running for"));
+        Register(new("service.tailscale.connected", SceneLayerKind.Services, "Tailscale connection") { Flag = ("Connected", "Not connected") });
+        Register(new("service.tailscale.state", SceneLayerKind.Services, "Tailscale state") { Words = TailscaleWords });
+        Register(new("service.tailscale.address", SceneLayerKind.Services, "Tailscale address"));
+        Register(new("service.tailscale.devices", SceneLayerKind.Services, "Tailscale devices"));
+        Register(new("service.tailscale.devices_online", SceneLayerKind.Services, "Tailscale devices online"));
+        Register(new("service.tailscale.exit_node", SceneLayerKind.Services, "Tailscale exit node") { Words = new Dictionary<string, string>(StringComparer.Ordinal) { ["none"] = "None" } });
+        Register(new("service.syncthing.folders", SceneLayerKind.Services, "Syncthing folders"));
+        Register(new("service.syncthing.folders_up_to_date", SceneLayerKind.Services, "Syncthing folders up to date"));
+        Register(new("service.syncthing.folders_with_errors", SceneLayerKind.Services, "Syncthing folders with errors"));
+        Register(new("service.syncthing.devices", SceneLayerKind.Services, "Syncthing devices"));
+        Register(new("service.syncthing.devices_connected", SceneLayerKind.Services, "Syncthing devices connected"));
+        Register(new("service.syncthing.folder.{folder}.state", SceneLayerKind.Services, "Syncthing folder {folder}") { Words = SyncthingWords });
 
         // Whether each collector is working (PeerSystemMetricsIngestionBridge records collector status as collector.health.{capability}).
         Register(new("collector.health.{collector}", SceneLayerKind.Collection, "{collector} readings") { Words = CollectorWords });
@@ -203,6 +263,7 @@ public static class SignalCatalog
         SceneLayerKind.Network => "Network traffic",
         SceneLayerKind.Power => "Battery and power",
         SceneLayerKind.Connectivity => "Connectivity",
+        SceneLayerKind.Services => "Services",
         SceneLayerKind.Collection => "Monitoring status",
         _ => "Other readings",
     };
