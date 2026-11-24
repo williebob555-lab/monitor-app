@@ -120,7 +120,7 @@ public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner, IDe
     /// <summary>A screen lock (PIN, pattern, password or biometric) is set, and the prompt can offer it (Android 11+).</summary>
     public bool CanConfirmWithDeviceLock =>
         OperatingSystem.IsAndroidVersionAtLeast(30)
-        && context.GetSystemService(Context.KeyguardService) is Android.App.KeyguardManager { IsDeviceSecure: true };
+        && context.GetSystemService(Context.KeyguardService) is global::Android.App.KeyguardManager { IsDeviceSecure: true };
 
     public async Task ConfirmWithDeviceLockAsync(UserPresenceChallenge challenge, CancellationToken cancellationToken)
     {
