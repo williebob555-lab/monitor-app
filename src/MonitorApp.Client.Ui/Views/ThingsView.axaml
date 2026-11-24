@@ -126,7 +126,7 @@
           <StackPanel Spacing="8">
             <TextBlock Text="ADD A THING" Classes="section" />
             <TextBox Text="{Binding NewThingText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="160"
-                     Watermark="A name is enough, like &quot;Focusrite 2i2&quot;. Put a note on the next line if you like."
+                     Watermark="A model name or a product link, like &quot;Boss DS-1&quot;. The app guesses the kind and maker. Put a note on the next line if you like."
                      AutomationProperties.Name="New thing: name, then an optional note on the next lines" />
             <WrapPanel>
               <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding NewThingKind}" MinWidth="200" Margin="0,0,8,0"

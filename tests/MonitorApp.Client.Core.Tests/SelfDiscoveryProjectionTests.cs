@@ -38,6 +38,16 @@ public sealed class SelfDiscoveryProjectionTests
         Assert.Contains(graph.Nodes, n => n.Id == "svc:peer-local:tailscale" && n.Label == "Tailscale" && n.ParentId == "peer-local");
         Assert.Equal("Name on the network", SignalCatalog.Describe("net.device.name").Label);
         Assert.Equal("Drive 0 size", SignalCatalog.Describe("hardware.drive.0.size").Label);
+
+        // A device renamed in Things shows that name on the Map.
+        var names = MonitorApp.Client.Core.ViewModels.EnvironmentViewModel.FoundDeviceNames(
+        [
+            new ThingDto("t1", "Living room router", "device.network.router", "Router", "Active", [], true, ["net:a06391000001"], [], null, [], Now),
+            new ThingDto("t2", "Laptop", "device.computer", "Computer", "Active", [], true, ["peer:peer-laptop"], [], null, [], Now),
+        ]);
+        var renamed = SceneProjector.Project(Runtime(), [PeerDto("peer-laptop", "Laptop")], state, null, Now, false, localLabel: "Desktop", thingNames: names);
+        Assert.Equal("Living room router", renamed.Nodes.Single(n => n.Id == "net:a06391000001").Label);
+        Assert.Single(names);
     }
 
     [Fact]

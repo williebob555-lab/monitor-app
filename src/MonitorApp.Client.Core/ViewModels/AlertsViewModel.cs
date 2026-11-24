@@ -203,6 +203,43 @@ public sealed partial class AlertsViewModel : LiveSectionViewModel
         Rebuild();
     }
 
+    /// <summary>
+    /// Runs the alert's one-tap fix. Fixes act on the computer this app is connected to, so an alert raised by another computer
+    /// says where to press it instead of acting.
+    /// </summary>
+    [RelayCommand]
+    public async Task FixAsync()
+    {
+        if (Page is not AlertPage { CanFix: true } open || Client is not IServiceFixSource fixes ||
+            loaded.FirstOrDefault(a => a.AlertId == open.AlertId) is not { } alert)
+        {
+            return;
+        }
+
+        open.CanFix = false;
+        open.ActionNotice = "Asking Syncthing to rescan…";
+        try
+        {
+            var runtime = await Client.GetRuntimeAsync().ConfigureAwait(true);
+            if (!string.Equals(runtime.LocalPeer?.PeerId, alert.OriginPeerId, StringComparison.Ordinal))
+            {
+                open.ActionNotice = $"This alert is about {DeviceName(alert.OriginPeerId)}. Open Monitor App on that computer to rescan its Syncthing.";
+                return;
+            }
+
+            var result = await fixes.RescanSyncthingAsync().ConfigureAwait(true);
+            open.ActionNotice = result.Message;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or LocalApiException or TaskCanceledException or InvalidOperationException)
+        {
+            open.ActionNotice = "Could not reach Monitor App on this computer: " + exception.Message;
+        }
+        finally
+        {
+            open.CanFix = open.HasFix;
+        }
+    }
+
     [RelayCommand]
     public Task MuteHourAsync() => MuteAsync(MuteHour);
 
@@ -397,7 +434,12 @@ public sealed partial class AlertsViewModel : LiveSectionViewModel
         var source = Client as IControlSource;
         var canSend = controls?.CanSend == true && !IsHistorical && alert is not null;
         var resolved = alert is not null && IsResolved(alert);
-        open.HasActions = source is not null && controls is not null;
+        var fix = alert is not null && !IsHistorical && !resolved && Client is IServiceFixSource && IsSyncthingRule(alert.RuleId);
+        open.HasFix = fix;
+        open.CanFix = fix;
+        open.FixText = fix ? "Rescan Syncthing" : string.Empty;
+        open.FixHint = fix ? "Asks Syncthing on this computer to look at every folder again. Changes no files." : string.Empty;
+        open.HasActions = (source is not null && controls is not null) || fix;
         open.CanAcknowledge = canSend && !resolved && !open.IsAcknowledged;
         open.CanMute = canSend;
         open.AcknowledgeTier = controls?.TierTextFor(ControlActionKind.AcknowledgeAlert) ?? string.Empty;
@@ -430,6 +472,8 @@ public sealed partial class AlertsViewModel : LiveSectionViewModel
         node is null || layer is null || IsHistorical || node.Health is SceneHealth.Offline or SceneHealth.Stale
             ? null
             : DiveViewModel.Gauge(node, layer, dive?.Trends);
+
+    private static bool IsSyncthingRule(string ruleId) => ruleId is "service.syncthing_errors" or "service.syncthing_behind";
 
     private string DeviceName(string peerId) => environment?.Scene.Find(peerId)?.Label ?? peerId;
 

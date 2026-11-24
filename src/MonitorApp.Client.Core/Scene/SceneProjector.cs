@@ -29,7 +29,8 @@ public static class SceneProjector
         DateTimeOffset now,
         bool isHistorical,
         HealthClassifier? classifier = null,
-        string? localLabel = null)
+        string? localLabel = null,
+        IReadOnlyDictionary<string, string>? thingNames = null)
     {
         classifier ??= new HealthClassifier();
         rates ??= NetworkRates.None;
@@ -161,7 +162,9 @@ public static class SceneProjector
         foreach (var (deviceId, points) in devicePoints.OrderBy(d => Depth(d.Key)).ThenBy(d => deviceParent[d.Key], StringComparer.Ordinal).ThenBy(d => d.Key, StringComparer.Ordinal))
         {
             var parentId = deviceParent[deviceId];
-            var node = MakeNode(deviceId, Text(points, FoundName) ?? deviceId, SceneNodeKind.Device, parentId, points, deviceId);
+            // A name the person gave the device in Things wins over what the network calls it.
+            var label = thingNames?.GetValueOrDefault(deviceId) ?? Text(points, FoundName) ?? deviceId;
+            var node = MakeNode(deviceId, label, SceneNodeKind.Device, parentId, points, deviceId);
             nodes.Add(node);
             links.Add(new SceneLink(
                 $"hosting:{parentId}:{deviceId}", parentId, deviceId, SceneLinkKind.Hosting,

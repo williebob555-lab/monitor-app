@@ -85,10 +85,10 @@ internal sealed class TestPeer : ILocalPeerIdentityProvider, IAsyncDisposable
 
     /// <summary>Collects one scripted snapshot observed at <paramref name="at"/> and advances this peer's clock to it.</summary>
     public async Task CollectAsync(DateTimeOffset at, double? cpu = null, ulong? freeBytes = null,
-        ObservationQuality quality = ObservationQuality.Valid, ulong? memoryUsed = null)
+        ObservationQuality quality = ObservationQuality.Valid, ulong? memoryUsed = null, IReadOnlyList<CollectedMetric>? extra = null)
     {
         clock.Set(at);
-        var metrics = new List<CollectedMetric>();
+        var metrics = new List<CollectedMetric>(extra ?? []);
         if (cpu is { } c)
             metrics.Add(new CollectedMetric("system.cpu.utilization", MetricUnit.Ratio, quality, new MetricValue { DoubleValue = c }));
         if (freeBytes is { } f)

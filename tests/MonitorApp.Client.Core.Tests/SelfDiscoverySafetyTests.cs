@@ -58,6 +58,33 @@ public sealed class SelfDiscoverySafetyTests
         Assert.Null(SyncthingHandover.Parse("<configuration><gui><address>192.168.1.5:8384</address><apikey>KEY1234567890abcd</apikey></gui></configuration>"));
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RescanOnlyEverAsksSyncthingOnThisComputer()
+    {
+        var handler = new Recording();
+        Assert.False(await MonitorApp.Peer.Collection.Services.SyncthingStatusReader.RescanAllAsync(
+            new MonitorApp.Peer.Collection.Services.SyncthingEndpoint(new Uri("http://192.168.1.5:8384/"), "KEY1234567890abcd"), handler));
+        Assert.Null(handler.Last);
+
+        Assert.True(await MonitorApp.Peer.Collection.Services.SyncthingStatusReader.RescanAllAsync(
+            new MonitorApp.Peer.Collection.Services.SyncthingEndpoint(new Uri("http://127.0.0.1:8384/"), "KEY1234567890abcd"), handler));
+        Assert.Equal(HttpMethod.Post, handler.Last!.Method);
+        Assert.Equal("http://127.0.0.1:8384/rest/db/scan", handler.Last.RequestUri!.ToString());
+        Assert.Equal("KEY1234567890abcd", Assert.Single(handler.Last.Headers.GetValues("X-API-Key")));
+    }
+
+    private sealed class Recording : HttpMessageHandler
+    {
+        public HttpRequestMessage? Last { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Last = request;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        }
+    }
+
     private sealed class Identity(IPeerIdentityKey key) : ILocalPeerIdentityProvider
     {
         public PeerPublicIdentity PublicIdentity { get; } = PeerPublicIdentity.Create("peer-local", key);

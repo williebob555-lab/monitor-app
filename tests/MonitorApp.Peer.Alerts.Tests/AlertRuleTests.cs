@@ -1,3 +1,4 @@
+using MonitorApp.Agent.Core;
 using MonitorApp.Contracts.V1;
 using MonitorApp.Peer.Alerts;
 using MonitorApp.Peer.Replication;
@@ -292,5 +293,39 @@ public sealed class AlertRuleTests
         Assert.Throws<ArgumentOutOfRangeException>(() => (AlertRulesConfig.Default with { PeerSilentAfter = TimeSpan.Zero }).Validate());
         var duplicate = AlertRulesConfig.Default with { Thresholds = [.. AlertRulesConfig.Default.Thresholds, AlertRulesConfig.Default.Thresholds[0]] };
         Assert.Throws<ArgumentException>(duplicate.Validate);
+    }
+
+    [Fact]
+    public async Task ServiceProblemsRaiseInPlainWordsAfterTheirWindow()
+    {
+        await using var peer = await TestPeer.CreateAsync(T0);
+        var config = AlertRulesConfig.Default with { RefireCooldown = TimeSpan.Zero };
+        var evaluator = peer.Evaluator(config);
+        static CollectedMetric Flag(string id, bool value) =>
+            new(id, MetricUnit.Boolean, ObservationQuality.Valid, new MetricValue { BooleanValue = value });
+        static CollectedMetric Count(string id, ulong value) =>
+            new(id, MetricUnit.Count, ObservationQuality.Valid, new MetricValue { UnsignedIntegerValue = value });
+        CollectedMetric[] Services(bool connected, ulong upToDate) =>
+            [Flag("service.tailscale.connected", connected), Count("service.syncthing.folders", 2), Count("service.syncthing.folders_up_to_date", upToDate)];
+
+        // Tailscale off for 4 minutes, a folder behind for 4 minutes: too early for either.
+        for (var minute = 0; minute <= 4; minute++)
+            await peer.CollectAsync(T0.AddMinutes(minute), extra: Services(connected: false, upToDate: 1));
+        Assert.Equal(0, (await evaluator.EvaluateOnceAsync()).Raised);
+
+        await peer.CollectAsync(T0.AddMinutes(5), extra: Services(connected: false, upToDate: 1));
+        Assert.Equal(1, (await evaluator.EvaluateOnceAsync()).Raised);
+        var tailscale = Assert.Single(await peer.Alerts.ReadActiveAsync());
+        Assert.Equal(AlertRulesConfig.TailscaleDisconnectedRuleId, tailscale.RuleId);
+        Assert.Equal("Tailscale is not connected", tailscale.Title);
+        Assert.StartsWith("Tailscale is installed on this computer but not connected", tailscale.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("%", tailscale.Detail, StringComparison.Ordinal);
+
+        // Connected again resolves it; the folder still behind after two hours raises its own alert.
+        await peer.CollectAsync(T0.AddMinutes(60), extra: Services(connected: true, upToDate: 1));
+        await peer.CollectAsync(T0.AddMinutes(120), extra: Services(connected: true, upToDate: 1));
+        var result = await evaluator.EvaluateOnceAsync();
+        Assert.Equal(1, result.Resolved);
+        Assert.Equal(AlertRulesConfig.SyncthingBehindRuleId, Assert.Single(await peer.Alerts.ReadActiveAsync()).RuleId);
     }
 }

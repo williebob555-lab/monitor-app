@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IThingsSource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IServiceFixSource, IThingsSource, IHistorySource, IViewingSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -146,6 +146,9 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     /// <summary>Gives this computer's node the person's Syncthing address and key (see <see cref="SyncthingHandover"/>).</summary>
     public Task HandOverSyncthingAsync(int port, bool tls, string apiKey, CancellationToken ct = default) =>
         PostAsync("api/v1/services/syncthing", ct, body: new { port, tls, apiKey });
+
+    public Task<ServiceFixDto> RescanSyncthingAsync(CancellationToken ct = default) =>
+        PostJsonAsync<ServiceFixDto>("api/v1/services/syncthing/rescan", new { }, ct);
 
     public Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default) =>
         GetAsync<NetworkDiscoveryDto>("api/v1/network/discovery", ct);
