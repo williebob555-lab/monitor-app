@@ -291,6 +291,8 @@ public static class LifecycleRules
         (Lifecycle.Planned, Lifecycle.Candidate),
         (Lifecycle.Planned, Lifecycle.Idea),
         (Lifecycle.Ordered, Lifecycle.Planned),   // order cancelled
+        (Lifecycle.Owned, Lifecycle.Ordered),     // marked arrived too soon
+        (Lifecycle.Owned, Lifecycle.Planned),     // added as owned, but still to buy (quick capture starts things as owned)
         (Lifecycle.Installed, Lifecycle.Owned),   // taken out
         (Lifecycle.Retired, Lifecycle.Owned),     // brought back into use
     ];

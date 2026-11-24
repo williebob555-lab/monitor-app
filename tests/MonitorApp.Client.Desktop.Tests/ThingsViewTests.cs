@@ -272,6 +272,27 @@ public sealed class ThingsViewTests
     }
 
     [AvaloniaFact]
+    public void AProjectCardShowsItsPartsListWithWhatIsLeftToBuyAndWhatItCosts()
+    {
+        var source = new FakeThingsSource();
+        using var model = new MainViewModel(source);
+        var things = model.Sections.OfType<ThingsViewModel>().Single();
+        var window = Show(model, 1400, 900);
+        things.RefreshAsync().GetAwaiter().GetResult();
+        things.FilterText = "build";
+        Dispatcher.UIThread.RunJobs();
+
+        var project = things.Cards.Single(c => c.Name == "Pedalboard build").Project!;
+        Assert.Equal("1 of 5 in hand, 1 ordered, 3 to buy", project.Summary);
+        Assert.Equal(["Delay|To buy|$129.50 · entered", "6 × Patch cables|To buy|$4 each · from a spec", "DI box|To buy|Price unknown", "Pedal power|Ordered|$99 · entered", "Fuzz|In hand|"],
+            project.Rows.Select(r => $"{r.Label}|{r.StateText}|{r.PriceText}"));
+        var shown = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
+        Assert.Contains("To buy: $153.50 (1 price unknown).", shown);
+        Assert.Contains("In hand", shown);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void DraggingAPedalOnTheBoardOrEquipmentInTheRackMovesIt()
     {
         var source = new FakeThingsSource();
@@ -359,6 +380,8 @@ public sealed class ThingsViewTests
         Shot(model, 1400, 900, dir, "things-ports-edit-wide-1400x900", () => things.EditCommand.Execute(things.Cards.Single(c => c.Name == "Pedal power")));
         Shot(model, 1400, 1500, dir, "things-rack-wide-1400x1500", () => things.FilterText = "rack");
         Shot(model, 1400, 1500, dir, "things-board-wide-1400x1500", () => things.FilterText = "pedalboard");
+        Shot(model, 1400, 900, dir, "things-project-wide-1400x900", () => things.FilterText = "build");
+        Shot(model, 390, 844, dir, "things-project-phone-390x844", () => things.FilterText = "build");
     }
 
     private static Window Show(MainViewModel model, double width, double height)
@@ -453,6 +476,7 @@ public sealed class ThingsViewTests
                 new("thing:board", "Pedalboard", "assembly.pedalboard", "Pedalboard", "Owned", [], false, [], [], null, [], At),
                 new("thing:rack", "Studio rack", "assembly.rack", "Rack", "Idea", [], false, [],
                     [new ThingFactDto("mechanical.rack-units", "Rack units", "Unknown", "Unknown", "you", At, 0)], null, [], At),
+                new("thing:build", "Pedalboard build", "project", "Project", "Idea", [], false, [], [], null, [], At),
             ];
             return Task.FromResult<ThingsDto?>(new ThingsDto(things, [new ThingKindDto("thing", "Thing"), new ThingKindDto("device.audio", "Audio equipment")],
                 [new ThingKindDto("powered-by", "Powered by"), new ThingKindDto("connects-to", "Connected to")],
@@ -471,7 +495,14 @@ public sealed class ThingsViewTests
                     [new SurfaceItemDto("thing:fuzz", "Fuzz", 20, 10, 70, 120, true, true), new SurfaceItemDto("thing:delay", "Delay", 60, 40, 100, 130, true, true),
                      new SurfaceItemDto("thing:tuner", "Tuner", 380, 10, 70, 120, false, false)],
                     ["Looper"], [new WiringFindingDto("overlap", "VerifiedProblem", "Delay and Fuzz take the same space."),
-                                 new WiringFindingDto("not-placed", "Unknown", "Looper is on Pedalboard but has no position yet.")])]));
+                                 new WiringFindingDto("not-placed", "Unknown", "Looper is on Pedalboard but has no position yet.")])],
+                [new ProjectPartsDto("thing:build",
+                    [new ProjectPartDto("thing:delay", "Delay", "Planned", "ToBuy", 1, false, "$129.50", "Entered"),
+                     new ProjectPartDto("thing:patch", "Patch cables", "Planned", "ToBuy", 6, true, "$4", "Specified"),
+                     new ProjectPartDto("thing:di", "DI box", "Idea", "ToBuy", 1, false, null, "Unknown"),
+                     new ProjectPartDto("thing:psu", "Pedal power", "Ordered", "Ordered", 1, false, "$99", "Entered"),
+                     new ProjectPartDto("thing:fuzz", "Fuzz", "Owned", "Have", 1, false, null, "Unknown")],
+                    1, 1, 3, "1 of 5 in hand, 1 ordered, 3 to buy", "To buy: $153.50 (1 price unknown).")]));
         }
 
         public List<(string Text, string? Kind)> Added { get; } = [];

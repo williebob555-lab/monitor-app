@@ -287,7 +287,14 @@ public sealed record ThingValueEditDto(string Label, string? Value, bool FromSpe
 
 public sealed record ThingsDto(
     IReadOnlyList<ThingDto> Things, IReadOnlyList<ThingKindDto> Kinds, IReadOnlyList<ThingKindDto>? LinkTypes = null,
-    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null, IReadOnlyList<RackLayoutDto>? Racks = null, IReadOnlyList<SurfaceLayoutDto>? Surfaces = null);
+    IReadOnlyList<ConnectorChoiceDto>? Connectors = null, IReadOnlyList<ThingWiringDto>? Wiring = null, IReadOnlyList<MissingItemDto>? Missing = null, IReadOnlyList<RackLayoutDto>? Racks = null, IReadOnlyList<SurfaceLayoutDto>? Surfaces = null,
+    IReadOnlyList<ProjectPartsDto>? Projects = null);
+
+/// <summary>A project's parts list: each part with its stage and price, how many are in hand, and what the rest costs.</summary>
+public sealed record ProjectPartsDto(string ProjectId, IReadOnlyList<ProjectPartDto> Parts, int Have, int Ordered, int ToBuy, string Summary, string CostText);
+
+/// <summary>State is ToBuy, Ordered, Have or Gone. Price is written out ("$45"), or null when none is recorded.</summary>
+public sealed record ProjectPartDto(string ThingId, string Name, string Lifecycle, string State, double Quantity, bool QuantityKnown, string? Price, string PriceEvidence);
 
 /// <summary>A pedalboard or desk seen from above, sizes in mm, with what sits where and fit findings.</summary>
 public sealed record SurfaceLayoutDto(string SurfaceId, double Width, double Depth, bool SizeKnown, IReadOnlyList<SurfaceItemDto> Items, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFindingDto> Findings);

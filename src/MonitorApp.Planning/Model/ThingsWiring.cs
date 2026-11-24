@@ -21,6 +21,12 @@ public sealed record RackDrawing(string RackId, int Units, bool UnitsKnown, IRea
 /// <summary>A pedalboard or desk from <see cref="SurfaceLayouts"/>, with findings in the Things screen's words.</summary>
 public sealed record SurfaceDrawing(string SurfaceId, double Width, double Depth, bool SizeKnown, IReadOnlyList<SurfaceItem> Items, IReadOnlyList<string> Unplaced, IReadOnlyList<WiringFinding> Findings);
 
+/// <summary>One line of a project's parts list in the Things screen's words: the price is already written out ("$45").</summary>
+public sealed record ProjectPartLine(string ThingId, string Name, string Lifecycle, string State, double Quantity, bool QuantityKnown, string? Price, string PriceEvidence);
+
+/// <summary>A project's parts list from <see cref="ProjectParts"/>, with its one-line summary and cost.</summary>
+public sealed record ProjectPartsList(string ProjectId, IReadOnlyList<ProjectPartLine> Parts, int Have, int Ordered, int ToBuy, string Summary, string CostText);
+
 /// <summary>What the Things screen needs from the connection engine, for any head (local API or the phone).</summary>
 public static class ThingsWiring
 {
@@ -41,6 +47,12 @@ public static class ThingsWiring
     public static IReadOnlyList<SurfaceDrawing> Surfaces(SystemModel model) =>
         SurfaceLayouts.All(model).Select(s => new SurfaceDrawing(s.SurfaceId, s.Width, s.Depth, s.SizeKnown, s.Items, s.Unplaced,
             s.Findings.OrderBy(f => f.Certainty).Select(f => new WiringFinding(f.Code, f.Certainty.ToString(), f.Explanation)).ToArray())).ToArray();
+
+    public static IReadOnlyList<ProjectPartsList> Projects(SystemModel model) =>
+        ProjectParts.All(model).Select(p => new ProjectPartsList(p.ProjectId,
+            p.Parts.Select(l => new ProjectPartLine(l.ThingId, l.Name, l.Lifecycle, l.State.ToString(), l.Quantity, l.QuantityKnown,
+                l.UnitPrice is { } price ? KnownValues.Money(new Quantity(price, l.Currency!)) : null, l.PriceEvidence.ToString())).ToArray(),
+            p.Have, p.Ordered, p.ToBuy, p.Summary, p.CostText)).ToArray();
 
     public static bool IsKnownConnector(string id) => ConnectorCatalog.BuiltIn.TryGet(id, out _);
 

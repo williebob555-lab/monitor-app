@@ -4,6 +4,11 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ## Unreleased
 
+### Added
+- Projects have a parts list (T084, P1 and P2). A project card in Things lists everything linked "Part of" it or put inside it, each marked to buy, ordered or in hand, with a line like "1 of 5 in hand, 1 ordered, 3 to buy" and what the rest costs ("To buy: $153.50 (1 price unknown)"). Totals stay per currency and nothing is converted; estimated prices say "about".
+- Typed values named Price ($45, 39.99 EUR), Quantity (2), Width and Depth (70 mm) and Rack units (2U) are now stored as real values with units, so parts lists, racks and boards use them. Other names stay your own text values.
+- A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
+
 ### Fixed
 - Phone and computers stopped exchanging readings on 0.1.18 (T080 hotfix): a computer's advertised address (its Tailscale address) was stored as the newest and always dialed first, so a phone that could not reach it never connected. Devices now dial the address that last worked first, rank advertised addresses below paired ones, and move to the next address when one keeps failing.
 - A newly paired phone or tablet starts syncing at once instead of at the next pass (up to 15 seconds, more after a failed try), and a mesh trust change wakes sessions too.
