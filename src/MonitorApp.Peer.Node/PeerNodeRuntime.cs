@@ -23,6 +23,8 @@ namespace MonitorApp.Peer.Node;
 /// <param name="Retention">Retention thresholds; default 7 days raw, hourly rollups 1 year, events 5 years.</param>
 /// <param name="PeerStateInterval">How often peer-state history is reconciled (pairing, revocation, offline to stale); default 15 seconds.</param>
 /// <param name="Time">Clock for the background schedules; default is the system clock.</param>
+/// <param name="DescribeSelf">Describe this computer by itself (hardware, services, tailnet, network discovery behind its
+/// switch); default on, and only when <paramref name="CollectSelfLan"/> is on.</param>
 public sealed record NodeLiveOptions(
     TimeSpan? CollectionInterval = null,
     LiveInterestPolicy? InterestPolicy = null,
@@ -34,7 +36,8 @@ public sealed record NodeLiveOptions(
     PeerRetentionPolicy? Retention = null,
     TimeProvider? Time = null,
     TimeSpan? PeerStateInterval = null,
-    bool Mesh = true);
+    bool Mesh = true,
+    bool DescribeSelf = true);
 
 public sealed class PeerNodeRuntime : IAsyncDisposable
 {
@@ -320,7 +323,7 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
             time);
 
         // What this computer finds out by itself (hardware, services, tailnet, and network discovery behind its switch).
-        NodeSelfDiscovery? selfDiscovery = live?.CollectSelfLan ?? true
+        NodeSelfDiscovery? selfDiscovery = (live?.CollectSelfLan ?? true) && (live?.DescribeSelf ?? true)
             ? new NodeSelfDiscovery(options.DataDirectory, peerStore, identity, live?.LanSource ?? SelfInterfaceCollectorFactory.Create(), time)
             : null;
 
