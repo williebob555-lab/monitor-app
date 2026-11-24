@@ -119,6 +119,10 @@ public sealed class LocalApiHost : IAsyncDisposable
         if (discovery is not null)
         {
             builder.Services.AddSingleton(discovery);
+            if (discovery is ISyncthingKeyStore keys)
+            {
+                builder.Services.AddSingleton(keys);
+            }
         }
 
         if (monitoring is not null)
@@ -696,6 +700,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         MapControlEndpoints(application);
         MapPhoneReachEndpoints(application);
         NetworkDiscoveryEndpoints.Map(application, IsValidMutationAsync);
+        SyncthingKeyEndpoints.Map(application, IsValidMutationAsync);
         LocalApiThings.Map(application);
         MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>

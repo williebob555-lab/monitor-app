@@ -15,7 +15,9 @@ public sealed record SyncthingEndpoint(Uri BaseAddress, string ApiKey);
 /// folder's state, and how many of its devices are connected. Read-only (GET requests only). The API key is read from
 /// Syncthing's config file on this computer each time, used only for requests to 127.0.0.1, and never stored or sent on.
 /// </summary>
-public sealed class SyncthingStatusReader(Func<SyncthingEndpoint?>? locate = null, HttpMessageHandler? handler = null) : IServiceDetailReader
+/// <param name="handedOver">The endpoint the person's own desktop app handed to this computer's node (the node runs as a service
+/// account that cannot read the person's Syncthing config); used when the config cannot be read directly.</param>
+public sealed class SyncthingStatusReader(Func<SyncthingEndpoint?>? locate = null, HttpMessageHandler? handler = null, Func<SyncthingEndpoint?>? handedOver = null) : IServiceDetailReader
 {
     public string ServiceId => "syncthing";
 
@@ -29,7 +31,7 @@ public sealed class SyncthingStatusReader(Func<SyncthingEndpoint?>? locate = nul
 
     public async Task<IReadOnlyList<CollectedMetric>> ReadAsync(CancellationToken cancellationToken)
     {
-        if ((locate ?? Locate)() is not { } endpoint)
+        if (((locate ?? Locate)() ?? handedOver?.Invoke()) is not { } endpoint)
         {
             return [];
         }

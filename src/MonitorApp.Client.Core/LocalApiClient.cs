@@ -143,6 +143,10 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) =>
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/approve", ct, presenceAction: "pairing.approve", presenceSubject: pairingId);
 
+    /// <summary>Gives this computer's node the person's Syncthing address and key (see <see cref="SyncthingHandover"/>).</summary>
+    public Task HandOverSyncthingAsync(int port, bool tls, string apiKey, CancellationToken ct = default) =>
+        PostAsync("api/v1/services/syncthing", ct, body: new { port, tls, apiKey });
+
     public Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default) =>
         GetAsync<NetworkDiscoveryDto>("api/v1/network/discovery", ct);
 

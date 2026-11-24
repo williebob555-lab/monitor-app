@@ -20,7 +20,12 @@ public sealed class App : Application
             var window = new MainWindow { DataContext = model };
             desktop.MainWindow = window;
             desktop.Exit += (_, _) => model.Dispose();
-            window.Opened += async (_, _) => await model.ConnectAsync();
+            window.Opened += async (_, _) =>
+            {
+                await model.ConnectAsync();
+                // The node runs as a service account; give it this person's Syncthing key so it can read folder status.
+                _ = SyncthingHandover.HandOverAsync(model.CurrentSource, address);
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

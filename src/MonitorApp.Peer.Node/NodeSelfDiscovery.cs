@@ -17,14 +17,16 @@ namespace MonitorApp.Peer.Node;
 /// the other devices on its tailnet, and, only while the "Find devices on this network" switch is on, the devices on its
 /// own home network. Everything becomes signed readings that replicate to the mesh like system readings.
 /// </summary>
-public sealed class NodeSelfDiscovery : INetworkDiscoveryController, IAsyncDisposable
+public sealed class NodeSelfDiscovery : INetworkDiscoveryController, ISyncthingKeyStore, IAsyncDisposable
 {
     public const string SettingFileName = "discovery.json";
+    public const string SyncthingFileName = "syncthing.json";
     public static readonly TimeSpan DiscoveryInterval = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan ServicesInterval = TimeSpan.FromMinutes(1);
     public static readonly TimeSpan HardwareInterval = TimeSpan.FromHours(6);
 
     private readonly string settingPath;
+    private readonly string syncthingPath;
     private readonly string selfSubject;
     private readonly NetworkDiscovery discovery;
     private readonly SubjectObservationsWriter writer;
@@ -41,6 +43,7 @@ public sealed class NodeSelfDiscovery : INetworkDiscoveryController, IAsyncDispo
     {
         this.time = time ?? TimeProvider.System;
         settingPath = Path.Combine(dataDirectory, SettingFileName);
+        syncthingPath = Path.Combine(dataDirectory, SyncthingFileName);
         isEnabled = ReadEnabled(settingPath);
         var peerId = identity.PublicIdentity.PeerId;
         selfSubject = $"peer:{peerId}";
@@ -51,7 +54,7 @@ public sealed class NodeSelfDiscovery : INetworkDiscoveryController, IAsyncDispo
         tailscale = new TailscaleStatusReader();
         var services = new PeerSystemMetricsIngestionBridge(
             store, identity,
-            new ServiceSnapshotCollector(new SystemServiceProbe(), [tailscale, new SyncthingStatusReader()], this.time),
+            new ServiceSnapshotCollector(new SystemServiceProbe(), [tailscale, new SyncthingStatusReader(handedOver: ReadSyncthing)], this.time),
             PeerCollectionOptions.Default(selfSubject, bootId) with { CollectorId = "monitor.services" },
             () => this.time.GetUtcNow());
         var hardware = new PeerSystemMetricsIngestionBridge(
@@ -170,6 +173,35 @@ public sealed class NodeSelfDiscovery : INetworkDiscoveryController, IAsyncDispo
 
     private static CollectedMetric Text(string id, string value, ObservationQuality quality = ObservationQuality.Valid) =>
         new(id, MetricUnit.Unspecified, quality, new MetricValue { StringValue = value });
+
+    /// <summary>Saves what the person's desktop app handed over, readable only by the node's own account.</summary>
+    public void Save(int port, bool tls, string apiKey)
+    {
+        var directory = Path.GetDirectoryName(syncthingPath);
+        if (directory is not null) Directory.CreateDirectory(directory);
+        var temporary = syncthingPath + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(new { port, tls, apiKey }));
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.Move(temporary, syncthingPath, overwrite: true);
+    }
+
+    private SyncthingEndpoint? ReadSyncthing()
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(syncthingPath));
+            var root = document.RootElement;
+            var port = root.GetProperty("port").GetInt32();
+            var key = root.GetProperty("apiKey").GetString();
+            if (port is < 1 or > 65535 || string.IsNullOrEmpty(key)) return null;
+            var tls = root.TryGetProperty("tls", out var t) && t.ValueKind == JsonValueKind.True;
+            return new SyncthingEndpoint(new Uri($"{(tls ? "https" : "http")}://127.0.0.1:{port}/"), key);
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     private static bool ReadEnabled(string path)
     {
