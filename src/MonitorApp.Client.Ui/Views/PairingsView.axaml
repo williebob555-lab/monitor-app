@@ -47,18 +47,10 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
     <TextBlock Text="Trusted and revoked peers" Classes="subheading" />
-    <Border IsVisible="{Binding IsRevocationPending}" Classes="card alarm">
-      <StackPanel Spacing="6">
-        <TextBlock Text="{Binding RevocationPrompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
-        <WrapPanel>
-          <Button Content="Remove" Command="{Binding ConfirmRevokeCommand}" Margin="0,0,8,0" />
-          <Button Content="Cancel" Command="{Binding CancelRevokeCommand}" />
-        </WrapPanel>
-      </StackPanel>
-    </Border>
+    <TextBlock Text="{Binding RemovalCheck}" IsVisible="{Binding HasRemovalCheck}" Classes="muted" TextWrapping="Wrap" />
     <ItemsControl Name="PeerList" ItemsSource="{Binding Peers}">
       <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="vm:TrustedPeerRow">
+        <DataTemplate x:DataType="vm:TrustedPeerCard">
           <Border Classes="card">
             <StackPanel Spacing="4">
               <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -66,9 +58,25 @@
               <TextBlock Text="{Binding Provenance}" IsVisible="{Binding HasProvenance}" Classes="muted" TextWrapping="Wrap" />
               <TextBlock Text="{Binding PairedAt, StringFormat='Trusted since {0}'}" Classes="muted" />
               <TextBlock Text="{Binding Fingerprint, StringFormat='SHA-256 fingerprint: {0}'}" TextWrapping="Wrap" />
-              <Button Content="Remove from all devices..." IsVisible="{Binding CanRevoke}" HorizontalAlignment="Left"
+              <Button Content="Remove from all devices..." IsVisible="{Binding ShowRemoveButton}" HorizontalAlignment="Left"
                       Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).RequestRevokeCommand}" CommandParameter="{Binding}"
                       AutomationProperties.Name="{Binding Name, StringFormat='Remove {0} from all devices'}" />
+              <!-- The question, progress and result of removing appear here, on the card that was pressed. -->
+              <Border IsVisible="{Binding IsConfirming}" Classes="card alarm">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+                  <WrapPanel>
+                    <Button Content="Remove" Margin="0,0,8,0" Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).ConfirmRevokeCommand}" CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Name, StringFormat='Yes, remove {0}'}" />
+                    <Button Content="Cancel" Command="{Binding #PeerList.((vm:PairingsViewModel)DataContext).CancelRevokeCommand}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+              <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsWorking}">
+                <ProgressBar IsIndeterminate="True" Width="80" VerticalAlignment="Center" />
+              </StackPanel>
+              <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" IsVisible="{Binding IsOutcomeOk}" AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" Classes="error" IsVisible="{Binding OutcomeFailed}" AutomationProperties.LiveSetting="Assertive" />
             </StackPanel>
           </Border>
         </DataTemplate>

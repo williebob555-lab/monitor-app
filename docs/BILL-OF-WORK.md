@@ -81,6 +81,29 @@ P1 and P2 ship together as the first release, then P3, then P4 and P5.
 | M4 | **Pass readings along** (T087): readings travel through any device that is online, still signed by the device that took them, so a relay cannot change them | L | The phone sees the tablet, and a laptop it can't reach directly, through any computer | Done, next release |
 | M5 | **Phones accept connections** (T088): investigate running a listener on Android so two phones can sync with no computer on | L, uncertain | Phone and tablet sync with each other when no computer is on | Later; may not be possible on Android |
 
+### Make pairing a complete system (planned 2026-11-24)
+
+**Your feedback (2026-11-24).** Pairing feels like scraps, not a finished system. Remove did nothing on the laptop or the phone. The phone and laptop still don't share readings. A removed device must be able to pair again normally, without a reinstall. Silent stutters destroy trust.
+
+**End goal.** Every pairing action answers on the spot: what it is doing, then whether it worked and, if not, why. Each device's card says whether it is connected right now and, when readings aren't arriving, the reason in plain words. Removing a device takes effect everywhere at once, and the device can come back later through a fresh pairing that you approve.
+
+**What was wrong.**
+- **Remove did nothing.** Remove did work, but its "Are you sure?" box appeared at the top of the device list, usually out of view, so pressing Remove looked like it did nothing.
+- **Fingerprint.** Remove asks for a fingerprint only when one is set up. Nowhere tells you whether one is set up, or what to use instead.
+- **Rejoining.** Removal is permanent by design (`MeshMembership`: a removal "wins over any admission"). A removed device can't rejoin without being reinstalled.
+- **No reason shown.** When readings stop, nothing on screen says why.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| R1 | **Remove where you press it**: the question, a progress bar and the result (or the reason it failed) appear on that device's own card | S | Press Remove and the card asks, works, then says "Removed" or why not | Built, next release |
+| R2 | **Fingerprint said plainly**: every action that can use a fingerprint says whether one is set up. When none is, it uses your phone's PIN or your Windows Hello PIN instead and shows how to set a fingerprint up. Nothing fails silently. | M | "Fingerprint not set up: your PIN will be asked instead. Set up fingerprint…" | Planned |
+| R3 | **Pair again after removal**: a fresh pairing that you approve on a trusted device brings a removed device back, keeping its history. Removal still takes effect everywhere at once. The approval names exactly which removals it lifts, so a newer removal always wins, whatever the device clocks say. | L, security review | Remove the phone, scan the laptop's code again, approve, and it is back | Planned |
+| R4 | **Connection state on each device**: connected, trying (and which address), or can't reach (with the error); when the last reading arrived; readings waiting to send | M | "Laptop: can't reach 100.x.y.z (timed out), last reading 2 h ago; trying 192.168.1.20" | Planned |
+| R5 | **Phone and laptop readings flowing**: find the cause with R4's details and fix it | M, uncertain until R4 shows the reason | Phone and laptop show each other's readings | Planned |
+| R6 | **Every pairing button answers**: Approve, Reject, Show code, Add a phone or tablet, Save permissions each show busy, then success or the reason it failed, on the spot | S | No button press goes unanswered | Planned |
+
+Order: R1, R2, R6 and R4 ship together first, then R5 as soon as R4 shows the cause, then R3.
+
 ## How progress is reported
 
 - Each finished item ships in a signed release. You get a short note saying what you'll see.

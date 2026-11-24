@@ -1,4 +1,5 @@
 using System.Globalization;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MonitorApp.Client.Core.ViewModels;
 
@@ -23,6 +24,66 @@ public sealed record TrustedPeerRow(
         Format.Time(peer.PairedAt),
         peer.RevokedAt is { } revoked ? Format.Time(revoked) : null,
         peer.Provenance);
+}
+
+/// <summary>
+/// A trusted device's card on the pairing screen. Removing it happens on the card itself: the question, the progress and
+/// the result appear where the person pressed Remove, never somewhere off-screen.
+/// </summary>
+public sealed partial class TrustedPeerCard(TrustedPeerRow row) : ObservableObject
+{
+    public TrustedPeerRow Row { get; } = row;
+
+    public string PeerId => Row.PeerId;
+
+    public string Name => Row.Name;
+
+    public string Fingerprint => Row.Fingerprint;
+
+    public string TrustState => Row.TrustState;
+
+    public string PairedAt => Row.PairedAt;
+
+    public string? RevokedAt => Row.RevokedAt;
+
+    public string? Provenance => Row.Provenance;
+
+    public bool HasProvenance => Row.HasProvenance;
+
+    public bool CanRevoke => Row.CanRevoke;
+
+    public string Prompt =>
+        $"Remove {Name} from all your devices? Check the fingerprint first: {Fingerprint}. Every device stops trusting it " +
+        "and stops sharing readings with it. For now a removed device can only rejoin after the app is reinstalled on it; " +
+        "pairing it again normally is coming next.";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveButton))]
+    private bool isConfirming;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveButton))]
+    private bool isWorking;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOutcome), nameof(IsOutcomeOk))]
+    private string? outcome;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOutcomeOk))]
+    private bool outcomeFailed;
+
+    public bool ShowRemoveButton => CanRevoke && !IsConfirming && !IsWorking;
+
+    public bool HasOutcome => !string.IsNullOrEmpty(Outcome);
+
+    public bool IsOutcomeOk => HasOutcome && !OutcomeFailed;
+
+    public void SetOutcome(string? text, bool failed)
+    {
+        OutcomeFailed = failed;
+        Outcome = text;
+    }
 }
 
 public sealed record PendingPairingRow(

@@ -110,6 +110,8 @@ public static class LocalPresenceProtocol
         "presence-enrollment.approve" => "Approve a phone's fingerprint key",
         "control.grant" => "Allow a paired device to control this computer",
         "update.approve" => "Approve a Monitor App update install",
+        "peer.revoke" => "Remove a device from all your devices",
+        "network.reach" => "Change which networks can reach this computer",
         EnrollAction => "Set up fingerprint verification for Monitor App",
         RemoveAction => "Remove fingerprint verification for Monitor App",
         _ => "Confirm a Monitor App administration action",

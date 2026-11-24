@@ -29,3 +29,17 @@ public interface IUserPresenceSigner
         UserPresenceChallenge challenge,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Asks the person to confirm with whatever unlocks the device (fingerprint, face, PIN, pattern or password) when no
+/// signature is needed, only a check that the owner is holding it. Used for local actions such as removing a device
+/// when no fingerprint is set up, so they never go through unchecked on a phone that has a screen lock.
+/// </summary>
+public interface IDeviceLockConfirmation
+{
+    /// <summary>True when the device has a screen lock the person can be asked for.</summary>
+    bool CanConfirmWithDeviceLock { get; }
+
+    /// <summary>Shows the platform prompt; throws <see cref="UserPresenceDeniedException"/> when it is cancelled or fails.</summary>
+    Task ConfirmWithDeviceLockAsync(UserPresenceChallenge challenge, CancellationToken cancellationToken);
+}

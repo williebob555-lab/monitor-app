@@ -455,6 +455,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
     public bool CanVerifyUserPresence => runtime.CanVerifyUserPresence;
 
+    public string RemovalCheck => runtime.RemovalCheck;
+
     public ControlTierDescription DescribeTier(ControlActionKind action, TimeSpan? duration = null) =>
         ControlMapping.Describe(action, duration, runtime.CanVerifyUserPresence);
 
