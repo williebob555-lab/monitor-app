@@ -40,8 +40,25 @@ Done items stay listed so progress is visible.
 | 10 | "What's missing" (T069): unconnected inputs, missing cables, power shortfalls | M | A list of what a build still needs | Done, 0.1.20 ("What's missing" in Things, with Add to my list; cable lengths come with item 11) |
 | 11 | Physical layouts: racks, pedalboards and desks that look real, with drag to place | L | A rack or pedalboard view of real equipment | Racks done, 0.1.22 (drawn on the card, place at a unit, fit checks). Pedalboards and desks done (drawn from above to scale, place in mm, overhang and overlap checks). Drag to place done. Item 11 done |
 | 12 | Time travel over the model: the as-of slider moves things and connections, not just readings | M | Drag back in time and see what was connected | Things follow the timeline, 0.1.18 (which things existed, what was inside what, their values and readings then; editing off in the past). Connections follow once they are drawn |
-| 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Later |
+| 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Planned 2026-11-24, see "Projects, parts and sourcing" below. Waiting on your look at the current state before building |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
+
+## Projects, parts and sourcing (planned 2026-11-24)
+
+**Goal.** A project is a thing like any other (kind "project"). Its parts list is what the model already knows: things linked "part of" it, or put inside it. The app tells you what you already own, what you still need to buy, what that costs, and where to buy it. Every price and quantity shows whether it was measured, from a listing, entered, estimated or unknown. No separate shopping screen and no code written for one kind of project.
+
+**Where it stands.** You can already add a project, add a requirement, link things "part of" it, and enter a price as your own value. Nothing adds these up or shows them as a list yet. "What's missing" finds cables, adapters and power a build needs, but it is not tied to a project.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| P1 | **Parts list on a project card**: every part with how many are needed, its stage (idea, planned, ordered, owned, installed), and a "to buy" mark for anything you don't own yet | M | Open a project in Things and see its parts list, with "3 of 8 owned, 5 to buy" | Planned |
+| P2 | **Cost**: price per part times quantity, a total for what's left to buy, and a note when a price is missing or only estimated. Different currencies are shown side by side, never converted silently | S | "To buy: about $214 (2 prices unknown)" on the project | Planned |
+| P3 | **What's missing joins the project**: cables, adapters and power the parts need show up on the project's list, and "Add to my list" adds them as parts | M | The project list grows the cable you forgot | Planned |
+| P4 | **Where to buy**: add a listing (shop, price, link, in stock) to a part; the cheapest known listing is used for the total, with the date the price was seen | M | Each part to buy shows its shops and prices, and how old each price is | Planned |
+| P5 | **Order and arrive**: mark a part ordered, then owned when it arrives; the project's progress and the time-travel slider follow | S | Progress moves as parts arrive | Planned |
+| P6 | **Price watch**: an alert when a listing you track drops below a price you set (checked only when you press Refresh or on a schedule you turn on; nothing fetched without your say) | M, uncertain | "The DI box is now $39 at …" in alerts | Later; needs a decision on which shops can be read |
+
+P1 and P2 ship together as the first release, then P3, then P4 and P5.
 
 ## Mesh pairing (started 2026-11-23)
 
