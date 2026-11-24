@@ -74,8 +74,10 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
             Assert.Equal(MobileSyncState.Synced, Assert.Single(phone.GetStatus().Peers).State);
 
             // Each side can say when the other's newest reading was taken (the "last reading" line on a device's card).
-            Assert.True((await phone.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(desktopId));
-            Assert.True((await desktop.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(phoneId));
+            // The replication cursor is saved in its own transaction just after the records, so wait for it rather than
+            // reading it the instant the records are visible (it raced on slower Windows runners).
+            await WaitAsync(async () => (await phone.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(desktopId));
+            await WaitAsync(async () => (await desktop.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(phoneId));
         }
         finally
         {
