@@ -17,7 +17,7 @@ namespace MonitorApp.Peer.Node;
 /// the other devices on its tailnet, and, only while the "Find devices on this network" switch is on, the devices on its
 /// own home network. Everything becomes signed readings that replicate to the mesh like system readings.
 /// </summary>
-public sealed class NodeSelfDiscovery : INetworkDiscoveryController, ISyncthingKeyStore, IAsyncDisposable
+public sealed class NodeSelfDiscovery : INetworkDiscoveryController, ISyncthingKeyStore, IServiceFixes, IAsyncDisposable
 {
     public const string SettingFileName = "discovery.json";
     public const string SyncthingFileName = "syncthing.json";
@@ -183,6 +183,20 @@ public sealed class NodeSelfDiscovery : INetworkDiscoveryController, ISyncthingK
         File.WriteAllText(temporary, JsonSerializer.Serialize(new { port, tls, apiKey }));
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         File.Move(temporary, syncthingPath, overwrite: true);
+    }
+
+    /// <summary>Asks this computer's Syncthing to rescan every folder, with the key from its config or the one handed over.</summary>
+    public async Task<ServiceFixResult> RescanSyncthingAsync(CancellationToken cancellationToken)
+    {
+        if ((SyncthingStatusReader.Locate() ?? ReadSyncthing()) is not { } endpoint)
+        {
+            return new ServiceFixResult(false,
+                "Monitor App does not have Syncthing's key on this computer yet. Open the Monitor App desktop app on this computer once, then try again.");
+        }
+
+        return await SyncthingStatusReader.RescanAllAsync(endpoint, cancellationToken: cancellationToken).ConfigureAwait(false)
+            ? new ServiceFixResult(true, "Syncthing is rescanning every folder now. The alert clears by itself once the folders are up to date.")
+            : new ServiceFixResult(false, "Syncthing did not answer or refused. Check that Syncthing is running on this computer.");
     }
 
     private SyncthingEndpoint? ReadSyncthing()

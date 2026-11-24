@@ -106,6 +106,9 @@ public sealed record PeerStateTransitionDto(string PeerId, string State, DateTim
 
 /// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
 /// <summary>This computer's network discovery switch and its last pass (GET /api/v1/network/discovery).</summary>
+/// <summary>The result of a one-tap fix on this computer, in words for the person.</summary>
+public sealed record ServiceFixDto(bool Done, string Message);
+
 public sealed record NetworkDiscoveryDto(
     bool Enabled,
     bool Running,

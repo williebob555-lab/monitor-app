@@ -22,7 +22,14 @@ public sealed record ThresholdRule(
     ThresholdComparison Comparison,
     double ThresholdPercent,
     TimeSpan Sustained,
-    AlertSeverity Severity);
+    AlertSeverity Severity)
+{
+    /// <summary>
+    /// What the alert says in plain words, for rules whose percentage means nothing to a person (a service being off). When set,
+    /// the detail is this sentence and when it started, not the computed percentage.
+    /// </summary>
+    public string? Explain { get; init; }
+}
 
 /// <summary>
 /// Typed configuration for the built-in alert rules. Per-peer user overrides (T054, <see cref="AlertRuleCatalog"/>) are stored
@@ -61,8 +68,33 @@ public sealed record AlertRulesConfig(
                 ThresholdComparison.Above, 90, TimeSpan.FromMinutes(10), AlertSeverity.Warning),
             new ThresholdRule("threshold.memory_high", "Sustained high memory", "system.memory.used",
                 "system.memory.total", ThresholdComparison.Above, 90, TimeSpan.FromMinutes(10), AlertSeverity.Warning),
+
+            // Service diagnosis (D6). Values are booleans or counts, so the "percentage" is value x 100 and the thresholds below
+            // read as: not connected (below 50), any folder with errors (above 0), fewer folders up to date than shared (below 100).
+            new ThresholdRule(TailscaleDisconnectedRuleId, "Tailscale is not connected", "service.tailscale.connected", null,
+                ThresholdComparison.Below, 50, TimeSpan.FromMinutes(5), AlertSeverity.Warning)
+            {
+                Explain = "Tailscale is installed on this computer but not connected to your tailnet, so other devices cannot reach it " +
+                    "through Tailscale. Open Tailscale on this computer and sign in or turn it on.",
+            },
+            new ThresholdRule(SyncthingErrorsRuleId, "Syncthing folder has errors", "service.syncthing.folders_with_errors", null,
+                ThresholdComparison.Above, 0, TimeSpan.FromMinutes(5), AlertSeverity.Warning)
+            {
+                Explain = "At least one Syncthing folder on this computer reports errors, so some files are not syncing. " +
+                    "Rescanning often clears it; if not, Syncthing's own page lists the failing files.",
+            },
+            new ThresholdRule(SyncthingBehindRuleId, "Syncthing folders not in sync", "service.syncthing.folders_up_to_date",
+                "service.syncthing.folders", ThresholdComparison.Below, 100, TimeSpan.FromHours(2), AlertSeverity.Warning)
+            {
+                Explain = "Some Syncthing folders on this computer have not been up to date for two hours. Usually the other device " +
+                    "is off or unreachable; a rescan helps when files changed without Syncthing noticing.",
+            },
         ],
         TimeSpan.FromDays(7));
+
+    public const string TailscaleDisconnectedRuleId = "service.tailscale_disconnected";
+    public const string SyncthingErrorsRuleId = "service.syncthing_errors";
+    public const string SyncthingBehindRuleId = "service.syncthing_behind";
 
     public void Validate()
     {

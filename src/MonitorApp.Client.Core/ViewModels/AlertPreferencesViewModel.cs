@@ -35,6 +35,9 @@ public sealed partial class AlertPreferencesViewModel : SectionViewModel
         ("threshold.cpu_high", "Sustained high CPU"),
         ("peer.silent", "A paired device went silent"),
         ("observation.unavailable", "A reading became unavailable"),
+        ("service.tailscale_disconnected", "Tailscale is not connected"),
+        ("service.syncthing_errors", "Syncthing folder has errors"),
+        ("service.syncthing_behind", "Syncthing folders not in sync"),
     ];
 
     [ObservableProperty]

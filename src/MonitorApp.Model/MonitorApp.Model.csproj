@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Library\starter-library.json" LogicalName="MonitorApp.Model.starter-library.json" />
+    <EmbeddedResource Include="Library\recognize.json" LogicalName="MonitorApp.Model.recognize.json" />
   </ItemGroup>
 </Project>

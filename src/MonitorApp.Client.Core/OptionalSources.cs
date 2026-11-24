@@ -203,6 +203,12 @@ public interface INetworkDiscoverySource
     Task<NetworkDiscoveryDto> SetNetworkDiscoveryAsync(bool enabled, CancellationToken ct = default);
 }
 
+/// <summary>One-tap fixes for services on the computer this app is connected to (only its own node, over loopback).</summary>
+public interface IServiceFixSource
+{
+    Task<ServiceFixDto> RescanSyncthingAsync(CancellationToken ct = default);
+}
+
 /// <summary>A computer's own node: lets a phone reach it and shows the phone pairing QR.</summary>
 public interface IPhonePairingHost
 {

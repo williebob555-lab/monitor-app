@@ -84,6 +84,37 @@ public sealed class SyncthingStatusReader(Func<SyncthingEndpoint?>? locate = nul
         return metrics;
     }
 
+    /// <summary>
+    /// The one change this app makes to Syncthing (D6): ask it to rescan every folder now (POST rest/db/scan). Only 127.0.0.1 is
+    /// contacted. Returns false when Syncthing refused or could not be reached.
+    /// </summary>
+    public static async Task<bool> RescanAllAsync(SyncthingEndpoint endpoint, HttpMessageHandler? handler = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (!IPAddress.TryParse(endpoint.BaseAddress.Host, out var host) || !IPAddress.IsLoopback(host))
+        {
+            return false;
+        }
+
+        using var client = handler is null ? new HttpClient(LoopbackHandler(), disposeHandler: true) : new HttpClient(handler, disposeHandler: false);
+        client.BaseAddress = endpoint.BaseAddress;
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.Add("X-API-Key", endpoint.ApiKey);
+        try
+        {
+            using var response = await client.PostAsync("rest/db/scan", content: null, cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Folder ids go into signal ids, so only plain ones are used ("abcd-1234", "photos").</summary>
     private static bool IsSafeId(string id) =>
         id.Length is > 0 and <= 64 && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');

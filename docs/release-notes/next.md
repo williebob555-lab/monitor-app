@@ -1,9 +1,9 @@
 <!-- Printed at the top of the next preview's notes by eng/release/preview-notes.sh. Clear it after a release. -->
-**The app now fills itself in.** Install this on each computer, open the desktop app, and:
+**The app tells you when Tailscale or Syncthing needs you, and can fix the common case.**
 
-- **Things, top of the page: "Find devices on this network" → Turn on.** One switch per computer, off until you press it. Within a minute or two the computer finds your router, the SG250 switch, printers, TVs, speakers, phones and anything else on its own home network, with names, makers and models where the device says them. They appear on the **Map** hanging off your router, and in **Things** linked "connected to" it, marked as discovered. Nothing it finds is trusted or logged in to; it only looks at that computer's own home network.
-- **Every Tailscale device** shows up on the Map and in Things with its Tailscale address, system and online state, without any switch (devices already in the mesh are not drawn twice).
-- **Each computer describes itself**: open it in Things and the About section lists maker, model, processor, cores, memory, graphics, each drive with size and type, and the systems it can start. On the laptop's Fedora side that reads "Fedora (running now), Windows Boot Manager", with Fedora as the default and no warnings.
-- **Tailscale and Syncthing** appear on the Map as their own nodes beside the computer running them, and as parts of that computer in Things: Tailscale connected or not and how many devices are online; Syncthing folders up to date, syncing or in error, and devices connected. Open the desktop app once on each computer so it can hand Syncthing's key to Monitor App on that same computer (the key never leaves it).
-
-Not yet: Windows only lists itself under installed systems (the Fedora side lists both). Fixes and actions (rescan a folder, reconnect) come next.
+- **Alerts in plain words**: "Tailscale is not connected" after 5 minutes off your tailnet; "Syncthing folder has errors" after 5 minutes; "Syncthing folders not in sync" when a folder has been behind for 2 hours. Each says what it means and what to do, not a percentage.
+- **Rescan Syncthing, one tap**: open a Syncthing alert in Alerts and press **Rescan Syncthing**. It asks Syncthing on that computer to look at every folder again (no files are changed), and says what happened. It only works from the computer the alert is about; anywhere else it tells you where to press it.
+- **Renamed devices keep their name on the Map**: rename a found device in Things ("Living room router") and the Map uses that name too.
+- **Add gear by its model name or a product link**: in Things, type "Boss DS-1" or paste a shop link and press Add. The app guesses the kind (pedal, switch, laptop, drive, UPS…) and the maker from the words, marks both as estimated, and keeps the link. Nothing is looked up online; pick a kind yourself and that wins.
+- You can switch any of the new alerts off under Alerts on this device.
+- A device you add on your phone (by scanning its code) now reaches your computers right away. Before, a computer could ignore what the phone told it until something else changed.
