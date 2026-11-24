@@ -77,9 +77,48 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
             var peers = await Client.GetPeersAsync(cancellationToken);
             var state = await Client.GetStateAsync(requestedAsOf, ct: cancellationToken);
             var rates = await LoadRatesAsync(requestedAsOf ?? now, cancellationToken);
-            var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null);
+            var names = await LoadThingNamesAsync(requestedAsOf, cancellationToken);
+            var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null, thingNames: names);
             Apply(graph with { Layout = layout.Place(graph.Nodes) });
         });
+    }
+
+    /// <summary>
+    /// Names the person gave found devices in Things (net: and ts: subjects), so a rename shows on the Map too. Empty when the
+    /// node has no shared model; a failure here never stops the Map from drawing.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> LoadThingNamesAsync(DateTimeOffset? asOf, CancellationToken cancellationToken)
+    {
+        if (Client is not IThingsSource source)
+        {
+            return null;
+        }
+
+        try
+        {
+            var things = await source.GetThingsAsync(asOf, cancellationToken);
+            return things is null ? null : FoundDeviceNames(things.Things);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or LocalApiException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public static IReadOnlyDictionary<string, string> FoundDeviceNames(IEnumerable<ThingDto> things)
+    {
+        ArgumentNullException.ThrowIfNull(things);
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var thing in things.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
+        {
+            foreach (var subject in thing.ReadingSubjects.Where(id =>
+                id.StartsWith(SceneProjector.NetworkPrefix, StringComparison.Ordinal) || id.StartsWith(SceneProjector.TailnetPrefix, StringComparison.Ordinal)))
+            {
+                names.TryAdd(subject, thing.Name.Trim());
+            }
+        }
+
+        return names;
     }
 
     /// <summary>
