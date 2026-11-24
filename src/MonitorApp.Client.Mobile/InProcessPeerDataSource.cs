@@ -18,7 +18,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IMeshJoinSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDisposable
+public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IMeshJoinSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDiagnosticsSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -458,7 +458,7 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
         if (text is not null && MeshFaceToFace.IsMeshCode(text))
         {
-            throw new ApiValidationException("That code is from a phone or tablet. Use \"Add a phone or tablet\" below instead.");
+            throw new ApiValidationException("That code is from a phone or tablet. Use \"Scan a code\" on Add or remove devices; it handles both kinds.");
         }
 
         // null: the person closed the scanner. Not an error and nothing to pair.
@@ -497,6 +497,9 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
         return true;
     });
+
+    public Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default) =>
+        Task.FromResult(DiagnosticLog.Recent(lines));
 
     public bool CanVerifyUserPresence => runtime.CanVerifyUserPresence;
 

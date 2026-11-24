@@ -19,7 +19,7 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
     private string invitationText = string.Empty;
 
     public PairDeviceViewModel(NodeConnection connection)
-        : base(connection, "Pair a device")
+        : base(connection, "Add a device")
     {
     }
 
@@ -77,18 +77,42 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
         StatusMessage = null;
     }
 
+    /// <summary>
+    /// One Scan button for every kind of code (Wilson, 2026-11-24: one way to pair, not one per kind of device). A computer's
+    /// code pairs over the network and waits for Accept there; a phone's or tablet's code goes on to the face-to-face check.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanScanQr))]
     private async Task ScanQrAsync()
     {
+        StatusMessage = null;
+        if (Client is IMeshJoinSource mesh && Client is IPairingInitiator initiator)
+        {
+            PendingDevice = null;
+            await RunAsync(async () =>
+            {
+                if (await mesh.ScanAnyCodeAsync() is not { } code) return;
+                if (mesh.IsDeviceCode(code))
+                {
+                    PendingDevice = mesh.PreviewMeshCode(code);
+                    pendingCode = code;
+                    return;
+                }
+
+                StatusMessage = "Code read. Asking the computer to add this device. Tap Accept on the computer when it asks; this waits up to 5 minutes.";
+                var peer = await initiator.PairWithInvitationAsync(code);
+                StatusMessage = $"Paired with {peer}.";
+                Paired?.Invoke(this, EventArgs.Empty);
+            });
+            return;
+        }
+
         if (Client is not IQrPairingSource scanner)
         {
             return;
         }
 
-        StatusMessage = null;
         await RunAsync(async () =>
         {
-            // null means the person backed out of the scanner: no message. ApiValidationException is shown by RunAsync.
             // The scanner reports from a background thread; the message is set on the screen's own thread.
             var screen = SynchronizationContext.Current;
             void Progress(string text)

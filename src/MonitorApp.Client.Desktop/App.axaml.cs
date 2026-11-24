@@ -15,6 +15,7 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            UpdatesViewModel.Restarter = new DesktopRestarter(desktop);
             var address = ResolveAddress();
             var model = new MainViewModel(address);
             var window = new MainWindow { DataContext = model };

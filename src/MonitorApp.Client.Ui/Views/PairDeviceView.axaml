@@ -3,24 +3,16 @@
              xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
              x:Class="MonitorApp.Client.Ui.Views.PairDeviceView" x:DataType="vm:PairDeviceViewModel">
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
-    <TextBlock Text="Pair a device" Classes="heading" />
-    <TextBlock Text="The desktop shows a pairing code and its private address. Pairing only completes after the desktop user approves this device." TextWrapping="Wrap" />
+    <TextBlock Text="Add a device" Classes="heading" />
+    <TextBlock TextWrapping="Wrap"
+               Text="One way for every device. Scan the code the other device shows: a computer's Pairing screen, or a phone's or tablet's &quot;Show my code&quot;. Or show this device's code and let the other one scan it. Once added, every one of your devices trusts it." />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-    <Border Classes="card" IsVisible="{Binding CanScanQr}">
+    <Border Classes="card">
       <StackPanel Spacing="8">
-        <TextBlock Text="Scan the QR code" Classes="subheading" />
-        <Button Content="Scan QR" Command="{Binding ScanQrCommand}" HorizontalAlignment="Left" />
-      </StackPanel>
-    </Border>
-    <Border Classes="card" IsVisible="{Binding CanAddMeshDevices}">
-      <StackPanel Spacing="8">
-        <TextBlock Text="Add a phone or tablet" Classes="subheading" />
-        <TextBlock TextWrapping="Wrap"
-                   Text="Phones and tablets add each other face to face. On the new device choose &quot;Show my code&quot;; on a device that is already set up choose &quot;Scan the other device&quot;. Then the new device scans the reply. Both ask for your fingerprint (or your screen lock when no fingerprint is set up), and every one of your devices then trusts the new one." />
         <WrapPanel Orientation="Horizontal">
-          <Button Name="ShowJoinCode" Content="Show my code" Command="{Binding ShowJoinCodeCommand}" Margin="0,0,8,8" />
-          <Button Name="ScanDeviceCode" Content="Scan the other device" Command="{Binding ScanDeviceCodeCommand}" Margin="0,0,8,8" />
+          <Button Name="ScanAnyCode" Classes="action" Content="Scan a code" Command="{Binding ScanQrCommand}" IsVisible="{Binding CanScanQr}" Margin="0,0,8,8" />
+          <Button Name="ShowJoinCode" Content="Show my code" Command="{Binding ShowJoinCodeCommand}" IsVisible="{Binding CanAddMeshDevices}" Margin="0,0,8,8" />
         </WrapPanel>
         <Border Classes="card" IsVisible="{Binding HasPendingDevice}">
           <StackPanel Spacing="8">
@@ -39,6 +31,8 @@
         </StackPanel>
       </StackPanel>
     </Border>
+    <Expander Header="Other ways: type a computer's code or paste an invitation" HorizontalAlignment="Stretch">
+    <StackPanel Spacing="8">
     <Border Classes="card">
       <StackPanel Spacing="8">
         <TextBlock Text="Type the code" Classes="subheading" />
@@ -63,5 +57,7 @@
         <Button Content="Pair with invitation" Command="{Binding PairWithInvitationCommand}" HorizontalAlignment="Left" />
       </StackPanel>
     </Border>
+    </StackPanel>
+    </Expander>
   </StackPanel></ScrollViewer>
 </UserControl>

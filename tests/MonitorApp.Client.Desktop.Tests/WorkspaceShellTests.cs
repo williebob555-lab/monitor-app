@@ -327,7 +327,7 @@ public sealed class WorkspaceShellTests
         // Modes reach every section.
         model.Shell.GoTo(ShellMode.Settings);
         Pump();
-        Assert.Equal(["Pairing and trust", "Devices", "About this device"], model.Shell.SubSections.Select(s => s.Title));
+        Assert.Equal(["Add or remove devices", "Devices", "About this device"], model.Shell.SubSections.Select(s => s.Title));
         Find<TabStrip>(shell, "SubTabs").SelectedItem = model.Shell.SubSections.OfType<PairingsViewModel>().Single();
         Pump();
         Assert.IsType<PairingsViewModel>(model.SelectedSection);

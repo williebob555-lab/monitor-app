@@ -18,9 +18,23 @@ public sealed partial class PairingsViewModel : SectionViewModel
     /// <summary>What the last removal said, per device, so the result stays on that device's card across a reload.</summary>
     private readonly Dictionary<string, (string Text, bool Failed)> removalOutcomes = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// "Add a device" on a phone or tablet (scan any code, or show this device's), on this same screen: one place to add,
+    /// see and remove devices on every kind of device (Wilson, 2026-11-24). Null on a computer, which shows its code below.
+    /// </summary>
+    public PairDeviceViewModel? Add { get; }
+
+    public bool CanAdd => Add is not null;
+
     public PairingsViewModel(NodeConnection connection)
-        : base(connection, "Pairing and trust")
+        : base(connection, "Add or remove devices")
     {
+        if (Client is IPairingInitiator)
+        {
+            Add = new PairDeviceViewModel(connection);
+            Add.Paired += (_, _) => _ = RunAsync(() => ReloadAsync(CancellationToken.None));
+        }
+
         if (Client is IPhonePairingHost)
         {
             AddPhone = new AddPhoneViewModel(() => Client as IPhonePairingHost);

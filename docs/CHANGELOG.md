@@ -5,6 +5,8 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Added
+- **Diagnostic log screen** (More > Diagnostic log) on every device, with **Copy**: what the device did with pairing, each connection attempt (address, result and reason), removals and update checks. Phones now log every connection step, including a connection loop that stopped and why, which they used to swallow.
+- **One way to add a device.** Every phone and tablet has one **Scan a code** button that takes any pairing code: a computer's code pairs over the network and waits for Accept there, and a phone's or tablet's code goes to the face-to-face check. Adding, seeing and removing devices are on one screen, **Add or remove devices**, on every device; the separate "Pair a device" page and the "Scan the other device" button are gone, and typing a code or pasting an invitation sits under "Other ways".
 - A paired device's own page now says, under its name, whether this device reaches it right now and why not (the same line as on its pairing card), and has a **Pairing and removal** button that opens its card in one tap. No more going through More to find out whether a device is connected.
 - Service diagnosis (D6): alerts "Tailscale is not connected" (5 min), "Syncthing folder has errors" (5 min) and "Syncthing folders not in sync" (2 h), each with a plain explanation. Syncthing alerts have a **Rescan Syncthing** button that asks the computer's own Syncthing to rescan every folder (loopback only, antiforgery token, no files changed).
 - The Map shows the name a found device has in Things.
@@ -21,6 +23,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
 
 ### Fixed
+- Installing an update on a computer said "Monitor App restarts" but the open window never did: the background service moved to the new build, the window kept running the old one, and the version shown changed under it. Install now follows the service through its restart, then restarts the window on the new build (or says why it could not). A window left on an older build says so and offers **Restart Monitor App**; "Downloaded, not installed yet" and "Installed" are worded apart.
 - Remove could sit at "Removing … from all your devices…" forever: any failure other than a node error was not caught, and nothing limited the wait. Remove now answers within 45 seconds with the result or the reason, removing a device that is already removed counts as done, and the list reloads either way.
 - A phone that scanned a computer's code gave up after about three minutes, so a request accepted later (the computer took up to two minutes to show it) was never finished and the phone stayed removed. The phone now waits the full five minutes the request is open and says "Tap Accept on the computer", a timeout says so in plain words, and the computer's Pairing screen picks up new requests every 3 seconds.
 - Phones and tablets with no fingerprint and no screen lock can add devices again: the code check and the Add tap in the app are the confirmation, instead of refusing for a lock that does not exist.

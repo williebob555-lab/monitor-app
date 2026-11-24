@@ -629,6 +629,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
 
             loopCancellation = new CancellationTokenSource();
             var token = loopCancellation.Token;
+            DiagnosticLog.Write("node", $"{options.DisplayName} started collecting and connecting");
             loops =
             [
                 Task.Run(() => CollectionLoopAsync(token), CancellationToken.None),
@@ -806,6 +807,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
+                    DiagnosticLog.Write("link", "could not start connections", exception);
                     await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -859,6 +861,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                         : TimeSpan.Zero;
                 }
 
+                if (locators.Count == 0 && attempt++ == 0)
+                {
+                    DiagnosticLog.Write("link", $"{peerId} ({peer.DisplayName}): no address known for it, so this device waits for it to connect");
+                }
+
                 if (wait <= TimeSpan.Zero && locators.Count > 0)
                 {
                     // Best address first; one that never authenticates gives way to the next (T080 hotfix: an advertised
@@ -883,6 +890,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            // The supervisor starts it again; say why it stopped instead of failing silently.
+            DiagnosticLog.Write("link", $"{peerId} connection loop stopped", exception);
         }
     }
 
@@ -930,6 +942,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
 
             var endpoint = new PeerPairingInvitation(address, locator.Port, peer.PeerId, peer.PublicKeyFingerprint, null)
                 .ToEndpoint();
+            DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) connecting to {locator.Host}:{locator.Port}");
             var remote = new PeerPublicIdentity(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint);
             var transport = PeerTransportOptions.Create(endpoint) with
             {
@@ -955,6 +968,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                     if (!authenticated)
                     {
                         authenticated = true;
+                        DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) connected via {locator.Host}:{locator.Port}");
                         _ = MarkConnectedAsync(peer.PeerId, locator);
                     }
 
@@ -1021,6 +1035,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             var state = exception is PeerAuthenticationException or PeerCompatibilityException
                 ? MobileSyncState.Refused
                 : MobileSyncState.Offline;
+            DiagnosticLog.Write("link", $"{peerId} {state} (try {count}, next in {backoff.TotalSeconds:0} s)", exception);
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
             peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, PeerLinkErrors.Plain(exception));
             PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
