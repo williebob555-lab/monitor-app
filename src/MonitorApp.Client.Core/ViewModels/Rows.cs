@@ -75,8 +75,7 @@ public sealed partial class TrustedPeerCard(TrustedPeerRow row) : ObservableObje
 
     public string Prompt =>
         $"Remove {Name} from all your devices? Check the fingerprint first: {Fingerprint}. Every device stops trusting it " +
-        "and stops sharing readings with it. For now a removed device can only rejoin after the app is reinstalled on it; " +
-        "pairing it again normally is coming next.";
+        "and stops sharing readings with it. You can pair it again later the usual way; it waits for your approval like a new device.";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowRemoveButton))]

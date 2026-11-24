@@ -113,14 +113,14 @@ P1 and P2 ship together as the first release, then P3, then P4 and P5.
 
 | # | Item | Size | What you will see | Status |
 |---|------|------|-------------------|--------|
-| R1 | **Remove where you press it**: the question, a progress bar and the result (or the reason it failed) appear on that device's own card | S | Press Remove and the card asks, works, then says "Removed" or why not | Built, next release |
-| R2 | **Fingerprint said plainly**: every action that can use a fingerprint says whether one is set up. When none is, it uses your phone's PIN or your Windows Hello PIN instead and shows how to set a fingerprint up. Nothing fails silently. | M | "Fingerprint not set up: your PIN will be asked instead. Set up fingerprint…" | Planned |
-| R3 | **Pair again after removal**: a fresh pairing that you approve on a trusted device brings a removed device back, keeping its history. Removal still takes effect everywhere at once. The approval names exactly which removals it lifts, so a newer removal always wins, whatever the device clocks say. | L, security review | Remove the phone, scan the laptop's code again, approve, and it is back | Planned |
-| R4 | **Connection state on each device**: connected, trying (and which address), or can't reach (with the error); when the last reading arrived; readings waiting to send | M | "Laptop: can't reach 100.x.y.z (timed out), last reading 2 h ago; trying 192.168.1.20" | Planned |
+| R1 | **Remove where you press it**: the question, a progress bar and the result (or the reason it failed) appear on that device's own card | S | Press Remove and the card asks, works, then says "Removed" or why not | Built, 0.1.28 |
+| R2 | **Fingerprint said plainly**: every action that can use a fingerprint says whether one is set up. When none is, it uses your phone's PIN or your Windows Hello PIN instead and shows how to set a fingerprint up. Nothing fails silently. | M | "Fingerprint not set up: your PIN will be asked instead. Set up fingerprint…" | Built, 0.1.28 (removing and adding devices on phones) |
+| R3 | **Pair again after removal**: a fresh pairing that you approve on a trusted device brings a removed device back, keeping its history. Removal still takes effect everywhere at once. The approval names exactly which removals it lifts, so a newer removal always wins, whatever the device clocks say. | L, security review | Remove the phone, scan the laptop's code again, approve, and it is back | Built, next release |
+| R4 | **Connection state on each device**: connected, trying (and which address), or can't reach (with the error); when the last reading arrived; readings waiting to send | M | "Laptop: can't reach 100.x.y.z (timed out), last reading 2 h ago; trying 192.168.1.20" | Built, 0.1.28 |
 | R5 | **Phone and laptop readings flowing**: find the cause with R4's details and fix it | M, uncertain until R4 shows the reason | Phone and laptop show each other's readings | Planned |
-| R6 | **Every pairing button answers**: Approve, Reject, Show code, Add a phone or tablet, Save permissions each show busy, then success or the reason it failed, on the spot | S | No button press goes unanswered | Planned |
+| R6 | **Every pairing button answers**: Approve, Reject, Show code, Add a phone or tablet, Save permissions each show busy, then success or the reason it failed, on the spot | S | No button press goes unanswered | Built, 0.1.28 |
 
-Order: R1, R2, R6 and R4 ship together first. R5 follows as soon as R4 shows the cause, then the services work (D1 to D4, in "Make the app useful on its own"), then R3, then D5.
+Order: R1, R2, R6 and R4 ship together first (0.1.28). R3 next, then R5 as soon as R4 shows the cause. The services work (D1 to D5) moved to its own thread on 2026-11-24.
 
 ## How progress is reported
 

@@ -72,19 +72,9 @@ public sealed class PeerPairingCoordinator
                 compatibility.Reason);
         }
 
+        // A device removed earlier may pair again: it waits for the owner's fresh approval like any new device, and
+        // completing the pairing lets it back in (PeerStore.PairTrustedPeerAsync, then the mesh lifts its removal).
         var now = UtcNow();
-        var trusted = await peerStore.ReadTrustedPeerAsync(candidate.Identity.PeerId, cancellationToken)
-            .ConfigureAwait(false);
-        if (trusted?.TrustState == PeerTrustState.Revoked)
-        {
-            return new PairingStartResult(
-                PairingOperationStatus.Revoked,
-                pairingId,
-                compatibility.SelectedVersion,
-                candidate.Capabilities,
-                "Peer trust has been revoked.");
-        }
-
         var existing = await applicationStore.ReadPairingAsync(pairingId, cancellationToken)
             .ConfigureAwait(false);
         if (existing is not null)
@@ -294,7 +284,7 @@ public sealed class PeerPairingCoordinator
         }
 
         var now = UtcNow();
-        await peerStore.UpsertTrustedPeerAsync(
+        await peerStore.PairTrustedPeerAsync(
             new TrustedPeer(
                 pairing.RemoteIdentity.PeerId,
                 pairing.RemoteIdentity.PublicKeySpki,

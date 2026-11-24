@@ -88,7 +88,7 @@
     </ItemsControl>
     <TextBlock Text="Phone permissions" Classes="subheading" IsVisible="{Binding CanGrant}" />
     <TextBlock IsVisible="{Binding CanGrant}" TextWrapping="Wrap"
-               Text="A phone can do nothing on this computer until you allow it here. The switches show what is currently stored; Save sets them exactly as switched below. Saving a permission needs your fingerprint." />
+               Text="A phone can do nothing on this computer until you allow it here. The switches show what is currently stored; Save sets them exactly as switched below. Saving a permission needs your fingerprint when one is set up on this computer (Security)." />
     <ItemsControl Name="GrantList" ItemsSource="{Binding Grants}" IsVisible="{Binding CanGrant}">
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:PeerGrantViewModel">

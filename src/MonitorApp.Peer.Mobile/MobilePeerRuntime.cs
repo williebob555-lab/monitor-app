@@ -1031,7 +1031,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             PairingRemoteCandidate candidate,
             DateTimeOffset pairedAt,
             CancellationToken cancellationToken) =>
-            await store.UpsertTrustedPeerAsync(new TrustedPeer(
+            await store.PairTrustedPeerAsync(new TrustedPeer(
                 candidate.Identity.PeerId,
                 candidate.Identity.PublicKeySpki,
                 candidate.Identity.PublicKeyFingerprint,
