@@ -6,3 +6,4 @@
 - **Renamed devices keep their name on the Map**: rename a found device in Things ("Living room router") and the Map uses that name too.
 - **Add gear by its model name or a product link**: in Things, type "Boss DS-1" or paste a shop link and press Add. The app guesses the kind (pedal, switch, laptop, drive, UPS…) and the maker from the words, marks both as estimated, and keeps the link. Nothing is looked up online; pick a kind yourself and that wins.
 - You can switch any of the new alerts off under Alerts on this device.
+- A device you add on your phone (by scanning its code) now reaches your computers right away. Before, a computer could ignore what the phone told it until something else changed.
