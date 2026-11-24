@@ -223,7 +223,7 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
     {
         try
         {
-            if (_service!.Current is { Stage: UpdateStage.Staged or UpdateStage.Applying })
+            if (_service!.Current is { Stage: UpdateStage.Applying })
             {
                 return;
             }
@@ -237,8 +237,9 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 _lastError = null;
             }
 
-            if (available is null)
+            if (available is null or { Stage: UpdateStage.Staged })
             {
+                // Up to date, or the build already waiting is still the newest.
                 return;
             }
 

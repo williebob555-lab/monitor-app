@@ -21,6 +21,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
 
 ### Fixed
+- Updates got stuck on an older build: once a build was downloaded and waiting for approval, neither the hourly check nor the Check button looked for anything newer, so a device could sit on 0.1.27 while 0.1.30 was out. A newer release now replaces the waiting one (the old download is removed), the same one is kept without downloading again, and Check for updates always says what it found or why it did not check yet.
 - A device added on a phone (scan its code) could stay unknown to the computers. A computer that had not yet sent anything about its own pairings ignored everything its directly paired phone told it, and nothing retried. It now vouches for its own pairings before checking what arrives, and a phone renews the session when it has news of its own to pass on.
 - Phone and computers stopped exchanging readings on 0.1.18 (T080 hotfix): a computer's advertised address (its Tailscale address) was stored as the newest and always dialed first, so a phone that could not reach it never connected. Devices now dial the address that last worked first, rank advertised addresses below paired ones, and move to the next address when one keeps failing.
 - A newly paired phone or tablet starts syncing at once instead of at the next pass (up to 15 seconds, more after a failed try), and a mesh trust change wakes sessions too.

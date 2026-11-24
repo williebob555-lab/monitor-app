@@ -69,7 +69,10 @@ public sealed class UpdateService : IDisposable
 
     public UpdateState? Current => _store.Read().Active;
 
-    /// <summary>Fetch and verify the manifest. Returns null when already up to date. Verification failures are audited and rethrown.</summary>
+    /// <summary>
+    /// Fetch and verify the manifest. Returns null when already up to date, the waiting (Staged) state when the release is no
+    /// newer than the build already downloaded, or a new Available state. Verification failures are audited and rethrown.
+    /// </summary>
     public async Task<UpdateState?> CheckAsync(
         ReleaseVersion installedVersion,
         DowngradeAuthorization? downgrade,
@@ -91,6 +94,20 @@ public sealed class UpdateService : IDisposable
                 if (string.Equals(manifest.Channel, _target.Channel, StringComparison.Ordinal) && manifest.Version == installedVersion)
                 {
                     return null;
+                }
+
+                // A build already downloaded and waiting stays unless the release is newer; a newer one replaces it, so a device
+                // that sat on a download never falls behind.
+                if (snapshot.Active is { Stage: UpdateStage.Staged } waiting
+                    && ReleaseVersion.TryParse(waiting.TargetVersion, out var waitingVersion))
+                {
+                    if (manifest.Version <= waitingVersion)
+                    {
+                        return waiting;
+                    }
+
+                    DeleteStale(waiting.StagedPath);
+                    _store.Audit(_time.GetUtcNow(), "superseded", $"{waiting.TargetVersion} -> {manifest.Version}");
                 }
 
                 var authorizedDowngrade = downgrade is not null && downgrade.TargetVersion == manifest.Version ? downgrade : null;
@@ -308,5 +325,22 @@ public sealed class UpdateService : IDisposable
         var name = Path.GetFileName(url.AbsolutePath);
         var clean = new string(name.Where(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_').ToArray());
         return clean.Length is > 0 and <= 100 && clean.Trim('.').Length > 0 ? clean : "artifact.bin";
+    }
+
+    private static void DeleteStale(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A leftover download is harmless: it is never applied without matching the active state's digest.
+        }
     }
 }
