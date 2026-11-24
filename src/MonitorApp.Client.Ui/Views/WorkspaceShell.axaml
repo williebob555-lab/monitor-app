@@ -62,11 +62,17 @@
                      SelectedItem="{Binding Shell.SelectedModeItem}" AutomationProperties.Name="Workspace modes">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="shell:ShellModeItem">
-                  <StackPanel Orientation="Horizontal" Spacing="12" Margin="14,0,16,0" Background="Transparent"
-                              ToolTip.Tip="{Binding Tooltip}">
-                    <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" />
-                    <TextBlock Classes="navlabel" Text="{Binding Title}" />
-                  </StackPanel>
+                  <Panel Background="Transparent" ToolTip.Tip="{Binding Tooltip}">
+                    <!-- Expanded: icon and full name side by side. Collapsed: icon over its short name, so no icon is a guess. -->
+                    <StackPanel Classes="railwide" Orientation="Horizontal" Spacing="12" Margin="14,0,16,0">
+                      <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" />
+                      <TextBlock Classes="navlabel" Text="{Binding Title}" />
+                    </StackPanel>
+                    <StackPanel Classes="railnarrow" Spacing="2" Margin="4,6" HorizontalAlignment="Center">
+                      <Path Classes="icon" Data="{Binding IconKey, Converter={x:Static ctl:ShellIcons.Icon}}" HorizontalAlignment="Center" />
+                      <TextBlock Classes="raillabel" Text="{Binding NarrowTitle}" HorizontalAlignment="Center" />
+                    </StackPanel>
+                  </Panel>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>

@@ -2,7 +2,7 @@
              xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
              x:Class="MonitorApp.Client.Ui.Views.OverviewView" x:DataType="vm:OverviewViewModel">
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
-    <TextBlock Text="This device" Classes="heading" />
+    <TextBlock Text="About this device" Classes="heading" />
     <Button Content="Refresh" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
