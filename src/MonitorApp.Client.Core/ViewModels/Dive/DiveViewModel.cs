@@ -199,6 +199,21 @@ public sealed partial class DiveViewModel : ObservableObject
         }
     }
 
+    /// <summary>True when the shell has a pairing screen to open.</summary>
+    public bool CanOpenPairing { get; set; }
+
+    /// <summary>Asks the shell to show the pairing card of this device (its fingerprint, connection, and Remove).</summary>
+    public event EventHandler<string>? PairingRequested;
+
+    [RelayCommand]
+    public void OpenPairing(DiveDevicePage? page)
+    {
+        if (page is { IsPaired: true } && CanOpenPairing)
+        {
+            PairingRequested?.Invoke(this, page.NodeId);
+        }
+    }
+
     [RelayCommand]
     public void GoHome() => GoTo(null);
 
@@ -724,6 +739,7 @@ public sealed partial class DiveViewModel : ObservableObject
         {
             var device = Page as DiveDevicePage is { } current && current.NodeId == node.Id ? current : new DiveDevicePage(node.Id, Controls);
             FillDevice(device, scene, node, LiveTrends);
+            FillConnection(device, node, environment.IsHistorical ? [] : environment.Peers);
             Page = device;
         }
 
@@ -760,6 +776,17 @@ public sealed partial class DiveViewModel : ObservableObject
     }
 
     private DiveTrendBuffer? LiveTrends => environment.IsHistorical ? null : Trends;
+
+    /// <summary>A paired device's live link, said the same way as on its pairing card; nothing for other objects or the past.</summary>
+    private static void FillConnection(DiveDevicePage device, SceneNode node, IReadOnlyList<TrustedPeerDto> peers)
+    {
+        var peer = node.Kind == SceneNodeKind.Peer
+            ? peers.FirstOrDefault(p => string.Equals(p.PeerId, node.Id, StringComparison.Ordinal))
+            : null;
+        device.IsPaired = peer is not null && string.Equals(peer.TrustState, "Active", StringComparison.Ordinal);
+        device.Connected = peer?.Connected ?? false;
+        device.Connection = device.IsPaired ? peer!.Connection ?? string.Empty : string.Empty;
+    }
 
     private static void FillDevice(DiveDevicePage device, SceneGraph scene, SceneNode node, DiveTrendBuffer? trends)
     {

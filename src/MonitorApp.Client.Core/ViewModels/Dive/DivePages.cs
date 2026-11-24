@@ -50,6 +50,25 @@ public sealed partial class DiveDevicePage(string nodeId, ControlsViewModel cont
     [NotifyPropertyChangedFor(nameof(HasLead))]
     private string leadText = string.Empty;
 
+    /// <summary>For a paired device: whether this device reaches it right now and, when not, why (as on its pairing card).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasConnection), nameof(IsConnected), nameof(IsNotConnected))]
+    private string connection = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConnected), nameof(IsNotConnected))]
+    private bool connected;
+
+    /// <summary>True for a paired device, which can be removed (or its pairing checked) from here.</summary>
+    [ObservableProperty]
+    private bool isPaired;
+
+    public bool HasConnection => Connection.Length > 0;
+
+    public bool IsConnected => Connected && HasConnection;
+
+    public bool IsNotConnected => !Connected && HasConnection;
+
     [ObservableProperty]
     private bool hasChambers;
 

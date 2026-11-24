@@ -117,6 +117,13 @@ public sealed partial class ShellViewModel : ObservableObject
             Dive.ThingRequested += (_, nodeId) => OpenInThings(nodeId);
         }
 
+        // A paired device's page leads straight to its pairing card: fingerprint, connection, Remove.
+        if (main.Sections.OfType<PairingsViewModel>().SingleOrDefault() is { } pairings)
+        {
+            Dive.CanOpenPairing = true;
+            Dive.PairingRequested += (_, _) => main.SelectedSection = pairings;
+        }
+
         environment.PropertyChanged += OnEnvironmentChanged;
         main.PropertyChanged += OnMainChanged;
         Search.PropertyChanged += (_, args) =>

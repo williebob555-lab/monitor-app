@@ -463,6 +463,50 @@ public sealed class DiveViewTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task APairedDevicePageSaysWhetherItIsReachedAndLeadsToItsPairingCard()
+    {
+        var source = new FakeEnvironmentSource
+        {
+            ServerConnection = "Not connected: no answer at 100.64.0.2:55433 (tried 2 min ago). Last reading 3 h ago.",
+        };
+        using var model = new MainViewModel(source);
+        var shell = new WorkspaceShell { RunEnvironmentLive = false, ReducedMotion = true, DataContext = model };
+        var window = new Window { Width = 1400, Height = 860, Content = shell };
+        window.Show();
+        await model.Environment.RefreshAsync();
+        Pump();
+
+        // The device's own page says it is not reached and why, in the warning colour, right under its name.
+        model.Shell.DiveTo(FakeEnvironmentSource.ServerId);
+        Pump();
+        var line = Find<TextBlock>(shell, "DiveConnection");
+        var warning = shell.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible && t.Text == source.ServerConnection);
+        Assert.False(line.IsVisible, "the healthy line is hidden while it is not connected");
+        Assert.NotSame(line, warning);
+
+        // Once it connects, the same place says so.
+        source.ServerConnection = "Connected through 100.64.0.2:55433 since 08:12. Last reading 5 s ago.";
+        source.ServerConnected = true;
+        await model.Environment.RefreshAsync();
+        Pump();
+        Assert.True(line.IsEffectivelyVisible && line.Text == source.ServerConnection, $"connection line says '{line.Text}'");
+
+        // One tap from the device to its pairing card (fingerprint, connection, Remove).
+        var pairing = Find<Button>(shell, "DivePairing");
+        Assert.True(pairing.IsEffectivelyVisible, "a paired device offers its pairing card");
+        pairing.Command!.Execute(pairing.CommandParameter);
+        Pump();
+        Assert.True(model.Shell.Mode == ShellMode.Settings && model.SelectedSection is PairingsViewModel,
+            $"mode {model.Shell.Mode}, section {model.SelectedSection?.GetType().Name}");
+
+        // This device itself has no pairing card and no connection line.
+        model.Shell.DiveTo(FakeEnvironmentSource.LocalId);
+        Pump();
+        Assert.False(model.Shell.Dive.Page is DiveDevicePage { IsPaired: true }, "this device is not a paired peer");
+        window.Close();
+    }
+
     private static List<Button> EntryRows(WorkspaceShell shell, string listName) =>
         Find<ItemsControl>(shell, listName).GetVisualDescendants().OfType<Button>()
             .Where(b => b.DataContext is MonitorApp.Client.Core.ViewModels.Activity.ActivityEntry).ToList();

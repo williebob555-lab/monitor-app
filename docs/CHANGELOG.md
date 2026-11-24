@@ -5,6 +5,7 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Added
+- A paired device's own page now says, under its name, whether this device reaches it right now and why not (the same line as on its pairing card), and has a **Pairing and removal** button that opens its card in one tap. No more going through More to find out whether a device is connected.
 - **The app fills itself in.** Each computer now describes its own hardware (maker, model, processor, memory, graphics, drives, and which systems it can start: on the Fedora side "Fedora (running now), Windows Boot Manager"), the services it runs (Tailscale connected or not, Syncthing folders up to date, syncing or in error), and every device on your tailnet. All of it is measured and shows in Things and on the Map.
 - **Find devices on this network** (Things, top of the page): a switch per computer, off until you turn it on. Once on, the computer finds the router, switch, printers, TVs, speakers, phones and other devices on its own home network (neighbor table, mDNS, UPnP, local names, a slow ping of its own subnet only), with names, makers and models. They appear on the Map under the router and as things linked "connected to" it, marked as discovered; nothing found is ever trusted.
 - Tailscale and Syncthing appear on the Map as their own nodes beside the computer that runs them. The desktop app hands your Syncthing key to the Monitor App on the same computer so it can read folder status; the key never leaves the computer.

@@ -259,10 +259,21 @@
               <TextBlock Text="{Binding KindText}" Classes="label" VerticalAlignment="Center" Margin="0,0,0,4" />
             </WrapPanel>
             <TextBlock Name="DiveProvenance" Text="{Binding Provenance}" Classes="meta" />
-            <Button Classes="action" Content="Open it up in Things" HorizontalAlignment="Left" Margin="0,4,0,0"
-                    IsVisible="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanOpenInThings}"
-                    Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenInThingsCommand}" CommandParameter="{Binding}"
-                    AutomationProperties.Name="Open this device in Things, pulled apart into its parts" />
+            <!-- A paired device's live link, the same line as on its pairing card. -->
+            <TextBlock Name="DiveConnection" Text="{Binding Connection}" TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding IsConnected}"
+                       Foreground="{DynamicResource Brush.Healthy}" AutomationProperties.Name="{Binding Connection}" />
+            <TextBlock Text="{Binding Connection}" TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding IsNotConnected}"
+                       Foreground="{DynamicResource Brush.Warning}" AutomationProperties.Name="{Binding Connection}" />
+            <WrapPanel Margin="0,4,0,0">
+              <Button Classes="action" Content="Open it up in Things" Margin="0,0,8,4"
+                      IsVisible="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).CanOpenInThings}"
+                      Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenInThingsCommand}" CommandParameter="{Binding}"
+                      AutomationProperties.Name="Open this device in Things, pulled apart into its parts" />
+              <Button Name="DivePairing" Classes="action" Content="Pairing and removal" Margin="0,0,8,4"
+                      IsVisible="{Binding IsPaired}"
+                      Command="{Binding $parent[views:DiveView].((dive:DiveViewModel)DataContext).OpenPairingCommand}" CommandParameter="{Binding}"
+                      AutomationProperties.Name="{Binding Title, StringFormat='Pairing and removal for {0}: fingerprint, connection, Remove'}" />
+            </WrapPanel>
           </StackPanel>
 
           <Border Classes="panelbox critical" IsVisible="{Binding HasProblem}">
