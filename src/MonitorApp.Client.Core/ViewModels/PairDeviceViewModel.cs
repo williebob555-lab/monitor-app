@@ -89,7 +89,21 @@ public sealed partial class PairDeviceViewModel : SectionViewModel
         await RunAsync(async () =>
         {
             // null means the person backed out of the scanner: no message. ApiValidationException is shown by RunAsync.
-            if (await scanner.ScanAndPairAsync() is { } peer)
+            // The scanner reports from a background thread; the message is set on the screen's own thread.
+            var screen = SynchronizationContext.Current;
+            void Progress(string text)
+            {
+                if (screen is null)
+                {
+                    StatusMessage = text;
+                }
+                else
+                {
+                    screen.Post(_ => StatusMessage = text, null);
+                }
+            }
+
+            if (await scanner.ScanAndPairAsync(Progress) is { } peer)
             {
                 StatusMessage = $"Paired with {peer}.";
                 Paired?.Invoke(this, EventArgs.Empty);

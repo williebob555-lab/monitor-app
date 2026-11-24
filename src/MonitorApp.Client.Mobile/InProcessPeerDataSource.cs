@@ -437,7 +437,9 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
     public bool CanScanQr => qrScanner is { IsAvailable: true };
 
-    public async Task<string?> ScanAndPairAsync(CancellationToken ct = default)
+    public Task<string?> ScanAndPairAsync(CancellationToken ct = default) => ScanAndPairAsync(null, ct);
+
+    public async Task<string?> ScanAndPairAsync(Action<string>? progress, CancellationToken ct = default)
     {
         if (qrScanner is not { IsAvailable: true })
         {
@@ -460,7 +462,13 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         }
 
         // null: the person closed the scanner. Not an error and nothing to pair.
-        return text is null ? null : await PairWithInvitationAsync(text, ct).ConfigureAwait(false);
+        if (text is null)
+        {
+            return null;
+        }
+
+        progress?.Invoke("Code read. Asking the computer to add this device. Tap Accept on the computer when it asks; this waits up to 5 minutes.");
+        return await PairWithInvitationAsync(text, ct).ConfigureAwait(false);
     }
 
     /// <summary>Pairings are decided on the desktop; the phone has nothing to approve.</summary>
@@ -478,7 +486,13 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         }
         catch (UserPresenceDeniedException exception)
         {
-            throw new ApiValidationException("Not removed: " + exception.Message);
+            throw new ApiValidationException(exception.Message);
+        }
+        catch (Exception exception) when (exception is PeerPersistenceException or InvalidOperationException
+            or System.Data.Common.DbException or IOException)
+        {
+            DiagnosticLog.Write("removal", $"remove {peerId} failed", exception);
+            throw new ApiValidationException(exception.Message);
         }
 
         return true;

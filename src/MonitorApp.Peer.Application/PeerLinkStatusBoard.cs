@@ -95,10 +95,21 @@ public sealed class PeerLinkStatusBoard
     private void Update(string peerId, Func<PeerLinkStatus, PeerLinkStatus> change)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(peerId);
-        links.AddOrUpdate(
+        PeerLinkStatus? before = null;
+        var after = links.AddOrUpdate(
             peerId,
             id => change(new PeerLinkStatus(id, PeerLinkState.Unknown, null, Now, null, null, null)),
-            (_, current) => change(current));
+            (_, current) =>
+            {
+                before = current;
+                return change(current);
+            });
+        if (before is null || before.State != after.State || before.Address != after.Address || before.LastError != after.LastError)
+        {
+            DiagnosticLog.Write("link", $"{peerId} {after.State}" +
+                (after.Address is { Length: > 0 } address ? $" via {address}" : string.Empty) +
+                (after.State is PeerLinkState.Retrying or PeerLinkState.Stopped && after.LastError is { } error ? $": {error}" : string.Empty));
+        }
     }
 
     /// <summary>

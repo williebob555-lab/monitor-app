@@ -237,6 +237,9 @@ public sealed partial class NodeUpdateAgent : BackgroundService, ILocalUpdateCon
                 _lastError = null;
             }
 
+            MonitorApp.Peer.Application.DiagnosticLog.Write("update", available is null
+                ? $"checked: {_options.InstalledVersion} is the newest"
+                : $"checked: {available.TargetVersion} is {available.Stage} (installed {_options.InstalledVersion})");
             if (available is null or { Stage: UpdateStage.Staged })
             {
                 // Up to date, or the build already waiting is still the newest.

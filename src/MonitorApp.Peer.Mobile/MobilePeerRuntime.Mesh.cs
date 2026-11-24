@@ -1,3 +1,4 @@
+using MonitorApp.Peer.Application;
 using System.Security.Cryptography;
 using System.Text;
 using MonitorApp.Contracts.V1;
@@ -121,7 +122,9 @@ public sealed partial class MobilePeerRuntime
     private async Task RequirePresenceAsync(string title, string description, string subject, CancellationToken cancellationToken)
     {
         // Adding a device to the mesh is high risk: every device will trust it. A fingerprint when one is set up, else the
-        // screen lock (PIN, pattern or password); with neither, fail closed and say what to set up.
+        // screen lock (PIN, pattern or password). With neither, the in-app step the person already took (comparing the
+        // code and tapping Add) is the confirmation: Wilson's devices have no lock, and waiting on a check that cannot
+        // exist only made adding fail (2026-11-24). Removal works the same way.
         var challenge = new UserPresenceChallenge(title, description);
         if (presence is { IsAvailable: true } signer)
         {
@@ -134,8 +137,7 @@ public sealed partial class MobilePeerRuntime
         }
         else
         {
-            throw new UserPresenceDeniedException(
-                "Adding a device needs your fingerprint or screen lock, and this device has neither. Set a screen lock in Android Settings > Security, then try again.");
+            DiagnosticLog.Write("pairing", $"{title}: no fingerprint or screen lock on this device, confirmed in the app");
         }
     }
 

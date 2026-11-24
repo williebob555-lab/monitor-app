@@ -57,7 +57,10 @@ public interface IQrPairingSource
     /// person cancelled the scanner. Throws <see cref="ApiValidationException"/> with a user-safe message when the camera is
     /// unavailable or denied (the UI should then point at the typed code) or the scanned code is not a valid invitation.
     /// </summary>
-    Task<string?> ScanAndPairAsync(CancellationToken ct = default);
+    Task<string?> ScanAndPairAsync(CancellationToken ct = default) => ScanAndPairAsync(null, ct);
+
+    /// <summary>As above, saying what it is doing once the code is read (contacting, waiting for Accept) through <paramref name="progress"/>.</summary>
+    Task<string?> ScanAndPairAsync(Action<string>? progress, CancellationToken ct = default);
 }
 
 /// <summary>

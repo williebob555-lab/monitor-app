@@ -16,6 +16,13 @@ public sealed record PeerInitialPairingOptions(int MaximumApprovalPolls, TimeSpa
 {
     public static PeerInitialPairingOptions Default { get; } = new(30, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10));
 
+    /// <summary>
+    /// Asks every one to two seconds for as long as the other device keeps a request open (five minutes), so a slow tap on
+    /// Accept still completes. With 90 asks the scanning device gave up after three minutes and an accepted request was
+    /// never finished (Wilson, 2026-11-24).
+    /// </summary>
+    public static PeerInitialPairingOptions UntilRequestExpires { get; } = new(170, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+
     internal void Validate()
     {
         if (MaximumApprovalPolls is < 1 or > 10_000 || InitialPollDelay <= TimeSpan.Zero || MaximumPollDelay < InitialPollDelay)
