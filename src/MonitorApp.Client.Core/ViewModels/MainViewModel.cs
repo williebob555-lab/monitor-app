@@ -57,6 +57,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var state = new StateViewModel(connection);
         var history = new HistoryViewModel(connection);
         var asOf = new AsOfViewModel(connection);
+        var pairings = new PairingsViewModel(connection);
         var sections = new List<SectionViewModel>
         {
             Environment,
@@ -67,7 +68,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             asOf,
             // History mode's home ("What happened"); the three tools above stay reachable from its "Browse history".
             new ActivityViewModel(connection, [state, history, asOf]),
-            new PairingsViewModel(connection),
+            pairings,
         };
         // Only sources that manage this computer's fingerprint get the security section and the banner.
         if (connection.Source is ISecuritySource)
@@ -94,12 +95,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             sections.Add(new AlertPreferencesViewModel(connection));
         }
 
-        // Only sources that can initiate pairing (the phone) get the pairing-entry screen.
-        if (connection.Source is IPairingInitiator)
+        // Phones and tablets add devices on the same "Add or remove devices" screen (one way to pair, Wilson 2026-11-24).
+        if (pairings.Add is { } add)
         {
-            var pair = new PairDeviceViewModel(connection);
-            pair.Paired += (_, _) => _ = Task.WhenAll(Overview.RefreshAsync(), Environment.RefreshAsync());
-            sections.Add(pair);
+            add.Paired += (_, _) => _ = Task.WhenAll(Overview.RefreshAsync(), Environment.RefreshAsync());
         }
 
         sections.Add(Overview);

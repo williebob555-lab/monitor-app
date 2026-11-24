@@ -302,6 +302,12 @@ public interface IMeshJoinSource
     /// <summary>Opens the camera and returns a scanned device code, or null when the person closed the scanner.</summary>
     Task<string?> ScanMeshCodeAsync(CancellationToken ct = default);
 
+    /// <summary>Opens the camera and returns whatever pairing code it read (a computer's or another phone's), or null.</summary>
+    Task<string?> ScanAnyCodeAsync(CancellationToken ct = default) => ScanMeshCodeAsync(ct);
+
+    /// <summary>True when <paramref name="code"/> came from a phone or tablet (face to face), false for a computer's invitation.</summary>
+    bool IsDeviceCode(string code) => true;
+
     /// <summary>Checks a scanned code and says what it is, without acting on it.</summary>
     MeshCodePreviewDto PreviewMeshCode(string code);
 

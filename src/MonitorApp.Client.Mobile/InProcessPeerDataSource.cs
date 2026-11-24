@@ -458,7 +458,7 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
         if (text is not null && MeshFaceToFace.IsMeshCode(text))
         {
-            throw new ApiValidationException("That code is from a phone or tablet. Use \"Add a phone or tablet\" below instead.");
+            throw new ApiValidationException("That code is from a phone or tablet. Use \"Scan a code\" on Add or remove devices; it handles both kinds.");
         }
 
         // null: the person closed the scanner. Not an error and nothing to pair.

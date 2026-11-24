@@ -3,17 +3,19 @@
              xmlns:ctl="using:MonitorApp.Client.Ui.Controls"
              x:Class="MonitorApp.Client.Ui.Views.PairingsView" x:DataType="vm:PairingsViewModel">
   <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
-    <TextBlock Text="Pairing and trust" Classes="heading" />
+    <TextBlock Text="Add or remove devices" Classes="heading" />
+    <ContentControl Content="{Binding Add}" IsVisible="{Binding CanAdd}" />
     <Button Content="Refresh" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" AutomationProperties.LiveSetting="Assertive" />
     <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
     <Border Classes="card" IsVisible="{Binding CanAddPhone}">
       <StackPanel Spacing="8" DataContext="{Binding AddPhone}" x:DataType="vm:AddPhoneViewModel">
-        <TextBlock Text="Add a phone" Classes="subheading" />
+        <TextBlock Text="Add a device" Classes="subheading" />
+        <TextBlock TextWrapping="Wrap" Text="Show this computer's code, then on the phone or tablet open Add or remove devices and tap Scan a code. Accept the request that appears below." />
         <TextBlock Text="{Binding ReachText}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         <WrapPanel>
           <Button Content="Let my phone reach this computer" Command="{Binding TurnOnCommand}" IsVisible="{Binding CanTurnOn}" Margin="0,0,8,0" />
-          <Button Content="Show pairing code" Command="{Binding ShowCodeCommand}" IsVisible="{Binding CanShowCode}" Margin="0,0,8,0" />
+          <Button Content="Show my code" Command="{Binding ShowCodeCommand}" IsVisible="{Binding CanShowCode}" Margin="0,0,8,0" />
           <Button Content="Stop letting phones reach this computer" Command="{Binding TurnOffCommand}" IsVisible="{Binding CanTurnOff}" />
         </WrapPanel>
         <TextBlock Text="{Binding Message}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
@@ -23,7 +25,7 @@
         <TextBlock Text="{Binding CodeText}" IsVisible="{Binding HasCode}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
-    <TextBlock Text="Pairings" Classes="subheading" />
+    <TextBlock Text="Waiting for you to accept" Classes="subheading" />
     <TextBlock Text="Compare the fingerprint with the one shown on the other device before approving." TextWrapping="Wrap" />
     <ItemsControl Name="PendingList" ItemsSource="{Binding Pending}">
       <ItemsControl.ItemTemplate>
