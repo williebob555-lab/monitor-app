@@ -317,3 +317,13 @@ public interface IMeshJoinSource
     /// <summary>After the fingerprint, completes joining with a scanned welcome. Returns the other device's name.</summary>
     Task<string> JoinWithWelcomeAsync(string welcomeCode, CancellationToken ct = default);
 }
+
+/// <summary>The running app window: its own build, and starting it again on the installed build (desktop only).</summary>
+public interface IAppRestarter
+{
+    /// <summary>This window's version, as stamped at build ("0.1.31"), or null when unknown (a developer build).</summary>
+    string? RunningVersion { get; }
+
+    /// <summary>Starts the installed app and closes this window. False when it could not start the new one.</summary>
+    bool Restart();
+}

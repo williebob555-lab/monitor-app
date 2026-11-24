@@ -5,6 +5,12 @@
     <TextBlock Text="Updates" Classes="heading" />
     <TextBlock Text="{Binding InstalledText}" FontWeight="SemiBold" TextWrapping="Wrap" />
     <TextBlock Text="{Binding StateText}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <Border Classes="card" IsVisible="{Binding NeedsRestart}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="{Binding RestartText}" TextWrapping="Wrap" FontWeight="SemiBold" />
+        <Button Name="RestartApp" Classes="action" Content="Restart Monitor App" Command="{Binding RestartAppCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
     <TextBlock Text="{Binding LastCheckedText}" TextWrapping="Wrap" />
     <TextBlock Text="{Binding CheckErrorText}" Classes="error" TextWrapping="Wrap" />
     <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
