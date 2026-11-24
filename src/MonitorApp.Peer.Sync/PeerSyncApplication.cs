@@ -133,6 +133,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             if (before == Volatile.Read(ref exchangedMeshVersion) && applied is not { Issued: > 0 })
                 Volatile.Write(ref exchangedMeshVersion, mesh.Version);
         }
+
+        DiagnosticLog.Write("sync", $"{remoteHello.PeerId}: both sides proved who they are; exchanging readings");
     }
 
     public async IAsyncEnumerable<PeerSessionRequest> GetPendingRequestsAsync(string remotePeerId,
@@ -189,11 +191,19 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         }
 
         var localHead = local.NextSequence - 1;
+        var reported = false;
         while (true)
         {
             var remoteAck = await store.ReadReplicationCursorAsync(remotePeerId, local.PeerId, local.OriginStreamId, cancellationToken)
                 .ConfigureAwait(false);
             var accepted = remoteAck.Cursor?.AcceptedThrough ?? 0;
+            if (!reported)
+            {
+                reported = true;
+                DiagnosticLog.Write("sync", $"{remotePeerId}: this device has readings 1-{localHead}; it has taken up to {accepted}" +
+                    (accepted >= localHead ? ", nothing to send" : $", sending {localHead - accepted}"));
+            }
+
             if (accepted >= localHead) break;
             EnsureOperationBound(++operations);
             var batch = await replication.ReadForPushAsync(new OriginRangeRequest
@@ -341,6 +351,8 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         {
             return null;
         }
+
+        DiagnosticLog.Write("sync", $"{remotePeerId}: caught up; staying connected for new readings");
 
         var meshVersion = Volatile.Read(ref exchangedMeshVersion);
 

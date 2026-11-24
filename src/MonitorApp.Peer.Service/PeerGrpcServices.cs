@@ -204,14 +204,20 @@ public sealed class PeerSessionGrpcService(
         using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             context.CancellationToken,
             lifetime?.ApplicationStopping ?? CancellationToken.None);
-        var live = new LiveSessionState(sessionCancellation);
+        var live = new LiveSessionState(sessionCancellation, context.Peer);
         try
         {
             await RunSessionAsync(requestStream, serialized, context, live).ConfigureAwait(false);
         }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            live.EndReason = $"{exception.GetType().Name}: {exception.Message}";
+            throw;
+        }
         finally
         {
             await live.StopAsync().ConfigureAwait(false);
+            live.Log(live.Summary());
         }
     }
 
@@ -243,19 +249,27 @@ public sealed class PeerSessionGrpcService(
                 catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)
                 {
                     // Idle timeout or a failed push loop ended this live session; the client reconnects from cursors.
+                    live.EndReason ??= live.PushEnded ? "sending to it failed"
+                        : live.Token.IsCancellationRequested ? "this computer is stopping"
+                        : $"nothing heard from it for {options.LiveIdleTimeout.TotalSeconds:0} s";
                     return;
+                }
+                catch (OperationCanceledException)
+                {
+                    live.EndReason ??= "the connection dropped";
+                    throw;
                 }
             }
 
             if (!hasRequest)
             {
+                live.EndReason ??= "it closed the session";
                 return;
             }
 
             if (live.Active ? !live.AllowMessage(options.MaximumMessagesPerSession) : ++messages > options.MaximumMessagesPerSession)
             {
-                await WriteErrorAsync(
-                    responseStream,
+                await WriteErrorAsync(live, responseStream,
                     ProtocolErrorCode.MessageTooLarge,
                     "Peer session message limit exceeded.",
                     retryable: false).ConfigureAwait(false);
@@ -263,12 +277,12 @@ public sealed class PeerSessionGrpcService(
             }
 
             var request = requestStream.Current;
+            live.Received(request);
             if (remoteHello is null)
             {
                 if (request.MessageCase != PeerSessionRequest.MessageOneofCase.Hello)
                 {
-                    await WriteErrorAsync(
-                        responseStream,
+                    await WriteErrorAsync(live, responseStream,
                         ProtocolErrorCode.Unauthorized,
                         "An authenticated peer hello is required before session operations.",
                         retryable: false).ConfigureAwait(false);
@@ -285,11 +299,12 @@ public sealed class PeerSessionGrpcService(
                     return;
                 }
 
+                live.Who = request.Hello.PeerId;
+                live.Log("said hello");
                 var validation = PeerContractValidator.Validate(request.Hello);
                 if (!validation.IsValid)
                 {
-                    await WriteErrorAsync(
-                        responseStream,
+                    await WriteErrorAsync(live, responseStream,
                         ProtocolErrorCode.InvalidMessage,
                         string.Join(" ", validation.Errors),
                         retryable: false).ConfigureAwait(false);
@@ -305,12 +320,13 @@ public sealed class PeerSessionGrpcService(
                 }
                 catch (TimeoutException)
                 {
-                    await WriteTimeoutAsync(responseStream).ConfigureAwait(false);
+                    await WriteTimeoutAsync(live, responseStream).ConfigureAwait(false);
                     continue;
                 }
 
                 if (opened.Error is not null)
                 {
+                    live.Log($"refused at hello: {opened.Error.Code} {opened.Error.SafeMessage}");
                     await responseStream.WriteAsync(new PeerSessionResponse
                     {
                         Error = opened.Error,
@@ -327,8 +343,7 @@ public sealed class PeerSessionGrpcService(
                     opened.LocalProof.SignerPeerId != opened.LocalHello.PeerId ||
                     opened.LocalProof.VerifierPeerId != request.Hello.PeerId)
                 {
-                    await WriteErrorAsync(
-                        responseStream,
+                    await WriteErrorAsync(live, responseStream,
                         ProtocolErrorCode.Internal,
                         "Peer session coordinator returned an invalid handshake.",
                         retryable: true).ConfigureAwait(false);
@@ -356,8 +371,7 @@ public sealed class PeerSessionGrpcService(
             {
                 if (request.MessageCase != PeerSessionRequest.MessageOneofCase.Proof)
                 {
-                    await WriteErrorAsync(
-                        responseStream,
+                    await WriteErrorAsync(live, responseStream,
                         ProtocolErrorCode.Unauthorized,
                         "Peer proof is required before capability or replication operations.",
                         retryable: false).ConfigureAwait(false);
@@ -371,8 +385,7 @@ public sealed class PeerSessionGrpcService(
                     proof.SignerPeerId != remoteHello.PeerId ||
                     proof.VerifierPeerId != localHello!.PeerId)
                 {
-                    await WriteErrorAsync(
-                        responseStream,
+                    await WriteErrorAsync(live, responseStream,
                         ProtocolErrorCode.InvalidIdentity,
                         "Peer proof does not match the active session.",
                         retryable: false).ConfigureAwait(false);
@@ -388,12 +401,13 @@ public sealed class PeerSessionGrpcService(
                 }
                 catch (TimeoutException)
                 {
-                    await WriteTimeoutAsync(responseStream).ConfigureAwait(false);
+                    await WriteTimeoutAsync(live, responseStream).ConfigureAwait(false);
                     continue;
                 }
 
                 if (!authentication.IsAuthenticated)
                 {
+                    live.Log($"refused at proof: {authentication.Error?.Code} {authentication.Error?.SafeMessage ?? "authentication failed"}");
                     await responseStream.WriteAsync(new PeerSessionResponse
                     {
                         Error = authentication.Error ?? PeerPairingGrpcService.Error(
@@ -405,6 +419,7 @@ public sealed class PeerSessionGrpcService(
                 }
 
                 authenticated = true;
+                live.Log("proved who it is; session open");
                 continue;
             }
 
@@ -445,6 +460,7 @@ public sealed class PeerSessionGrpcService(
 
                         live.Attach(session);
                         live.Active = true;
+                        live.Log($"live session started (send it readings: {subscribe.PushOrigin}, interests: {subscribe.PushInterests})");
                         await responseStream.WriteAsync(new PeerSessionResponse
                         {
                             LiveSubscribeAck = new LiveSubscribeAck
@@ -465,7 +481,7 @@ public sealed class PeerSessionGrpcService(
                         var session = live.Session ?? coordinator.OpenLiveSession(remotePeerId);
                         if (session is null)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 "Live interest is not supported.", false).ConfigureAwait(false);
                             return;
                         }
@@ -485,7 +501,7 @@ public sealed class PeerSessionGrpcService(
                         var validationError = ValidateCapabilities(request.CapabilityExchange);
                         if (validationError is not null)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage, validationError, false)
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage, validationError, false)
                                 .ConfigureAwait(false);
                             return;
                         }
@@ -499,7 +515,7 @@ public sealed class PeerSessionGrpcService(
                         var responseError = ValidateCapabilities(response);
                         if (responseError is not null)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.Internal,
                                 "Peer coordinator returned invalid capabilities.", true).ConfigureAwait(false);
                             return;
                         }
@@ -515,7 +531,7 @@ public sealed class PeerSessionGrpcService(
                         var validation = PeerContractValidator.Validate(request.OriginRangeRequest);
                         if (!validation.IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 string.Join(" ", validation.Errors), false).ConfigureAwait(false);
                             return;
                         }
@@ -528,7 +544,7 @@ public sealed class PeerSessionGrpcService(
                             cancellationToken).ConfigureAwait(false);
                         if (!PeerContractValidator.Validate(batch).IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.Internal,
                                 "Peer coordinator returned an invalid origin batch.", true).ConfigureAwait(false);
                             return;
                         }
@@ -542,7 +558,7 @@ public sealed class PeerSessionGrpcService(
                         var validation = PeerContractValidator.Validate(request.OriginBatch);
                         if (!validation.IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 string.Join(" ", validation.Errors), false).ConfigureAwait(false);
                             return;
                         }
@@ -555,7 +571,7 @@ public sealed class PeerSessionGrpcService(
                             cancellationToken).ConfigureAwait(false);
                         if (!PeerContractValidator.Validate(acknowledgement).IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.Internal,
                                 "Peer coordinator returned an invalid acknowledgement.", true).ConfigureAwait(false);
                             return;
                         }
@@ -569,7 +585,7 @@ public sealed class PeerSessionGrpcService(
                         var validation = PeerContractValidator.Validate(request.OriginAck);
                         if (!validation.IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 string.Join(" ", validation.Errors), false).ConfigureAwait(false);
                             return;
                         }
@@ -592,7 +608,7 @@ public sealed class PeerSessionGrpcService(
                         var validation = PeerContractValidator.Validate(request.AlertPull);
                         if (!validation.IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 string.Join(" ", validation.Errors), false).ConfigureAwait(false);
                             return;
                         }
@@ -602,7 +618,7 @@ public sealed class PeerSessionGrpcService(
                             cancellationToken).ConfigureAwait(false);
                         if (!PeerContractValidator.Validate(batch).IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.Internal,
                                 "Peer coordinator returned an invalid alert batch.", true).ConfigureAwait(false);
                             return;
                         }
@@ -622,7 +638,7 @@ public sealed class PeerSessionGrpcService(
                         var validation = PeerContractValidator.Validate(request.AlertAck);
                         if (!validation.IsValid)
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 string.Join(" ", validation.Errors), false).ConfigureAwait(false);
                             return;
                         }
@@ -687,7 +703,7 @@ public sealed class PeerSessionGrpcService(
                     {
                         if (!PeerPairingGrpcService.IsTimestamp(request.Heartbeat.SentAt))
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                                 "Heartbeat timestamp is required and must be valid.", false).ConfigureAwait(false);
                             return;
                         }
@@ -697,7 +713,7 @@ public sealed class PeerSessionGrpcService(
                             cancellationToken).ConfigureAwait(false);
                         if (!PeerPairingGrpcService.IsTimestamp(heartbeat.SentAt))
                         {
-                            await WriteErrorAsync(responseStream, ProtocolErrorCode.Internal,
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.Internal,
                                 "Peer coordinator returned an invalid heartbeat.", true).ConfigureAwait(false);
                             return;
                         }
@@ -707,19 +723,18 @@ public sealed class PeerSessionGrpcService(
                         break;
                     }
                 default:
-                    await WriteErrorAsync(responseStream, ProtocolErrorCode.InvalidMessage,
+                    await WriteErrorAsync(live, responseStream, ProtocolErrorCode.InvalidMessage,
                         "Message is not valid after authentication.", false).ConfigureAwait(false);
                     break;
             }
         }
         catch (TimeoutException)
         {
-            await WriteTimeoutAsync(responseStream).ConfigureAwait(false);
+            await WriteTimeoutAsync(live, responseStream).ConfigureAwait(false);
         }
         catch (PeerSessionOperationException exception)
         {
-            await WriteErrorAsync(
-                responseStream,
+            await WriteErrorAsync(live, responseStream,
                 exception.Code,
                 exception.SafeMessage,
                 exception.Retryable,
@@ -757,8 +772,55 @@ public sealed class PeerSessionGrpcService(
     }
 
     /// <summary>Per-session live state: the opt-in flag, rate window, and the background push loop.</summary>
-    private sealed class LiveSessionState(CancellationTokenSource cancellation)
+    private sealed class LiveSessionState(CancellationTokenSource cancellation, string? address = null)
     {
+        private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
+        private readonly Dictionary<PeerSessionRequest.MessageOneofCase, int> received = [];
+        private long recordsReceived;
+
+        /// <summary>The remote's claimed peer id once it said hello (proven only after its proof).</summary>
+        public string Who { get; set; } = "unknown device";
+
+        public string? EndReason { get; set; }
+
+        public bool PushEnded { get; private set; }
+
+        public void Log(string message) =>
+            MonitorApp.Peer.Application.DiagnosticLog.Write("session", $"{Who} from {Address}: {message}");
+
+        private string Address => string.IsNullOrEmpty(address) ? "?" : address;
+
+        /// <summary>Counts what arrived and notes the first of each kind, so a stalled session shows how far it got.</summary>
+        public void Received(PeerSessionRequest request)
+        {
+            int seen;
+            lock (received)
+            {
+                seen = received.GetValueOrDefault(request.MessageCase);
+                received[request.MessageCase] = seen + 1;
+            }
+
+            var records = request.MessageCase == PeerSessionRequest.MessageOneofCase.OriginBatch ? request.OriginBatch.Records.Count : 0;
+            Interlocked.Add(ref recordsReceived, records);
+            if (seen == 0 && request.MessageCase is not PeerSessionRequest.MessageOneofCase.Hello)
+            {
+                Log(records > 0 ? $"first {request.MessageCase} ({records} readings)" : $"first {request.MessageCase}");
+            }
+        }
+
+        public string Summary()
+        {
+            string counts;
+            lock (received)
+            {
+                counts = string.Join(", ", received.Select(pair => $"{pair.Key} x{pair.Value}"));
+            }
+
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"session ended after {(DateTimeOffset.UtcNow - started).TotalSeconds:0} s ({EndReason ?? "ended"}); " +
+                $"received {(counts.Length == 0 ? "nothing" : counts)}, {Interlocked.Read(ref recordsReceived)} readings");
+        }
+
         private DateTimeOffset windowStart = DateTimeOffset.UtcNow;
         private int windowCount;
         private Task? pushLoop;
@@ -888,11 +950,15 @@ public sealed class PeerSessionGrpcService(
             }
             catch (PeerSessionOperationException exception)
             {
+                Log($"stopped sending alerts: {exception.Code} {exception.SafeMessage}");
+                PushEnded = true;
                 await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                Log($"stopped sending alerts: {exception.GetType().Name}: {exception.Message}");
+                PushEnded = true;
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
         }
@@ -949,11 +1015,15 @@ public sealed class PeerSessionGrpcService(
             catch (PeerSessionOperationException exception)
             {
                 // Trust withdrawn or the range became unreadable mid-session: tell the peer, then end the session.
+                Log($"stopped sending readings: {exception.Code} {exception.SafeMessage}");
+                PushEnded = true;
                 await TryWriteErrorAsync(writer, exception).ConfigureAwait(false);
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                Log($"stopped sending readings: {exception.GetType().Name}: {exception.Message}");
+                PushEnded = true;
                 await cancellation.CancelAsync().ConfigureAwait(false);
             }
         }
@@ -1002,18 +1072,22 @@ public sealed class PeerSessionGrpcService(
     }
 
     private static Task WriteErrorAsync(
+        LiveSessionState live,
         IServerStreamWriter<PeerSessionResponse> responseStream,
         ProtocolErrorCode code,
         string message,
         bool retryable,
-        PrunedRange? prunedRange = null) => responseStream.WriteAsync(new PeerSessionResponse
+        PrunedRange? prunedRange = null)
+    {
+        live.Log($"told it: {code} {message}{(retryable ? " (it may retry)" : "")}");
+        return responseStream.WriteAsync(new PeerSessionResponse
         {
             Error = PeerPairingGrpcService.Error(code, message, retryable, prunedRange),
         });
+    }
 
-    private static Task WriteTimeoutAsync(IServerStreamWriter<PeerSessionResponse> responseStream) =>
-        WriteErrorAsync(
-            responseStream,
+    private static Task WriteTimeoutAsync(LiveSessionState live, IServerStreamWriter<PeerSessionResponse> responseStream) =>
+        WriteErrorAsync(live, responseStream,
             ProtocolErrorCode.Internal,
             "Peer coordinator timed out.",
             retryable: true);

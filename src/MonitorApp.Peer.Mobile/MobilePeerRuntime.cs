@@ -962,6 +962,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                     mesh: Mesh));
             connector.StateChanged += state =>
             {
+                if (state is PeerTransportState.Connecting or PeerTransportState.Authenticating)
+                {
+                    DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) {state.ToString().ToLowerInvariant()}");
+                }
+
                 if (state == PeerTransportState.Authenticated)
                 {
                     failuresSinceAuthentication = 0;
