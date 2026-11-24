@@ -398,7 +398,8 @@ public static class Things
             throw new ModelValidationException("Give the value a short name, like \"Max power\".");
         }
 
-        var key = PersonValuePrefix + string.Join('-', label.Replace('.', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        var known = KnownValues.Find(label);
+        var key = known?.Key ?? PersonValuePrefix + string.Join('-', label.Replace('.', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
         var text = (value.Value ?? string.Empty).Trim();
         if (text.Length > MaxNoteLength)
         {
@@ -420,7 +421,7 @@ public static class Things
         }
 
         var evidence = value.FromSpec ? new Evidence(EvidenceLevel.Specified, SpecSource) : Evidence.UserEntered;
-        yield return new PropertyAsserted(thing.Id, key, PropertyValue.Of(text), evidence);
+        yield return new PropertyAsserted(thing.Id, key, known is null ? PropertyValue.Of(text) : known.Parse(text), evidence);
     }
 
     internal static (string Name, string? Note) Split(string? text)
@@ -502,6 +503,8 @@ public static class Things
         ArgumentNullException.ThrowIfNull(value);
         return value.Type switch
         {
+            PropertyValueType.Quantity when value.Quantity is { } q && KnownValues.Money(q) is { } money => money,
+            PropertyValueType.Quantity when value.Quantity is { Unit: "count" } q => q.Value.ToString("0.###", CultureInfo.CurrentCulture),
             PropertyValueType.Quantity when value.Quantity is { } q => q.Value.ToString("0.###", CultureInfo.CurrentCulture) + " " + q.Unit,
             PropertyValueType.Text => value.Text ?? string.Empty,
             PropertyValueType.Flag => value.Flag == true ? "Yes" : "No",

@@ -219,6 +219,33 @@
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
 
+                  <!-- A project's parts list: what is in hand, ordered and still to buy, and what the rest costs. -->
+                  <StackPanel Spacing="4" IsVisible="{Binding HasProject}" AutomationProperties.Name="Parts list">
+                    <TextBlock Text="Parts list" Classes="section" />
+                    <TextBlock Text="{Binding Project.Summary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Project.CostText}" TextWrapping="Wrap" IsVisible="{Binding Project.HasCost}" />
+                    <ItemsControl ItemsSource="{Binding Project.Rows}" IsVisible="{Binding Project.HasRows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ThingProjectRow">
+                          <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                            <StackPanel Spacing="0">
+                              <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                              <TextBlock Text="{Binding PriceText}" Classes="meta" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="{Binding StateText}" Classes="meta" FontWeight="SemiBold" VerticalAlignment="Top" Margin="8,0,0,0"
+                                       Foreground="{DynamicResource Brush.Warning}" IsVisible="{Binding IsToBuy}" />
+                            <TextBlock Grid.Column="1" Text="{Binding StateText}" Classes="meta" FontWeight="SemiBold" VerticalAlignment="Top" Margin="8,0,0,0"
+                                       Foreground="{DynamicResource Brush.Transfer}" IsVisible="{Binding IsOrdered}" />
+                            <TextBlock Grid.Column="1" Text="{Binding StateText}" Classes="meta" FontWeight="SemiBold" VerticalAlignment="Top" Margin="8,0,0,0"
+                                       Foreground="{DynamicResource Brush.Healthy}" IsVisible="{Binding IsHave}" />
+                            <TextBlock Grid.Column="1" Text="{Binding StateText}" Classes="muted" VerticalAlignment="Top" Margin="8,0,0,0"
+                                       IsVisible="{Binding IsGone}" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+
                   <ItemsControl ItemsSource="{Binding Groups}" Classes="groups" IsVisible="{Binding HasValues}" />
                   <TextBlock Text="Nothing known about this yet." Classes="muted" IsVisible="{Binding !HasValues}" />
 
@@ -537,6 +564,8 @@
               <TextBox Text="{Binding NewValueLabel}" Watermark="Name, like Max power" AutomationProperties.Name="Name of the value" />
               <TextBox Grid.Column="2" Text="{Binding NewValueText}" Watermark="Value, like 5 W" AutomationProperties.Name="The value; leave empty to remove yours" />
             </Grid>
+            <TextBlock Classes="meta" TextWrapping="Wrap"
+                       Text="Price ($45), Quantity (2), Width and Depth (70 mm) and Rack units (2U) are understood: they feed parts lists, racks and boards." />
             <CheckBox IsChecked="{Binding NewValueFromSpec}" Content="I read this from a spec sheet or datasheet" />
             <TextBlock Text="{Binding EditError}" Classes="error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"
                        IsVisible="{Binding EditError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

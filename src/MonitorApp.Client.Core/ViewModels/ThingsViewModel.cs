@@ -173,6 +173,25 @@ public sealed record ThingBoard(string SizeText, double Width, double Depth, IRe
     internal string Signature => string.Join(';', [SizeText, .. Items.Select(i => $"{i.Label}:{i.Left}:{i.Top}:{i.Width}:{i.Height}:{i.IsProblem}"), .. Notes]);
 }
 
+/// <summary>
+/// One line of a project's parts list: "2 × Fuzz", where it stands ("To buy", "Ordered", "In hand"), and its price with how
+/// the price is known ("$45 each · entered").
+/// </summary>
+public sealed record ThingProjectRow(string Label, string StateText, string PriceText, bool IsToBuy, bool IsOrdered, bool IsHave, string? ThingId = null)
+{
+    public bool IsGone => !IsToBuy && !IsOrdered && !IsHave;
+}
+
+/// <summary>A project's parts list on its card: "2 of 5 in hand, 3 to buy", the cost of what is left, and each part.</summary>
+public sealed record ThingProject(string Summary, string CostText, IReadOnlyList<ThingProjectRow> Rows)
+{
+    public bool HasCost => CostText.Length > 0;
+
+    public bool HasRows => Rows.Count > 0;
+
+    internal string Signature => string.Join(';', [Summary, CostText, .. Rows.Select(r => $"{r.Label}:{r.StateText}:{r.PriceText}")]);
+}
+
 /// <summary>A place a thing can be put: another thing, or nowhere (Id null: on its own).</summary>
 public sealed record ThingPlace(string? Id, string Name);
 
@@ -193,8 +212,11 @@ public sealed record ThingCard(
     IReadOnlyList<string>? Ports = null,
     IReadOnlyList<ThingWiringRow>? Wiring = null,
     ThingRack? Rack = null,
-    ThingBoard? Board = null)
+    ThingBoard? Board = null,
+    ThingProject? Project = null)
 {
+    public bool HasProject => Project is not null;
+
     public bool HasBoard => Board is not null;
 
     public bool HasRack => Rack is not null;
@@ -240,7 +262,7 @@ public sealed record ThingCard(
     /// <summary>Everything the card shows, so a refresh that changed nothing can leave the screen alone.</summary>
     internal string Signature => string.Join('\u001f', [
         Id, Name, Subtitle, KindId, LiveNodeId ?? string.Empty, TagsText, .. LinkTexts, .. PortTexts,
-        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"), Rack?.Signature ?? string.Empty, Board?.Signature ?? string.Empty,
+        .. WiringRows.Select(w => $"{w.Route}/{w.VerdictText}/{string.Join(';', w.Reasons)}"), Rack?.Signature ?? string.Empty, Board?.Signature ?? string.Empty, Project?.Signature ?? string.Empty,
         .. Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}"),
         .. Parts.Select(p => $"{p.Id}:{p.Name}:{p.KindId}:{p.LiveNodeId}:{p.LiveLayerId}:" + string.Join(';', p.Values.Select(v => $"{v.Label}={v.Value}/{v.Badge}/{v.SourceText}")))]);
 
@@ -526,7 +548,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
                 }
             }
 
-            all = Build(things.Things, readings, wiring, Connectors, things.Racks, things.Surfaces);
+            all = Build(things.Things, readings, wiring, Connectors, things.Racks, things.Surfaces, things.Projects);
             SyncMissing(things.Missing ?? []);
             SyncKinds(things.Kinds);
             if (things.LinkTypes is { } linkTypes && !LinkTypes.Select(k => k.Id).SequenceEqual(linkTypes.Select(k => k.Id)))
@@ -1025,8 +1047,10 @@ public sealed partial class ThingsViewModel : SectionViewModel
     /// <summary>Builds the cards: top-level things (not inside another) with their values, readings and parts.</summary>
     public static IReadOnlyList<ThingCard> Build(
         IReadOnlyList<ThingDto> things, IReadOnlyList<HistoryPointDto> readings,
-        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null, IReadOnlyList<RackLayoutDto>? racks = null, IReadOnlyList<SurfaceLayoutDto>? surfaces = null)
+        ILookup<string, ThingWiringDto>? wiring = null, IReadOnlyList<ConnectorChoiceDto>? connectors = null, IReadOnlyList<RackLayoutDto>? racks = null, IReadOnlyList<SurfaceLayoutDto>? surfaces = null,
+        IReadOnlyList<ProjectPartsDto>? projects = null)
     {
+        var projectOf = (projects ?? []).ToDictionary(p => p.ProjectId, StringComparer.Ordinal);
         var boardOf = (surfaces ?? []).ToDictionary(b => b.SurfaceId, StringComparer.Ordinal);
         var rackOf = (racks ?? []).ToDictionary(r => r.RackId, StringComparer.Ordinal);
         wiring ??= Array.Empty<ThingWiringDto>().ToLookup(w => w.ThingId, StringComparer.Ordinal);
@@ -1058,10 +1082,41 @@ public sealed partial class ThingsViewModel : SectionViewModel
                     t.Ports?.Select(p => PortText(p, labels)).ToArray(),
                     wiring[t.Id].Select(WiringRow).ToArray(),
                     rackOf.TryGetValue(t.Id, out var rack) ? RackOf(rack) : null,
-                    boardOf.TryGetValue(t.Id, out var board) ? BoardOf(board) : null);
+                    boardOf.TryGetValue(t.Id, out var board) ? BoardOf(board) : null,
+                    projectOf.TryGetValue(t.Id, out var project) ? ProjectOf(project) : null);
             })
             .ToArray();
     }
+
+    private static ThingProject ProjectOf(ProjectPartsDto project) => new(
+        project.Summary,
+        project.CostText,
+        project.Parts.Select(p => new ThingProjectRow(
+            p.Quantity == 1 ? p.Name : string.Create(CultureInfo.InvariantCulture, $"{p.Quantity:0.###} × {p.Name}"),
+            p.State switch
+            {
+                "ToBuy" => "To buy",
+                "Ordered" => "Ordered",
+                "Have" => "In hand",
+                _ => LifecycleText(p.Lifecycle),
+            },
+            p.Price is null
+                ? p.State == "ToBuy" ? "Price unknown" : string.Empty
+                : $"{p.Price}{(p.Quantity == 1 ? string.Empty : " each")} · {EvidenceWord(p.PriceEvidence)}",
+            p.State == "ToBuy",
+            p.State == "Ordered",
+            p.State == "Have",
+            p.ThingId)).ToArray());
+
+    private static string EvidenceWord(string level) => level switch
+    {
+        "Measured" => "measured",
+        "Specified" => "from a spec",
+        "Imported" => "from a listing",
+        "Entered" => "entered",
+        "Estimated" => "estimated",
+        _ => "unknown",
+    };
 
     private static ThingBoard BoardOf(SurfaceLayoutDto board) => new(
         board.SizeKnown
