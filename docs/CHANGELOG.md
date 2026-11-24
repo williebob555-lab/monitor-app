@@ -5,6 +5,7 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Added
+- A paired device's own page now says, under its name, whether this device reaches it right now and why not (the same line as on its pairing card), and has a **Pairing and removal** button that opens its card in one tap. No more going through More to find out whether a device is connected.
 - Service diagnosis (D6): alerts "Tailscale is not connected" (5 min), "Syncthing folder has errors" (5 min) and "Syncthing folders not in sync" (2 h), each with a plain explanation. Syncthing alerts have a **Rescan Syncthing** button that asks the computer's own Syncthing to rescan every folder (loopback only, antiforgery token, no files changed).
 - The Map shows the name a found device has in Things.
 - Quick capture from a model name or product link (D7): the kind and maker are guessed from the words (data table `Library/recognize.json`, about 35 kinds and 65 makers), marked estimated; a link becomes the name and is kept as the link. Nothing is fetched.

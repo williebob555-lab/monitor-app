@@ -64,6 +64,9 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
 
     public ObservableCollection<OutlineItem> Outline { get; } = [];
 
+    /// <summary>The paired devices as of the last refresh, with whether this device reaches each one right now.</summary>
+    public IReadOnlyList<TrustedPeerDto> Peers { get; private set; } = [];
+
     partial void OnSelectedNodeIdChanged(string? value) => SelectedNode = Scene.Find(value);
 
     [RelayCommand]
@@ -79,6 +82,7 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
             var rates = await LoadRatesAsync(requestedAsOf ?? now, cancellationToken);
             var names = await LoadThingNamesAsync(requestedAsOf, cancellationToken);
             var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null, thingNames: names);
+            Peers = peers;
             Apply(graph with { Layout = layout.Place(graph.Nodes) });
         });
     }

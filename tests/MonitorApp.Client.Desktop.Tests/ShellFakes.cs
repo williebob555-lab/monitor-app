@@ -26,9 +26,14 @@ internal class FakeEnvironmentSource : IPeerDataSource
     public Task<RuntimeDto> GetRuntimeAsync(CancellationToken ct = default) =>
         Task.FromResult(new RuntimeDto("Running", "test", new LocalPeerDto(LocalId, "AB"), 1, 0));
 
+    /// <summary>The server's connection line, as the node reports it on its pairing card.</summary>
+    public string? ServerConnection { get; set; }
+
+    public bool ServerConnected { get; set; }
+
     public Task<IReadOnlyList<TrustedPeerDto>> GetPeersAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<TrustedPeerDto>>(
-            [new TrustedPeerDto(ServerId, ServerName, "CD", "Active", DateTimeOffset.UtcNow.AddDays(-2), null)]);
+            [new TrustedPeerDto(ServerId, ServerName, "CD", "Active", DateTimeOffset.UtcNow.AddDays(-2), null, null, ServerConnection, ServerConnected)]);
 
     public Task<IReadOnlyList<PendingPairingDto>> GetPairingsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<PendingPairingDto>>([]);
