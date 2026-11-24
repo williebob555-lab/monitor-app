@@ -43,15 +43,24 @@ public sealed class AndroidKeystoreUserPresenceSigner : IUserPresenceSigner, IDe
                 return false;
             }
 
-            using var manager = context.GetSystemService(Context.BiometricService) as BiometricManager;
-            if (manager is null)
+            try
             {
+                using var manager = context.GetSystemService(Context.BiometricService) as BiometricManager;
+                if (manager is null)
+                {
+                    return false;
+                }
+
+                return OperatingSystem.IsAndroidVersionAtLeast(30)
+                    ? manager.CanAuthenticate(BiometricStrongAuthenticators) == BiometricSuccess
+                    : manager.CanAuthenticate() == BiometricSuccess;
+            }
+            catch (Java.Lang.SecurityException)
+            {
+                // Asking whether a fingerprint exists must never crash the app: treat "can't ask" as "no fingerprint",
+                // so protected actions use the screen lock or the in-app confirmation instead.
                 return false;
             }
-
-            return OperatingSystem.IsAndroidVersionAtLeast(30)
-                ? manager.CanAuthenticate(BiometricStrongAuthenticators) == BiometricSuccess
-                : manager.CanAuthenticate() == BiometricSuccess;
         }
     }
 
