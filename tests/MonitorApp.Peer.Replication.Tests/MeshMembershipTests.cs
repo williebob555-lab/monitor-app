@@ -56,6 +56,23 @@ public sealed class MeshMembershipTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AComputerThatHasNotSpokenYetStillAcceptsWhatItsDirectlyPairedPhoneSends()
+    {
+        // The computer answers a session by applying first and sending its own statements after, as the service does.
+        // Before it has issued anything, its direct pairing with the phone must already let the phone's news in.
+        var desk = await DeviceAsync("desk");
+        var phone = await DeviceAsync("phone");
+        var tablet = await DeviceAsync("tablet");
+        await PairAsync(desk, phone);
+        await PairAsync(phone, tablet);
+
+        var result = await desk.Mesh.ApplyAsync(phone.Id, await phone.Mesh.GetStatementsForExchangeAsync());
+
+        Assert.Equal(0, result.Ignored);
+        Assert.Equal(PeerTrustState.Active, (await desk.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+    }
+
+    [Fact]
     public async Task StatementsFromUnknownIssuersForgedSignaturesTamperingAndFutureDatesAreNeverStored()
     {
         var phone = await DeviceAsync("phone");

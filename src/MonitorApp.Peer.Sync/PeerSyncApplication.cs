@@ -127,9 +127,10 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         if (mesh is not null)
         {
             var before = mesh.Version;
-            await MeshExchange.ApplyAsync(mesh, remoteHello.PeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
-            // What the remote just sent needs no renewal; a local change since the hello was prepared still does.
-            if (before == Volatile.Read(ref exchangedMeshVersion))
+            var applied = await MeshExchange.ApplyAsync(mesh, remoteHello.PeerId, remoteCapabilities, cancellationToken).ConfigureAwait(false);
+            // What the remote just sent needs no renewal; a local change since the hello was prepared still does, and so
+            // do this device's own statements issued while applying, which the remote has not received.
+            if (before == Volatile.Read(ref exchangedMeshVersion) && applied is not { Issued: > 0 })
                 Volatile.Write(ref exchangedMeshVersion, mesh.Version);
         }
     }
