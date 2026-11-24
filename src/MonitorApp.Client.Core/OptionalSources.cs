@@ -327,3 +327,9 @@ public interface IAppRestarter
     /// <summary>Starts the installed app and closes this window. False when it could not start the new one.</summary>
     bool Restart();
 }
+
+/// <summary>This device's diagnostic log (pairing, connections and why they fail, removals, update checks), newest last.</summary>
+public interface IDiagnosticsSource
+{
+    Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default);
+}

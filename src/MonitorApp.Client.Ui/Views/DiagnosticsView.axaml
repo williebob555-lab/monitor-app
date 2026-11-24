@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MonitorApp.Client.Core.ViewModels"
+             x:Class="MonitorApp.Client.Ui.Views.DiagnosticsView" x:DataType="vm:DiagnosticsViewModel">
+  <ScrollViewer><StackPanel Spacing="8" Margin="12" MaxWidth="900" HorizontalAlignment="Stretch">
+    <TextBlock Text="Diagnostic log" Classes="heading" />
+    <TextBlock TextWrapping="Wrap"
+               Text="What this device did with pairing, connections and why they failed, removals and updates. Newest at the bottom. Copy it and paste it into a message when something isn't working." />
+    <TextBlock Text="{Binding ErrorMessage}" Classes="error" TextWrapping="Wrap" />
+    <TextBlock Name="CopyResult" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <WrapPanel>
+      <Button Name="CopyLog" Classes="action" Content="Copy" Click="OnCopy" Margin="0,0,8,0" />
+      <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+    </WrapPanel>
+    <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+  </StackPanel></ScrollViewer>
+</UserControl>

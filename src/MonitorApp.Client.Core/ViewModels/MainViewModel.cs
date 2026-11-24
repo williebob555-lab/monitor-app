@@ -101,6 +101,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             add.Paired += (_, _) => _ = Task.WhenAll(Overview.RefreshAsync(), Environment.RefreshAsync());
         }
 
+        // Every device that keeps a diagnostic log shows it, with Copy, at the end of More.
+        if (connection.Source is IDiagnosticsSource)
+        {
+            sections.Add(new DiagnosticsViewModel(connection));
+        }
+
         sections.Add(Overview);
         Sections = sections;
         selectedSection = Environment;

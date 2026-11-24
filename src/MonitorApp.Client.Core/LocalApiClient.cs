@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IServiceFixSource, IThingsSource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IServiceFixSource, IThingsSource, IHistorySource, IViewingSource, IDiagnosticsSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -203,6 +203,20 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     {
         ArgumentNullException.ThrowIfNull(edit);
         return PostAsync("api/v1/things/edit", ct, body: edit);
+    }
+
+    public async Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, $"api/v1/diagnostics/log?lines={lines}"), ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return ["This computer runs a version older than 0.1.31, which keeps no diagnostic log. Update it first."];
+        }
+
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 
     public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
