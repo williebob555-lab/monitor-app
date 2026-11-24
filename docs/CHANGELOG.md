@@ -5,6 +5,8 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Unreleased
 
 ### Added
+- Service diagnosis (D6): alerts "Tailscale is not connected" (5 min), "Syncthing folder has errors" (5 min) and "Syncthing folders not in sync" (2 h), each with a plain explanation. Syncthing alerts have a **Rescan Syncthing** button that asks the computer's own Syncthing to rescan every folder (loopback only, antiforgery token, no files changed).
+- The Map shows the name a found device has in Things.
 - **The app fills itself in.** Each computer now describes its own hardware (maker, model, processor, memory, graphics, drives, and which systems it can start: on the Fedora side "Fedora (running now), Windows Boot Manager"), the services it runs (Tailscale connected or not, Syncthing folders up to date, syncing or in error), and every device on your tailnet. All of it is measured and shows in Things and on the Map.
 - **Find devices on this network** (Things, top of the page): a switch per computer, off until you turn it on. Once on, the computer finds the router, switch, printers, TVs, speakers, phones and other devices on its own home network (neighbor table, mDNS, UPnP, local names, a slow ping of its own subnet only), with names, makers and models. They appear on the Map under the router and as things linked "connected to" it, marked as discovered; nothing found is ever trusted.
 - Tailscale and Syncthing appear on the Map as their own nodes beside the computer that runs them. The desktop app hands your Syncthing key to the Monitor App on the same computer so it can read folder status; the key never leaves the computer.
