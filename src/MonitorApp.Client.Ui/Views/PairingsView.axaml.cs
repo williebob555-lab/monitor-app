@@ -7,8 +7,8 @@ namespace MonitorApp.Client.Ui.Views;
 
 public sealed partial class PairingsView : UserControl
 {
-    /// <summary>While the screen is open, each device's connection line is kept current.</summary>
-    private readonly DispatcherTimer connections = new() { Interval = TimeSpan.FromSeconds(5) };
+    /// <summary>While the screen is open, each device's connection line and any new pairing request are kept current.</summary>
+    private readonly DispatcherTimer connections = new() { Interval = TimeSpan.FromSeconds(3) };
 
     public PairingsView()
     {

@@ -79,7 +79,19 @@ public sealed partial class UpdatesViewModel : SectionViewModel
         }
 
         StatusMessage = "Checking for updates...";
+        var before = Status?.LastCheckedUtc;
         if (await RunAsync(async () => Status = await source.CheckForUpdatesAsync()))
+        {
+            // Always answer the press: what the check found, or why it did not run just now.
+            StatusMessage = Status switch
+            {
+                { LastError: { } error } => $"The check did not finish: {error}",
+                { LastCheckedUtc: { } at } when at == before && before is not null =>
+                    $"Checked {Ago(time.GetUtcNow() - at)}, so it did not check again yet (it waits 30 seconds between checks). {StateText}",
+                _ => $"Checked just now. {StateText}",
+            };
+        }
+        else
         {
             StatusMessage = null;
         }

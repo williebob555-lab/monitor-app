@@ -291,7 +291,7 @@ public sealed class MobileMeshTests
     }
 
     [Fact]
-    public async Task AddingADeviceFailsClosedWithoutAFingerprintReader()
+    public async Task WithNoFingerprintOrScreenLockAddingADeviceGoesAheadOnTheInAppConfirmation()
     {
         var roots = new[] { TestDirectories.Create(), TestDirectories.Create() };
         try
@@ -301,9 +301,10 @@ public sealed class MobileMeshTests
             using var tabletIdentity = new SoftwareIdentity();
             await using var tablet = await MobilePeerRuntime.CreateAsync(MobileOptions(roots[1], "tablet"), tabletIdentity, new ScriptedDeviceReader());
 
+            // Wilson's devices have no lock: the add must not wait for, or fail on, a check that cannot exist.
             var joinCode = tablet.CreateMeshJoinCode();
-            await Assert.ThrowsAsync<MonitorApp.Peer.Control.UserPresenceDeniedException>(() => phone.AdmitFromJoinCodeAsync(joinCode));
-            Assert.Null(await PhoneStore(roots[0]).ReadTrustedPeerAsync(tablet.Identity.PeerId));
+            await phone.AdmitFromJoinCodeAsync(joinCode).WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(PeerTrustState.Active, (await PhoneStore(roots[0]).ReadTrustedPeerAsync(tablet.Identity.PeerId))?.TrustState);
 
             // A device's own join code is refused, and a reply cannot be scanned before showing a join code.
             Assert.Throws<FormatException>(() => tablet.PreviewMeshCode(joinCode));

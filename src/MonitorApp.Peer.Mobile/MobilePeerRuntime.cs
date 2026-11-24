@@ -265,10 +265,12 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             await using var client = new PeerPairingClient(
                 PeerTransportOptions.Create(invitation.ToEndpoint()),
                 pairing,
-                new PeerInitialPairingOptions(90, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)));
+                PeerInitialPairingOptions.UntilRequestExpires);
+            DiagnosticLog.Write("pairing", $"asking {invitation.Address}:{invitation.Port} to add this device ({id})");
             var result = await client.PairAsync(
                 new PeerInitialPairingRequest(id, InitiatingUserApproved: true, invitation.FingerprintSha256),
                 cancellationToken).ConfigureAwait(false);
+            DiagnosticLog.Write("pairing", $"paired with {result.Remote.DisplayName} ({result.Remote.Identity.PeerId})");
             await store.UpsertPeerLocatorAsync(
                 new PeerLocator(result.Remote.Identity.PeerId, invitation.Address.ToString(), invitation.Port,
                     DateTimeOffset.UtcNow, null),
@@ -288,8 +290,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
             or TimeoutException or PeerPersistenceException or InvalidOperationException or FormatException)
         {
+            DiagnosticLog.Write("pairing", $"pairing {id} did not complete", exception);
             throw new MobilePairingFailedException(
-                "Pairing did not complete. Verify the address, desktop identity, and desktop approval.", exception);
+                exception is TimeoutException
+                    ? "Nobody tapped Accept on the computer within 5 minutes. Scan the code again and tap Accept there."
+                    : "Pairing did not complete. Verify the address, desktop identity, and desktop approval.", exception);
         }
         finally
         {
@@ -533,8 +538,14 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             await deviceLock.ConfirmWithDeviceLockAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
 
-        await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        DiagnosticLog.Write("removal", $"removing {name} ({peerId})");
+        if (peer is { TrustState: PeerTrustState.Active })
+        {
+            await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        }
+
         await Mesh.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        DiagnosticLog.Write("removal", $"removed {name} ({peerId}) here; other devices learn it when they next connect");
     }
 
     /// <summary>One full collection (every signal plus the LAN model), as at the normal interval.</summary>

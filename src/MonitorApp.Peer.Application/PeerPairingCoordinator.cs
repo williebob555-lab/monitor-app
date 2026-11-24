@@ -119,6 +119,7 @@ public sealed class PeerPairingCoordinator
         await peerStore.CreatePairingSessionAsync(
             new PairingSession(pairingId, candidate.Identity.PeerId, now, snapshot.ExpiresAt, false),
             cancellationToken).ConfigureAwait(false);
+        DiagnosticLog.Write("pairing", $"request {pairingId} from {candidate.DisplayName} ({candidate.Identity.PeerId}) waits for approval until {snapshot.ExpiresAt:HH:mm:ss}Z");
         return new PairingStartResult(
             PairingOperationStatus.ApprovalRequired,
             pairingId,
@@ -141,9 +142,11 @@ public sealed class PeerPairingCoordinator
                 PairingApprovalState.Approved,
                 cancellationToken).ConfigureAwait(false))
         {
+            DiagnosticLog.Write("pairing", $"approve {pairingId} refused: it is {pairing.State}, not waiting for approval");
             throw new InvalidOperationException("Pairing is not pending approval.");
         }
 
+        DiagnosticLog.Write("pairing", $"approved {pairingId} ({pairing.DisplayName}); waiting for it to finish the key exchange");
         return (await RequirePairingAsync(pairingId, cancellationToken).ConfigureAwait(false)) with
         {
             State = PairingApprovalState.Approved,
@@ -162,6 +165,8 @@ public sealed class PeerPairingCoordinator
         {
             throw new InvalidOperationException("Pairing is not pending approval.");
         }
+
+        DiagnosticLog.Write("pairing", $"rejected {pairingId}");
     }
 
     public async Task<IssuedPeerChallenge> IssuePairingChallengeAsync(
@@ -280,6 +285,7 @@ public sealed class PeerPairingCoordinator
         var verification = await VerifyRemoteProofAsync(stored, remoteProof, cancellationToken).ConfigureAwait(false);
         if (!verification.IsAuthenticated)
         {
+            DiagnosticLog.Write("pairing", $"{pairingId} failed the key check: {verification.Status} {verification.Reason}");
             return verification;
         }
 
@@ -304,6 +310,7 @@ public sealed class PeerPairingCoordinator
             throw new InvalidOperationException("Pairing state changed before completion.");
         }
 
+        DiagnosticLog.Write("pairing", $"completed {pairingId}: {pairing.DisplayName} ({pairing.RemoteIdentity.PeerId}) is trusted");
         return verification with { Status = PairingOperationStatus.Completed };
     }
 
@@ -369,11 +376,13 @@ public sealed class PeerPairingCoordinator
             cancellationToken).ConfigureAwait(false);
         if (trusted is null)
         {
+            DiagnosticLog.Write("link", $"{presentedRemoteIdentity.PeerId} refused: not paired with this device");
             return (PairingOperationStatus.Untrusted, null, "Peer is not paired.");
         }
 
         if (trusted.TrustState == PeerTrustState.Revoked)
         {
+            DiagnosticLog.Write("link", $"{presentedRemoteIdentity.PeerId} ({trusted.DisplayName}) refused: removed at {trusted.RevokedAt:yyyy-MM-dd HH:mm}Z; pair again to let it back in");
             return (PairingOperationStatus.Revoked, null, "Peer trust has been revoked.");
         }
 

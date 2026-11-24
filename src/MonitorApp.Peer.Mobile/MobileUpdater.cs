@@ -207,15 +207,9 @@ public sealed class MobileUpdater : IDisposable
         try
         {
             await _service.ReconcileAsync(_installed, cancellationToken).ConfigureAwait(false);
-            if (_service.Current is { Stage: UpdateStage.Staged } staged && ReleaseVersion.Parse(staged.TargetVersion) > _installed)
-            {
-                // Already downloaded and verified; it waits for the person to press Install.
-                MarkChecked(null);
-                return;
-            }
-
+            // A downloaded build waits for the person to press Install, but a newer release replaces it.
             var available = await _service.CheckAsync(_installed, downgrade: null, cancellationToken).ConfigureAwait(false);
-            if (available is not null)
+            if (available is { Stage: UpdateStage.Available })
             {
                 await _service.StageAsync(cancellationToken).ConfigureAwait(false);
             }

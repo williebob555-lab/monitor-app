@@ -697,12 +697,28 @@ public sealed class LocalApiHost : IAsyncDisposable
             var blocked = RequirePresence(context, LocalPresenceService.PeerRevokeAction, peerId);
             if (blocked is not null)
             {
+                DiagnosticLog.Write("removal", $"remove {peerId} needs presence confirmation first");
                 return blocked;
             }
 
-            await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
+            var peer = await store.ReadTrustedPeerAsync(peerId, token).ConfigureAwait(false);
+            if (peer is null)
+            {
+                DiagnosticLog.Write("removal", $"remove {peerId} refused: not a known device");
+                return Results.BadRequest(new { error = "This device is not on the list any more. Refresh the list." });
+            }
+
+            // Removing a device that is already removed is not an error: the result the person asked for already holds.
+            if (peer.TrustState == PeerTrustState.Active)
+            {
+                await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
+            }
+
+            DiagnosticLog.Write("removal", $"removed {peer.DisplayName} ({peerId}) here; other devices learn it when they next connect");
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        application.MapGet("/api/v1/diagnostics/log", (int? lines) =>
+            Results.Text(string.Join('\n', DiagnosticLog.Recent(lines ?? 500)) + "\n", "text/plain; charset=utf-8"));
         MapControlEndpoints(application);
         MapPhoneReachEndpoints(application);
         NetworkDiscoveryEndpoints.Map(application, IsValidMutationAsync);

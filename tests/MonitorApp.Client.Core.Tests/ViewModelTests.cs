@@ -215,6 +215,40 @@ public sealed class ViewModelTests
     }
 
     [Fact]
+    public async Task RemoveNeverStaysAtRemovingWhenTheDeviceFailsOrNeverAnswers()
+    {
+        await using var node = await NodeFixture.CreateAsync();
+        using var inner = node.NewClient();
+        var broken = new LiveSource(inner) { Revoke = _ => throw new InvalidOperationException("The database is locked.") };
+        using var connection = new NodeConnection(broken);
+        var pairings = new PairingsViewModel(connection);
+        await pairings.RefreshAsync();
+        var trusted = pairings.Peers.Single(peer => peer.PeerId == "peer-trusted");
+
+        pairings.RequestRevokeCommand.Execute(trusted);
+        await pairings.ConfirmRevokeCommand.ExecuteAsync(null);
+        trusted = pairings.Peers.Single(peer => peer.PeerId == "peer-trusted");
+        Assert.False(trusted.IsWorking);
+        Assert.Contains("The database is locked.", trusted.Outcome, StringComparison.Ordinal);
+
+        var previous = PairingsViewModel.RemovalTimeLimit;
+        PairingsViewModel.RemovalTimeLimit = TimeSpan.FromMilliseconds(300);
+        try
+        {
+            broken.Revoke = _ => new TaskCompletionSource().Task;
+            pairings.RequestRevokeCommand.Execute(trusted);
+            await pairings.ConfirmRevokeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(30));
+            trusted = pairings.Peers.Single(peer => peer.PeerId == "peer-trusted");
+            Assert.False(trusted.IsWorking);
+            Assert.Contains("no answer within", trusted.Outcome, StringComparison.Ordinal);
+        }
+        finally
+        {
+            PairingsViewModel.RemovalTimeLimit = previous;
+        }
+    }
+
+    [Fact]
     public async Task MainViewModelReportsAnUnreachableNodeAndRecoversWhenPointedAtARunningOne()
     {
         await using var node = await NodeFixture.CreateAsync();
@@ -327,7 +361,10 @@ public sealed class ViewModelTests
 
         public Task RejectPairingAsync(string pairingId, CancellationToken ct = default) => inner.RejectPairingAsync(pairingId, ct);
 
-        public Task RevokePeerAsync(string peerId, CancellationToken ct = default) => inner.RevokePeerAsync(peerId, ct);
+        public Func<string, Task>? Revoke { get; set; }
+
+        public Task RevokePeerAsync(string peerId, CancellationToken ct = default) =>
+            Revoke is { } revoke ? revoke(peerId) : inner.RevokePeerAsync(peerId, ct);
     }
 
     [Fact]

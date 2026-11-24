@@ -169,6 +169,13 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         // Fails clearly on unsupported OSes and Linux distributions before any state is created.
         var platform = PlatformDetector.DetectCurrent();
         Directory.CreateDirectory(options.DataDirectory);
+        if (live is null)
+        {
+            // Tests run many nodes in one process and pass live options; only a real node owns the shared log.
+            DiagnosticLog.Configure(Path.Combine(options.DataDirectory, "logs"));
+        }
+
+        DiagnosticLog.Write("node", $"starting {typeof(PeerNodeRuntime).Assembly.GetName().Version} on {platform}; peers listen on {options.PeerBindAddress}:{options.PeerPort}");
         var databasePath = Path.Combine(options.DataDirectory, "peer.db");
         var peerStore = new PeerStore(PeerStoreOptions.Create(databasePath));
         var pairingStore = new PairingApplicationStore(PairingApplicationStoreOptions.Create(databasePath));
@@ -217,6 +224,12 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var connections = new NodePeerConnectionManager(identity, peerStore, replication, interests, live?.HeartbeatInterval, mesh, links);
         if (mesh is not null) mesh.TrustChanged += changes => _ = Task.Run(async () =>
         {
+            foreach (var change in changes)
+            {
+                DiagnosticLog.Write("mesh", $"{change.DisplayName ?? change.PeerId} ({change.PeerId}) " +
+                    (change.Admitted ? change.Restored ? "let back in" : "admitted" : "removed") + $" by {change.ByDisplayName ?? change.ByPeerId}");
+            }
+
             try
             {
                 await connections.RefreshAsync().ConfigureAwait(false);

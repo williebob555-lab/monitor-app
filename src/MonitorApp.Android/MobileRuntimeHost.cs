@@ -70,6 +70,7 @@ internal static class MobileRuntimeHost
 
             var appContext = context.ApplicationContext ?? context;
             var directory = Path.Combine(appContext.FilesDir!.AbsolutePath, "peer");
+            MonitorApp.Peer.Application.DiagnosticLog.Configure(Path.Combine(appContext.FilesDir!.AbsolutePath, "logs"));
             var manufacturer = global::Android.OS.Build.Manufacturer;
             var model = global::Android.OS.Build.Model;
             var displayName = $"{manufacturer} {model}";

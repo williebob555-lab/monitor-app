@@ -63,6 +63,9 @@ public sealed partial class PairingsViewModel : SectionViewModel
 
     partial void OnRemovalCheckChanged(string value) => OnPropertyChanged(nameof(HasRemovalCheck));
 
+    /// <summary>How long Remove may take before the card says it got no answer.</summary>
+    public static TimeSpan RemovalTimeLimit { get; set; } = TimeSpan.FromSeconds(45);
+
     public bool IsRevocationPending => PendingRevocation is not null;
 
     public string RevocationPrompt => PendingRevocation?.Prompt ?? string.Empty;
@@ -143,17 +146,24 @@ public sealed partial class PairingsViewModel : SectionViewModel
         peer.IsWorking = true;
         peer.SetOutcome($"Removing {peer.Name} from all your devices…", false);
         string? failure = null;
+        using var limit = new CancellationTokenSource(RemovalTimeLimit);
         try
         {
-            await Client.RevokePeerAsync(peer.PeerId);
+            // WaitAsync as well as the token: a step that ignores cancellation still cannot hold the card at "Removing…".
+            await Client.RevokePeerAsync(peer.PeerId, limit.Token).WaitAsync(RemovalTimeLimit + TimeSpan.FromSeconds(5));
         }
         catch (LocalApiException exception)
         {
             failure = exception.Message;
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (exception is OperationCanceledException or TimeoutException)
         {
-            failure = "Stopped before anything changed.";
+            failure = $"no answer within {RemovalTimeLimit.TotalSeconds:0} seconds. It may still finish; this list shows the result when it does.";
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Any other failure is shown in its own words rather than leaving the card waiting forever (Wilson, 2026-11-24).
+            failure = exception.Message;
         }
         finally
         {
@@ -166,10 +176,7 @@ public sealed partial class PairingsViewModel : SectionViewModel
         removalOutcomes[peer.PeerId] = outcome;
         peer.SetOutcome(outcome.Item1, outcome.Item2);
         StatusMessage = failure is null ? $"Removed {peer.Name} from all your devices." : null;
-        if (failure is null)
-        {
-            await RunAsync(() => ReloadAsync(CancellationToken.None));
-        }
+        await RunAsync(() => ReloadAsync(CancellationToken.None));
     }
 
     /// <summary>
@@ -180,13 +187,26 @@ public sealed partial class PairingsViewModel : SectionViewModel
     public async Task RefreshConnectionsAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<TrustedPeerDto> peers;
+        IReadOnlyList<PendingPairingDto> pending;
         try
         {
             peers = await Client.GetPeersAsync(cancellationToken);
+            pending = await Client.GetPairingsAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is LocalApiException or OperationCanceledException)
         {
             return;
+        }
+
+        // A phone's request appears within seconds of the scan, not at the next full refresh (Wilson waited two minutes).
+        var rows = pending.Select(PendingPairingRow.From).ToArray();
+        if (!rows.SequenceEqual(Pending))
+        {
+            Pending.Clear();
+            foreach (var row in rows)
+            {
+                Pending.Add(row);
+            }
         }
 
         foreach (var peer in peers)
