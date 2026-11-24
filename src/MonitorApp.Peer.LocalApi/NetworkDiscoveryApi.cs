@@ -68,6 +68,18 @@ public interface ISyncthingKeyStore
     void Save(int port, bool tls, string apiKey);
 }
 
+/// <summary>The result of a fix the person asked for on this computer, in words for them.</summary>
+public sealed record ServiceFixResult(bool Done, string Message);
+
+/// <summary>
+/// One-tap fixes for services on this computer (D6), asked for from this computer's own app over loopback with the antiforgery
+/// token. Nothing here can be asked for by another device.
+/// </summary>
+public interface IServiceFixes
+{
+    Task<ServiceFixResult> RescanSyncthingAsync(CancellationToken cancellationToken);
+}
+
 internal sealed record SyncthingKeyRequest(int Port, bool Tls, string ApiKey);
 
 internal static class SyncthingKeyEndpoints
@@ -100,6 +112,18 @@ internal static class SyncthingKeyEndpoints
 
             keys.Save(request!.Port, request.Tls, request.ApiKey);
             return Results.NoContent();
+        });
+
+        application.MapPost("/api/v1/services/syncthing/rescan", async (HttpContext context, IAntiforgery antiforgery, CancellationToken token) =>
+        {
+            if (!await isValidMutation(context, antiforgery).ConfigureAwait(false))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return context.RequestServices.GetService<IServiceFixes>() is { } fixes
+                ? Results.Ok(await fixes.RescanSyncthingAsync(token).ConfigureAwait(false))
+                : Results.NotFound();
         });
     }
 }

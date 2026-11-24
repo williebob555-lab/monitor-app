@@ -278,6 +278,12 @@
             <StackPanel Spacing="10">
               <TextBlock Text="ACTIONS" Classes="section" />
               <ctl:DiveTileGrid Name="AlertActionGrid" MaxColumns="3" MinColumnWidth="220" Gap="12">
+                <StackPanel Classes="actionitem" IsVisible="{Binding HasFix}">
+                  <Button Name="AlertFix" Classes="action" Content="{Binding FixText}" IsEnabled="{Binding CanFix}"
+                          Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).FixCommand}"
+                          AutomationProperties.Name="{Binding FixText}" />
+                  <TextBlock Text="{Binding FixHint}" Classes="meta" TextWrapping="Wrap" />
+                </StackPanel>
                 <StackPanel Classes="actionitem">
                   <Button Name="AlertAcknowledge" Classes="action" Content="Acknowledge" IsEnabled="{Binding CanAcknowledge}"
                           Command="{Binding $parent[views:AlertsView].((vm:AlertsViewModel)DataContext).AcknowledgeCommand}"

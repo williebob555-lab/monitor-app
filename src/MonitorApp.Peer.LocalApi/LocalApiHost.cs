@@ -124,6 +124,11 @@ public sealed class LocalApiHost : IAsyncDisposable
             {
                 builder.Services.AddSingleton(keys);
             }
+
+            if (discovery is IServiceFixes fixes)
+            {
+                builder.Services.AddSingleton(fixes);
+            }
         }
 
         if (monitoring is not null)
