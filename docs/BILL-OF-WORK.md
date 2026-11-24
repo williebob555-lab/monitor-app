@@ -43,6 +43,24 @@ Done items stay listed so progress is visible.
 | 13 | Projects, parts lists, sourcing and prices (phase 3) | L | Projects with a bill of materials and where to buy | Planned 2026-11-24, see "Projects, parts and sourcing" below. P1 and P2 done |
 | 14 | Housekeeping: retire old controller code (T060), verify the MSI on your PC (T071) | M | Smaller downloads; nothing else | Background |
 
+## Make the app useful on its own (planned 2026-11-24)
+
+**Your feedback (2026-11-24).** "The app really doesn't do much right now." Tailscale, Syncthing and the other things you run are not monitored, even though the vision promises it.
+
+**You are right.** Here is what each computer finds out by itself today: processor load, memory, disk space, network traffic, its own network adapters and links, and the phone's battery. Everything else (Things, projects, racks, values) only knows what you type in. No code reads services at all. Syncthing appears only in the vision documents and the sample scene, and Tailscale is used only for pairing addresses.
+
+**End goal.** You install the app and each computer fills itself in: what it is (maker, model, processor, memory, drives, operating system), what runs on it (services and apps you rely on, running or stopped), and how those are doing, all without typing. Problems raise alerts. Your laptop, phone and tablet see all of it, reliably.
+
+**Order (2026-11-24).** First pairing that just works (R1 to R6 above). Then readings flowing reliably between laptop, phone and tablet (R4 and R5). Then the items below. Projects (P3 onwards) and other new features wait.
+
+| # | Item | Size | What you will see | Status |
+|---|------|------|-------------------|--------|
+| D1 | **Services on each computer**: read the running services (systemd on Fedora and Ubuntu, Windows services) and recognise well-known ones such as Tailscale, Syncthing, SSH, Docker and web servers. Each one becomes a thing on its computer, marked measured, with running or stopped and since when | M | A "Services" group on each computer, filled in by itself | Planned |
+| D2 | **Tailscale, read properly**: connected or not, this computer's Tailscale address, which of your devices are online, exit node. Read-only, using `tailscale status --json` | M | "Tailscale: connected, 4 of 5 devices online" on the computer | Planned |
+| D3 | **Syncthing, read properly**: running or not, each folder (up to date, syncing, error, out of sync) and which devices are connected. Read-only, using Syncthing's own local API on 127.0.0.1 with the key from its config file | M | "Syncthing: 3 folders up to date, Laptop and Phone connected" | Planned |
+| D4 | **Alerts for them**: service stopped, Tailscale disconnected, Syncthing folder stuck or in error, each with how long and why | S | An alert when Syncthing stops syncing | Planned |
+| D5 | **What the machine is, found by itself**: maker, model, serial, processor, memory size, drives, operating system and version, as measured values on the computer's card. No typing | M | A computer's card says "Lenovo ThinkPad …, 16 GB, Fedora 41" by itself | Planned |
+
 ## Projects, parts and sourcing (planned 2026-11-24)
 
 **Goal.** A project is a thing like any other (kind "project"). Its parts list is what the model already knows: things linked "part of" it, or put inside it. The app tells you what you already own, what you still need to buy, what that costs, and where to buy it. Every price and quantity shows whether it was measured, from a listing, entered, estimated or unknown. No separate shopping screen and no code written for one kind of project.
@@ -102,7 +120,7 @@ P1 and P2 ship together as the first release, then P3, then P4 and P5.
 | R5 | **Phone and laptop readings flowing**: find the cause with R4's details and fix it | M, uncertain until R4 shows the reason | Phone and laptop show each other's readings | Planned |
 | R6 | **Every pairing button answers**: Approve, Reject, Show code, Add a phone or tablet, Save permissions each show busy, then success or the reason it failed, on the spot | S | No button press goes unanswered | Planned |
 
-Order: R1, R2, R6 and R4 ship together first, then R5 as soon as R4 shows the cause, then R3.
+Order: R1, R2, R6 and R4 ship together first. R5 follows as soon as R4 shows the cause, then the services work (D1 to D4, in "Make the app useful on its own"), then R3, then D5.
 
 ## How progress is reported
 
