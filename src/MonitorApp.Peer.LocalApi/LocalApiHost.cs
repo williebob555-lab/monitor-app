@@ -147,6 +147,19 @@ public sealed class LocalApiHost : IAsyncDisposable
         var application = builder.Build();
         application.Use(async (context, next) =>
         {
+            // DNS rebinding defence: a web page can point its own hostname at 127.0.0.1 and then read this API (and its
+            // CSRF token) as same-origin. Only answer requests addressed to a loopback name; the port is not checked so an
+            // SSH tunnel to another local port still works.
+            if (!IsLoopbackHost(context.Request.Host))
+            {
+                context.Response.StatusCode = StatusCodes.Status421MisdirectedRequest;
+                return;
+            }
+
+            await next(context).ConfigureAwait(false);
+        });
+        application.Use(async (context, next) =>
+        {
             var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
             context.Items[CspNonceKey] = nonce;
             var headers = context.Response.Headers;
@@ -160,6 +173,24 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         MapEndpoints(application);
         return new LocalApiHost(application);
+    }
+
+    /// <summary>True only for "localhost" or a loopback IP literal (127.0.0.0/8, [::1]); any port.</summary>
+    internal static bool IsLoopbackHost(HostString host)
+    {
+        if (!host.HasValue)
+        {
+            return false;
+        }
+
+        var name = host.Host;
+        if (string.Equals(name, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var literal = name.StartsWith('[') && name.EndsWith(']') ? name[1..^1] : name;
+        return IPAddress.TryParse(literal, out var address) && IPAddress.IsLoopback(address);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
