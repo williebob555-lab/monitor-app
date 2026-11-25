@@ -8,6 +8,7 @@ using MonitorApp.Client.Core.ViewModels;
 using MonitorApp.Client.Mobile;
 using MonitorApp.Client.Ui;
 using MonitorApp.Client.Ui.Views;
+using MonitorApp.Peer.Application;
 
 namespace MonitorApp.Android;
 
@@ -94,7 +95,19 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
                 stopHost: () => PeerForegroundService.Stop(context),
                 qrScanner: new AndroidQrScanner(context),
                 updater: MobileRuntimeHost.GetUpdater(context));
-            model = new MainViewModel(source) { CrashNotice = journal?.Take() };
+            var crash = journal?.Take();
+            if (crash is not null)
+            {
+                // Also into the log this device sends to its computers, so a crash can be read there without the screen.
+                // One line per stack line: computers keep at most 1000 characters of each uploaded line.
+                DiagnosticLog.Write("crash", "the previous run ended with this problem:");
+                foreach (var line in crash.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(60))
+                {
+                    DiagnosticLog.Write("crash", line);
+                }
+            }
+
+            model = new MainViewModel(source) { CrashNotice = crash };
             view.DataContext = model;
             await model.ConnectAsync().ConfigureAwait(true);
         }
