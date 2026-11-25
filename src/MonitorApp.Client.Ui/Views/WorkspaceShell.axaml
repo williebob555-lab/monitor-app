@@ -234,6 +234,10 @@
             <DockPanel>
               <Button DockPanel.Dock="Right" Content="Dismiss" Classes="compact flat" Margin="12,0,0,0" VerticalAlignment="Center"
                       Command="{Binding Shell.ActiveSection.DismissFeedbackCommand, FallbackValue={x:Null}}" AutomationProperties.Name="Dismiss this message" />
+              <Button DockPanel.Dock="Right" Content="Start the service" Classes="compact" Margin="12,0,0,0" VerticalAlignment="Center"
+                      IsVisible="{Binding Shell.ActiveSection.CanStartNode, FallbackValue=False}"
+                      Command="{Binding Shell.ActiveSection.StartNodeCommand, FallbackValue={x:Null}}"
+                      AutomationProperties.Name="Start the Monitor App service on this computer" />
               <Panel>
                 <TextBlock Text="{Binding Shell.ActiveSection.ErrorMessage, FallbackValue={x:Null}}" Classes="error" TextWrapping="Wrap" VerticalAlignment="Center"
                            IsVisible="{Binding Shell.ActiveSection.HasError, FallbackValue=False}" AutomationProperties.LiveSetting="Assertive" />

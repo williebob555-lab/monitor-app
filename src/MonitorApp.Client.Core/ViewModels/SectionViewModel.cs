@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace MonitorApp.Client.Core.ViewModels;
 
@@ -38,6 +39,16 @@ public sealed class NodeConnection : IDisposable
     public void Dispose() => (Source as IDisposable)?.Dispose();
 }
 
+/// <summary>Starts this computer's Monitor App service when it is not running (Windows asks the user to allow it).</summary>
+public interface INodeServiceStarter
+{
+    /// <summary>
+    /// Asks to start the service and waits until Windows reports it running. False when the request was declined or the
+    /// service did not reach running within about a minute.
+    /// </summary>
+    Task<bool> StartAsync(CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// A top-level view of the client (Overview, State, ...). Adding a view means adding one subclass and one
 /// entry in <see cref="MainViewModel.Sections"/>; the desktop shell binds sections generically.
@@ -54,6 +65,38 @@ public abstract partial class SectionViewModel(NodeConnection connection, string
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFeedback), nameof(HasStatusOnly))]
     private string? statusMessage;
+
+    /// <summary>Set by the desktop app on Windows; null where the window cannot start the service.</summary>
+    public static INodeServiceStarter? NodeStarter { get; set; }
+
+    /// <summary>The last call found nothing listening on this computer: the Monitor App service is not running.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStartNode))]
+    private bool nodeDown;
+
+    public bool CanStartNode => NodeDown && NodeStarter is not null;
+
+    [RelayCommand]
+    private async Task StartNodeAsync()
+    {
+        if (NodeStarter is not { } starter)
+        {
+            return;
+        }
+
+        ErrorMessage = null;
+        StatusMessage = "Starting the Monitor App service… Windows may ask you to allow it.";
+        if (!await starter.StartAsync())
+        {
+            StatusMessage = null;
+            ErrorMessage = "The Monitor App service did not start. Start \"Monitor App peer node\" in Windows Services, or try again.";
+            return;
+        }
+
+        NodeDown = false;
+        StatusMessage = "The Monitor App service is running.";
+        await RefreshAsync();
+    }
 
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
@@ -86,10 +129,20 @@ public abstract partial class SectionViewModel(NodeConnection connection, string
         try
         {
             await work();
+            NodeDown = false;
             return true;
+        }
+        catch (NodeUnreachableException)
+        {
+            NodeDown = true;
+            ErrorMessage = NodeStarter is null
+                ? "The Monitor App service on this computer isn't running, so nothing is recorded or shared."
+                : "The Monitor App service on this computer isn't running, so nothing is recorded or shared. Start it below.";
+            return false;
         }
         catch (LocalApiException exception)
         {
+            NodeDown = false;
             ErrorMessage = exception.Message;
             return false;
         }

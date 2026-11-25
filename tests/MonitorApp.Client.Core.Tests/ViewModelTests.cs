@@ -257,7 +257,7 @@ public sealed class ViewModelTests
 
         await main.ConnectAsync();
         Assert.StartsWith("Not connected", main.ConnectionStatus, StringComparison.Ordinal);
-        Assert.Contains("Cannot reach", main.Overview.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("isn't running", main.Overview.ErrorMessage, StringComparison.Ordinal);
 
         main.AddressText = node.Address.ToString();
         await main.ConnectAsync();
