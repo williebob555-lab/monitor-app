@@ -101,6 +101,35 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
         timer.Start();
     }
 
+    /// <summary>
+    /// Android records why this app's earlier processes ended (crash, native crash, low memory, killed by the system, stopped by the
+    /// person). Logged once per start so a device whose monitoring "just stopped" says why.
+    /// </summary>
+    private static void LogWhyThePreviousRunEnded(global::Android.Content.Context context)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            return;
+        }
+
+        try
+        {
+            var manager = (global::Android.App.ActivityManager?)context.GetSystemService(global::Android.Content.Context.ActivityService);
+            var exits = manager?.GetHistoricalProcessExitReasons(context.PackageName, 0, 5);
+            foreach (var exit in exits ?? [])
+            {
+                var at = DateTimeOffset.FromUnixTimeMilliseconds(exit.Timestamp).UtcDateTime;
+                DiagnosticLog.Write("exit", string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"an earlier run ended {at:yyyy-MM-ddTHH:mm:ssZ}: {exit.Reason} ({exit.Description ?? "no description"}); importance {exit.Importance}, memory {exit.Pss / 1024} MB"));
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            DiagnosticLog.Write("exit", "could not read why earlier runs ended", exception);
+        }
+    }
+
     private static string Version =>
         typeof(AndroidApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
@@ -139,6 +168,7 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
                 stopHost: () => PeerForegroundService.Stop(context),
                 qrScanner: new AndroidQrScanner(context),
                 updater: MobileRuntimeHost.GetUpdater(context));
+            LogWhyThePreviousRunEnded(context);
             var crash = journal?.Take();
             if (crash is not null)
             {

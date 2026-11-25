@@ -62,8 +62,28 @@ public sealed class PeerForegroundService : Service
 
     public override IBinder? OnBind(Intent? intent) => null;
 
+    // Each way monitoring can end is logged, so "it just stopped" can be traced from the log the device sends to its computers.
+    public override void OnDestroy()
+    {
+        MonitorApp.Peer.Application.DiagnosticLog.Write("node", "monitoring service destroyed");
+        base.OnDestroy();
+    }
+
+    public override void OnTaskRemoved(Intent? rootIntent)
+    {
+        MonitorApp.Peer.Application.DiagnosticLog.Write("node", "app swiped away from recent apps; monitoring service keeps running");
+        base.OnTaskRemoved(rootIntent);
+    }
+
+    public override void OnTrimMemory(TrimMemory level)
+    {
+        MonitorApp.Peer.Application.DiagnosticLog.Write("node", $"Android asked to free memory: {level}");
+        base.OnTrimMemory(level);
+    }
+
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
+        MonitorApp.Peer.Application.DiagnosticLog.Write("node", $"monitoring service asked to {(intent?.Action == ActionStop ? "stop" : "start")}");
         if (intent?.Action == ActionStop)
         {
             RememberLeftOn(this, false); // also when stopped from the notification

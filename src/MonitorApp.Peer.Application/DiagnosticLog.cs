@@ -56,11 +56,55 @@ public static partial class DiagnosticLog
                         File.Delete(file);
                     }
                 }
+
+                if (Ring.Count == 0)
+                {
+                    LoadPreviousRun(folder);
+                }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 // Logging must never stop the device; the ring still works.
             }
+        }
+    }
+
+    /// <summary>Lines kept from the previous run when a process starts, so what happened just before it stopped is still sent.</summary>
+    public const int PreviousRunLines = 1500;
+
+    /// <summary>
+    /// Seeds the memory ring with the end of the newest daily file. Phones send only the ring to their computers, and a phone whose
+    /// monitoring stopped used to come back with a log that began at its restart, hiding why it stopped.
+    /// </summary>
+    private static void LoadPreviousRun(string folder)
+    {
+        var newest = System.IO.Directory.EnumerateFiles(folder, "diagnostics-*.log")
+            .OrderByDescending(f => Path.GetFileName(f), StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (newest is null)
+        {
+            return;
+        }
+
+        var tail = new Queue<string>();
+        foreach (var line in File.ReadLines(newest, Encoding.UTF8))
+        {
+            tail.Enqueue(line);
+            if (tail.Count > PreviousRunLines)
+            {
+                tail.Dequeue();
+            }
+        }
+
+        foreach (var line in tail)
+        {
+            Ring.Enqueue(line);
+        }
+
+        if (tail.Count > 0)
+        {
+            Ring.Enqueue(string.Create(CultureInfo.InvariantCulture,
+                $"{clock():yyyy-MM-ddTHH:mm:ss.fffZ} [log] ---- lines above are the end of the previous run ({Path.GetFileName(newest)}) ----"));
         }
     }
 
