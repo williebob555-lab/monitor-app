@@ -192,8 +192,10 @@ jobs:
           }
           $stage = Join-Path $env:RUNNER_TEMP 'win-stage'
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'node'), (Join-Path $stage 'desktop'), 'out' | Out-Null
+          # ReadyToRun: precompiled code starts faster. On 2026-11-25 a slow boot made Windows give up on the service
+          # after 30 s (event 7009) before it had connected, and Windows never retries a failed start.
           dotnet publish src/MonitorApp.Peer.Node/MonitorApp.Peer.Node.csproj -c Release -r win-x64 --self-contained `
-              -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'node')
+              -p:RestoreLockedMode=false -p:DebugType=None -p:PublishReadyToRun=true -p:Version=$env:VERSION -o (Join-Path $stage 'node')
           if ($LASTEXITCODE -ne 0) { throw 'Node publish failed.' }
           dotnet publish src/MonitorApp.Client.Desktop/MonitorApp.Client.Desktop.csproj -c Release -r win-x64 --self-contained `
               -p:RestoreLockedMode=false -p:DebugType=None -p:Version=$env:VERSION -o (Join-Path $stage 'desktop')
