@@ -26,6 +26,13 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
 
     private readonly StableLayout layout;
     private readonly TimeProvider timeProvider;
+    private readonly RefreshStats refreshStats = new();
+
+    /// <summary>
+    /// Where a once-a-minute summary of live refresh cost goes (the phone writes it to its diagnostic log, which it sends to its
+    /// computers), so slowness can be measured on the device instead of guessed. Null writes nothing.
+    /// </summary>
+    public static Action<string>? PerformanceLog { get; set; }
 
     [ObservableProperty]
     private SceneGraph scene = SceneGraph.Empty;
@@ -74,16 +81,24 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
     {
         await RunAsync(async () =>
         {
+            var timing = RefreshTiming.Start();
             var requestedAsOf = AsOf;
             var now = timeProvider.GetUtcNow();
             var runtime = await Client.GetRuntimeAsync(cancellationToken);
             var peers = await Client.GetPeersAsync(cancellationToken);
             var state = await Client.GetStateAsync(requestedAsOf, ct: cancellationToken);
+            timing.Mark(RefreshStage.Read);
             var rates = await LoadRatesAsync(requestedAsOf ?? now, cancellationToken);
+            timing.Mark(RefreshStage.History);
             var names = await LoadThingNamesAsync(requestedAsOf, cancellationToken);
+            timing.Mark(RefreshStage.Things);
             var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null, thingNames: names);
             Peers = peers;
-            Apply(graph with { Layout = layout.Place(graph.Nodes) });
+            var placed = graph with { Layout = layout.Place(graph.Nodes) };
+            timing.Mark(RefreshStage.Project);
+            Apply(placed);
+            timing.Mark(RefreshStage.Screen);
+            refreshStats.Add(timing, state.Points.Count);
         });
     }
 

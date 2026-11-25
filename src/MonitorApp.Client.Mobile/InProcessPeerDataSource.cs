@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
+using MonitorApp.Client.Core.ViewModels;
 using MonitorApp.Model;
 using MonitorApp.Planning.Model;
 using MonitorApp.Peer.Application;
@@ -47,6 +48,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         this.startHost = startHost;
         this.stopHost = stopHost;
         this.qrScanner = qrScanner;
+        // A minute's screen-refresh cost goes into the log the phone sends to its computers, so lag is measured, not guessed.
+        EnvironmentViewModel.PerformanceLog ??= line => DiagnosticLog.Write("ui", line);
         history = new PeerHistoryQueryService(runtime.Store, new SystemPeerClock(), staleAfter ?? TimeSpan.FromMinutes(5));
         alertHandler = _ => RaiseSoon();
         runtime.NewAlerts += alertHandler;
