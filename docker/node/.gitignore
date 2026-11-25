@@ -1,0 +1,3 @@
+# Local settings and the node's identity, pairings and readings. Never commit these.
+.env
+data/
