@@ -591,6 +591,7 @@ message PeerSessionRequest {
     UpdateStatusRequest update_status_request = 32;
     AlertPreferencesRequest alert_preferences_request = 33;
     AlertRulesRequest alert_rules_request = 34;
+    DiagnosticLogUpload diagnostic_log_upload = 35;
   }
 }
 
@@ -615,5 +616,18 @@ message PeerSessionResponse {
     UpdateStatusResponse update_status_response = 32;
     AlertPreferencesResponse alert_preferences_response = 33;
     AlertRulesResponse alert_rules_response = 34;
+    DiagnosticLogUploadAck diagnostic_log_upload_ack = 35;
   }
+}
+
+// A phone's own recent diagnostic log, sent to a trusted computer on a short session of its own, so the computer can
+// show it without anyone copying it off the phone. Plain text lines, already redacted by the sender and again on receipt.
+message DiagnosticLogUpload {
+  string request_id = 1;
+  repeated string lines = 2;
+}
+
+message DiagnosticLogUploadAck {
+  string request_id = 1;
+  uint32 stored = 2;
 }

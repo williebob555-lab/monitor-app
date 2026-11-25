@@ -690,6 +690,24 @@ public sealed class PeerSessionGrpcService(
                             .ConfigureAwait(false);
                         break;
                     }
+                case PeerSessionRequest.MessageOneofCase.DiagnosticLogUpload:
+                    {
+                        var upload = request.DiagnosticLogUpload;
+                        if (upload.Lines.Count > MonitorApp.Peer.Application.DiagnosticLog.MaximumPeerLines)
+                        {
+                            await WriteErrorAsync(live, responseStream, ProtocolErrorCode.MessageTooLarge,
+                                "Diagnostic log upload has too many lines.", false).ConfigureAwait(false);
+                            return;
+                        }
+
+                        var stored = MonitorApp.Peer.Application.DiagnosticLog.StorePeerLog(remotePeerId, upload.Lines);
+                        live.Log($"sent its own diagnostic log ({stored} lines)");
+                        await responseStream.WriteAsync(new PeerSessionResponse
+                        {
+                            DiagnosticLogUploadAck = new DiagnosticLogUploadAck { RequestId = upload.RequestId, Stored = (uint)stored },
+                        }, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
                 case PeerSessionRequest.MessageOneofCase.AlertRulesRequest:
                     {
                         var response = await BoundedAsync(

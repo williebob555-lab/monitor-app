@@ -116,12 +116,63 @@ public static partial class DiagnosticLog
         }
     }
 
+    public const int MaximumPeerLines = 4000;
+    public const int MaximumPeerLineLength = 1000;
+    private static readonly Dictionary<string, (DateTimeOffset At, string[] Lines)> PeerLogs = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Keeps the newest log a paired device sent about itself (replacing its previous one), in memory and, when a folder
+    /// is configured, as <c>peers/diagnostics-{peerId}.log</c>. Lines are bounded and redacted again here.
+    /// </summary>
+    public static int StorePeerLog(string peerId, IEnumerable<string> lines)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(peerId);
+        if (!PeerIdPattern().IsMatch(peerId))
+        {
+            throw new ArgumentException("Not a peer id.", nameof(peerId));
+        }
+
+        var kept = lines.TakeLast(MaximumPeerLines)
+            .Select(line => Redact(line.ReplaceLineEndings(" ")))
+            .Select(line => line.Length > MaximumPeerLineLength ? line[..MaximumPeerLineLength] : line)
+            .ToArray();
+        lock (Gate)
+        {
+            PeerLogs[peerId] = (clock(), kept);
+            if (directory is not null)
+            {
+                try
+                {
+                    var folder = Path.Combine(directory, "peers");
+                    System.IO.Directory.CreateDirectory(folder);
+                    File.WriteAllLines(Path.Combine(folder, $"diagnostics-{peerId}.log"), kept, Encoding.UTF8);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // The memory copy still answers the local API.
+                }
+            }
+        }
+
+        return kept.Length;
+    }
+
+    /// <summary>The newest log <paramref name="peerId"/> sent and when, or null when it never sent one.</summary>
+    public static (DateTimeOffset ReceivedAt, IReadOnlyList<string> Lines)? PeerLog(string peerId)
+    {
+        lock (Gate)
+        {
+            return PeerLogs.TryGetValue(peerId, out var log) ? (log.At, log.Lines) : null;
+        }
+    }
+
     /// <summary>Empties the memory ring and stops file output (tests).</summary>
     public static void Reset()
     {
         lock (Gate)
         {
             Ring.Clear();
+            PeerLogs.Clear();
             directory = null;
             clock = () => DateTimeOffset.UtcNow;
         }
@@ -133,4 +184,7 @@ public static partial class DiagnosticLog
 
     [GeneratedRegex("[A-Za-z0-9+/=_-]{40,}")]
     private static partial Regex LongSecret();
+
+    [GeneratedRegex("^peer-[a-z0-9]{1,64}$")]
+    private static partial Regex PeerIdPattern();
 }
