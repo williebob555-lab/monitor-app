@@ -25,6 +25,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
 
 ### Fixed
+- After a phone or tablet app crash, the next start also writes the problem into the log the device sends to its computers (`[crash]` lines), so a crash can be read without a screenshot.
 - Phones log, once a minute, how many screen refreshes ran and how long each part took (`[ui]` lines in the log they send to their computers), so app lag can be measured on the device.
 - Phone app lag and flickering controls once readings flow: every live refresh rebuilt the selected computer's controls and opened two new sessions to it (update status, pairing requests), about five a second. The same selection now keeps its controls and re-reads at most every 30 s.
 - **When the Monitor App service isn't running, the window says so and can start it.** On 2026-11-25 the laptop restarted, Windows gave up waiting 30 seconds for the service during a busy boot (event 7009), and Windows never retries a failed start, so nothing was recorded or shared until someone found it in Windows Services. Now every page says "The Monitor App service on this computer isn't running" and offers **Start the service** (Windows asks to allow it once). The Windows service is also published precompiled (ReadyToRun), so it starts faster.
