@@ -1,1 +1,3 @@
 <!-- Printed at the top of the next preview's notes by eng/release/preview-notes.sh. Clear it after a release. -->
+
+**Screens stop freezing on phones and tablets.** Every screen refresh and every alert check used to sort all stored readings to find the newest value of each one: about 1.6 s per read at 500k readings on a fast server, and up to 27 s on the Pixel. The app now keeps the newest value of each reading up to date as readings arrive. The same read takes under 2 ms at any size. The first start after updating builds that list once, which takes a few seconds on a phone holding a lot of history.
