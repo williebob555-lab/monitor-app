@@ -180,6 +180,11 @@ public sealed class PeerNodeRuntime : IAsyncDisposable
         var peerStore = new PeerStore(PeerStoreOptions.Create(databasePath));
         var pairingStore = new PairingApplicationStore(PairingApplicationStoreOptions.Create(databasePath));
         await peerStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (peerStore.LatestBackfill is { } backfill)
+        {
+            DiagnosticLog.Write("store", FormattableString.Invariant(
+                $"built the latest-value table: {backfill.Rows} readings in {backfill.Duration.TotalMilliseconds:F0} ms (one time, schema v7)"));
+        }
         await pairingStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         var identity = await NodeIdentityProvider.LoadOrCreateAsync(

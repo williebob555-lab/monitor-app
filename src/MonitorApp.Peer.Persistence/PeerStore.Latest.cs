@@ -89,7 +89,13 @@ public sealed partial class PeerStore
         DROP TABLE latest_repair;
         """;
 
-    private static async Task MigrateLatestObservationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    /// <summary>
+    /// Set when this instance's <see cref="InitializeAsync"/> ran the one-time v7 backfill: how many latest-value rows it
+    /// built and how long it took. Null when the database was already on v7. Hosts log it so the phone cost is visible.
+    /// </summary>
+    public LatestObservationsBackfill? LatestBackfill { get; private set; }
+
+    private async Task MigrateLatestObservationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = LatestObservationsSchema;
@@ -103,16 +109,18 @@ public sealed partial class PeerStore
         }
 
         // One pass over existing history (about 1.2 s at 500k rows on a server), then never again.
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         await using var transaction = connection.BeginTransaction(deferred: false);
         await using var fill = connection.CreateCommand();
         fill.Transaction = transaction;
         fill.CommandText = "DELETE FROM latest_observations;" + FillMissingLatestSql;
-        await fill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await fill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         fill.CommandText = "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES ($version, $now);";
         fill.Parameters.AddWithValue("$version", LatestObservationsSchemaVersion);
         fill.Parameters.AddWithValue("$now", Format(DateTimeOffset.UtcNow));
         await fill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        LatestBackfill = new LatestObservationsBackfill(rows, System.Diagnostics.Stopwatch.GetElapsedTime(started));
     }
 
     private static IEnumerable<StoredOriginRecord> NewestPerSignal(IEnumerable<StoredOriginRecord> records) =>
@@ -158,3 +166,6 @@ public sealed partial class PeerStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>Result of the one-time schema v7 backfill of the latest-value table.</summary>
+public sealed record LatestObservationsBackfill(int Rows, TimeSpan Duration);
