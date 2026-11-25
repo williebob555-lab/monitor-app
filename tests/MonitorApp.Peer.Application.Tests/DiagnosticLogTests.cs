@@ -31,6 +31,40 @@ public sealed class DiagnosticLogTests
     }
 
     [Fact]
+    public void ARestartKeepsTheEndOfThePreviousRunSoItIsSentToo()
+    {
+        // A phone whose monitoring stopped came back with a log that began at its restart, hiding why it stopped.
+        var folder = Path.Combine(Path.GetTempPath(), "monitor-diagnostics-" + Guid.NewGuid().ToString("N"));
+        var now = new DateTimeOffset(2026, 11, 25, 21, 31, 0, TimeSpan.Zero);
+        DiagnosticLog.Reset();
+        try
+        {
+            DiagnosticLog.Configure(folder, () => now);
+            for (var i = 0; i < DiagnosticLog.PreviousRunLines + 10; i++)
+            {
+                DiagnosticLog.Write("sync", $"line {i}");
+            }
+
+            DiagnosticLog.Write("link", "last words before the stop");
+
+            DiagnosticLog.Reset(); // the process ends
+            DiagnosticLog.Configure(folder, () => now.AddMinutes(4));
+            DiagnosticLog.Write("node", "started collecting and connecting");
+
+            var lines = DiagnosticLog.Recent(DiagnosticLog.RingCapacity);
+            Assert.Equal(DiagnosticLog.PreviousRunLines + 2, lines.Count);
+            Assert.EndsWith("[link] last words before the stop", lines[^3], StringComparison.Ordinal);
+            Assert.Contains("end of the previous run", lines[^2], StringComparison.Ordinal);
+            Assert.EndsWith("[node] started collecting and connecting", lines[^1], StringComparison.Ordinal);
+        }
+        finally
+        {
+            DiagnosticLog.Reset();
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LinkChangesAreLoggedOnceEach()
     {
         DiagnosticLog.Reset();

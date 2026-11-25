@@ -28,7 +28,7 @@ The mesh is for one owner's devices. Since T080 (owner decision 2026-11-23, "add
 
 - The phone is outbound-only and opens no listener. Its P-256 identity key stays in Android Keystore and signs session and pairing proofs; the portable runtime only sees the `IPeerIdentityKey` abstraction.
 - A pairing invitation carries address, peer id, and fingerprint only (no secret). Decoding enforces the private/loopback endpoint policy, 32-byte fingerprint, version, and size; it grants no trust. The phone pins the invitation fingerprint and the desktop user must explicitly approve.
-- A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only by explicit user action and shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
+- A remote refusal (revoked) is reported but does not alter phone-side trust, so an on-path attacker cannot silently revoke it. Foreground service starts only after the user started it explicitly; once started it resumes after app updates, reboots and app opens until the user stops it (Wilson's decision, 2026-11-25), and it always shows a persistent notification. Android readings are battery/network state only; no communication identities are collected.
 
 ## Phone pairing (QR and typed code)
 

@@ -61,7 +61,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
     /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
     private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
 
-    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(asOf, ct), ct);
+    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) =>
+        Timed(asOf is null && Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks) ? "GetThings+bridge" : "GetThings", () => ReadThingsAsync(asOf, ct));
 
     private async Task<ThingsDto?> ReadThingsAsync(DateTimeOffset? asOf, CancellationToken ct)
     {
@@ -744,18 +745,39 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         }
     }
 
-    private static async Task<T> Guard<T>(Func<Task<T>> read)
+    private static async Task<T> Guard<T>(Func<Task<T>> read, [System.Runtime.CompilerServices.CallerMemberName] string kind = "")
     {
         try
         {
             // SQLite's async calls complete synchronously, so without this every read ran on the UI thread and each menu tap
             // waited for the phone's own database.
-            return await Task.Run(read).ConfigureAwait(false);
+            return await Timed(kind, read).ConfigureAwait(false);
         }
         catch (PeerQueryException exception)
         {
             throw new ApiValidationException(exception.Message);
         }
+    }
+
+    /// <summary>Runs <paramref name="read"/> on a background thread, timing the wait for a thread and the read itself.</summary>
+    private static Task<T> Timed<T>(string kind, Func<Task<T>> read)
+    {
+        var queued = System.Diagnostics.Stopwatch.GetTimestamp();
+        return Task.Run(async () =>
+        {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                return await read().ConfigureAwait(false);
+            }
+            finally
+            {
+                ReadTimings.Add(
+                    kind.Replace("Async", string.Empty, StringComparison.Ordinal),
+                    System.Diagnostics.Stopwatch.GetElapsedTime(queued, started),
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started));
+            }
+        });
     }
 
     private static HistoryPointDto ToDto(HistoryPointView point) => new(
