@@ -71,6 +71,7 @@ Artifacts (all listed in the signed `update-manifest.json`, channel `preview`; t
 - `monitorapp-windows-x64-V-setup.msi`: the Windows installer. Double-click it (or `msiexec /i <file> /qn`). It installs the node service and desktop app by running the same `Install-MonitorApp.ps1` as the zip under Windows PowerShell 5.1, so the side-by-side layout and in-app updates are identical. Reinstalling or installing a newer MSI keeps identity and data; uninstalling removes the service and binaries and keeps `%ProgramData%\MonitorApp`.
 - `monitorapp-node-windows-x64-V.zip`: node and desktop app plus `Install-MonitorApp.ps1` (service plus Start menu shortcut; re-run it from a newer zip to update; the in-app update path uses this zip).
 - `monitorapp-mobile-android-universal-V.apk`: release-signed with your keystore; sideload it.
+- Docker (no separate asset): `docker/node` builds an image from the `.deb` of a chosen release, checked against `SHA256SUMS`. Commands and pairing steps: [docker/README.md](../docker/README.md).
 
 Installed Linux nodes carry the public key and repository in `/etc/monitor-app/update-key.json` (derived from the protected preview signing key at packaging time). `NodeUpdateAgent` polls the GitHub releases API every ~6 h (jittered, plus on start), picks the newest `preview-*` pre-release, verifies the signed manifest, downloads and verifies the `.deb`/`.rpm`, and then:
 
