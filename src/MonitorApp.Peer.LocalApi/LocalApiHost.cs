@@ -717,6 +717,11 @@ public sealed class LocalApiHost : IAsyncDisposable
             DiagnosticLog.Write("removal", $"removed {peer.DisplayName} ({peerId}) here; other devices learn it when they next connect");
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        application.MapGet("/api/v1/diagnostics/peers/{peerId}/log", (string peerId) =>
+            DiagnosticLog.PeerLog(peerId) is { } log
+                ? Results.Text($"# sent by {peerId} at {log.ReceivedAt:yyyy-MM-ddTHH:mm:ssZ}\n" + string.Join('\n', log.Lines) + "\n",
+                    "text/plain; charset=utf-8")
+                : Results.NotFound());
         application.MapGet("/api/v1/diagnostics/log", (int? lines) =>
             Results.Text(string.Join('\n', DiagnosticLog.Recent(lines ?? 500)) + "\n", "text/plain; charset=utf-8"));
         MapControlEndpoints(application);

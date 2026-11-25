@@ -14,14 +14,19 @@ using MonitorApp.Peer.Transport;
 
 namespace MonitorApp.Peer.Sync;
 
-public sealed record PeerSyncOptions(int MaximumBatchRecords, int MaximumBatchBytes, int MaximumOperationsPerSession, int MaximumCapabilities)
+/// <param name="MaximumBackfillRecords">
+/// The most of another device's own readings a phone (an outbound-only peer that asks for live push) fetches when it is
+/// behind; anything older stays on that device only. 20,000 is about 1.7 hours of a computer's readings.
+/// </param>
+public sealed record PeerSyncOptions(int MaximumBatchRecords, int MaximumBatchBytes, int MaximumOperationsPerSession, int MaximumCapabilities,
+    ulong MaximumBackfillRecords = 20_000)
 {
     public static PeerSyncOptions Default { get; } = new(256, 1024 * 1024, 1024, 1024);
 
     internal void Validate()
     {
         if (MaximumBatchRecords is < 1 or > 10_000 || MaximumBatchBytes < 4096 ||
-            MaximumOperationsPerSession is < 1 or > 100_000 || MaximumCapabilities is < 0 or > 10_000)
+            MaximumOperationsPerSession is < 1 or > 100_000 || MaximumCapabilities is < 0 or > 10_000 || MaximumBackfillRecords < 1)
             throw new ArgumentOutOfRangeException(nameof(PeerSyncOptions));
     }
 }
@@ -54,6 +59,10 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
 
     /// <summary>How many other devices' streams one session pulls through the remote.</summary>
     public const int MaximumRelayedStreams = 64;
+
+    /// <summary>Batches pulled before going live when the remote pushes live (it sends the rest itself).</summary>
+    public const int MaximumPullBatchesBeforeLive = 4;
+
 
     public PeerSyncApplication(PeerStore store, OriginReplicationCoordinator replication, PeerSyncOptions? options = null,
         AlertStore? alerts = null, PeerSyncLiveOptions? live = null, MeshMembership? mesh = null)
@@ -145,16 +154,92 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         var local = await RequireIdentityAsync(cancellationToken).ConfigureAwait(false);
         var operations = 0;
 
+        // This device's own readings go first: a long backlog to pull from the remote must never hold them back
+        // (it did: a phone re-paired to a computer spent every session pulling the computer's 508,000 readings
+        // oldest-first and never sent its own). When the remote pushes live (phones), only a few batches each way go
+        // here; the live session carries on from the same persisted cursors in both directions.
+        var pullLimit = live is { RequestRemotePush: true } ? MaximumPullBatchesBeforeLive : int.MaxValue;
+        var localHead = local.NextSequence - 1;
+        var reported = false;
+        var pushed = 0;
+        while (true)
+        {
+            var remoteAck = await store.ReadReplicationCursorAsync(remotePeerId, local.PeerId, local.OriginStreamId, cancellationToken)
+                .ConfigureAwait(false);
+            var accepted = remoteAck.Cursor?.AcceptedThrough ?? 0;
+            if (!reported)
+            {
+                reported = true;
+                DiagnosticLog.Write("sync", $"{remotePeerId}: this device has readings 1-{localHead}; it has taken up to {accepted}" +
+                    (accepted >= localHead ? ", nothing to send" : $", sending {localHead - accepted}"));
+            }
+
+            if (accepted >= localHead) break;
+            if (++pushed > pullLimit)
+            {
+                DiagnosticLog.Write("sync", $"{remotePeerId}: sent {pullLimit} batches; the rest go over the live session");
+                break;
+            }
+
+            EnsureOperationBound(++operations);
+            var batch = await replication.ReadForPushAsync(new OriginRangeRequest
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                OriginPeerId = local.PeerId,
+                OriginStreamId = local.OriginStreamId,
+                FirstSequence = checked(accepted + 1),
+                LastSequence = localHead,
+                MaximumRecordCount = (uint)options.MaximumBatchRecords,
+                MaximumBatchBytes = (uint)options.MaximumBatchBytes,
+            }, cancellationToken).ConfigureAwait(false);
+            if (batch.Records.Count == 0 && batch.PrunedRange is null) throw new PeerSyncException("Local origin availability contains an unexpected gap.");
+            yield return new PeerSessionRequest { OriginBatch = batch };
+        }
+
         var remoteAvailability = remote.Cursors
             .Where(cursor => cursor.OriginPeerId == remotePeerId)
             .OrderBy(cursor => cursor.OriginStreamId, StringComparer.Ordinal)
             .SingleOrDefault();
+        if (remoteAvailability is not null && live is { RequestRemotePush: true })
+        {
+            // A phone does not copy a computer's whole raw history (half a million readings took hours and kept its
+            // own readings and live view waiting): when far behind, it records the older part as not held here and
+            // fetches only the newest PeerSyncOptions.MaximumBackfillRecords. The computer still holds all of it.
+            var held = (await store.ReadReplicationCursorAsync(remotePeerId, remotePeerId,
+                remoteAvailability.OriginStreamId, cancellationToken).ConfigureAwait(false)).Cursor?.AcceptedThrough ?? 0;
+            var head = remoteAvailability.AcceptedThroughSequence;
+            var backfill = options.MaximumBackfillRecords;
+            if (head > held + backfill)
+            {
+                var skipThrough = head - backfill;
+                var skipAck = await replication.ApplyPrunedRangeAsync(remotePeerId, new PrunedRange
+                {
+                    OriginPeerId = remotePeerId,
+                    OriginStreamId = remoteAvailability.OriginStreamId,
+                    FirstSequence = held + 1,
+                    LastSequence = skipThrough,
+                }, cancellationToken).ConfigureAwait(false);
+                DiagnosticLog.Write("sync", $"{remotePeerId}: {head - held} readings behind; skipping {held + 1}-{skipThrough} " +
+                    $"(older readings stay on that device) and fetching the newest {backfill}");
+                EnsureOperationBound(++operations);
+                yield return new PeerSessionRequest { OriginAck = skipAck };
+            }
+        }
+
+        var pulls = 0;
         while (remoteAvailability is not null)
         {
             var retained = await store.ReadReplicationCursorAsync(remotePeerId, remotePeerId,
                 remoteAvailability.OriginStreamId, cancellationToken).ConfigureAwait(false);
             var accepted = retained.Cursor?.AcceptedThrough ?? 0;
             if (accepted >= remoteAvailability.AcceptedThroughSequence) break;
+            if (++pulls > pullLimit)
+            {
+                DiagnosticLog.Write("sync", $"{remotePeerId}: has readings up to {remoteAvailability.AcceptedThroughSequence}, this " +
+                    $"device holds up to {accepted}; it sends the rest live");
+                break;
+            }
+
             EnsureOperationBound(++operations);
             yield return new PeerSessionRequest
             {
@@ -177,7 +262,7 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
         foreach (var relayed in await RelayableCursorsAsync(remote, local.PeerId, cancellationToken).ConfigureAwait(false))
         {
             var held = await store.ReadHeldThroughAsync(relayed.OriginPeerId, relayed.OriginStreamId, cancellationToken).ConfigureAwait(false);
-            while (held < relayed.AcceptedThroughSequence)
+            while (held < relayed.AcceptedThroughSequence && ++pulls <= pullLimit)
             {
                 EnsureOperationBound(++operations);
                 yield return new PeerSessionRequest
@@ -190,35 +275,6 @@ public sealed class PeerSyncApplication : IPeerSessionApplication, IPeerAdvertis
             }
         }
 
-        var localHead = local.NextSequence - 1;
-        var reported = false;
-        while (true)
-        {
-            var remoteAck = await store.ReadReplicationCursorAsync(remotePeerId, local.PeerId, local.OriginStreamId, cancellationToken)
-                .ConfigureAwait(false);
-            var accepted = remoteAck.Cursor?.AcceptedThrough ?? 0;
-            if (!reported)
-            {
-                reported = true;
-                DiagnosticLog.Write("sync", $"{remotePeerId}: this device has readings 1-{localHead}; it has taken up to {accepted}" +
-                    (accepted >= localHead ? ", nothing to send" : $", sending {localHead - accepted}"));
-            }
-
-            if (accepted >= localHead) break;
-            EnsureOperationBound(++operations);
-            var batch = await replication.ReadForPushAsync(new OriginRangeRequest
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                OriginPeerId = local.PeerId,
-                OriginStreamId = local.OriginStreamId,
-                FirstSequence = checked(accepted + 1),
-                LastSequence = localHead,
-                MaximumRecordCount = (uint)options.MaximumBatchRecords,
-                MaximumBatchBytes = (uint)options.MaximumBatchBytes,
-            }, cancellationToken).ConfigureAwait(false);
-            if (batch.Records.Count == 0 && batch.PrunedRange is null) throw new PeerSyncException("Local origin availability contains an unexpected gap.");
-            yield return new PeerSessionRequest { OriginBatch = batch };
-        }
     }
 
     public async ValueTask<OriginAck> AcceptOriginBatchAsync(string remotePeerId, OriginRecordBatch batch, CancellationToken cancellationToken)

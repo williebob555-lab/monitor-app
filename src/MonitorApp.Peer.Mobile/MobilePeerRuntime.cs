@@ -22,10 +22,14 @@ public sealed record MobilePeerOptions(
     TimeSpan MaximumSyncBackoff,
     TimeSpan? HeartbeatInterval = null,
     LiveInterestPolicy? InterestPolicy = null,
-    TimeSpan? RelayPullInterval = null)
+    TimeSpan? RelayPullInterval = null,
+    TimeSpan? DiagnosticUploadInterval = null,
+    ulong? MaximumBackfillRecords = null)
 {
+    /// <summary>The app's settings; tests build their own and leave the diagnostic upload off.</summary>
     public static MobilePeerOptions Default(string dataDirectory, string displayName) => new(
-        dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5));
+        dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5),
+        DiagnosticUploadInterval: TimeSpan.FromMinutes(2));
 
     internal void Validate()
     {
@@ -634,6 +638,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             [
                 Task.Run(() => CollectionLoopAsync(token), CancellationToken.None),
                 Task.Run(() => SuperviseSessionsAsync(token), CancellationToken.None),
+                Task.Run(() => UploadDiagnosticLogLoopAsync(token), CancellationToken.None),
             ];
         }
     }
@@ -766,6 +771,98 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+    }
+
+    /// <summary>Most of one upload: the newest lines that fit well inside a computer's 1 MB message limit.</summary>
+    private const int DiagnosticUploadBytes = 600 * 1024;
+
+    /// <summary>
+    /// Sends this device's recent diagnostic log to every paired computer it can dial, shortly after start and then on
+    /// <see cref="MobilePeerOptions.DiagnosticUploadInterval"/>, so the computer can show it and nobody has to copy it
+    /// off the phone. A computer too old to take it is skipped quietly until the next start.
+    /// </summary>
+    private async Task UploadDiagnosticLogLoopAsync(CancellationToken cancellationToken)
+    {
+        if (options.DiagnosticUploadInterval is not { } interval || interval <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var unsupported = new HashSet<string>(StringComparer.Ordinal);
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            // Shortly after start, so a just-opened app shows up on the computer within a minute.
+            await Task.Delay(interval < TimeSpan.FromSeconds(30) ? interval : TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                IReadOnlyList<TrustedPeer> peers;
+                try
+                {
+                    peers = await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.Data.Common.DbException)
+                {
+                    peers = [];
+                }
+
+                foreach (var peer in peers.Where(item => item.TrustState == PeerTrustState.Active && !unsupported.Contains(item.PeerId)))
+                {
+                    try
+                    {
+                        if ((await store.ReadPeerLocatorsAsync(peer.PeerId, cancellationToken).ConfigureAwait(false)).Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var lines = NewestWithin(DiagnosticLog.Recent(DiagnosticLog.RingCapacity), DiagnosticUploadBytes);
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+                        await using var connector = await ConnectAsync(peer.PeerId, timeout.Token).ConfigureAwait(false);
+                        await connector.SendDiagnosticLogAsync(lines, timeout.Token).ConfigureAwait(false);
+                        if (reported.Add(peer.PeerId))
+                        {
+                            DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) now receives this device's log every {interval.TotalMinutes:0} min");
+                        }
+                    }
+                    catch (PeerAuthenticationException exception)
+                    {
+                        // An older computer answers an unknown request with a refusal: stop asking it until the next start.
+                        unsupported.Add(peer.PeerId);
+                        DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) did not take this device's log (older version?)", exception);
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                    {
+                        // Unreachable right now; the session log already says why. Try again next round.
+                        reported.Remove(peer.PeerId);
+                    }
+                }
+
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static List<string> NewestWithin(IReadOnlyList<string> lines, int maximumBytes)
+    {
+        var kept = new List<string>();
+        var bytes = 0;
+        for (var index = lines.Count - 1; index >= 0; index--)
+        {
+            bytes += System.Text.Encoding.UTF8.GetByteCount(lines[index]) + 4;
+            if (bytes > maximumBytes)
+            {
+                break;
+            }
+
+            kept.Add(lines[index]);
+        }
+
+        kept.Reverse();
+        return kept;
     }
 
     /// <summary>
@@ -957,6 +1054,9 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 new PeerSyncApplication(
                     store,
                     replication,
+                    options: options.MaximumBackfillRecords is { } backfill
+                        ? PeerSyncOptions.Default with { MaximumBackfillRecords = backfill }
+                        : null,
                     alerts: alerts,
                     live: new PeerSyncLiveOptions(interests, RequestRemotePush: true, AlertsStored: RaiseNewAlertsAsync),
                     mesh: Mesh));

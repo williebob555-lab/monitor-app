@@ -143,6 +143,20 @@ public sealed class PeerGrpcConnector : IAsyncDisposable
         return response.UpdateStatusResponse;
     }
 
+    /// <summary>Sends this device's own recent diagnostic log to a trusted computer, which keeps the newest one.</summary>
+    public async Task<DiagnosticLogUploadAck> SendDiagnosticLogAsync(IEnumerable<string> lines, CancellationToken cancellationToken)
+    {
+        using var call = await OpenAuthenticatedAsync(Guid.NewGuid().ToString("N"), cancellationToken).ConfigureAwait(false);
+        var upload = new DiagnosticLogUpload { RequestId = Guid.NewGuid().ToString("N") };
+        upload.Lines.Add(lines);
+        await WriteAsync(call.Call, new PeerSessionRequest { DiagnosticLogUpload = upload }, cancellationToken).ConfigureAwait(false);
+        var response = await ReadExpectedAsync(call.Call, PeerSessionResponse.MessageOneofCase.DiagnosticLogUploadAck, cancellationToken)
+            .ConfigureAwait(false);
+        await call.Call.RequestStream.CompleteAsync().WaitAsync(options.OperationTimeout, cancellationToken).ConfigureAwait(false);
+        SetState(PeerTransportState.Stopped);
+        return response.DiagnosticLogUploadAck;
+    }
+
     /// <summary>Asks a trusted desktop for this phone's own alert preferences; read-only.</summary>
     public async Task<AlertPreferencesResponse> ReadAlertPreferencesAsync(CancellationToken cancellationToken)
     {

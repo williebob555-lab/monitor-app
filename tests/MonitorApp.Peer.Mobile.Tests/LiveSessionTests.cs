@@ -86,6 +86,91 @@ public sealed class LiveSessionTests(Xunit.Abstractions.ITestOutputHelper output
     }
 
     [Fact]
+    public async Task APhoneFarBehindSendsItsOwnReadingsAndGoesLiveWithoutCopyingTheDesktopsWholeHistory()
+    {
+        // The field failure (2026-11-24): a re-paired phone spent every session pulling a computer's 508,000 readings
+        // oldest-first, never sent its own and never went live. Here the desktop holds a backlog far beyond the phone's
+        // backfill limit; the phone must still deliver its own readings, receive the desktop's newest ones, go live,
+        // and record the skipped older range as not held here rather than leaving a gap it waits on forever.
+        var desktopRoot = TestDirectories.Create();
+        var phoneRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            for (var run = 0; run < 4; run++)
+            {
+                await desktop.CollectAsync();
+            }
+
+            var desktopLocal = (await desktop.Store.ReadLocalIdentityAsync())!;
+            var backlog = desktopLocal.NextSequence - 1;
+            const ulong backfill = 5;
+            Assert.True(backlog > backfill * 4, $"Desktop backlog {backlog} is too small for this test.");
+
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(
+                LiveOptions(phoneRoot) with { MaximumBackfillRecords = backfill }, phoneIdentity, new ScriptedDeviceReader());
+            await PairAsync(phone, desktop, "pairing-live-backlog");
+            var phoneTarget = await CollectPhoneAsync(phone);
+            var phoneLocal = (await phone.Store.ReadLocalIdentityAsync())!;
+            phone.Start();
+
+            // Phone -> desktop: all of the phone's own readings arrive.
+            await WaitAsync(async () => (await desktop.Store.ReadOriginRangeAsync(
+                phoneLocal.PeerId, phoneLocal.OriginStreamId, 1, 10_000)).Count >= (int)phoneTarget);
+
+            // Desktop -> phone: the newest readings arrive and the older ones are recorded as skipped, not awaited.
+            await WaitAsync(async () => (await phone.Store.ReadLatestAcceptedByOriginAsync()).ContainsKey(desktopLocal.PeerId));
+            var held = await phone.Store.ReadOriginRangeAsync(desktopLocal.PeerId, desktopLocal.OriginStreamId, 1, 10_000);
+            Assert.Contains(held, record => record.Sequence == backlog);
+            Assert.DoesNotContain(held, record => record.Sequence == 1);
+            var cursor = (await phone.Store.ReadReplicationCursorAsync(
+                desktopLocal.PeerId, desktopLocal.PeerId, desktopLocal.OriginStreamId)).Cursor;
+            Assert.NotNull(cursor);
+            Assert.True(cursor.AcceptedThrough >= backlog);
+
+            // And it is live: a new desktop reading reaches the phone over the held-open session.
+            await desktop.CollectAsync();
+            var newest = (await desktop.Store.ReadLocalIdentityAsync())!.NextSequence - 1;
+            await WaitAsync(async () => (await phone.Store.ReadOriginRangeAsync(
+                desktopLocal.PeerId, desktopLocal.OriginStreamId, newest, 1)).Count == 1);
+            Assert.Equal(MobileSyncState.Synced, Assert.Single(phone.GetStatus().Peers).State);
+        }
+        finally
+        {
+            foreach (var line in DiagnosticLog.Recent(300)) output.WriteLine(line);
+            Cleanup(desktopRoot, phoneRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ThePhoneSendsItsOwnDiagnosticLogToThePairedComputer()
+    {
+        var desktopRoot = TestDirectories.Create();
+        var phoneRoot = TestDirectories.Create();
+        try
+        {
+            await using var desktop = await DesktopPeer.StartAsync(desktopRoot);
+            using var phoneIdentity = new SoftwareIdentity();
+            await using var phone = await MobilePeerRuntime.CreateAsync(
+                LiveOptions(phoneRoot) with { DiagnosticUploadInterval = TimeSpan.FromMilliseconds(200) },
+                phoneIdentity,
+                new ScriptedDeviceReader());
+            await PairAsync(phone, desktop, "pairing-live-log");
+            phone.Start();
+
+            await WaitAsync(() => DiagnosticLog.PeerLog(phone.Identity.PeerId) is { Lines.Count: > 0 });
+            var log = DiagnosticLog.PeerLog(phone.Identity.PeerId)!.Value;
+            Assert.Contains(log.Lines, line => line.Contains("[pairing]", StringComparison.Ordinal));
+            Assert.All(log.Lines, line => Assert.True(line.Length <= DiagnosticLog.MaximumPeerLineLength));
+        }
+        finally
+        {
+            Cleanup(desktopRoot, phoneRoot);
+        }
+    }
+
+    [Fact]
     public async Task DesktopAlertReachesTheConnectedPhoneInboxWithinTwoSecondsAndIsAcknowledged()
     {
         var desktopRoot = TestDirectories.Create();
