@@ -141,8 +141,13 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
     /// </summary>
     private static void LogCrashReport(global::Android.Content.Context context, global::Android.App.ApplicationExitInfo exit, DateTime at)
     {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(31))
+        {
+            return;
+        }
+
         var reason = (int)exit.Reason;
-        if ((reason != NativeCrash && reason != NotResponding) || !OperatingSystem.IsAndroidVersionAtLeast(31))
+        if (reason != NativeCrash && reason != NotResponding)
         {
             return;
         }
@@ -169,7 +174,7 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
             length += read;
         }
 
-        var lines = reason == NativeCrash ? ReadableParts(bytes.AsSpan(0, length)) : System.Text.Encoding.UTF8.GetString(bytes, 0, length).Split('\n');
+        IEnumerable<string> lines = reason == NativeCrash ? ReadableParts(bytes.AsSpan(0, length)) : System.Text.Encoding.UTF8.GetString(bytes, 0, length).Split('\n');
         DiagnosticLog.Write("exit", $"report for the {at:yyyy-MM-ddTHH:mm:ssZ} {(reason == NativeCrash ? "native crash" : "freeze")} ({length} bytes):");
         foreach (var line in lines.Select(l => l.Trim()).Where(l => l.Length > 0).Take(120))
         {
@@ -178,7 +183,7 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
     }
 
     /// <summary>The printable strings of a native crash report (a protobuf), in order and without repeats.</summary>
-    private static IEnumerable<string> ReadableParts(ReadOnlySpan<byte> data)
+    private static List<string> ReadableParts(ReadOnlySpan<byte> data)
     {
         var parts = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
