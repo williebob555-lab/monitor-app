@@ -49,9 +49,16 @@ public sealed partial class ControlsViewModel : ObservableObject
     private static readonly TimeSpan PauseFor = TimeSpan.FromHours(1);
     private static readonly TimeSpan MuteFor = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How often a live scene refresh may re-read the selected computer's update status, pairing requests and alerts. Each read opens
+    /// a session to that computer, so it must not follow every incoming reading.
+    /// </summary>
+    public static readonly TimeSpan RemoteRefreshInterval = TimeSpan.FromSeconds(30);
+
     private readonly NodeConnection connection;
     private readonly EnvironmentViewModel environment;
     private SceneNode? node;
+    private DateTimeOffset lastRemoteLoad = DateTimeOffset.MinValue;
 
     // The alert list carries no acknowledgement state, so acknowledgements this device made are remembered for the session.
     private readonly HashSet<string> acknowledged = new(StringComparer.Ordinal);
@@ -204,6 +211,27 @@ public sealed partial class ControlsViewModel : ObservableObject
 
     partial void OnIsBusyChanged(bool value) => Notify();
 
+    /// <summary>
+    /// Follows a scene refresh. The same selection keeps its actions, lists and last outcome (rebuilding them on every reading made the
+    /// menu flicker), and re-reads the computer's status at most every <see cref="RemoteRefreshInterval"/>. A new selection rebuilds.
+    /// </summary>
+    public void Follow(SceneNode? selected)
+    {
+        var available = connection.Source is IControlSource && selected is { Kind: SceneNodeKind.Peer };
+        if (selected?.Id != node?.Id || selected?.Kind != node?.Kind || available != IsAvailable)
+        {
+            Update(selected);
+            return;
+        }
+
+        node = selected;
+        if (available && LoadTask.IsCompleted && DateTimeOffset.UtcNow - lastRemoteLoad >= RemoteRefreshInterval)
+        {
+            lastRemoteLoad = DateTimeOffset.UtcNow;
+            LoadTask = LoadRemoteAsync(selected!.Id);
+        }
+    }
+
     /// <summary>Rebuilds the offered actions for the newly selected node and clears the previous outcome.</summary>
     public void Update(SceneNode? selected)
     {
@@ -229,7 +257,15 @@ public sealed partial class ControlsViewModel : ObservableObject
             SamplingChoices.Add(new SamplingChoice(null, "Default", samplingTier));
         }
 
-        LoadTask = IsAvailable ? LoadRemoteAsync(selected!.Id) : Task.CompletedTask;
+        if (IsAvailable)
+        {
+            lastRemoteLoad = DateTimeOffset.UtcNow;
+            LoadTask = LoadRemoteAsync(selected!.Id);
+        }
+        else
+        {
+            LoadTask = Task.CompletedTask;
+        }
         Notify();
     }
 

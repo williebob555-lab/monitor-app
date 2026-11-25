@@ -216,6 +216,39 @@ public sealed class DiveViewModelTests
         return scene with { Nodes = scene.Nodes.Select(n => n.Id == server.Id ? updated : n).ToList() };
     }
 
+    [Fact]
+    public async Task NewReadingsOnTheSelectedComputerDoNotReopenItsControlsOrAskItAgain()
+    {
+        // On the Pixel every live refresh used to rebuild the selected computer's controls and open two sessions to it (update status,
+        // pairing requests): about five a second once readings flowed, which made the app lag and the menu flicker.
+        var now = DateTimeOffset.UtcNow;
+        var source = new ControlFake();
+        source.Pending.Add(new PendingPairingDto("pair-1", "peer-new", "New phone", "FEEDBEEF", "PendingApproval", now, now.AddMinutes(5)));
+        using var model = new MainViewModel(source);
+        model.Environment.ShowScene(SampleEnvironment.Create(now));
+        model.Environment.SelectedNodeId = SampleEnvironment.Server;
+        var controls = model.Shell.Inspector.Controls;
+        await controls.LoadTask;
+        Assert.True(controls.IsAvailable && controls.HasPendingPairings, "the selected computer's controls and pairing request load once");
+        var reads = source.StatusReads;
+        var row = Assert.Single(controls.PendingPairings);
+
+        for (var i = 1; i <= 20; i++)
+        {
+            model.Environment.ShowScene(SampleEnvironment.Create(now.AddSeconds(i)));
+            await controls.LoadTask;
+        }
+
+        Assert.True(source.StatusReads == reads, $"20 live refreshes asked the computer {source.StatusReads - reads} more times");
+        Assert.Same(row, Assert.Single(controls.PendingPairings));
+
+        // Choosing another computer still loads its own controls straight away.
+        model.Environment.SelectedNodeId = SampleEnvironment.Phone;
+        await controls.LoadTask;
+        Assert.Equal(reads + 1, source.StatusReads);
+        Assert.False(controls.HasPendingPairings);
+    }
+
     private static HistoryPointDto Point(string subject, string signal, double value, string unit, DateTimeOffset at) =>
         new(subject, "stream", 1, subject, signal, at, at, "test", "Observed", "Valid", "Fresh", 0, new ObservationValueDto("number", value, null, null), unit, null);
 
@@ -308,8 +341,13 @@ public sealed class DiveViewModelTests
 
         public Task<ControlOutcomeDto> EnrollPresenceKeyAsync(string peerId, CancellationToken ct = default) => Record("enroll", peerId);
 
-        public Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default) =>
-            Task.FromResult<RemoteUpdateStatusDto?>(null);
+        public int StatusReads { get; private set; }
+
+        public Task<RemoteUpdateStatusDto?> ReadUpdateStatusAsync(string peerId, CancellationToken ct = default)
+        {
+            StatusReads++;
+            return Task.FromResult<RemoteUpdateStatusDto?>(null);
+        }
 
         public Task<ControlOutcomeDto> ApproveUpdateAsync(string peerId, string stagedVersion, string stagedDigestHex, CancellationToken ct = default) =>
             Record("update", peerId);

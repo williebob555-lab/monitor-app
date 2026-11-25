@@ -282,7 +282,7 @@ public sealed partial class InspectorViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(HasLayers));
         OnPropertyChanged(nameof(HasRelationships));
-        Controls.Update(selected);
+        Controls.Follow(selected);
     }
 
     private InspectorLayerRow BuildLayer(SceneLayer layer)
