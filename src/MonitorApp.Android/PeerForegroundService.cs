@@ -8,8 +8,9 @@ using MonitorApp.Peer.Mobile;
 namespace MonitorApp.Android;
 
 /// <summary>
-/// Hosts the portable peer runtime for near-continuous collection and sync. Started explicitly by the user,
-/// shows a persistent notification, and is stoppable from the notification or the activity.
+/// Hosts the portable peer runtime for near-continuous collection and sync. Started explicitly by the user, then resumed after
+/// updates, reboots and app opens until they stop it; shows a persistent notification, and is stoppable from the notification or
+/// the activity.
 /// </summary>
 [Service(Exported = false, ForegroundServiceType = ForegroundService.TypeSpecialUse)]
 [global::Android.App.MetaData("android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE", Value = "peer-monitoring-collection-and-sync")]
@@ -22,11 +23,42 @@ public sealed class PeerForegroundService : Service
     private const string AlertChannelId = "monitor-alerts";
     private Action<IReadOnlyList<InboxAlert>>? alertHandler;
 
-    public static void Start(Context context) =>
-        context.StartForegroundService(new Intent(context, typeof(PeerForegroundService)).SetAction(ActionStart));
+    private const string PreferencesName = "monitoring";
+    private const string LeftOnKey = "left-on";
 
-    public static void Stop(Context context) =>
+    /// <summary>The person starts monitoring; it is remembered so updates, reboots and app opens resume it until they stop it.</summary>
+    public static void Start(Context context)
+    {
+        RememberLeftOn(context, true);
+        context.StartForegroundService(new Intent(context, typeof(PeerForegroundService)).SetAction(ActionStart));
+    }
+
+    public static void Stop(Context context)
+    {
+        RememberLeftOn(context, false);
         context.StartService(new Intent(context, typeof(PeerForegroundService)).SetAction(ActionStop));
+    }
+
+    /// <summary>
+    /// Starts monitoring again only if the person started it and never stopped it (decision 2026-11-25: an update or reboot used to
+    /// leave phones silent until someone tapped Start monitoring again).
+    /// </summary>
+    public static bool ResumeIfLeftOn(Context context)
+    {
+        if (!IsLeftOn(context))
+        {
+            return false;
+        }
+
+        context.StartForegroundService(new Intent(context, typeof(PeerForegroundService)).SetAction(ActionStart));
+        return true;
+    }
+
+    private static bool IsLeftOn(Context context) =>
+        context.GetSharedPreferences(PreferencesName, FileCreationMode.Private)?.GetBoolean(LeftOnKey, false) ?? false;
+
+    private static void RememberLeftOn(Context context, bool on) =>
+        context.GetSharedPreferences(PreferencesName, FileCreationMode.Private)?.Edit()?.PutBoolean(LeftOnKey, on)?.Apply();
 
     public override IBinder? OnBind(Intent? intent) => null;
 
@@ -34,6 +66,7 @@ public sealed class PeerForegroundService : Service
     {
         if (intent?.Action == ActionStop)
         {
+            RememberLeftOn(this, false); // also when stopped from the notification
             _ = StopRuntimeAsync();
             StopForeground(StopForegroundFlags.Remove);
             StopSelf();
@@ -49,7 +82,7 @@ public sealed class PeerForegroundService : Service
             StartForeground(NotificationId, BuildNotification());
         }
         _ = StartRuntimeAsync();
-        // The user starts monitoring explicitly; do not resurrect it silently after a process kill.
+        // Resumed after updates, reboots and app opens by ResumeIfLeftOn, only while the person left it on.
         return StartCommandResult.NotSticky;
     }
 
@@ -137,5 +170,20 @@ public sealed class PeerForegroundService : Service
             .SetContentIntent(open)
             .AddAction(new Notification.Action.Builder(null, "Stop", stop).Build())
             .Build()!;
+    }
+}
+
+/// <summary>Resumes monitoring after this app is updated or the device restarts, if the person left it on.</summary>
+[BroadcastReceiver(Exported = true, Enabled = true)]
+[IntentFilter(new[] { Intent.ActionBootCompleted, Intent.ActionMyPackageReplaced })]
+public sealed class ResumeMonitoringReceiver : BroadcastReceiver
+{
+    public override void OnReceive(Context? context, Intent? intent)
+    {
+        var action = intent?.Action;
+        if (context is not null && (action == Intent.ActionBootCompleted || action == Intent.ActionMyPackageReplaced))
+        {
+            MonitorApp.Peer.Application.DiagnosticLog.Write("node", $"resuming monitoring after {action}: {PeerForegroundService.ResumeIfLeftOn(context)}");
+        }
     }
 }

@@ -25,6 +25,8 @@ This file records completed user-visible, operational, architectural, packaging,
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
 
 ### Fixed
+- **Phones and tablets keep monitoring after an update or restart.** Before, an update closed monitoring and nothing started it again until you tapped Start monitoring, so the device went silent. Now, once you start it, it resumes by itself after updates, reboots and when you open the app, until you tap Stop. (After installing this version, tap Start monitoring once more so it is remembered.)
+- Phones log once a minute how late the screen thread is (`[ui]`), and which data reads are slow, how long they waited for a thread, and memory clean-up pauses (`[data]`), to find the cause of the lag.
 - After a phone or tablet app crash, the next start also writes the problem into the log the device sends to its computers (`[crash]` lines), so a crash can be read without a screenshot.
 - Phones log, once a minute, how many screen refreshes ran and how long each part took (`[ui]` lines in the log they send to their computers), so app lag can be measured on the device.
 - Phone app lag and flickering controls once readings flow: every live refresh rebuilt the selected computer's controls and opened two new sessions to it (update status, pairing requests), about five a second. The same selection now keeps its controls and re-reads at most every 30 s.

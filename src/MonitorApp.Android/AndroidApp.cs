@@ -62,6 +62,45 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
         };
     }
 
+    /// <summary>
+    /// Measures how late the screen thread is: a 100 ms tick that arrives late means taps and scrolling waited that long too. One
+    /// <c>[ui]</c> line a minute goes into the log this device sends to its computers.
+    /// </summary>
+    private static void WatchScreenLag()
+    {
+        var interval = TimeSpan.FromMilliseconds(100);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var last = watch.Elapsed;
+        var windowStart = last;
+        int ticks = 0, late50 = 0, late250 = 0, late1000 = 0;
+        double lateTotal = 0, worst = 0;
+        var timer = new DispatcherTimer(interval, DispatcherPriority.Input, (_, _) =>
+        {
+            var now = watch.Elapsed;
+            var late = Math.Max(0, (now - last - interval).TotalMilliseconds);
+            last = now;
+            ticks++;
+            lateTotal += late;
+            worst = Math.Max(worst, late);
+            late50 += late >= 50 ? 1 : 0;
+            late250 += late >= 250 ? 1 : 0;
+            late1000 += late >= 1000 ? 1 : 0;
+            if (now - windowStart < TimeSpan.FromMinutes(1))
+            {
+                return;
+            }
+
+            DiagnosticLog.Write("ui", string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"screen thread lateness over {(now - windowStart).TotalSeconds:0} s: {ticks} checks, late by 50 ms+ {late50}, 250 ms+ {late250}, 1 s+ {late1000}; " +
+                $"worst {worst:0} ms, total {lateTotal:0} ms"));
+            windowStart = now;
+            ticks = late50 = late250 = late1000 = 0;
+            lateTotal = worst = 0;
+        });
+        timer.Start();
+    }
+
     private static string Version =>
         typeof(AndroidApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
@@ -89,6 +128,11 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
         {
             var context = global::Android.App.Application.Context;
             var runtime = await MobileRuntimeHost.GetAsync(context).ConfigureAwait(true);
+            if (PeerForegroundService.ResumeIfLeftOn(context))
+            {
+                DiagnosticLog.Write("node", "resuming monitoring on app open (it was left on)");
+            }
+
             var source = new InProcessPeerDataSource(
                 runtime,
                 startHost: () => PeerForegroundService.Start(context),
@@ -108,6 +152,7 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
             }
 
             model = new MainViewModel(source) { CrashNotice = crash };
+            WatchScreenLag();
             view.DataContext = model;
             await model.ConnectAsync().ConfigureAwait(true);
         }
