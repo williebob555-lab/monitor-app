@@ -122,12 +122,95 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
                 DiagnosticLog.Write("exit", string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"an earlier run ended {at:yyyy-MM-ddTHH:mm:ssZ}: {exit.Reason} ({exit.Description ?? "no description"}); importance {exit.Importance}, memory {exit.Pss / 1024} MB"));
+                LogCrashReport(context, exit, at);
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             DiagnosticLog.Write("exit", "could not read why earlier runs ended", exception);
         }
+    }
+
+    private const int NativeCrash = 5; // ApplicationExitInfo.REASON_CRASH_NATIVE
+    private const int NotResponding = 6; // ApplicationExitInfo.REASON_ANR
+
+    /// <summary>
+    /// For a native crash or a freeze ("not responding"), sends Android's own report once: the readable parts of the native crash
+    /// report (libraries, functions, abort message) or the first lines of the freeze's thread dump. A native crash never reaches the
+    /// app's own crash catcher, so this is the only record of where it happened.
+    /// </summary>
+    private static void LogCrashReport(global::Android.Content.Context context, global::Android.App.ApplicationExitInfo exit, DateTime at)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(31))
+        {
+            return;
+        }
+
+        var reason = (int)exit.Reason;
+        if (reason != NativeCrash && reason != NotResponding)
+        {
+            return;
+        }
+
+        var preferences = context.GetSharedPreferences("diagnostics", global::Android.Content.FileCreationMode.Private);
+        if (preferences is null || preferences.GetLong("reported-exit", 0) >= exit.Timestamp)
+        {
+            return; // already sent
+        }
+
+        preferences.Edit()?.PutLong("reported-exit", exit.Timestamp)?.Apply();
+        using var stream = exit.TraceInputStream;
+        if (stream is null)
+        {
+            DiagnosticLog.Write("exit", $"no report kept for the {at:yyyy-MM-ddTHH:mm:ssZ} {(reason == NativeCrash ? "native crash" : "freeze")}");
+            return;
+        }
+
+        var bytes = new byte[2 * 1024 * 1024];
+        var length = 0;
+        int read;
+        while (length < bytes.Length && (read = stream.Read(bytes, length, bytes.Length - length)) > 0)
+        {
+            length += read;
+        }
+
+        IEnumerable<string> lines = reason == NativeCrash ? ReadableParts(bytes.AsSpan(0, length)) : System.Text.Encoding.UTF8.GetString(bytes, 0, length).Split('\n');
+        DiagnosticLog.Write("exit", $"report for the {at:yyyy-MM-ddTHH:mm:ssZ} {(reason == NativeCrash ? "native crash" : "freeze")} ({length} bytes):");
+        foreach (var line in lines.Select(l => l.Trim()).Where(l => l.Length > 0).Take(120))
+        {
+            DiagnosticLog.Write("exit", line);
+        }
+    }
+
+    /// <summary>The printable strings of a native crash report (a protobuf), in order and without repeats.</summary>
+    private static List<string> ReadableParts(ReadOnlySpan<byte> data)
+    {
+        var parts = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var start = -1;
+        for (var i = 0; i <= data.Length; i++)
+        {
+            var printable = i < data.Length && data[i] >= 0x20 && data[i] < 0x7f;
+            if (printable && start < 0)
+            {
+                start = i;
+            }
+            else if (!printable && start >= 0)
+            {
+                if (i - start >= 6)
+                {
+                    var text = System.Text.Encoding.ASCII.GetString(data[start..i]);
+                    if (seen.Add(text))
+                    {
+                        parts.Add(text);
+                    }
+                }
+
+                start = -1;
+            }
+        }
+
+        return parts;
     }
 
     private static string Version =>
