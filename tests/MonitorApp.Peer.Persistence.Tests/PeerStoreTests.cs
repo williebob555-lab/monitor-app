@@ -166,7 +166,7 @@ public sealed class PeerStoreTests : IDisposable
         await check.OpenAsync();
         await using var versions = check.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(6L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(7L, (long)(await versions.ExecuteScalarAsync())!);
         await using var plan = check.CreateCommand();
         plan.CommandText = "EXPLAIN QUERY PLAN SELECT sequence FROM origin_records WHERE observed_at >= 'a' AND observed_at < 'b' ORDER BY observed_at, origin_peer_id, origin_stream_id, sequence;";
         var detail = string.Empty;
@@ -500,7 +500,7 @@ public sealed class PeerStoreTests : IDisposable
         await verify.OpenAsync();
         await using var versions = verify.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(6L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(7L, (long)(await versions.ExecuteScalarAsync())!);
     }
 
     [Fact]
@@ -542,7 +542,7 @@ public sealed class PeerStoreTests : IDisposable
         await verify.OpenAsync();
         await using var versions = verify.CreateCommand();
         versions.CommandText = "SELECT MAX(version) FROM schema_migrations;";
-        Assert.Equal(6L, (long)(await versions.ExecuteScalarAsync())!);
+        Assert.Equal(7L, (long)(await versions.ExecuteScalarAsync())!);
     }
 
     private async Task<PeerStore> CreateStoreAsync()

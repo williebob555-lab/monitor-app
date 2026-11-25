@@ -147,6 +147,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         Directory.CreateDirectory(options.DataDirectory);
         var store = new PeerStore(PeerStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
         await store.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (store.LatestBackfill is { } backfill)
+        {
+            DiagnosticLog.Write("store", FormattableString.Invariant(
+                $"built the latest-value table: {backfill.Rows} readings in {backfill.Duration.TotalMilliseconds:F0} ms (one time, schema v7)"));
+        }
         var alertStore = new AlertStore(AlertStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
         await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await MobilePeerIdentity.EnsureRegisteredAsync(store, identity, cancellationToken).ConfigureAwait(false);

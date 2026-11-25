@@ -286,6 +286,11 @@ public sealed partial class PeerStore
             await MergePrunedRangeAsync(connection, transaction, run, cancellationToken).ConfigureAwait(false);
         }
 
+        if (deleted > 0)
+        {
+            await RepairLatestAfterPruneAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        }
+
         int pinned, transitions, awaiting;
         await using (var counts = Command(PruneFlagsSql + """
             SELECT COALESCE(SUM(pinned), 0), COALESCE(SUM(NOT pinned AND transition), 0),
