@@ -26,6 +26,7 @@ This file records completed user-visible, operational, architectural, packaging,
 
 ### Fixed
 - **Phones and tablets keep monitoring after an update or restart.** Before, an update closed monitoring and nothing started it again until you tapped Start monitoring, so the device went silent. Now, once you start it, it resumes by itself after updates, reboots and when you open the app, until you tap Stop. (After installing this version, tap Start monitoring once more so it is remembered.)
+- After a native crash or a freeze on a phone or tablet, the next start sends Android's own report once (`[exit]` lines: libraries, functions and the abort message), because such crashes never reach the app's crash catcher. On 2026-11-25 the Pixel's monitoring stopped at 21:31:46 UTC because of a native crash (Android exit reason 5).
 - To find why phone monitoring keeps stopping: a restarted device now also sends the end of its previous run's log, plus Android's own record of why earlier runs ended (`[exit]`: crash, low memory, killed by the system, stopped by the person), and logs when the monitoring service is asked to stop, destroyed, swiped away or asked to free memory.
 - Phones log once a minute how late the screen thread is (`[ui]`), and which data reads are slow, how long they waited for a thread, and memory clean-up pauses (`[data]`), to find the cause of the lag.
 - After a phone or tablet app crash, the next start also writes the problem into the log the device sends to its computers (`[crash]` lines), so a crash can be read without a screenshot.
