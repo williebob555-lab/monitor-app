@@ -8,6 +8,7 @@ import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
 import '../version.dart';
+import 'extras.dart';
 import 'linux.dart';
 import 'sample.dart';
 import 'windows.dart';
@@ -74,6 +75,7 @@ class Agent {
   DateTime? _lastCycle;
   DateTime? _lastHistory;
   List<String> _watchers = const [];
+  final _extras = Extras();
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
   /// app open on any device (a fresh file in watch/), one every 10 s. The
@@ -143,6 +145,13 @@ class Agent {
         peers[o.id] = PeerView(tcp: tcp, pingMs: ms, seenAge: seen);
       }));
 
+      List<Reading> extra;
+      try {
+        extra = await _extras.collect(now);
+      } catch (_) {
+        extra = const [];
+      }
+
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
       final cycleCpu = cpu0 != null && cpu1 != null ? cpu1 - cpu0 : null;
@@ -175,6 +184,7 @@ class Agent {
         tailscaleIp: ip,
         syncthingLocal: stLocal == 'open',
         peers: peers,
+        readings: extra,
         self: SelfCost(rssMb: rss, runMs: sw.elapsedMilliseconds, cpuMs: cycleCpu, over: over),
       );
       folder.writeNow(r);

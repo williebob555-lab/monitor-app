@@ -194,3 +194,27 @@ class WindowsHost implements Host {
     }
   }
 }
+
+final _adv = DynamicLibrary.open('advapi32.dll');
+final _regGetValue = _adv.lookupFunction<
+    Int32 Function(IntPtr, Pointer<Utf16>, Pointer<Utf16>, Uint32, Pointer<Uint32>, Pointer<Void>, Pointer<Uint32>),
+    int Function(int, Pointer<Utf16>, Pointer<Utf16>, int, Pointer<Uint32>, Pointer<Void>, Pointer<Uint32>)>('RegGetValueW');
+const _hklm = 0x80000002;
+const _rrfRtRegSz = 0x00000002;
+
+/// A text value from HKEY_LOCAL_MACHINE, read in-process (no reg.exe).
+String? windowsRegString(String key, String value) {
+  final k = key.toNativeUtf16(), v = value.toNativeUtf16();
+  final size = calloc<Uint32>()..value = 1024;
+  final buf = calloc<Uint8>(1024);
+  try {
+    if (_regGetValue(_hklm, k, v, _rrfRtRegSz, nullptr, buf.cast(), size) != 0) return null;
+    final s = buf.cast<Utf16>().toDartString().trim();
+    return s.isEmpty ? null : s;
+  } finally {
+    calloc.free(k);
+    calloc.free(v);
+    calloc.free(size);
+    calloc.free(buf);
+  }
+}

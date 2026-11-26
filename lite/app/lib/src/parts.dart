@@ -173,12 +173,14 @@ List<Part> partsOf(Report r, Map<String, String> names) {
   }
   for (final g in groups.entries) {
     final nums = g.value.where((x) => x.value is num).toList();
+    final flagged = g.value.map((x) => x.level).whereType<String>().toSet();
     out.add(Part(
+      level: flagged.contains('fault') ? Level.fault : flagged.contains('warn') ? Level.warn : Level.ok,
       id: 'g:${g.key}',
       title: g.key,
       icon: Icons.sensors,
-      value: g.value.length == 1 ? _readingText(g.value.first) : '${g.value.length} readings',
-      sub: g.value.length == 1 ? (g.value.first.label ?? g.value.first.key) : null,
+      value: _headline(g.value),
+      sub: g.value.length == 1 ? (g.value.first.label ?? g.value.first.key) : _subline(g.value),
       series: [
         for (final x in nums)
           Series(x.label ?? x.key, x.key, (rr) => rr.readings.where((y) => y.key == x.key).map((y) => y.value).whereType<num>().firstOrNull?.toDouble(),
@@ -188,6 +190,21 @@ List<Part> partsOf(Report r, Map<String, String> names) {
     ));
   }
   return out;
+}
+
+/// The most telling reading of a group: a flagged one, else the first
+/// number, else the first value.
+String _headline(List<Reading> g) {
+  final x = g.where((r) => r.level == 'fault').firstOrNull ??
+      g.where((r) => r.level == 'warn').firstOrNull ??
+      (g.length == 1 ? g.first : null);
+  if (x != null) return _readingText(x);
+  return _readingText(g.first);
+}
+
+String? _subline(List<Reading> g) {
+  final rest = g.skip(1).take(2).map((r) => '${r.label ?? r.key} ${_readingText(r)}');
+  return rest.isEmpty ? null : rest.join('  ·  ');
 }
 
 int? _minus(int? a, int? b) => a == null || b == null ? null : a - b;

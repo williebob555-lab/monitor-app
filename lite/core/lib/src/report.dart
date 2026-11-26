@@ -211,16 +211,21 @@ class Report {
 /// value: 54.2, unit: "°C", group: "Sensors"}. Value may be a number, text
 /// or true/false.
 class Reading {
-  Reading({required this.key, required this.value, this.label, this.unit, this.group});
+  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level});
   final String key;
   final Object value;
   final String? label, unit, group;
+
+  /// Optional judgement by the device itself: "warn" or "fault". The app
+  /// marks the reading's part with it.
+  final String? level;
 
   static Reading? tryParse(Object? j) {
     if (j is! Map) return null;
     final k = j['key'], v = j['value'];
     if (k is! String || k.isEmpty || !(v is num || v is String || v is bool)) return null;
-    return Reading(key: k, value: v as Object, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']));
+    return Reading(
+        key: k, value: v as Object, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']), level: _str(j['level']));
   }
 
   Map<String, Object?> toJson() => {
@@ -229,6 +234,7 @@ class Reading {
         if (label != null) 'label': label,
         if (unit != null) 'unit': unit,
         if (group != null) 'group': group,
+        if (level != null) 'level': level,
       };
 }
 
