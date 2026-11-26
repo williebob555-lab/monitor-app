@@ -174,7 +174,9 @@ public sealed class LatestObservationsTests : IDisposable
         // origin_records. It opens the way every store did before (shared cache), as another store instance would.
         await using var writer = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = DatabasePath, Pooling = false, Cache = SqliteCacheMode.Shared,
+            DataSource = DatabasePath,
+            Pooling = false,
+            Cache = SqliteCacheMode.Shared,
         }.ToString());
         await writer.OpenAsync();
         await using var transaction = writer.BeginTransaction(deferred: false);
