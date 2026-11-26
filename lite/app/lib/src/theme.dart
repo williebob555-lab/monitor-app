@@ -26,6 +26,7 @@ class C {
 ThemeData buildTheme() {
   final base = ThemeData(
     brightness: Brightness.dark,
+    fontFamily: 'Inter',
     scaffoldBackgroundColor: C.bg,
     colorScheme: const ColorScheme.dark(
       surface: C.surface,

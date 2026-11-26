@@ -73,8 +73,8 @@ class HomePage extends StatelessWidget {
                     sliver: SliverToBoxAdapter(
                       child: Center(
                         child: SizedBox(
-                          width: math.min(box.maxWidth - 2 * pad, 620),
-                          height: (box.maxWidth - 2 * pad).clamp(280.0, 470.0) + 100,
+                          width: math.min(box.maxWidth - 2 * pad, 760),
+                          height: (box.maxWidth - 2 * pad).clamp(300.0, 500.0) + 110,
                           child: _MapPanel(state),
                         ),
                       ),
@@ -331,15 +331,21 @@ class _MapPanelState extends State<_MapPanel> {
           Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
         }),
       ),
-      SizedBox(
-        height: 48,
-        child: Row(children: [
-          SizedBox(
-            width: 92,
-            child: Text(local == null ? 'Now' : hm(local),
-                style: TextStyle(color: local == null ? C.muted : C.warn, fontSize: 12.5, fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
+      const SizedBox(height: 4),
+      Row(children: [
+        const SizedBox(width: 64, child: Text('24 h ago', style: TextStyle(color: C.muted, fontSize: 11.5))),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              activeTrackColor: C.muted.withValues(alpha: 0.6),
+              inactiveTrackColor: C.line,
+              thumbColor: C.text,
+              overlayColor: C.text.withValues(alpha: 0.08),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 2),
+              tickMarkShape: SliderTickMarkShape.noTickMark,
+              showValueIndicator: ShowValueIndicator.never,
+            ),
             child: Slider(
               // Left is 24 h ago, right is now.
               value: 24 * 60 - back,
@@ -349,14 +355,21 @@ class _MapPanelState extends State<_MapPanel> {
               onChanged: (v) => setState(() => back = 24 * 60 - v),
             ),
           ),
-          SizedBox(
-            width: 92,
-            child: back > 0
-                ? TextButton(onPressed: () => setState(() => back = 0), child: const Text('Back to now'))
-                : const Text('drag back 24 h', textAlign: TextAlign.right, style: TextStyle(color: C.muted, fontSize: 11)),
+        ),
+        SizedBox(
+          width: 64,
+          child: GestureDetector(
+            onTap: () => setState(() => back = 0),
+            child: Text(local == null ? 'Live' : hm(local),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    color: local == null ? C.ok : C.warn,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()])),
           ),
-        ]),
-      ),
+        ),
+      ]),
     ]);
   }
 }
