@@ -176,6 +176,12 @@ class Agent {
         }
         // Skip devices silent for over a day: probing them is wasted effort.
         if (seen > 86400) return;
+        // The other system of a dual-boot machine that is running its twin:
+        // it is not booted, so there is nothing to reach. Not a problem.
+        final twinUp = o.machine != null &&
+            others.values.any((x) => x.id != o.id && x.machine == o.machine && x.time.isAfter(o.time)) &&
+            seen > o.nextSeconds * 3 + 120;
+        if (twinUp || (o.machine != null && o.machine == _machine)) return;
         // Both at once: an unreachable device costs one timeout, not two.
         final (tcp, ms) = await (tcpProbe(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
         peers[o.id] = PeerView(tcp: tcp, pingMs: ms, seenAge: seen);
@@ -236,7 +242,13 @@ class Agent {
           id: cfg.id,
           type: 'device',
           children: {...folder.thingIds(cfg.id), for (final t in things) t.id}.toList()..sort(),
-          links: Things.hostLinks(things),
+          links: [
+            ...Things.hostLinks(things),
+            // Other systems of this same machine (dual boot), from their files.
+            for (final o in others.values)
+              if (o.id != cfg.id && _machine != null && o.machine == _machine && o.kind != 'android')
+                NodeLink(to: o.id, via: 'dual-boot', dir: 'both', detail: 'same machine, ${o.os ?? o.name}; only one runs at a time'),
+          ],
         ),
       );
       _writeThings(folder, cfg.id, things, now);

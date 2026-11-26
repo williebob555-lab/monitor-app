@@ -2,7 +2,10 @@ import 'report.dart';
 import 'status.dart';
 
 /// How things connect. Kept to a short fixed list so every reader agrees.
-const linkVias = {'usb', 'power', 'network', 'audio', 'thunderbolt', 'serial', 'bluetooth'};
+/// "dual-boot": another operating system on the same physical machine.
+/// Only one runs at a time; they share the machine's disks and, if set up
+/// that way, its storage and Compose projects.
+const linkVias = {'usb', 'power', 'network', 'audio', 'thunderbolt', 'serial', 'bluetooth', 'dual-boot'};
 
 /// The direction a link carries what it carries, seen from the node that
 /// declares it: "out" (from me to them, e.g. a UPS giving power), "in" (to

@@ -184,9 +184,20 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
     }
     folded.removeWhere((f) => (byFamily[f]?.length ?? 0) < 2);
+    // A dual-boot machine is one host: the system not booted right now hangs
+    // under the one that is, instead of looking like a device that is down.
+    final asleep = <String, DeviceStatus>{}; // running system's id -> the other one
+    for (final d in devices) {
+      final m = d.report.machine;
+      if (m == null || d.fresh || d.report.kind == 'android') continue;
+      final up = devices.where((o) => o.report.id != d.report.id && o.report.machine == m && o.fresh).firstOrNull;
+      if (up != null) asleep[up.report.id] = d;
+    }
+    final sleeping = {for (final d in asleep.values) d.report.id};
     final owner = <String, String>{}; // device id -> node id
     final out = <_Node>[];
     for (final d in devices) {
+      if (sleeping.contains(d.report.id)) continue;
       final f = familyOf(d.report);
       if (folded.contains(f)) {
         owner[d.report.id] = 'family:$f';
@@ -207,8 +218,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     // Cables, folded families merged into one cable per pair of nodes.
     final merged = <String, List<Link>>{};
     for (final l in linksOf(devices)) {
-      final a = owner[l.a]!, b = owner[l.b]!;
-      if (a == b) continue;
+      final a = owner[l.a], b = owner[l.b];
+      if (a == null || b == null || a == b) continue;
       merged.putIfAbsent(a.compareTo(b) < 0 ? '$a\n$b' : '$b\n$a', () => []).add(l);
     }
     edges = [
@@ -224,6 +235,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
     // Attached things hang under their device, unless it is folded away.
     attached = {};
+    for (final e in asleep.entries) {
+      if (owner[e.key] == e.key) attached.putIfAbsent(e.key, () => []).add(e.value);
+    }
     for (final t in widget.things) {
       final parent = t.report.node?.parent;
       if (parent == null || owner[parent] != parent) continue;
@@ -533,11 +547,17 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
         child: Transform.scale(
           scale: zoom.clamp(0.6, 1.2),
           child: Center(
-            child: _AttachTag(open ? 'attached · ${list.length}' : '${list.length} attached', open: open, level: worst, onTap: () => _toggleThings(host)),
+            child: _AttachTag(_tagText(list, open), open: open, level: worst, onTap: () => _toggleThings(host)),
           ),
         ),
       ),
     );
+  }
+
+  static String _tagText(List<DeviceStatus> list, bool open) {
+    final os = list.where((d) => !d.report.isThing).length, things = list.length - os;
+    final parts = [if (things > 0) '$things attached', if (os > 0) 'other system'];
+    return parts.join(' · ');
   }
 
   Widget _placed(_Node n) {
@@ -1363,7 +1383,7 @@ class _ThingChip extends StatelessWidget {
     final problem = s.level == Level.warn || s.level == Level.fault;
     final off = s.level == Level.inactive;
     final head = _thingHeadline(r);
-    final sub = problem || off ? s.title : head ?? s.title;
+    final sub = !r.isThing ? '${r.os ?? r.name} · not booted now' : problem || off ? s.title : head ?? s.title;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       padding: const EdgeInsets.fromLTRB(6, 5, 9, 5),
@@ -1385,7 +1405,7 @@ class _ThingChip extends StatelessWidget {
             width: 26,
             height: 26,
             decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(7), border: Border.all(color: const Color(0xFF2C323B))),
-            child: Icon(thingIcon(r.node?.type), size: 14, color: problem ? C.of(s.level) : C.text),
+            child: Icon(r.isThing ? thingIcon(r.node?.type) : kindIcon(r.kind, r.name), size: 14, color: problem ? C.of(s.level) : C.text),
           ),
           const SizedBox(width: 8),
           Expanded(

@@ -18,6 +18,10 @@
 # /usr/local/lib/monitor-app/ (root-owned) so the nightly job cannot be
 # changed without root.
 #
+# Dual boot (two systems on one machine sharing /srv/storage): install it on
+# each system with that system's own --dir. Each timer only exists, and only
+# runs, on its own system and acts on its own project, so they never meet.
+#
 # Downloads are checked by the Dockerfile against the release's SHA256SUMS.
 # Every attempt is appended to this device's log.txt in the Monitor folder.
 set -u
@@ -56,6 +60,8 @@ cfg=$(dc config "$service") || exit 2
 # Host folders mounted at a container path, from the normalised config.
 mount_of() { echo "$cfg" | awk -v t="$1" '/source:/{s=$2} /target:/{if($2==t){print s; exit}}'; }
 [ -n "$image" ] || image=$(echo "$cfg" | awk '/^ *image:/{print $2; exit}')
+# Compose's own default when the file names no image: <project>-<service>.
+[ -n "$image" ] || image="$(echo "${project:-$(basename "$dir")}" | tr 'A-Z' 'a-z')-$service"
 [ -n "$folder" ] || folder=$(mount_of /monitor)
 [ -n "$state" ] || state=$(mount_of /data)
 [ -n "$id" ] || id=$(grep -o '"id": *"[^"]*"' "$state/.config/monitor-lite/config.json" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/')
