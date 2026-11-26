@@ -55,19 +55,22 @@ An audio interface's readings need the `/proc/asound` line in `compose.yaml` unc
 
 ## Update
 
-Automatic (recommended), once per server:
+Automatic (recommended), once per deployment. `--dir` is the folder holding
+its `compose.yaml`; everything else (service, image, Monitor folder, state,
+device id) is read from that project's Compose config:
 
 ```sh
-cd ~/monitor-app
-curl -fsSLO https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/docker/update.sh
-sh update.sh --install
+curl -fsSL -o /tmp/update.sh https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/docker/update.sh
+sudo sh /tmp/update.sh --dir ~/monitor-app --check     # shows what it found; changes nothing
+sudo sh /tmp/update.sh --dir ~/monitor-app --install   # daily timer for this project only
 ```
 
-Every day around 04:20 it checks for a newer Monitor App release and, if
-there is one, rebuilds and restarts the collector (the SHA256 is checked
-before anything is used). Each update, and any failure, is written to this
-server's log in the app. Runs as you, not root; `sudo` is asked once so it
-also runs when nobody is signed in. To update right now: `sh update.sh`.
+Every day around 04:20 a root systemd timer for that one project checks for a
+newer release and, if there is one, rebuilds and restarts only its collector
+service (`--no-deps`; no other container is touched). The Dockerfile checks the
+SHA256 first. Each attempt is written to that device's log in the app. Your
+user needs no docker group. Update now: `sudo sh /usr/local/lib/monitor-app/update.sh --dir ~/monitor-app`.
+Overrides if detection is wrong: `--service --image --folder --state --id --project`.
 
 By hand instead:
 
