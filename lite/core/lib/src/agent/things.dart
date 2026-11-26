@@ -13,6 +13,10 @@ import '../topology.dart';
 /// Every reading says where it comes from (Reading.src): measured now,
 /// declared by the device about itself, estimated, or unknown with a note
 /// saying why. Nothing is filled in.
+/// Docker hides /proc/asound; the container can be given the host's copy
+/// at /host/asound (see packaging/docker/compose.yaml).
+final String _asound = Directory('/host/asound').existsSync() ? '/host/asound' : '/proc/asound';
+
 class Things {
   /// USB vendors that make UPSes speaking the USB HID power device class.
   static const upsVendors = {
@@ -256,20 +260,20 @@ class Things {
     // The ALSA card whose usbid matches this USB device.
     String? card;
     try {
-      for (final e in Directory('/proc/asound').listSync()) {
+      for (final e in Directory(_asound).listSync()) {
         final n = e.uri.pathSegments.where((x) => x.isNotEmpty).last;
         if (!RegExp(r'^card\d+$').hasMatch(n)) continue;
-        if (_read('/proc/asound/$n/usbid') == '${u.vid}:${u.pid}') card = n;
+        if (_read('$_asound/$n/usbid') == '${u.vid}:${u.pid}') card = n;
       }
     } catch (_) {}
     if (card == null) {
-      return [Reading(key: 'audio.card', label: 'Sound card', value: null, group: 'Audio', src: 'unknown', note: 'no ALSA card for it on this system')];
+      return [Reading(key: 'audio.card', label: 'Sound card', value: null, group: 'Audio', src: 'unknown', note: 'no ALSA card for it on this system (in Docker, mount /proc/asound at /host/asound)')];
     }
     final out = <Reading>[
-      Reading(key: 'audio.card', label: 'Sound card', value: '${_read('/proc/asound/$card/id') ?? card} ($card)', group: 'Audio', src: 'measured'),
+      Reading(key: 'audio.card', label: 'Sound card', value: '${_read('$_asound/$card/id') ?? card} ($card)', group: 'Audio', src: 'measured'),
     ];
     // stream0: what the USB audio driver negotiated, per direction.
-    final stream = _read('/proc/asound/$card/stream0') ?? '';
+    final stream = _read('$_asound/$card/stream0') ?? '';
     for (final dir in const ['Playback', 'Capture']) {
       final i = stream.indexOf('$dir:');
       if (i < 0) continue;
@@ -287,7 +291,7 @@ class Things {
         if (fmt != null) Reading(key: 'audio.$k.format', label: '$dir format', value: fmt, group: 'Audio', src: 'declared'),
       ]);
       // hw_params of an open stream: the rate and buffer actually in use.
-      final hw = _read('/proc/asound/$card/pcm0${k[0]}/sub0/hw_params');
+      final hw = _read('$_asound/$card/pcm0${k[0]}/sub0/hw_params');
       if (hw != null && hw != 'closed') {
         final rate = RegExp(r'rate:\s*(\d+)').firstMatch(hw)?.group(1);
         final buf = RegExp(r'buffer_size:\s*(\d+)').firstMatch(hw)?.group(1);

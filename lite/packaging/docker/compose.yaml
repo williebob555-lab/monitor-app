@@ -24,6 +24,11 @@ services:
       - ${MONITOR_FOLDER:?set MONITOR_FOLDER in .env to the shared Monitor folder}:/monitor
       - ./data:/data
       - /etc/os-release:/etc/os-release:ro
+      # Optional: readings from a USB audio interface. Docker hides the
+      # host's sound card details; this shares them read-only.
+      # - /proc/asound:/host/asound:ro
+      # A USB UPS is read through NUT on the host (127.0.0.1:3493): install
+      # nut on the host and set up usbhid-ups; nothing to add here.
       # Optional: list this server's containers (running, stopped, unhealthy).
       # The collector only reads, but the Docker socket gives whoever holds it
       # full control of Docker, so this is off unless you remove the #s.
