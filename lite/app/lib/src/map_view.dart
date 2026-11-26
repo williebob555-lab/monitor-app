@@ -324,6 +324,16 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
                   ? Level.warn
                   : Level.fault;
     }
+    syncLevel.clear();
+    for (final n in out.where((n) => !n.small)) {
+      Level one(DeviceStatus d) => d.report.syncthingLocal == false
+          ? Level.fault
+          : d.fresh
+              ? Level.ok
+              : Level.warn;
+      final ms = n.folded ? n.members : [n.s];
+      syncLevel[n.id] = ms.map(one).reduce((a, b) => a.index >= b.index ? a : b);
+    }
     _layout();
     if (focus != null && !ids.contains(focus)) focus = null;
     if (changed) _wake();
@@ -395,7 +405,13 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   /// some do, none do, or nobody has checked.
   final netLevel = <String, Level>{};
 
-  static const _cellGap = 34.0, _rowGap = 40.0, _pad = 16.0, _header = 34.0, _tierGap = 24.0, _sideGap = 44.0;
+  /// How its Syncthing fares: running and its file arriving fresh here.
+  final syncLevel = <String, Level>{};
+
+  /// Phone width: one device per row, hardware stacked on its right.
+  bool get narrow => area.width > 0 && area.width < 520;
+
+  static const _cellGap = 40.0, _rowGap = 62.0, _pad = 16.0, _header = 34.0, _tierGap = 24.0, _sideGap = 72.0;
 
   List<_Node> hwOf(String host) => [for (final n in nodes) if (n.host == host) n];
 
@@ -403,15 +419,19 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   ({double w, double h, double left, double right}) _cell(_Node n) {
     final sz = sizeOf(n);
     final hw = hwOf(n.id);
-    final l = (hw.length + 1) ~/ 2, r = hw.length ~/ 2;
+    final l = narrow ? 0 : (hw.length + 1) ~/ 2, r = hw.length - l;
     final side = thingSize.width + _sideGap;
-    final left = l > 0 ? side : 0.0, right = r > 0 ? side : 0.0;
+    var left = l > 0 ? side : 0.0, right = r > 0 ? side : 0.0;
+    // The software box is centred under the card; make room for it.
+    final k0 = attached.containsKey(n.id) && isOpen(n.id) ? boxed(n.id).length : 0;
+    final half = math.max(k0 * thingSize.width + (k0 - 1) * 14 + 20, 170.0) / 2 - sz.width / 2;
+    left = math.max(left, half);
+    right = math.max(right, half);
     var w = sz.width + left + right;
-    var h = math.max(sz.height, ((hw.length + 1) ~/ 2) * (thingSize.height + 12) - 12);
+    var h = math.max(sz.height, math.max(l, r) * (thingSize.height + 12) - 12);
     if (attached.containsKey(n.id)) {
       final k = isOpen(n.id) ? boxed(n.id).length : 0;
       h = sz.height + 26 + 14 + (k > 0 ? 30 + thingSize.height + 10 : 0);
-      if (k > 0) w = math.max(w, k * thingSize.width + (k - 1) * 14 + 20);
     }
     return (w: w, h: h, left: left, right: right);
   }
@@ -457,7 +477,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     final total = tops.fold(0.0, (a, n) => a + cells[n.id]!.w + _cellGap);
     var best = widest, bestZoom = 0.0;
     final view = area.isEmpty ? const Size(700, 500) : area;
-    for (var i = 0; i <= 16; i++) {
+    for (var i = 0; i <= (narrow ? 0 : 16); i++) {
       final maxW = widest + (total - widest) * i / 16;
       final rows = rowsFor(maxW);
       final w = rows.expand((t) => t).map(rowW).reduce(math.max) + 2 * _pad + 40;
@@ -491,9 +511,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
           last = card.dx;
           final hw = hwOf(n.id);
           for (var k = 0; k < hw.length; k++) {
-            final side = k.isEven ? -1.0 : 1.0;
-            final rowsHw = side < 0 ? (hw.length + 1) ~/ 2 : hw.length ~/ 2;
-            final dy = ((k ~/ 2) - (rowsHw - 1) / 2) * (thingSize.height + 12);
+            final side = narrow || k.isOdd ? 1.0 : -1.0;
+            final rowsHw = narrow ? hw.length : side < 0 ? (hw.length + 1) ~/ 2 : hw.length ~/ 2;
+            final dy = ((narrow ? k : k ~/ 2) - (rowsHw - 1) / 2) * (thingSize.height + 12);
             targets[hw[k].id] = card + Offset(side * (sz.width / 2 + _sideGap + thingSize.width / 2), dy);
           }
           final kids = isOpen(n.id) ? boxed(n.id) : const <DeviceStatus>[];
@@ -813,17 +833,23 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
         onClose: () => setState(() => focus = null),
       );
     }
-    return SizedBox(
+    return Padding(
       key: const ValueKey('hint'),
-      height: 40,
-      child: Center(
-        child: Text(
-            busy
-                ? 'Tap a device to see its links  ·  tap a family name to fold it  ·  pinch or scroll to zoom'
-                : 'Dots show traffic each way  ·  tap a cable for details',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: C.muted, fontSize: 11.5)),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        for (final (c, t) in const [
+          (_MapPainter.pulseNet, 'network'),
+          (_MapPainter.pulseSync, 'Syncthing'),
+          (_MapPainter.layerUsb, 'USB'),
+          (_MapPainter.pulsePower, 'power'),
+        ])
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 14, height: 2.5, color: c.withValues(alpha: 0.7)),
+            const SizedBox(width: 5),
+            Text(t, style: const TextStyle(color: C.muted, fontSize: 11.5)),
+          ]),
+        const Text('tap a trace for details', style: TextStyle(color: C.muted, fontSize: 11.5)),
+      ]),
     );
   }
 
@@ -882,6 +908,8 @@ class _MapPainter extends CustomPainter {
     };
     _regions(canvas);
     _network(canvas, rects);
+    _pins(canvas, rects);
+    _hardware(canvas, rects);
     final groups = _groups(rects);
     final pills = <Rect>[...rects.values, ...groups.values];
     final order = [...m.edges]..sort((x, y) => _weight(x).compareTo(_weight(y)));
@@ -895,7 +923,7 @@ class _MapPainter extends CustomPainter {
       final focused = who == e.a || who == e.b || identical(e, m.selected);
       // Device to device: only the selected device's, over everything else.
       // Hardware cables always show.
-      if (e.via == null && !focused) continue;
+      if (e.via != null || !focused) continue;
       final a = _edge(ra, rb.center), b = _edge(rb, ra.center);
       // A cable that would cross another device's group bends around it.
       final around = e.via != null ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _detour(a, b, [...groups.values]);
@@ -1040,9 +1068,7 @@ class _MapPainter extends CustomPainter {
         final appear = m.bodies[th.report.id]!.appear;
         final to = Offset(r.center.dx, r.top - 2);
         final mid = (j.dy + to.dy) / 2;
-        final path = Path()
-          ..moveTo(j.dx, j.dy)
-          ..cubicTo(j.dx, mid, to.dx, mid, to.dx, to.dy);
+        final path = _trace([j, Offset(j.dx, mid), Offset(to.dx, mid), to], 8 * m.zoom);
         final level = th.level;
         final color = level == Level.ok ? const Color(0xFF4A5562) : C.of(level);
         final line = Paint()
@@ -1102,72 +1128,216 @@ class _MapPainter extends CustomPainter {
     }
   }
 
-  /// The private network on top, a trunk down the left, a bus over each row
-  /// and one cable up from each device, coloured by how its peers reach it.
+  // ---- the board -----------------------------------------------------------
+  //
+  // Drawn like a circuit board: devices are chips, connections are traces
+  // with 45° bends, pads where they land and vias where they join a bus. Each
+  // kind of connection is its own quiet layer; colour is kept for problems.
+
+  static const board = Color(0xFF15181D);
+  static const layerNet = Color(0xFF3D5A61); // private network (Tailscale)
+  static const layerSync = Color(0xFF4A4E72); // Syncthing
+  static const layerUsb = Color(0xFF5C6878);
+  static const layerPower = Color(0xFF6A5734);
+  static const pulseNet = Color(0xFF6FD3DB);
+  static const pulseSync = Color(0xFF9EA6F0);
+  static const pulsePower = Color(0xFFE8B949);
+
+  /// An orthogonal path through [pts] with every corner cut at 45°.
+  static Path _trace(List<Offset> pts, double c) {
+    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length - 1; i++) {
+      final p = pts[i], a = pts[i - 1], b = pts[i + 1];
+      final da = (p - a), db = (b - p);
+      final k = math.min(c, math.min(da.distance, db.distance) / 2);
+      final before = da.distance == 0 ? p : p - da / da.distance * k;
+      final after = db.distance == 0 ? p : p + db / db.distance * k;
+      path
+        ..lineTo(before.dx, before.dy)
+        ..lineTo(after.dx, after.dy);
+    }
+    path.lineTo(pts.last.dx, pts.last.dy);
+    return path;
+  }
+
+  /// One trace: a halo of board colour under it, so where layers cross the
+  /// upper one reads as passing over, then the copper.
+  void _copper(Canvas canvas, Path path, Color color, {double width = 1.6, bool dashed = false}) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = (width + 3) * z..color = board..strokeJoin = StrokeJoin.miter);
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width * z
+      ..strokeJoin = StrokeJoin.miter
+      ..color = color;
+    if (!dashed) {
+      canvas.drawPath(path, line);
+      return;
+    }
+    for (final metric in path.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += 7 * z) {
+        canvas.drawPath(metric.extractPath(d, math.min(d + 3.5 * z, metric.length)), line);
+      }
+    }
+  }
+
+  void _via(Canvas canvas, Offset at, Color color) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    canvas.drawCircle(at, 3.2 * z, Paint()..color = board);
+    canvas.drawCircle(at, 3.2 * z, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4 * z..color = color);
+  }
+
+  void _pad(Canvas canvas, Offset at, Color color, {bool vertical = true}) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    final r = Rect.fromCenter(center: at, width: (vertical ? 6 : 5) * z, height: (vertical ? 5 : 6) * z);
+    canvas.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(1.2 * z)), Paint()..color = color);
+  }
+
+  /// Pulses travelling along a path; [dir] 1 forwards, -1 backwards.
+  void _pulses(Canvas canvas, Path path, Color color, double speed, {int dir = 1, int count = 1, double phase = 0}) {
+    for (final metric in path.computeMetrics()) {
+      for (var k = 0; k < count; k++) {
+        var p = (t * speed + phase + k / count) % 1.0;
+        if (dir < 0) p = 1 - p;
+        final at = metric.getTangentForOffset(metric.length * p)?.position;
+        if (at == null) continue;
+        final fade = math.sin(p * math.pi);
+        canvas.drawCircle(at, 3.6, Paint()..color = color.withValues(alpha: 0.16 * fade)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5));
+        canvas.drawCircle(at, 1.6, Paint()..color = color.withValues(alpha: 0.85 * fade));
+      }
+    }
+  }
+
+  Color _layer(Level l, Color base) => l == Level.ok ? base : l == Level.inactive ? base.withValues(alpha: 0.5) : C.of(l);
+
+  /// Pins along a chip's sides: the cards read as components on the board.
+  void _pins(Canvas canvas, Map<String, Rect> rects) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    final pin = Paint()
+      ..strokeWidth = 2.2 * z
+      ..color = const Color(0xFF48515D);
+    for (final n in m.nodes) {
+      final r = rects[n.id];
+      if (r == null || n.thing) continue;
+      final step = 10 * z, len = 5.5 * z;
+      final k = ((r.height - 16 * z) / step).floor();
+      final y0 = r.center.dy - (k - 1) * step / 2;
+      for (var i = 0; i < k; i++) {
+        final y = y0 + i * step;
+        canvas.drawLine(Offset(r.left - len, y), Offset(r.left, y), pin);
+        canvas.drawLine(Offset(r.right, y), Offset(r.right + len, y), pin);
+      }
+    }
+  }
+
+  /// The private network and Syncthing: two traces from the hub chip, down
+  /// a trunk on the left, a pair of buses over each row, and a pair of
+  /// traces up from each device, each coloured by how that layer fares.
   void _network(Canvas canvas, Map<String, Rect> rects) {
     if (m.buses.isEmpty) return;
-    final quiet = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFF3B4450);
+    final z = m.zoom.clamp(0.6, 1.4);
+    final gap = 7 * m.zoom;
     final hub = m._screen(m.hub);
-    final tx = m._screen(Offset(m.trunkX, 0)).dx;
+    final tNet = m._screen(Offset(m.trunkX, 0)).dx - gap, tSync = tNet + gap;
+    final yNetHub = hub.dy - 4 * z, ySyncHub = hub.dy + 4 * z;
     final lastBus = m._screen(Offset(0, m.buses.map((b) => b.$1).reduce(math.max))).dy;
-    canvas.drawPath(
-        Path()
-          ..moveTo(hub.dx, hub.dy)
-          ..lineTo(tx + 10, hub.dy)
-          ..arcToPoint(Offset(tx, hub.dy + 10), radius: const Radius.circular(10), clockwise: false)
-          ..lineTo(tx, lastBus),
-        quiet);
-    for (final (y, x1, x2) in m.buses) {
-      final a = m._screen(Offset(x1, y)), b = m._screen(Offset(x2, y));
-      canvas.drawLine(a, b, quiet);
+    final c = 8 * m.zoom;
+    final netTrunk = _trace([Offset(hub.dx, yNetHub), Offset(tNet, yNetHub), Offset(tNet, lastBus + gap)], c);
+    final syncTrunk = _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, lastBus)], c);
+    _copper(canvas, syncTrunk, layerSync);
+    _copper(canvas, netTrunk, layerNet);
+    _pulses(canvas, netTrunk, pulseNet, 0.35, count: 2);
+    _pulses(canvas, syncTrunk, pulseSync, 0.25, count: 2, phase: 0.3);
+    // Buses: Syncthing on the row line, the network a step below it.
+    for (final (y, _, x2) in m.buses) {
+      final sy = m._screen(Offset(0, y)).dy, ny = sy + gap;
+      final x = m._screen(Offset(x2, 0)).dx + gap;
+      _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
+      _copper(canvas, Path()..moveTo(tNet, ny)..lineTo(x, ny), layerNet);
+      _via(canvas, Offset(tSync, sy), layerSync);
+      _via(canvas, Offset(tNet, ny), layerNet);
     }
     for (final n in m.nodes) {
       if (n.small) continue;
       final r = rects[n.id], by = m.busOf[n.id];
       if (r == null || by == null) continue;
-      final level = m.netLevel[n.id] ?? Level.inactive;
-      final top = Offset(r.center.dx, r.top - 2), bus = Offset(r.center.dx, m._screen(Offset(0, by)).dy);
+      final sy = m._screen(Offset(0, by)).dy, ny = sy + gap;
+      final net = m.netLevel[n.id] ?? Level.inactive, sync = m.syncLevel[n.id] ?? Level.inactive;
       final sel = m.selDev == n.id;
-      final line = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = sel ? 2.6 : 1.8
-        ..strokeCap = StrokeCap.round
-        ..color = level == Level.ok ? const Color(0xFF4A5562) : C.of(level);
-      if (level == Level.fault || level == Level.inactive) {
-        for (var y = bus.dy; y < top.dy; y += 7) {
-          canvas.drawLine(Offset(top.dx, y), Offset(top.dx, math.min(y + 3.5, top.dy)), line);
-        }
-      } else {
-        canvas.drawLine(bus, top, line);
-      }
-      canvas.drawCircle(bus, 3, Paint()..color = line.color);
-      if (level == Level.ok || level == Level.warn) {
-        final dot = level == Level.ok ? C.flow : C.of(level);
-        final p = (t + n.id.hashCode % 100 / 100) % 1.0;
-        final at = Offset.lerp(bus, top, p)!;
-        canvas.drawCircle(at, 1.9, Paint()..color = dot.withValues(alpha: 0.95 * math.sin(p * math.pi)));
-      }
+      final xs = r.center.dx + gap / 2 + 3 * z, xn = r.center.dx - gap / 2 - 3 * z;
+      final top = r.top - 1;
+      final syncPath = Path()..moveTo(xs, top)..lineTo(xs, sy);
+      final netPath = Path()..moveTo(xn, top)..lineTo(xn, ny);
+      _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+      _copper(canvas, netPath, _layer(net, layerNet), dashed: net == Level.fault || net == Level.inactive, width: sel ? 2.4 : 1.6);
+      _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
+      _via(canvas, Offset(xn, ny), _layer(net, layerNet));
+      _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
+      _pad(canvas, Offset(xn, top), _layer(net, layerNet));
+      final ph = (n.id.hashCode % 97) / 97;
+      // Files arrive down the Syncthing trace; the network carries both ways.
+      if (sync == Level.ok) _pulses(canvas, syncPath, pulseSync, 0.5, dir: -1, phase: ph);
+      if (net == Level.ok || net == Level.warn) _pulses(canvas, netPath, net == Level.ok ? pulseNet : C.of(net), 0.6, dir: (t * 2 + ph).floor().isEven ? 1 : -1, phase: ph);
     }
-    // The network itself.
+    // The hub chip.
     final tp = TextPainter(
       text: const TextSpan(text: 'Private network', style: TextStyle(fontFamily: 'Inter', color: C.text, fontSize: 11, fontWeight: FontWeight.w600)),
       textDirection: TextDirection.ltr,
     )..layout();
-    final z = m.zoom.clamp(0.6, 1.2);
-    final box = Rect.fromCenter(center: hub, width: (tp.width + 40) * z, height: 26 * z);
-    final rr = RRect.fromRectAndRadius(box, Radius.circular(13 * z));
+    final box = Rect.fromCenter(center: hub, width: (tp.width + 40) * z, height: 28 * z);
+    final pin = Paint()..strokeWidth = 2 * z..color = const Color(0xFF39414B);
+    for (var x = box.left + 10 * z; x < box.right - 6 * z; x += 11 * z) {
+      canvas.drawLine(Offset(x, box.top - 4 * z), Offset(x, box.top), pin);
+      canvas.drawLine(Offset(x, box.bottom), Offset(x, box.bottom + 4 * z), pin);
+    }
+    final rr = RRect.fromRectAndRadius(box, Radius.circular(6 * z));
     canvas.drawRRect(rr, Paint()..color = const Color(0xFF1C2026));
-    canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = C.flow.withValues(alpha: 0.5));
+    canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF3A434F));
     canvas.drawCircle(Offset(box.left + 12 * z, hub.dy), 3 * z, Paint()..color = C.flow);
     canvas.save();
     canvas.translate(box.left + 22 * z, hub.dy - tp.height * z / 2);
     canvas.scale(z);
     tp.paint(canvas, Offset.zero);
     canvas.restore();
+  }
+
+  /// Attached hardware: one trace per connection (USB, power), side by side,
+  /// from the device's edge to the thing's, with a jog where they differ.
+  void _hardware(Canvas canvas, Map<String, Rect> rects) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    for (final e in m.edges) {
+      if (e.via == null) continue;
+      final thing = rects[e.a], host = rects[e.b];
+      if (thing == null || host == null) continue;
+      final appear = math.min(m.bodies[e.a]!.appear, m.bodies[e.b]!.appear);
+      if (appear < 1) continue;
+      final node = m.nodes.where((n) => n.id == e.a).firstOrNull;
+      final links = [for (final l in node?.s.report.node?.links ?? const <NodeLink>[]) if (l.to == e.b) l];
+      final kinds = links.isEmpty ? ['usb'] : {for (final l in links) l.via}.toList();
+      final right = thing.center.dx > host.center.dx;
+      final x1 = right ? host.right + 1 : host.left - 1, x2 = right ? thing.left - 1 : thing.right + 1;
+      final mid = (x1 + x2) / 2;
+      final dead = e.level == Level.inactive;
+      for (var i = 0; i < kinds.length; i++) {
+        final dy = (i - (kinds.length - 1) / 2) * 8 * z;
+        final a = Offset(x1, (thing.center.dy + dy).clamp(host.top + 8 * z, host.bottom - 8 * z));
+        final b = Offset(x2, thing.center.dy + dy);
+        final path = _trace([a, Offset(mid, a.dy), Offset(mid, b.dy), b], 8 * m.zoom);
+        final power = kinds[i] == 'power';
+        final base = power ? layerPower : layerUsb;
+        _copper(canvas, path, dead ? base.withValues(alpha: 0.5) : base, dashed: dead);
+        _pad(canvas, a, base, vertical: false);
+        _pad(canvas, b, base, vertical: false);
+        if (dead) continue;
+        final dirOut = links.where((l) => l.via == kinds[i]).firstOrNull?.dir;
+        if (power) {
+          _pulses(canvas, path, pulsePower, 0.7, dir: -1); // power flows from the UPS into the device
+        } else {
+          _pulses(canvas, path, pulseNet, 0.8, phase: 0.1);
+          if (dirOut == 'both') _pulses(canvas, path, pulseNet, 0.8, dir: -1, phase: 0.6);
+        }
+      }
+    }
   }
 
   static Offset _edge(Rect r, Offset to) {
