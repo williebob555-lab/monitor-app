@@ -74,7 +74,10 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
             try
             {
                 MonitoringBridge.ValueReader ??= MonitorApp.Contracts.ObservationValues.Read;
-                await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
+                var before = store.ChangeCount;
+                var bridged = await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
+                DiagnosticLog.Write("bridge", string.Create(CultureInfo.InvariantCulture,
+                    $"pass: created {bridged.Created}, bound {bridged.BoundExisting}, already {bridged.AlreadyBound}; model changes {before} -> {store.ChangeCount}"));
                 Interlocked.Exchange(ref nextBridgeTicks, Environment.TickCount64 + (long)BridgeSpacing.TotalMilliseconds);
             }
             finally

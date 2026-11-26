@@ -16,6 +16,8 @@ internal static class ReadTimings
     private static readonly ConcurrentDictionary<string, Totals> Kinds = new(StringComparer.Ordinal);
     private static long windowStart = Stopwatch.GetTimestamp();
     private static int writing;
+    private static readonly TimeSpan LiveHeapEvery = TimeSpan.FromMinutes(10);
+    private static long lastLiveHeap = Stopwatch.GetTimestamp();
     private static TimeSpan lastPause = GC.GetTotalPauseDuration();
     private static int lastGen0 = GC.CollectionCount(0);
     private static int lastGen1 = GC.CollectionCount(1);
@@ -64,9 +66,25 @@ internal static class ReadTimings
         var text = string.Create(
             CultureInfo.InvariantCulture,
             $"memory clean-ups {gen0 - lastGen0}/{gen1 - lastGen1}/{gen2 - lastGen2} (gen 0/1/2) pausing all threads {(pause - lastPause).TotalMilliseconds:0} ms; " +
-            $"heap {GC.GetTotalMemory(false) / (1024 * 1024)} MB, allocated {GC.GetTotalAllocatedBytes() / (1024 * 1024)} MB since start");
+            $"heap {GC.GetTotalMemory(false) / (1024 * 1024)} MB, allocated {GC.GetTotalAllocatedBytes() / (1024 * 1024)} MB since start, " +
+            $"process memory {Environment.WorkingSet / (1024 * 1024)} MB{LiveHeap()}");
         (lastPause, lastGen0, lastGen1, lastGen2) = (pause, gen0, gen1, gen2);
         return text;
+    }
+
+    /// <summary>
+    /// Every 10 minutes, the heap after a full collection. On Android (Mono) the plain heap figure includes garbage not yet collected,
+    /// so only this number tells a real leak (it keeps rising) from churn (it stays flat).
+    /// </summary>
+    private static string LiveHeap()
+    {
+        if (Stopwatch.GetElapsedTime(lastLiveHeap) < LiveHeapEvery)
+        {
+            return string.Empty;
+        }
+
+        lastLiveHeap = Stopwatch.GetTimestamp();
+        return string.Create(CultureInfo.InvariantCulture, $", live heap after a full collection {GC.GetTotalMemory(true) / (1024 * 1024)} MB");
     }
 
     private sealed class Totals
