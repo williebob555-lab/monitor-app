@@ -130,8 +130,10 @@ exist, a parent that does not list its child, a link to a missing id, or an
 unknown via or dir.
 
 Linux reads, with no vendor software: USB from `/sys/bus/usb/devices`; a UPS
-through NUT's network protocol on 127.0.0.1:3493 if NUT runs, else `upower`;
-audio interfaces from `/proc/asound` and `amixer`.
+directly as a USB HID power device (`/dev/hidrawN`, made readable by one udev
+rule; NUT or upower only as a fallback if present), giving just its basic
+status: on mains or battery, charge, load, runtime; audio interfaces from
+`/proc/asound` and `amixer`.
 
 ## Planned: patterns instead of raw data
 

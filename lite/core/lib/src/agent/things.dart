@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../report.dart';
+import 'hid_ups.dart';
 import '../topology.dart';
 
 /// Things attached to this computer that get their own node under it: a UPS
@@ -135,13 +136,16 @@ class Things {
   // ---- UPS ------------------------------------------------------------------
 
   Future<List<Reading>> _ups(_Usb u) async {
+    // Directly over USB first; NUT or upower only if they happen to run.
+    var why = '';
+    final hid = HidUps.read(u.path, (w) => why = w);
+    if (hid != null) return hid;
     final nut = await _nut();
     if (nut != null) return _upsFromNut(nut);
     final up = await _upower();
     if (up != null) return _upsFromUpower(up);
-    const why = 'install NUT (package "nut", driver usbhid-ups) or upower on this system to read the UPS';
     return [
-      for (final k in const [('ups.charge', 'Battery charge'), ('ups.runtime', 'Runtime left'), ('ups.load', 'Load'), ('ups.input', 'Input voltage')])
+      for (final k in const [('ups.status', 'Running on'), ('ups.charge', 'Battery charge'), ('ups.runtime', 'Runtime left'), ('ups.load', 'Load')])
         Reading(key: k.$1, label: k.$2, value: null, group: 'Power', src: 'unknown', note: why),
     ];
   }
@@ -191,10 +195,6 @@ class Things {
       _num('ups.charge', 'Battery charge', charge, '%', 'measured', level: charge == null ? null : charge < 20 ? 'fault' : charge < 50 && onBattery ? 'warn' : null),
       _num('ups.runtime', 'Runtime left', n('battery.runtime') == null ? null : n('battery.runtime')! / 60, 'min', 'estimated', note: 'the UPS\'s own estimate at the current load'),
       _num('ups.load', 'Load', n('ups.load'), '%', 'measured'),
-      _num('ups.input', 'Input voltage', n('input.voltage'), 'V', 'measured'),
-      _num('ups.output', 'Output voltage', n('output.voltage'), 'V', 'measured'),
-      _num('ups.batteryV', 'Battery voltage', n('battery.voltage'), 'V', 'measured'),
-      if (n('ups.realpower.nominal') != null) _num('ups.ratedW', 'Rated power', n('ups.realpower.nominal'), 'W', 'declared'),
       if (v['ups.mfr'] != null || v['device.mfr'] != null) Reading(key: 'ups.maker', label: 'Maker', value: v['ups.mfr'] ?? v['device.mfr'], group: 'Power', src: 'declared'),
       if (v['ups.model'] != null || v['device.model'] != null)
         Reading(key: 'ups.model', label: 'Model', value: v['ups.model'] ?? v['device.model'], group: 'Power', src: 'declared'),
@@ -247,7 +247,6 @@ class Things {
       _num('ups.charge', 'Battery charge', pct, '%', 'measured', level: pct != null && pct < 20 ? 'fault' : null),
       _num('ups.runtime', 'Runtime left', hours(v['time to empty']), 'min', 'estimated', note: 'the UPS\'s own estimate'),
       Reading(key: 'ups.load', label: 'Load', value: null, group: 'Power', src: 'unknown', note: none),
-      Reading(key: 'ups.input', label: 'Input voltage', value: null, group: 'Power', src: 'unknown', note: none),
       if (v['vendor'] != null) Reading(key: 'ups.maker', label: 'Maker', value: v['vendor'], group: 'Power', src: 'declared'),
       if (v['model'] != null) Reading(key: 'ups.model', label: 'Model', value: v['model'], group: 'Power', src: 'declared'),
       Reading(key: 'ups.source', label: 'Read through', value: 'upower', group: 'Power', src: 'measured'),

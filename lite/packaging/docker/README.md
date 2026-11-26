@@ -26,6 +26,27 @@ the two Docker-socket lines in `compose.yaml` and set `DOCKER_GID` in `.env`
 whoever holds the socket can control Docker, which is why it is off by default.
 Installed without Docker (the .rpm/.deb), the collector reads it if your user is in the docker group.
 
+## UPS (optional)
+
+A USB UPS (CyberPower, APC, Eaton, Tripp Lite) is read directly over USB: on
+mains or battery, charge, load and runtime. No vendor software and no NUT. One
+rule lets the collector read it, without root, and gives it a fixed name:
+
+```sh
+sudo tee /etc/udev/rules.d/70-monitor-ups.rules >/dev/null <<'RULES'
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0764", MODE="0644", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="051d", MODE="0644", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0463", MODE="0644", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0644", SYMLINK+="monitor-ups"
+RULES
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+Then uncomment the `devices:` line in `compose.yaml` and run `docker compose up -d`.
+On a dual-boot machine, do this on each system. The .rpm/.deb installs the rule itself.
+
+An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
+
 ## Update
 
 ```sh

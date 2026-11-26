@@ -19,7 +19,7 @@ Sizes: **S** under an hour, **M** one to three hours, **L** a night or more.
 |---|---|---|---|
 | 1 | Verify 2.2.0 on your devices from their logs, and fix what shows up | M | Every device's parts filled in on every other device |
 | 6 | Patterns instead of old raw data ("battery drains 4%/h with screen off") | L | A Patterns section on each part |
-| 7 | More things: Windows-side USB/UPS reading; NUT setup on the Ubuntu server boot of the desktop (`nut` + `usbhid-ups`); xruns via PipeWire | M | The UPS readable whichever system the desktop runs |
+| 7 | More things: Windows-side USB/UPS reading; the UPS udev rule + `devices:` line on both Docker systems of the desktop (wc-desktop Fedora, wc-alpha Ubuntu); xruns via PipeWire | M | The UPS readable whichever system the desktop runs |
 | 8 | Verify 2.5.0 on the desktop: the CyberPower UPS and MOTU files appear under its device folder | S | The real UPS and MOTU on the map |
 
 ## Handoff (2026-11-26)

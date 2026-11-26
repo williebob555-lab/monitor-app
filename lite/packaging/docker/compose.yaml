@@ -27,14 +27,16 @@ services:
       # Optional: readings from a USB audio interface. Docker hides the
       # host's sound card details; this shares them read-only.
       # - /proc/asound:/host/asound:ro
-      # A USB UPS is read through NUT on the host (127.0.0.1:3493): install
-      # nut on the host and set up usbhid-ups; nothing to add here.
       # Optional: list this server's containers (running, stopped, unhealthy).
       # The collector only reads, but the Docker socket gives whoever holds it
       # full control of Docker, so this is off unless you remove the #s.
       # The group number is the docker group's: getent group docker
       # - /var/run/docker.sock:/var/run/docker.sock
     # group_add: ["${DOCKER_GID:-}"]
+    # Optional: a USB UPS (charge, mains or battery, load, runtime), read
+    # directly. Needs the one udev rule in README.md first, and the UPS
+    # plugged in when the container starts.
+    # devices: ["/dev/monitor-ups:/dev/monitor-ups:r"]
     logging:
       driver: json-file
       options: { max-size: "1m", max-file: "2" }
