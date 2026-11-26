@@ -9,6 +9,8 @@
     history/hourly/YYYY-MM.jsonl         one summary line per hour
     history/daily/YYYY.jsonl             one summary line per day
     log.txt                       the app's own log, kept under 256 KB
+  watch/<device id>.json          {"id","name","until"}: that device's app is open
+                                  until "until" (Unix seconds); collectors go live
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
                                   "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50}}
 ```
@@ -60,6 +62,9 @@ Missing keys mean "not available"; readers never guess.
   and numeric ones get a history chart, without an app change.
 * **Bad values are skipped one by one.** A wrong type in one field doesn't
   discard the rest of the file.
+
+A report written at the live rate has `"next": 10` (or 15 on Android) and
+`"watch": ["<name of the device looking>", ...]`.
 
 ## History
 

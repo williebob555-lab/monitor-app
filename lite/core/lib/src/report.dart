@@ -13,6 +13,7 @@ class Report {
     this.app,
     this.seq = 0,
     this.nextSeconds = 60,
+    this.watchedBy = const [],
     this.bootTime,
     this.battery,
     this.cpuPct,
@@ -52,6 +53,13 @@ class Report {
 
   /// How many seconds until the device plans to write again.
   final int nextSeconds;
+
+  /// Devices whose app was open when this was written. While the list is not
+  /// empty the device collects at the fast "live" rate.
+  final List<String> watchedBy;
+
+  /// Collecting at the live rate right now.
+  bool get live => nextSeconds <= 20;
   final DateTime? bootTime;
   final Battery? battery;
   final double? cpuPct;
@@ -124,6 +132,7 @@ class Report {
         app: _str(json['app']),
         seq: _int(json['seq']) ?? 0,
         nextSeconds: (_int(json['next']) ?? 60).clamp(10, 3600),
+        watchedBy: json['watch'] is List ? [for (final w in json['watch'] as List) if (w is String) w] : const [],
         bootTime: json['boot'] is num ? _sec(json['boot'] as num) : null,
         battery: Battery.tryParse(json['battery']),
         cpuPct: json['cpu'] is Map ? _dbl((json['cpu'] as Map)['pct']) : null,
@@ -157,6 +166,7 @@ class Report {
         't': time.millisecondsSinceEpoch ~/ 1000,
         'seq': seq,
         'next': nextSeconds,
+        if (watchedBy.isNotEmpty) 'watch': watchedBy,
         if (os != null) 'os': os,
         if (machine != null) 'machine': machine,
         if (app != null) 'app': app,

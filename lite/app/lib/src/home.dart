@@ -195,8 +195,17 @@ class DeviceCard extends StatelessWidget {
               ]),
             ),
             const SizedBox(height: 8),
-            Text('Updated ${ago(s.age)} ago${r.app != null ? '  ·  v${r.app}' : ''}',
-                style: const TextStyle(color: C.muted, fontSize: 11)),
+            Row(children: [
+              if (r.live && s.fresh) ...[
+                const Icon(Icons.fiber_manual_record, size: 9, color: C.ok),
+                const SizedBox(width: 4),
+                Text('LIVE · every ${r.nextSeconds} s  ·  ', style: const TextStyle(color: C.ok, fontSize: 11)),
+              ],
+              Expanded(
+                child: Text('Updated ${ago(s.age)} ago${r.app != null ? '  ·  v${r.app}' : ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 11)),
+              ),
+            ]),
           ]),
         ),
       ),

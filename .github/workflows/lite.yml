@@ -188,6 +188,16 @@ jobs:
           fpm $common -t deb -a amd64 -d libgtk-3-0 -p out/monitor-app_${VERSION}_amd64.deb .
           cp lite/app/build/linux/x64/release/bundle/monitor-agent out/monitor-agent-$VERSION-linux-x64
           ls -la out
+      - name: Docker smoke test (server collector image, one real cycle)
+        run: |
+          cp out/monitor-agent-$VERSION-linux-x64 lite/packaging/docker/monitor-agent
+          docker build -t monitor-app-collector lite/packaging/docker
+          rm lite/packaging/docker/monitor-agent
+          mkdir -p /tmp/mon /tmp/mdata && chmod 777 /tmp/mon /tmp/mdata
+          docker run --rm --network host --user "$(id -u):$(id -g)" --read-only --init \
+            -v /tmp/mon:/monitor -v /tmp/mdata:/data -v /etc/os-release:/etc/os-release:ro monitor-app-collector --once
+          cat /tmp/mon/devices/*/now.json /tmp/mon/devices/*/log.txt
+          grep -q '(in Docker)' /tmp/mon/devices/*/now.json
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -219,9 +229,9 @@ jobs:
           | Windows laptop | monitor-app-$VERSION-windows-setup.exe |
           | Fedora | monitor-app-$VERSION-1.x86_64.rpm |
           | Ubuntu | monitor-app_${VERSION}_amd64.deb |
-          | Server without a screen | monitor-agent-$VERSION-linux-x64 (collector only) |
+          | Server without a screen | Docker: https://github.com/${{ github.repository }}/blob/main/lite/packaging/docker/README.md (or monitor-agent-$VERSION-linux-x64, collector only) |
 
-          Each file installs over the old Monitor App and removes it completely. Later updates: open Monitor App > Setup and updates > Install. Every file is listed in SHA256SUMS.
+          Each file installs over the old Monitor App and removes it completely. Later updates: open Monitor App > Setup and updates > Install (Docker servers: rebuild, see its README). Every file is listed in SHA256SUMS.
           EOF
           sed -i 's/^          //' notes.md
           gh release create "lite-v$VERSION" out/* --target "$GITHUB_SHA" --prerelease --title "Monitor App $VERSION" --notes-file notes.md

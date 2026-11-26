@@ -36,7 +36,18 @@ class LocalConfig {
   }
 
   /// Loads the config, creating it with a fresh id on first run.
+  /// MONITOR_FOLDER and MONITOR_NAME, when set, win over the saved values
+  /// (used by the Docker image, where the folder is a fixed mount).
   static LocalConfig load() {
+    final c = _load();
+    final env = Platform.environment;
+    final folder = env['MONITOR_FOLDER'], name = env['MONITOR_NAME'];
+    if (folder != null && folder.isNotEmpty) c.folder = folder;
+    if (name != null && name.isNotEmpty) c.name = name;
+    return c;
+  }
+
+  static LocalConfig _load() {
     final f = File(path);
     try {
       final j = jsonDecode(f.readAsStringSync());

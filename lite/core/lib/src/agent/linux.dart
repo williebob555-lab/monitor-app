@@ -27,7 +27,8 @@ class LinuxHost implements Host {
   String osName() {
     final rel = _read('/etc/os-release') ?? '';
     final m = RegExp(r'^PRETTY_NAME="?([^"\n]*)"?', multiLine: true).firstMatch(rel);
-    return m?.group(1) ?? 'Linux';
+    final name = m?.group(1) ?? 'Linux';
+    return File('/.dockerenv').existsSync() ? '$name (in Docker)' : name;
   }
 
   /// Lowest permanent MAC of a physical network card: the same on every OS
@@ -79,8 +80,8 @@ class LinuxHost implements Host {
         s.memUsed = (total - avail) * 1024;
       }
     }
-    // Disk: statvfs("/")
-    final d = _statvfs('/');
+    // Disk: statvfs("/"), or MONITOR_DISK_PATH (in Docker "/" is the container).
+    final d = _statvfs(Platform.environment['MONITOR_DISK_PATH'] ?? '/');
     if (d != null) {
       s.diskTotal = d.$1;
       s.diskUsed = d.$1 - d.$2;

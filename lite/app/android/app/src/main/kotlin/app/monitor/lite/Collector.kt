@@ -45,6 +45,8 @@ object Collector {
     const val SYNCTHING_PORT = 22000
     const val INTERVAL_SCREEN_ON = 60
     const val INTERVAL_SCREEN_OFF = 300
+    /** While someone has the app open on any device (lite/FORMAT.md, watch/). */
+    const val INTERVAL_WATCHED = 15
     const val BUDGET_RUN_MS = 5000L
     const val BUDGET_CPU_MS = 500L
     const val LOG_MAX_BYTES = 256 * 1024
@@ -98,8 +100,16 @@ object Collector {
         val id = deviceId(ctx)
         val pm = ctx.getSystemService(PowerManager::class.java)
         val screenOn = pm.isInteractive
-        val next = if (screenOn) INTERVAL_SCREEN_ON else INTERVAL_SCREEN_OFF
         val root = File(folder(ctx))
+        val watchers = watchers(root, System.currentTimeMillis() / 1000)
+        val plugged = (ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+        // Fast only when it costs little: screen on, or on the charger.
+        val next = when {
+            watchers.isNotEmpty() && (screenOn || plugged) -> INTERVAL_WATCHED
+            screenOn -> INTERVAL_SCREEN_ON
+            else -> INTERVAL_SCREEN_OFF
+        }
         val dir = File(root, "devices/$id")
         if (!canWrite() || !(dir.isDirectory || dir.mkdirs())) {
             internalLog(ctx, "cannot write to ${dir.path} (all files access: ${canWrite()})")
@@ -110,6 +120,7 @@ object Collector {
             val j = JSONObject()
             j.put("v", 1).put("id", id).put("name", deviceName(ctx)).put("kind", "android")
             j.put("t", now / 1000).put("next", next)
+            if (watchers.isNotEmpty()) j.put("watch", org.json.JSONArray(watchers))
             val seq = p.getInt("seq", 0) + 1
             p.edit().putInt("seq", seq).apply()
             j.put("seq", seq)
@@ -165,6 +176,7 @@ object Collector {
             val peers = JSONObject()
             val others = File(root, "devices").listFiles()?.filter { it.isDirectory && it.name != id } ?: emptyList()
             val pool = Executors.newFixedThreadPool(4)
+            val pingPool = Executors.newFixedThreadPool(4)
             val jobs = others.mapNotNull { d ->
                 val o = runCatching { JSONObject(File(d, "now.json").readText()) }.getOrNull() ?: return@mapNotNull null
                 val oid = o.optString("id", d.name)
@@ -174,14 +186,17 @@ object Collector {
                     val v = JSONObject().put("seen", seen)
                     if (oip == null || ip == null) v.put("tcp", "noip")
                     else if (seen <= 86400) {
+                        // Ping alongside the connect: an unreachable device costs one timeout, not two.
+                        val pg = pingPool.submit<Int?> { ping(oip) }
                         v.put("tcp", tcp(oip, 3000))
-                        ping(oip)?.let { v.put("ping", it) }
+                        runCatching { pg.get(4, TimeUnit.SECONDS) }.getOrNull()?.let { v.put("ping", it) }
                     }
                     v
                 }
             }
             for ((oid, f) in jobs) runCatching { peers.put(oid, f.get(8, TimeUnit.SECONDS)) }
             pool.shutdownNow()
+            pingPool.shutdownNow()
             j.put("peers", peers)
 
             val runMs = SystemClock.elapsedRealtime() - started
@@ -202,11 +217,15 @@ object Collector {
                 tmp.delete()
             }
             val history = History(dir, ctx.filesDir)
-            history.add(JSONObject(historyLine(j)), now)
+            // History stays at one line a minute however fast the live rate is.
+            if (now - p.getLong("lastHistory", 0) >= 55_000L) {
+                history.add(JSONObject(historyLine(j)), now)
+                p.edit().putLong("lastHistory", now).apply()
+            }
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")
             val lastSummary = p.getLong("lastSummary", 0)
-            if (now - lastSummary > 3600_000L || reason != "alarm") {
+            if (now - lastSummary > 3600_000L || reason == "app-open") {
                 val peerText = others.joinToString(" ") { d ->
                     val v = peers.optJSONObject(d.name)
                     "${d.name}:${v?.optString("tcp") ?: "-"}/${v?.opt("ping") ?: "-"}ms/seen${v?.opt("seen") ?: "-"}s"
@@ -226,6 +245,15 @@ object Collector {
         }
         return next
     }
+
+    /** Names of devices whose app is open now: fresh files in <folder>/watch/. */
+    fun watchers(root: File, nowS: Long): List<String> =
+        File(root, "watch").listFiles()?.filter { it.isFile && it.name.endsWith(".json") && !it.name.startsWith(".syncthing.") }
+            ?.mapNotNull { f ->
+                runCatching { JSONObject(f.readText()) }.getOrNull()
+                    ?.takeIf { it.optLong("until", 0) > nowS }
+                    ?.let { it.optString("name", it.optString("id", "?")) }
+            } ?: emptyList()
 
     private fun networkType(ctx: Context): String {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
