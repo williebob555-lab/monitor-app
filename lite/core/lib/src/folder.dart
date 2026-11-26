@@ -151,9 +151,11 @@ class SyncFolder {
     try {
       Directory(watchPath).createSync(recursive: true);
       final until = now.toUtc().millisecondsSinceEpoch ~/ 1000 + watchHoldSeconds;
-      final tmp = File('$watchPath${Platform.pathSeparator}.syncthing.$id.json.tmp');
-      tmp.writeAsStringSync(jsonEncode({'id': id, 'name': name, 'until': until}), flush: true);
-      tmp.renameSync(_watchFile(id).path);
+      // In place, with the time set explicitly: on Android a renamed file
+      // kept an old modification time and Syncthing skipped it.
+      final f = _watchFile(id);
+      f.writeAsStringSync(jsonEncode({'id': id, 'name': name, 'until': until}), flush: true);
+      f.setLastModifiedSync(DateTime.now());
     } catch (_) {}
   }
 

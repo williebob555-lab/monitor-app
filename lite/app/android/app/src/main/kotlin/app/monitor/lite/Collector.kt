@@ -211,12 +211,16 @@ object Collector {
             if (over.isNotEmpty()) self.put("over", org.json.JSONArray(over))
             j.put("self", self)
 
-            val tmp = File(dir, ".syncthing.now.json.tmp") // Syncthing never syncs its own temp pattern
-            tmp.writeText(j.toString())
-            if (!tmp.renameTo(File(dir, "now.json"))) {
-                File(dir, "now.json").writeText(j.toString())
-                tmp.delete()
-            }
+            // Written in place, then its time set explicitly. On Android a file
+            // renamed over now.json kept the first write's modification time
+            // (seen on the Pixel and the tablet, 2026-11-26), and Syncthing,
+            // which looks at time and size, then skipped every same-size
+            // update. Readers keep the previous report if they catch a half
+            // write, and Syncthing re-scans a file that changes while it reads.
+            val out = File(dir, "now.json")
+            out.writeText(j.toString())
+            out.setLastModified(System.currentTimeMillis())
+            File(dir, ".syncthing.now.json.tmp").delete()
             val history = History(dir, ctx.filesDir)
             // History stays at one line a minute however fast the live rate is.
             if (now - p.getLong("lastHistory", 0) >= 55_000L) {

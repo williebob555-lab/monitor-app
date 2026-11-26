@@ -16,8 +16,11 @@
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees
-two writers for one file. `now.json` is written to `.syncthing.now.json.tmp`
-(Syncthing's own temp pattern, which it never syncs) and renamed.
+two writers for one file. On computers `now.json` is written to `.syncthing.now.json.tmp`
+(Syncthing's own temp pattern, which it never syncs) and renamed. On Android it
+is written in place and its modification time set explicitly: there a renamed
+file kept its first write's time, and Syncthing (which compares time and size)
+skipped every update of the same size.
 
 The folder is the database: plain files a person can open. Later kinds of
 things (non-primary devices, IoT) get their own top-level folder next to
