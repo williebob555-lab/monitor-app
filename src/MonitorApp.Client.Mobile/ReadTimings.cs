@@ -10,7 +10,7 @@ namespace MonitorApp.Client.Mobile;
 /// it ran. Once a minute it writes one <c>[data]</c> line (with the thread pool's backlog) to the log the device sends to its
 /// computers, so a slow screen can be traced to the read, or the wait, that makes it slow.
 /// </summary>
-internal static class ReadTimings
+public static class ReadTimings
 {
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
     private static readonly ConcurrentDictionary<string, Totals> Kinds = new(StringComparer.Ordinal);
@@ -27,7 +27,7 @@ internal static class ReadTimings
     private static int lastGen1 = GC.CollectionCount(1);
     private static int lastGen2 = GC.CollectionCount(2);
 
-    public static void Add(string kind, TimeSpan waited, TimeSpan ran)
+    internal static void Add(string kind, TimeSpan waited, TimeSpan ran)
     {
         Kinds.GetOrAdd(kind, _ => new Totals()).Add(waited, ran);
         if (Stopwatch.GetElapsedTime(Interlocked.Read(ref windowStart)) < Window || Interlocked.Exchange(ref writing, 1) == 1)
