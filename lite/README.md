@@ -26,16 +26,24 @@ It has no server, no database, no pairing and no networking code of its own:
    `/storage/emulated/0/Monitor`). Share it with your other devices.
 3. Android only: in the app's Setup, allow "All files access" and
    "Unrestricted" battery. Syncthing-Fork must be installed.
-4. Server with no screen: `sudo loginctl enable-linger <user>` so the
-   collector runs without a sign-in, or run `monitor-agent` from any service manager.
+4. Server with no screen: run the collector in Docker
+   ([packaging/docker/README.md](packaging/docker/README.md)), or install the
+   .rpm/.deb and `sudo loginctl enable-linger <user>` so it runs without a sign-in.
 
 ## What runs, and what it costs
 
 | Piece | Where | When | Budget (self-measured, logged) |
 |---|---|---|---|
-| `monitor-agent` | Windows, Linux | starts at sign-in, one cycle a minute, sleeps in between | under 40 MB, under 300 ms CPU per cycle |
-| Alarm collector | Android | system alarm every 60 s (screen on) or 5 min (screen off), then exits | under 5 s and 500 ms CPU per run |
+| `monitor-agent` | Windows, Linux, Docker | starts at sign-in (Docker: with the server), one cycle a minute, sleeps in between | under 40 MB, under 300 ms CPU per cycle |
+| Alarm collector | Android | system alarm every 60 s (screen on) or 5 min (screen off; Android stretches this to about 9 min when the phone is idle), then exits | under 5 s and 500 ms CPU per run |
 | The app | everywhere | only while open; reads the folder every 10 s, nothing in the background | under 150 MB |
+
+**Live while you look.** While the app is open on any device it keeps a small
+file in `watch/`. Every collector that sees it goes live: computers and servers
+every 10 s, Android every 15 s when its screen is on or it is charging (an
+idle phone on battery stays at its resting rate). History stays at one line a
+minute. The file expires 90 s after the app closes, and everything returns to
+the resting rate by itself.
 
 Breaking a budget writes `OVER BUDGET` into that device's `log.txt`, which
 syncs like everything else.
@@ -44,7 +52,8 @@ syncs like everything else.
 
 Setup and updates > Install. The app downloads the release file, checks it
 against the release's SHA256SUMS and hands it to the system installer.
-Nothing installs without that tap.
+Nothing installs without that tap. Servers in Docker:
+`docker compose build --pull --no-cache && docker compose up -d`.
 
 ## Layout
 
@@ -52,7 +61,8 @@ Nothing installs without that tap.
   the computer collector (`bin/monitor_agent.dart`), update check.
 * `app/`: Flutter app for Android, Windows and Linux. The Android collector is
   `app/android/app/src/main/kotlin/app/monitor/lite/Collector.kt`.
-* `packaging/`: Windows installer (Inno Setup), Linux service and desktop files.
+* `packaging/`: Windows installer (Inno Setup), Linux service and desktop files,
+  Docker image for servers.
 * `FORMAT.md`: the files in the shared folder.
 
 Builds and releases: `.github/workflows/lite.yml` (Actions > Monitor Lite > Run

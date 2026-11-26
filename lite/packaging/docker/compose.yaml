@@ -1,0 +1,29 @@
+# Monitor App collector for a Linux server. Steps: README.md in this folder.
+services:
+  monitor:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-latest}
+    image: monitor-app-collector
+    container_name: monitor-app
+    restart: unless-stopped
+    init: true
+    # Host network: the collector must see this server's real network cards,
+    # its Tailscale address, and Syncthing on 127.0.0.1:22000. Nothing is
+    # published or listened on.
+    network_mode: host
+    # Write files as you, so Syncthing (running as you) can manage them.
+    user: "${UID:-1000}:${GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      MONITOR_NAME: ${NAME:-}
+    volumes:
+      - ${MONITOR_FOLDER:?set MONITOR_FOLDER in .env to the shared Monitor folder}:/monitor
+      - ./data:/data
+      - /etc/os-release:/etc/os-release:ro
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "2" }

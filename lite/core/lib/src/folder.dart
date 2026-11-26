@@ -61,10 +61,11 @@ class SyncFolder {
     }
   }
 
-  final _cache = <String, (DateTime, int, Report?)>{};
+  final _cache = <String, (String, Report?)>{};
 
-  /// Every device's latest report. Only files whose size or time changed are
-  /// parsed again, so a refresh with nothing new costs one directory listing.
+  /// Every device's latest report. A file is parsed again only when its text
+  /// changed. The text is compared, not the file time: Syncthing on Android
+  /// was seen keeping the first write's time on every later copy of now.json.
   Map<String, Report> readReports() {
     final out = <String, Report>{};
     final dir = Directory(devicesPath);
@@ -75,23 +76,29 @@ class SyncFolder {
       try {
         final s = f.statSync();
         if (s.type != FileSystemEntityType.file) continue;
+        if (s.size > 1024 * 1024) continue; // not a report
+        final text = f.readAsStringSync();
         final c = _cache[f.path];
         Report? r;
-        if (c != null && c.$1 == s.modified && c.$2 == s.size) {
-          r = c.$3;
+        if (c != null && c.$1 == text) {
+          r = c.$2;
         } else {
-          r = Report.tryParse(jsonDecode(f.readAsStringSync()));
+          Report? parsed;
+          try {
+            parsed = Report.tryParse(jsonDecode(text));
+          } catch (_) {}
           // A half-synced file fails to parse: keep showing the previous one.
-          if (r == null && c != null) {
-            r = c.$3;
+          if (parsed == null && c?.$2 != null) {
+            r = c!.$2;
           } else {
-            _cache[f.path] = (s.modified, s.size, r);
+            r = parsed;
+            _cache[f.path] = (text, r);
           }
         }
         if (r != null) out[r.id] = r;
       } catch (_) {
         final c = _cache[f.path];
-        if (c?.$3 != null) out[c!.$3!.id] = c.$3!;
+        if (c?.$2 != null) out[c!.$2!.id] = c.$2!;
       }
     }
     return out;
@@ -114,7 +121,7 @@ class SyncFolder {
         if (n == nowFileName) {
           hasNow = true;
           final c = _cache[f.path];
-          if (c != null && c.$3 == null) h.unreadable.add(name);
+          if (c != null && c.$2 == null) h.unreadable.add(name);
         }
       }
       if (!hasNow) h.empty.add(name);
@@ -133,6 +140,46 @@ class SyncFolder {
       } catch (_) {}
     }
     return n;
+  }
+
+  String get watchPath => '$root${Platform.pathSeparator}$watchDirName';
+  File _watchFile(String id) => File('$watchPath${Platform.pathSeparator}$id.json');
+
+  /// Say "someone is looking at this device's screen right now" until
+  /// [watchHoldSeconds] from now. Each device writes only its own file.
+  void writeWatch(String id, String name, DateTime now) {
+    try {
+      Directory(watchPath).createSync(recursive: true);
+      final until = now.toUtc().millisecondsSinceEpoch ~/ 1000 + watchHoldSeconds;
+      final tmp = File('$watchPath${Platform.pathSeparator}.syncthing.$id.json.tmp');
+      tmp.writeAsStringSync(jsonEncode({'id': id, 'name': name, 'until': until}), flush: true);
+      tmp.renameSync(_watchFile(id).path);
+    } catch (_) {}
+  }
+
+  /// The app went to the background: stop asking for fast collection.
+  void clearWatch(String id) {
+    try {
+      final f = _watchFile(id);
+      if (f.existsSync()) f.deleteSync();
+    } catch (_) {}
+  }
+
+  /// Names of the devices whose app is open right now (fresh watch files).
+  /// Costs one small directory listing.
+  List<String> watchers(DateTime now) {
+    final out = <String>[];
+    final d = Directory(watchPath);
+    if (!d.existsSync()) return out;
+    final t = now.toUtc().millisecondsSinceEpoch ~/ 1000;
+    for (final e in d.listSync()) {
+      if (e is! File || !e.path.endsWith('.json') || e.path.contains('.syncthing.')) continue;
+      try {
+        final j = jsonDecode(e.readAsStringSync());
+        if (j is Map && j['until'] is num && (j['until'] as num) > t) out.add('${j['name'] ?? j['id'] ?? '?'}');
+      } catch (_) {}
+    }
+    return out;
   }
 
   /// The last [maxBytes] of a device's log.

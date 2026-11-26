@@ -102,19 +102,42 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } else if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
       _timer?.cancel();
       _timer = null;
+      folder.clearWatch(host.id);
+      _lastWatch = null;
     }
+  }
+
+  DateTime? _lastWatch;
+
+  /// While the app is on screen, every device collects at the live rate:
+  /// this device's watch file tells them so (it expires by itself if the app
+  /// is killed), and on Android this device collects itself every 10 s.
+  void _live() {
+    final now = DateTime.now().toUtc();
+    if (_lastWatch == null || now.difference(_lastWatch!) >= const Duration(seconds: 30)) {
+      folder.writeWatch(host.id, host.name, now);
+      _lastWatch = now;
+    }
+    if (host.isAndroid) host.nudge(live: true).then((_) => refresh());
   }
 
   void _resume() {
     _timer?.cancel();
+    _lastWatch = null;
+    _live();
     refresh(force: true);
-    _timer = Timer.periodic(const Duration(seconds: 10), (_) => refresh());
+    _timer = Timer.periodic(const Duration(seconds: watchIntervalSeconds), (_) {
+      _live();
+      refresh();
+    });
     if (_lastUpdateCheck == null || DateTime.now().difference(_lastUpdateCheck!) > const Duration(hours: 6)) {
       checkUpdate(quiet: true);
     }
   }
 
   Future<void> setFolder(String path) async {
+    folder.clearWatch(host.id);
+    _lastWatch = null;
     await host.setFolder(path);
     folder = SyncFolder(path);
     await host.nudge();

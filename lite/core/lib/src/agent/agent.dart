@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../config.dart';
 import '../folder.dart';
+import '../format.dart';
 import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
@@ -69,14 +70,36 @@ class Agent {
   int _cycles = 0, _maxCycleMs = 0;
   double _maxRss = 0;
 
-  /// Runs forever, one cycle a minute. Timer-driven: the process sleeps in
-  /// between and does nothing else.
+  static const fast = Duration(seconds: watchIntervalSeconds);
+  DateTime? _lastCycle;
+  DateTime? _lastHistory;
+  List<String> _watchers = const [];
+
+  /// Runs forever. Resting rate is one cycle a minute. While someone has the
+  /// app open on any device (a fresh file in watch/), one every 10 s. The
+  /// process wakes every 10 s only to list that small folder.
   Future<void> run() async {
     host.sample(); // prime the counters so the first rates are real
     await Future<void>.delayed(const Duration(seconds: 5));
     await cycle(firstRun: true);
-    Timer.periodic(interval, (_) => cycle());
+    Timer.periodic(fast, (_) => tick());
     await Completer<void>().future;
+  }
+
+  void tick() {
+    try {
+      final now = DateTime.now().toUtc();
+      final folder = SyncFolder(LocalConfig.load().folder);
+      final was = _watchers.isNotEmpty;
+      _watchers = folder.watchers(now);
+      final due = _watchers.isNotEmpty ? fast : interval;
+      // A little slack so a 10 s timer doesn't miss a 60 s cycle by a hair.
+      if (_lastCycle == null || now.difference(_lastCycle!) >= due - const Duration(seconds: 2) || (_watchers.isNotEmpty && !was)) {
+        cycle();
+      }
+    } catch (_) {
+      cycle();
+    }
   }
 
   bool _busy = false;
@@ -84,6 +107,7 @@ class Agent {
   Future<void> cycle({bool firstRun = false}) async {
     if (_busy) return; // never overlap cycles
     _busy = true;
+    _lastCycle = DateTime.now().toUtc();
     final sw = Stopwatch()..start();
     final cpu0 = host.processCpuMs();
     LocalConfig? cfg;
@@ -114,8 +138,8 @@ class Agent {
         }
         // Skip devices silent for over a day: probing them is wasted effort.
         if (seen > 86400) return;
-        final tcp = await tcpProbe(o.tailscaleIp!);
-        final ms = await host.ping(o.tailscaleIp!);
+        // Both at once: an unreachable device costs one timeout, not two.
+        final (tcp, ms) = await (tcpProbe(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
         peers[o.id] = PeerView(tcp: tcp, pingMs: ms, seenAge: seen);
       }));
 
@@ -136,7 +160,8 @@ class Agent {
         machine: _machine,
         app: appVersion,
         seq: ++_seq,
-        nextSeconds: interval.inSeconds,
+        nextSeconds: _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds,
+        watchedBy: _watchers,
         bootTime: s.bootTime,
         battery: s.battery,
         cpuPct: s.cpuPct,
@@ -154,7 +179,11 @@ class Agent {
       );
       folder.writeNow(r);
       final hw = HistoryWriter(folder.deviceDir(cfg.id), LocalConfig.dir);
-      hw.add(r.historyLine(), now);
+      // History stays at one line a minute however fast the live rate is.
+      if (_lastHistory == null || now.difference(_lastHistory!) >= const Duration(seconds: 55)) {
+        hw.add(r.historyLine(), now);
+        _lastHistory = now;
+      }
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;

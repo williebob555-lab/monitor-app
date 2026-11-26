@@ -44,12 +44,13 @@ class LocalHost {
     }
   }
 
-  /// Android: run one collection now (the app was just opened).
+  /// Android: run one collection now (the app was just opened, or [live]:
+  /// the periodic collection while the app is on screen).
   /// Computers: make sure the background program is running.
-  Future<void> nudge() async {
+  Future<void> nudge({bool live = false}) async {
     try {
       if (isAndroid) {
-        await _ch.invokeMethod('runNow', {'reason': 'app-open'});
+        await _ch.invokeMethod('runNow', {'reason': live ? 'live' : 'app-open'});
       } else {
         await startAgent();
       }
