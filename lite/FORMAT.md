@@ -5,8 +5,12 @@
                                   (e.g. Infrastructure/Monitor)
   devices/<device id>/
     now.json                      latest report, replaced every cycle
-    history-YYYY-MM-DD.jsonl      one compact line per cycle, 7 days kept
+    history/detail/YYYY-MM-DD-HH.jsonl   every reading, one file per hour
+    history/hourly/YYYY-MM.jsonl         one summary line per hour
+    history/daily/YYYY.jsonl             one summary line per day
     log.txt                       the app's own log, kept under 256 KB
+  settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
+                                  "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50}}
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees
@@ -38,6 +42,48 @@ things (non-primary devices, IoT) get their own top-level folder next to
 
 Missing keys mean "not available"; readers never guess.
 
-## history line
+## Built to grow (rules every reader and writer follows)
 
-`{"t":…, "b":battery%, "c":charging 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, <numeric readings by key>}`
+* **Unknown fields are kept, never an error.** A reader keeps the whole file
+  (`Report.raw`) and uses the fields it knows. A newer device can add fields
+  and older apps still read it.
+* **`v` only goes up for breaking changes.** Adding fields never bumps it.
+  Readers accept any `v` and read what they recognise.
+* **Every value has a path.** `battery.pct`, `net.type`, `peers.<id>.tcp`,
+  `readings.<key>` (extra readings are addressed by their `key`, and
+  `readings.<key>.unit` gives the unit). `Report.field(path)` /
+  `Report.number(path)` pull any of them out, `Report.flatten()` lists them all,
+  and `seriesOf(historyLines, path)` turns any numeric history key into a chart.
+  The device page has an "All fields" view with a filter.
+* **New kinds of data go in `readings`** first (`{key, value, label, unit, group}`,
+  keys dotted like `temp.cpu` or `svc.syncthing`). The app shows them grouped,
+  and numeric ones get a history chart, without an app change.
+* **Bad values are skipped one by one.** A wrong type in one field doesn't
+  discard the rest of the file.
+
+## History
+
+Detail line: `{"t":…, "b":battery%, "c":charging 0/1, "s":screen on 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, <numeric readings by key>}`
+
+Summary line (hourly and daily): `{"t": start, "n": readings, "<path>": [min, avg, max], ...}`
+for every numeric value, nested ones flattened (`"p.<peer id>"`).
+
+How it stays small:
+* Readings go to a local, unsynced spool first and move into the hour's detail
+  file every 15 minutes, so Syncthing sees a few small changes an hour, never a
+  growing file rewritten every minute. An hour file stays around 10-15 KB.
+* Ended hours and days are summarised by the device that owns them.
+* Each device deletes its own old files by the limits in `settings.json`
+  (shown and editable under Setup > History), then enforces the size cap
+  oldest-detail-first. Defaults: every reading 7 days, hourly 1 year, daily 5 years, 50 MB.
+* Readers open at most 25 hour files (24 h view), the hourly file(s) (7 days)
+  or the daily file(s) (year), so reading cost doesn't grow with history.
+
+## Planned: patterns instead of raw data
+
+Long-term, raw numbers matter less than what they show ("battery drains
+4 %/h on the wireless pad", "CPU averages 30 % on weekday evenings"). The
+plan is one readable `devices/<id>/patterns.json` per device, built from the
+hourly and daily summaries, grouped by conditions already recorded in every
+line (charging `c`, screen `s`, hour of day, weekday, network type). Once
+patterns exist, older summaries can be cut back further. Not built yet.

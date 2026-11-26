@@ -47,7 +47,6 @@ object Collector {
     const val INTERVAL_SCREEN_OFF = 300
     const val BUDGET_RUN_MS = 5000L
     const val BUDGET_CPU_MS = 500L
-    const val HISTORY_KEEP_DAYS = 7
     const val LOG_MAX_BYTES = 256 * 1024
 
     private val lock = Any()
@@ -202,7 +201,8 @@ object Collector {
                 File(dir, "now.json").writeText(j.toString())
                 tmp.delete()
             }
-            File(dir, historyName(Date(now))).appendText(historyLine(j) + "\n")
+            val history = History(dir, ctx.filesDir)
+            history.add(JSONObject(historyLine(j)), now)
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")
             val lastSummary = p.getLong("lastSummary", 0)
@@ -217,7 +217,8 @@ object Collector {
                 p.edit().putLong("lastSummary", now).apply()
             }
             if (now - p.getLong("lastPrune", 0) > 6 * 3600_000L) {
-                prune(dir, now)
+                val used = history.prune(now, History.Retention.load(root))
+                log(dir, "history ${used / 1024} KB")
                 p.edit().putLong("lastPrune", now).apply()
             }
         } catch (e: Throwable) {
@@ -273,7 +274,6 @@ object Collector {
             ?.split(Regex("\\s+"))?.get(1)?.toDouble()?.div(1024)
     }.getOrNull()
 
-    private fun historyName(d: Date) = "history-" + SimpleDateFormat("yyyy-MM-dd", Locale.US).format(d) + ".jsonl"
 
     private fun historyLine(j: JSONObject): String {
         val h = JSONObject().put("t", j.getLong("t"))
@@ -281,6 +281,7 @@ object Collector {
             if (b.has("pct")) h.put("b", b.getDouble("pct"))
             h.put("c", if (b.optBoolean("charging")) 1 else 0)
         }
+        if (j.has("screen")) h.put("s", if (j.getString("screen") == "on") 1 else 0)
         j.optJSONObject("mem")?.let { h.put("mem", Math.round(1000.0 * it.getLong("used") / it.getLong("total")) / 10.0) }
         j.optJSONObject("disk")?.let { h.put("disk", Math.round(1000.0 * it.getLong("used") / it.getLong("total")) / 10.0) }
         j.optJSONObject("net")?.let { n ->
@@ -297,12 +298,6 @@ object Collector {
         }
         h.put("p", pv)
         return h.toString()
-    }
-
-    private fun prune(dir: File, now: Long) {
-        val keep = (0 until HISTORY_KEEP_DAYS).map { historyName(Date(now - it * 86400_000L)) }.toSet()
-        dir.listFiles()?.filter { it.name.startsWith("history-") && it.name.endsWith(".jsonl") && it.name !in keep }
-            ?.forEach { it.delete() }
     }
 
     fun log(dir: File, line: String) {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../config.dart';
 import '../folder.dart';
+import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
 import '../version.dart';
@@ -152,7 +153,8 @@ class Agent {
         self: SelfCost(rssMb: rss, runMs: sw.elapsedMilliseconds, cpuMs: cycleCpu, over: over),
       );
       folder.writeNow(r);
-      folder.appendHistory(r);
+      final hw = HistoryWriter(folder.deviceDir(cfg.id), LocalConfig.dir);
+      hw.add(r.historyLine(), now);
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;
@@ -170,7 +172,8 @@ class Agent {
         _maxRss = 0;
       }
       if (_lastPrune == null || now.difference(_lastPrune!) > const Duration(hours: 6)) {
-        folder.pruneHistory(cfg.id, now.toLocal());
+        final used = hw.prune(now, Retention.load(cfg.folder));
+        folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
         _lastPrune = now;
       }
     } catch (e, st) {

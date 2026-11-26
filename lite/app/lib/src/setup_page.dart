@@ -100,6 +100,8 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
                     const SizedBox(height: 14),
                     _health(st),
                     const SizedBox(height: 14),
+                    _HistorySettings(st),
+                    const SizedBox(height: 14),
                     Section(
                       'How it works',
                       const Text(
@@ -240,4 +242,85 @@ class _Check {
   final String detail;
   final String? action;
   final Future<void> Function()? onAction;
+}
+
+/// Retention limits, shared by every device through settings.json in the
+/// Monitor folder. Each device applies them to its own history.
+class _HistorySettings extends StatefulWidget {
+  const _HistorySettings(this.st);
+  final AppState st;
+  @override
+  State<_HistorySettings> createState() => _HistorySettingsState();
+}
+
+class _HistorySettingsState extends State<_HistorySettings> {
+  late Retention r = Retention.load(widget.st.folder.root);
+  late final ctl = {
+    'detailDays': TextEditingController(text: '${r.detailDays}'),
+    'hourlyDays': TextEditingController(text: '${r.hourlyDays}'),
+    'dailyDays': TextEditingController(text: '${r.dailyDays}'),
+    'maxMb': TextEditingController(text: '${r.maxMb}'),
+  };
+  String? msg;
+
+  @override
+  void dispose() {
+    for (final c in ctl.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _field(String key, String label, String unit) => SizedBox(
+        width: 170,
+        child: TextField(
+          controller: ctl[key],
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(isDense: true, labelText: label, suffixText: unit, border: const OutlineInputBorder()),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final used = historyBytes(widget.st.folder.deviceDir(widget.st.host.id));
+    return Section(
+      'History',
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          'Every reading is kept for ${r.detailDays} days, hourly summaries (min, average, max) for ${r.hourlyDays} days, '
+          'and daily summaries for ${r.dailyDays} days. Each device keeps its history under ${r.maxMb} MB; this one uses ${fmtBytes(used)}. '
+          'Readings are added to the shared folder every 15 minutes so Syncthing sends small changes, not a growing file.',
+          style: const TextStyle(color: C.muted, height: 1.4),
+        ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          _field('detailDays', 'Every reading', 'days'),
+          _field('hourlyDays', 'Hourly', 'days'),
+          _field('dailyDays', 'Daily', 'days'),
+          _field('maxMb', 'Per device', 'MB'),
+        ]),
+        const SizedBox(height: 10),
+        FilledButton.tonal(
+          onPressed: () {
+            final n = Retention.fromJson({for (final e in ctl.entries) e.key: int.tryParse(e.value.text.trim())});
+            try {
+              n.save(widget.st.folder.root);
+              widget.st.host.log('history limits set to ${n.toJson()}');
+              setState(() {
+                r = n;
+                for (final e in n.toJson().entries) {
+                  ctl[e.key]!.text = '${e.value}';
+                }
+                msg = 'Saved for all devices. Each applies it at its next cleanup (within 6 hours).';
+              });
+            } catch (e) {
+              setState(() => msg = 'Could not save: $e');
+            }
+          },
+          child: const Text('Save for all devices'),
+        ),
+        if (msg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(msg!, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+      ]),
+    );
+  }
 }

@@ -45,26 +45,6 @@ class SyncFolder {
     tmp.renameSync(_p(r.id, nowFileName));
   }
 
-  void appendHistory(Report r) {
-    final f = File(_p(r.id, historyFileName(r.time.toLocal())));
-    f.writeAsStringSync('${jsonEncode(r.historyLine())}\n', mode: FileMode.append, flush: true);
-  }
-
-  /// Delete this device's history files older than [historyKeepDays].
-  void pruneHistory(String id, DateTime nowLocal) {
-    final keep = <String>{
-      for (var i = 0; i < historyKeepDays; i++) historyFileName(nowLocal.subtract(Duration(days: i))),
-    };
-    final dir = Directory(deviceDir(id));
-    if (!dir.existsSync()) return;
-    for (final e in dir.listSync()) {
-      final name = e.uri.pathSegments.last;
-      if (e is File && name.startsWith(historyPrefix) && name.endsWith(historySuffix) && !keep.contains(name)) {
-        e.deleteSync();
-      }
-    }
-  }
-
   /// Append one line to this device's own log; keep the file small.
   void log(String id, String line) {
     try {
@@ -153,20 +133,6 @@ class SyncFolder {
       } catch (_) {}
     }
     return n;
-  }
-
-  /// One day of a device's history, oldest first.
-  List<Map<String, Object?>> readHistory(String id, DateTime localDay) {
-    final f = File(_p(id, historyFileName(localDay)));
-    if (!f.existsSync()) return const [];
-    final out = <Map<String, Object?>>[];
-    for (final line in const LineSplitter().convert(f.readAsStringSync())) {
-      try {
-        final j = jsonDecode(line);
-        if (j is Map<String, Object?>) out.add(j);
-      } catch (_) {}
-    }
-    return out;
   }
 
   /// The last [maxBytes] of a device's log.

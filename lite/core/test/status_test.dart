@@ -156,6 +156,30 @@ void main() {
     expect(Report.tryParse(y.toJson())!.readings.first.unit, '°C');
   });
 
+  test('any field is reachable by path, unknown fields are kept', () {
+    final y = Report.tryParse({
+      'v': 7,
+      'id': 'a',
+      't': 1,
+      'battery': {'pct': 80},
+      'gpu': {'load': 33, 'name': 'RTX'},
+      'peers': {'b': {'tcp': 'open'}},
+      'readings': [
+        {'key': 'temp.cpu', 'value': 54.2, 'unit': '°C'},
+      ],
+    })!;
+    expect(y.formatVersion, 7);
+    expect(y.number('battery.pct'), 80);
+    expect(y.field('gpu.name'), 'RTX');
+    expect(y.field('peers.b.tcp'), 'open');
+    expect(y.number('readings.temp.cpu'), 54.2);
+    expect(y.field('readings.temp.cpu.unit'), '°C');
+    expect(y.field('nope.x'), isNull);
+    expect(y.flatten(), containsPair('gpu.load', 33));
+    expect(y.flatten(), containsPair('readings.temp.cpu', 54.2));
+    expect(seriesOf([{'cpu': 3}, {'x': 1}, {'cpu': 'bad'}], 'cpu'), [3.0, null, null]);
+  });
+
   test('garbage files are ignored, not fatal', () {
     expect(Report.tryParse('nope'), isNull);
     expect(Report.tryParse({'id': 3}), isNull);

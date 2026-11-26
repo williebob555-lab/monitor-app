@@ -30,6 +30,7 @@ class Report {
     Map<String, PeerView>? peers,
     this.self,
     List<Reading>? readings,
+    this.raw = const {},
   })  : peers = peers ?? {},
         readings = readings ?? [];
 
@@ -73,6 +74,29 @@ class Report {
   /// the app shows any it finds, grouped.
   final List<Reading> readings;
 
+  /// The whole file as read, including fields this version doesn't know.
+  /// Nothing is thrown away, so newer writers never break older readers and
+  /// any field can be pulled out by path with [field].
+  final Map<String, Object?> raw;
+
+  /// Format version the writer used. Readers accept any version and use the
+  /// fields they recognise.
+  int get formatVersion => (raw['v'] as num?)?.toInt() ?? 1;
+
+  /// Any value by dotted path, e.g. "battery.pct", "peers.<id>.tcp",
+  /// "net.type", or "readings.<key>" for an extra reading. Null when absent.
+  Object? field(String path) => fieldAt(raw, path);
+
+  /// [field] as a number, or null.
+  double? number(String path) {
+    final v = field(path);
+    return v is num ? v.toDouble() : null;
+  }
+
+  /// Every leaf value in the file as path -> value, for a generic
+  /// "all fields" view and for picking any field for status or history.
+  Map<String, Object?> flatten() => flattenJson(raw);
+
   static DateTime _sec(num s) => DateTime.fromMillisecondsSinceEpoch((s * 1000).round(), isUtc: true);
 
   static Report? tryParse(Object? json) {
@@ -90,6 +114,7 @@ class Report {
       }
       final mem = json['mem'], disk = json['disk'], net = json['net'], ts = json['ts'];
       return Report(
+        raw: Map<String, Object?>.from(json),
         id: id,
         name: name is String && name.isNotEmpty ? name : id,
         kind: kind is String ? kind : 'unknown',
@@ -160,6 +185,7 @@ class Report {
         't': time.millisecondsSinceEpoch ~/ 1000,
         if (battery?.pct != null) 'b': battery!.pct,
         if (battery?.charging != null) 'c': battery!.charging! ? 1 : 0,
+        if (screenOn != null) 's': screenOn! ? 1 : 0,
         if (cpuPct != null) 'cpu': _round1(cpuPct!),
         if (memTotal != null && memUsed != null) 'mem': _round1(100 * memUsed! / memTotal!),
         if (diskTotal != null && diskUsed != null) 'disk': _round1(100 * diskUsed! / diskTotal!),
@@ -286,3 +312,63 @@ String? _str(Object? v) => v is String && v.isNotEmpty ? v : null;
 int? _int(Object? v) => v is num ? v.round() : null;
 double? _dbl(Object? v) => v is num ? v.toDouble() : null;
 double _round1(double v) => (v * 10).roundToDouble() / 10;
+
+/// Looks up a dotted path in decoded JSON. Lists of objects with a "key"
+/// field (like readings) are addressed by that key: "readings.temp.cpu"
+/// matches the reading whose key is "temp.cpu".
+Object? fieldAt(Object? json, String path) {
+  if (path.isEmpty) return json;
+  if (json is Map) {
+    if (json.containsKey(path)) return json[path];
+    // Longest matching prefix first, so keys containing dots still work.
+    final parts = path.split('.');
+    for (var i = parts.length - 1; i >= 1; i--) {
+      final head = parts.take(i).join('.');
+      if (json.containsKey(head)) {
+        final r = fieldAt(json[head], parts.skip(i).join('.'));
+        if (r != null) return r;
+      }
+    }
+    return null;
+  }
+  if (json is List) {
+    for (final e in json) {
+      if (e is Map && e['key'] == path) return e['value'];
+    }
+    final dot = path.indexOf('.');
+    final idx = int.tryParse(dot < 0 ? path : path.substring(0, dot));
+    if (idx != null && idx >= 0 && idx < json.length) return dot < 0 ? json[idx] : fieldAt(json[idx], path.substring(dot + 1));
+    for (final e in json) {
+      if (e is Map && e['key'] is String && path.startsWith('${e['key']}.')) {
+        return fieldAt(e, path.substring((e['key'] as String).length + 1));
+      }
+    }
+  }
+  return null;
+}
+
+Map<String, Object?> flattenJson(Object? json, [String prefix = '']) {
+  final out = <String, Object?>{};
+  void walk(Object? v, String p) {
+    if (v is Map) {
+      v.forEach((k, x) => walk(x, p.isEmpty ? '$k' : '$p.$k'));
+    } else if (v is List && v.every((e) => e is Map && e['key'] is String && e.containsKey('value'))) {
+      for (final e in v) {
+        out['$p.${(e as Map)['key']}'] = e['value'];
+      }
+    } else if (v is List) {
+      for (var i = 0; i < v.length; i++) {
+        walk(v[i], '$p.$i');
+      }
+    } else {
+      out[p] = v;
+    }
+  }
+
+  walk(json, prefix);
+  return out;
+}
+
+/// One series out of history lines by path, e.g. "cpu" or "p.<peer id>".
+List<double?> seriesOf(List<Map<String, Object?>> lines, String path) =>
+    [for (final l in lines) switch (fieldAt(l, path)) { num n => n.toDouble(), _ => null }];

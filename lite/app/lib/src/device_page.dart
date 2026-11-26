@@ -19,18 +19,20 @@ class _DevicePageState extends State<DevicePage> {
   List<Map<String, Object?>> history = const [];
   int _historySeq = -1;
   bool showLog = false;
+  bool showFields = false;
+  String filter = '';
 
+  HistoryRange range = HistoryRange.day;
+  HistoryRange? _loadedRange;
+
+  // Read only when this page is open, and again only when the device wrote
+  // something new or the range changed.
   void _loadHistory(Report r) {
-    if (r.seq == _historySeq) return;
+    if (r.seq == _historySeq && range == _loadedRange) return;
     _historySeq = r.seq;
+    _loadedRange = range;
     try {
-      final now = DateTime.now();
-      final h = [
-        ...widget.state.folder.readHistory(r.id, now.subtract(const Duration(days: 1))),
-        ...widget.state.folder.readHistory(r.id, now),
-      ];
-      final cutoff = now.toUtc().millisecondsSinceEpoch ~/ 1000 - 86400;
-      history = h.where((e) => (e['t'] as num? ?? 0) >= cutoff).toList();
+      history = readHistoryRange(widget.state.folder.deviceDir(r.id), range, DateTime.now());
     } catch (_) {
       history = const [];
     }
@@ -75,6 +77,8 @@ class _DevicePageState extends State<DevicePage> {
               _peers(r, names),
               const SizedBox(height: 14),
               _about(r, s),
+              const SizedBox(height: 14),
+              _fields(r),
               const SizedBox(height: 14),
               _log(r),
               if (r.id != widget.state.host.id) ...[
@@ -195,18 +199,38 @@ class _DevicePageState extends State<DevicePage> {
   }
 
   Widget _history(Report r) {
-    List<double?> series(String k) => history.map((e) => (e[k] as num?)?.toDouble()).toList();
+    List<double?> series(String k) => [for (final l in history) chartValue(l, k)];
     final rows = <(String, List<double?>, double?, Color)>[
       if (r.battery?.pct != null) ('Battery %', series('b'), 100, C.ok),
       if (r.cpuPct != null) ('CPU %', series('cpu'), 100, C.flow),
       ('Memory %', series('mem'), 100, C.flow),
       ('Download', series('rx'), null, C.flow),
       ('Upload', series('tx'), null, C.flow),
+      // Any extra numeric reading the device records in its history.
+      for (final x in r.readings)
+        if (x.value is num) ('${x.label ?? x.key}${x.unit != null ? ' (${x.unit})' : ''}', series(x.key), null, C.flow),
     ];
     return Section(
-      'Last 24 hours',
+      'History',
+      trailing: SegmentedButton<HistoryRange>(
+        showSelectedIcon: false,
+        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+        segments: const [
+          ButtonSegment(value: HistoryRange.day, label: Text('24 h')),
+          ButtonSegment(value: HistoryRange.week, label: Text('7 days')),
+          ButtonSegment(value: HistoryRange.year, label: Text('Year')),
+        ],
+        selected: {range},
+        onSelectionChanged: (v) => setState(() => range = v.first),
+      ),
       history.length < 2
-          ? const Text('History appears here after a few minutes.', style: TextStyle(color: C.muted))
+          ? Text(
+              switch (range) {
+                HistoryRange.day => 'Readings are added every 15 minutes, so the first ones appear here within about 15 minutes.',
+                HistoryRange.week => 'Hourly summaries appear after the first full hour.',
+                HistoryRange.year => 'Daily summaries appear after the first full day.',
+              },
+              style: const TextStyle(color: C.muted))
           : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               for (final row in rows) ...[
                 Row(children: [
@@ -218,7 +242,8 @@ class _DevicePageState extends State<DevicePage> {
                 Spark(row.$2, max: row.$3, color: row.$4, height: 44),
                 const SizedBox(height: 12),
               ],
-              Text('${history.length} readings', style: const TextStyle(color: C.muted, fontSize: 11)),
+              Text(range == HistoryRange.day ? '${history.length} readings' : '${history.length} ${range == HistoryRange.week ? 'hourly' : 'daily'} averages',
+                  style: const TextStyle(color: C.muted, fontSize: 11)),
             ]),
     );
   }
@@ -226,7 +251,9 @@ class _DevicePageState extends State<DevicePage> {
   String _last(List<double?> s, String label) {
     final v = s.lastWhere((x) => x != null, orElse: () => null);
     if (v == null) return '-';
-    return label.endsWith('%') ? '${v.round()}%' : fmtRate(v);
+    if (label.endsWith('%')) return '${v.round()}%';
+    if (label == 'Download' || label == 'Upload') return fmtRate(v);
+    return v.abs() >= 100 ? '${v.round()}' : v.toStringAsFixed(1);
   }
 
   Widget _peers(Report r, Map<String, String> names) {
@@ -293,6 +320,31 @@ class _DevicePageState extends State<DevicePage> {
         ].join('\n'),
         style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.6),
       ),
+    );
+  }
+
+  /// Every field in the device's file, by path. Shows fields this version of
+  /// the app doesn't know about yet, too; filter by typing part of a path.
+  Widget _fields(Report r) {
+    final all = r.flatten().entries.where((e) => filter.isEmpty || e.key.toLowerCase().contains(filter.toLowerCase())).toList();
+    return Section(
+      'All fields',
+      !showFields
+          ? Text('${r.flatten().length} fields in its file, format version ${r.formatVersion}.',
+              style: const TextStyle(color: C.muted, fontSize: 12))
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              TextField(
+                decoration: const InputDecoration(isDense: true, hintText: 'Filter, e.g. battery or peers', border: OutlineInputBorder()),
+                style: const TextStyle(fontSize: 13),
+                onChanged: (v) => setState(() => filter = v),
+              ),
+              const SizedBox(height: 10),
+              SelectableText(
+                all.map((e) => '${e.key} = ${e.value}').join('\n'),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: C.muted, height: 1.5),
+              ),
+            ]),
+      trailing: TextButton(onPressed: () => setState(() => showFields = !showFields), child: Text(showFields ? 'Hide' : 'Show')),
     );
   }
 
