@@ -218,3 +218,30 @@ String? windowsRegString(String key, String value) {
     calloc.free(buf);
   }
 }
+
+final _getLogicalDrives = _k32.lookupFunction<Uint32 Function(), int Function()>('GetLogicalDrives');
+final _getDriveType = _k32.lookupFunction<Uint32 Function(Pointer<Utf16>), int Function(Pointer<Utf16>)>('GetDriveTypeW');
+
+/// Fixed and removable drives: (letter, total bytes, free bytes).
+List<(String, int, int)> windowsDrives() {
+  final out = <(String, int, int)>[];
+  final mask = _getLogicalDrives();
+  final a = calloc<Uint64>(3);
+  try {
+    for (var i = 2; i < 26; i++) {
+      if (mask & (1 << i) == 0) continue;
+      final letter = '${String.fromCharCode(65 + i)}:';
+      final root = '$letter\\'.toNativeUtf16();
+      try {
+        final t = _getDriveType(root);
+        if (t != 2 && t != 3) continue; // removable, fixed
+        if (_getDiskFreeSpaceEx(root, a, a + 1, a + 2) != 0 && a[1] > 0) out.add((letter, a[1], a[2]));
+      } finally {
+        calloc.free(root);
+      }
+    }
+  } finally {
+    calloc.free(a);
+  }
+  return out;
+}

@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../report.dart';
-import 'windows.dart' show windowsRegString;
+import 'linux.dart' show linuxStatvfs;
+import 'windows.dart' show windowsDrives, windowsRegString;
 
 /// Readings beyond the basics, all through the open-ended `readings` list so
 /// the app shows them without knowing them: what the machine is (read once),
@@ -22,7 +23,7 @@ class Extras {
         ...await _syncthing(),
       ];
     }
-    return [..._system!, ..._temps(), ..._services];
+    return [..._system!, ..._temps(), ..._drives(), ..._services];
   }
 
   static String? _read(String p) {
@@ -60,6 +61,44 @@ class Extras {
     out.add(Reading(key: 'sys.cores', label: 'Processor threads', value: '${Platform.numberOfProcessors}', group: 'System'));
     return out.where((r) => r.value != '').toList();
   }
+
+  // ---- Every drive ------------------------------------------------------
+
+  static const _realFs = {'ext4', 'ext3', 'ext2', 'btrfs', 'xfs', 'f2fs', 'vfat', 'exfat', 'ntfs', 'ntfs3', 'fuseblk', 'zfs'};
+
+  List<Reading> _drives() {
+    final found = <(String, int, int)>[];
+    if (Platform.isWindows) {
+      found.addAll(windowsDrives());
+    } else if (Platform.isLinux && !File('/.dockerenv').existsSync()) {
+      final seen = <String>{};
+      for (final l in (_read('/proc/mounts') ?? '').split('\n')) {
+        final f = l.split(' ');
+        if (f.length < 3 || !_realFs.contains(f[2]) || !f[0].startsWith('/dev/')) continue;
+        final mount = f[1].replaceAll(r'\040', ' ');
+        if (mount.startsWith('/snap') || mount.startsWith('/var/lib/docker') || mount.startsWith('/boot/efi')) continue;
+        final st = linuxStatvfs(mount);
+        if (st == null || st.$1 < 1 << 30) continue; // under 1 GB: boot partitions and the like
+        // Btrfs subvolumes share one pool: same size and free space, show once.
+        if (!seen.add('${f[0]}:${st.$1}')) continue;
+        found.add((mount, st.$1, st.$2));
+      }
+    }
+    if (found.length < 2) return const []; // one drive is already "Storage"
+    return [
+      for (final (name, total, free) in found)
+        Reading(
+          key: 'drive.${name.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')}',
+          label: '$name (${_gb(total)})',
+          value: (1000 * (total - free) / total).round() / 10,
+          unit: '%',
+          group: 'Drives',
+          level: (total - free) / total >= 0.95 ? 'fault' : (total - free) / total >= 0.9 ? 'warn' : null,
+        ),
+    ];
+  }
+
+  static String _gb(int b) => b >= 1 << 40 ? '${(b / (1 << 40)).toStringAsFixed(1)} TB' : '${(b / (1 << 30)).round()} GB';
 
   // ---- Temperatures (Linux) -----------------------------------------------
 

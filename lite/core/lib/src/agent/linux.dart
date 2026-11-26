@@ -173,3 +173,6 @@ class LinuxHost implements Host {
     }
   }
 }
+
+/// Size and free bytes of the filesystem holding [path].
+(int, int)? linuxStatvfs(String path) => LinuxHost()._statvfs(path);
