@@ -18,6 +18,14 @@ docker compose up -d --build
 
 Within a minute the server shows up in Monitor App on every device.
 
+## Containers (optional)
+
+To see this server's containers in the app (running, stopped, unhealthy), uncomment
+the two Docker-socket lines in `compose.yaml` and set `DOCKER_GID` in `.env`
+(`getent group docker | cut -d: -f3`). The collector only reads the list, but
+whoever holds the socket can control Docker, which is why it is off by default.
+Installed without Docker (the .rpm/.deb), the collector reads it if your user is in the docker group.
+
 ## Update
 
 ```sh

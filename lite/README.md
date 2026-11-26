@@ -36,7 +36,7 @@ It has no server, no database, no pairing and no networking code of its own:
 |---|---|---|---|
 | `monitor-agent` | Windows, Linux, Docker | starts at sign-in (Docker: with the server), one cycle a minute, sleeps in between | under 40 MB, under 300 ms CPU per cycle |
 | Alarm collector | Android | system alarm every 60 s (screen on) or 5 min (screen off; Android stretches this to about 9 min when the phone is idle), then exits | under 5 s and 500 ms CPU per run |
-| The app | everywhere | only while open; reads the folder every 10 s, nothing in the background | under 150 MB |
+| The app | everywhere | only while open; reads the folder every 10 s, nothing in the background | under 150 MB (Android 250 MB: it counts the screen's graphics buffers) |
 
 **Live while you look.** While the app is open on any device it keeps a small
 file in `watch/`. Every collector that sees it goes live: computers and servers

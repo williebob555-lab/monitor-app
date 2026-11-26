@@ -24,6 +24,12 @@ services:
       - ${MONITOR_FOLDER:?set MONITOR_FOLDER in .env to the shared Monitor folder}:/monitor
       - ./data:/data
       - /etc/os-release:/etc/os-release:ro
+      # Optional: list this server's containers (running, stopped, unhealthy).
+      # The collector only reads, but the Docker socket gives whoever holds it
+      # full control of Docker, so this is off unless you remove the #s.
+      # The group number is the docker group's: getent group docker
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # group_add: ["${DOCKER_GID:-}"]
     logging:
       driver: json-file
       options: { max-size: "1m", max-file: "2" }

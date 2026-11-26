@@ -21,6 +21,7 @@ class Extras {
       _services = [
         ...await _tailscale(),
         ...await _syncthing(),
+        ...await _containers(),
       ];
     }
     return [..._system!, ..._temps(), ..._drives(), ..._services];
@@ -151,6 +152,53 @@ class Extras {
       ];
     } catch (_) {
       return const [];
+    }
+  }
+
+  // ---- Docker containers (Linux: the Docker socket, read-only GET) -------
+
+  Future<List<Reading>> _containers() async {
+    if (!Platform.isLinux) return const [];
+    const path = '/var/run/docker.sock';
+    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) return const [];
+    Socket? sock;
+    try {
+      sock = await Socket.connect(InternetAddress(path, type: InternetAddressType.unix), 0).timeout(const Duration(seconds: 2));
+      sock.write('GET /containers/json?all=1 HTTP/1.0\r\nHost: docker\r\n\r\n');
+      await sock.flush();
+      final raw = await sock.cast<List<int>>().transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
+      final cut = raw.indexOf('\r\n\r\n');
+      if (cut < 0 || !raw.startsWith('HTTP/1.') || !raw.substring(0, raw.indexOf('\r\n')).contains(' 200')) return const [];
+      final list = jsonDecode(raw.substring(cut + 4));
+      if (list is! List) return const [];
+      var running = 0;
+      final bad = <String>[];
+      final stopped = <String>[];
+      for (final c in list.whereType<Map>()) {
+        final name = ((c['Names'] as List?)?.firstOrNull as String? ?? '?').replaceFirst('/', '');
+        final state = '${c['State'] ?? ''}';
+        final status = '${c['Status'] ?? ''}';
+        if (state == 'running') {
+          running++;
+          if (status.contains('unhealthy')) bad.add('$name: unhealthy');
+        } else if (state == 'restarting') {
+          bad.add('$name: restarting');
+        } else if (state == 'exited' && !status.startsWith('Exited (0)')) {
+          bad.add('$name: ${status.split(' ago').first} ago');
+        } else {
+          stopped.add(name);
+        }
+      }
+      return [
+        Reading(key: 'ct.running', label: 'Running', value: running, group: 'Containers'),
+        Reading(key: 'ct.total', label: 'Containers', value: list.length, group: 'Containers'),
+        if (bad.isNotEmpty) Reading(key: 'ct.problems', label: 'Problems', value: bad.join('; '), group: 'Containers', level: 'warn'),
+        if (stopped.isNotEmpty) Reading(key: 'ct.stopped', label: 'Stopped', value: stopped.join(', '), group: 'Containers'),
+      ];
+    } catch (_) {
+      return const [];
+    } finally {
+      sock?.destroy();
     }
   }
 
