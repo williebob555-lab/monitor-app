@@ -4,8 +4,8 @@ name: Install smoke
 # signing secrets and no `release` environment) on real runners and proves the service lifecycle end to end.
 # Failures dump journal/event-log/node-log diagnostics. See docs/TESTING.md ("Install smoke").
 
+# Old .NET app: manual only since Monitor App 2.0 replaced it.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:

@@ -2,13 +2,8 @@ name: Android release APK startup smoke
 
 # Build a release-mode, test-signed APK from the PR, then launch it on an Android emulator.
 # A successful build alone cannot detect an Activity theme or first-frame startup crash.
+# Old .NET app: manual only since Monitor App 2.0 replaced it.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/android-startup-triage.yml'
-      - 'src/MonitorApp.Android/**'
-      - 'src/MonitorApp.Client.Ui/**'
-      - 'src/MonitorApp.Peer.Mobile/**'
   workflow_dispatch:
 
 permissions:
