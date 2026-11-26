@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
@@ -53,10 +55,18 @@ List<Link> linksOf(List<DeviceStatus> devices) {
   return out;
 }
 
-/// The network as a living schematic: each device a small card with its key
-/// gauges, joined by cables. Dots travel along a cable in each direction a
-/// device reaches the other, so a one-way link is visibly one-way. Colour
-/// marks only problems. Tap a card to dive in, tap a cable to read it.
+/// Which family a device belongs to on the map. Families gather together
+/// and, once the map is busy, can fold into one node.
+String familyOf(Report r) {
+  if (r.kind == 'android') return 'Phones and tablets';
+  if ((r.os ?? '').contains('Docker') || RegExp(r'server|nas|pi-|docker', caseSensitive: false).hasMatch(r.name)) return 'Servers';
+  return 'Computers';
+}
+
+/// The network as a living schematic that arranges itself: devices push
+/// apart, families pull together, and the view follows as devices come and
+/// go. Pan and zoom; with many devices each family can fold into one node.
+/// Dots travel along a cable in each direction a device reaches the other.
 class NetworkMap extends StatefulWidget {
   const NetworkMap(this.devices, {super.key, required this.myId, required this.onOpen});
   final List<DeviceStatus> devices;
@@ -67,165 +77,693 @@ class NetworkMap extends StatefulWidget {
   State<NetworkMap> createState() => _NetworkMapState();
 }
 
+/// A node's place in the map's own coordinates, and how it moves.
+class _Body {
+  _Body(this.p);
+  Offset p;
+  Offset v = Offset.zero;
+  double appear = 0; // 0 to 1 as it arrives
+}
+
+/// What is drawn as one node: a device, or a folded family.
+class _Node {
+  _Node(this.id, this.s, this.family, {this.members = const []});
+  final String id;
+  final DeviceStatus s;
+  final String family;
+  final List<DeviceStatus> members; // non-empty for a folded family
+  bool get folded => members.isNotEmpty;
+}
+
+/// A cable between two nodes.
+class _Edge {
+  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.ping, this.link, this.count);
+  final String a, b;
+  final Level level;
+  final bool fwd, back;
+  final int? ping;
+  final Link? link; // null when it stands for several links
+  final int count;
+}
+
 class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
-  Link? selected;
-  String? hover;
+  final bodies = <String, _Body>{};
+  final folded = <String>{};
+  late final Ticker physics = createTicker(_step);
   late final AnimationController flow = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
-  late final AnimationController enter = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..forward();
+
+  // Camera: screen = centre + pan + world * zoom.
+  Offset pan = Offset.zero;
+  double zoom = 1;
+  bool userMoved = false;
+  Size area = Size.zero;
+
+  String? focus; // node whose cables are shown in full
+  _Edge? selected;
+  int _calm = 0;
+
+  List<_Node> nodes = [];
+  List<_Edge> edges = [];
+
+  /// Many devices: compact nodes, families, quiet cables.
+  bool get busy => widget.devices.length > 7;
+  Size get nodeSize => busy ? const Size(168, 46) : (area.width < 460 ? const Size(166, 118) : const Size(190, 120));
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuild();
+  }
+
+  @override
+  void didUpdateWidget(NetworkMap old) {
+    super.didUpdateWidget(old);
+    _rebuild();
+  }
 
   @override
   void dispose() {
+    physics.dispose();
     flow.dispose();
-    enter.dispose();
     super.dispose();
   }
 
-  static Size cardSize(Size area) => area.width < 460 ? const Size(150, 116) : const Size(196, 122);
+  // ---- model --------------------------------------------------------------
 
-  /// Card centres on a circle that fits the area, turned so that four
-  /// devices sit on the corners of a square.
-  static Map<String, Offset> layout(List<String> ids, Size area) {
-    final c = Offset(area.width / 2, area.height / 2);
-    if (ids.length == 1) return {ids.first: c};
-    final card = cardSize(area);
-    final turn = ids.length == 2 ? math.pi / 2 : ids.length == 4 ? math.pi / 4 : 0.0;
-    final angles = [for (var i = 0; i < ids.length; i++) turn + 2 * math.pi * i / ids.length];
-    final xs = angles.map((a) => math.sin(a).abs()).reduce(math.max);
-    final ys = angles.map((a) => math.cos(a).abs()).reduce(math.max);
-    final rx = (area.width - card.width) / 2 - 2, ry = (area.height - card.height) / 2 - 2;
-    // An ellipse that uses the whole area, but never flatter than 2:1.
-    var ex = math.max(30.0, rx / xs), ey = math.max(30.0, ry / ys);
-    ex = math.min(ex, ey * 2);
-    ey = math.min(ey, ex * 2);
-    return {for (var i = 0; i < ids.length; i++) ids[i]: c + Offset(ex * math.sin(angles[i]), -ey * math.cos(angles[i]))};
+  void _rebuild() {
+    final devices = widget.devices;
+    final byFamily = <String, List<DeviceStatus>>{};
+    for (final d in devices) {
+      byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
+    }
+    folded.removeWhere((f) => (byFamily[f]?.length ?? 0) < 2);
+    final owner = <String, String>{}; // device id -> node id
+    final out = <_Node>[];
+    for (final d in devices) {
+      final f = familyOf(d.report);
+      if (folded.contains(f)) {
+        owner[d.report.id] = 'family:$f';
+        continue;
+      }
+      owner[d.report.id] = d.report.id;
+      out.add(_Node(d.report.id, d, f));
+    }
+    for (final f in folded) {
+      final m = byFamily[f]!;
+      final worst = m.map((d) => d.level).reduce((a, b) => a.index >= b.index ? a : b);
+      final bad = m.where((d) => d.level != Level.ok).length;
+      final rep = Report(id: 'family:$f', name: f, kind: m.first.report.kind, time: DateTime.now().toUtc());
+      out.add(_Node('family:$f', DeviceStatus(rep, worst, bad == 0 ? 'All ${m.length} well' : '$bad of ${m.length} need a look', '', fresh: true, age: Duration.zero), f,
+          members: m));
+    }
+
+    // Cables, folded families merged into one cable per pair of nodes.
+    final merged = <String, List<Link>>{};
+    for (final l in linksOf(devices)) {
+      final a = owner[l.a]!, b = owner[l.b]!;
+      if (a == b) continue;
+      merged.putIfAbsent(a.compareTo(b) < 0 ? '$a\n$b' : '$b\n$a', () => []).add(l);
+    }
+    edges = [
+      for (final e in merged.entries)
+        if (e.value.length == 1)
+          _Edge(owner[e.value.first.a]!, owner[e.value.first.b]!, e.value.first.level, e.value.first.ab?.reachable == true,
+              e.value.first.ba?.reachable == true, e.value.first.pingMs, e.value.first, 1)
+        else
+          _Edge(e.key.split('\n')[0], e.key.split('\n')[1], e.value.map((l) => l.level).reduce((a, b) => a.index >= b.index ? a : b),
+              e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true), e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true),
+              null, null, e.value.length),
+    ];
+
+    // Bodies: keep the ones we have, start new ones beside their family.
+    final ids = {for (final n in out) n.id};
+    bodies.removeWhere((id, _) => !ids.contains(id));
+    for (final n in out) {
+      if (bodies.containsKey(n.id)) continue;
+      Offset start;
+      final kin = [
+        for (final m in out)
+          if (m.family == n.family && bodies.containsKey(m.id)) bodies[m.id]!.p,
+        if (n.folded)
+          for (final d in n.members)
+            if (_lastPos[d.report.id] != null) _lastPos[d.report.id]!,
+      ];
+      final h = n.id.hashCode;
+      final jitter = Offset(((h & 0xff) - 128) / 4, (((h >> 8) & 0xff) - 128) / 4);
+      if (kin.isNotEmpty) {
+        start = kin.reduce((a, b) => a + b) / kin.length.toDouble() + jitter;
+      } else if (_lastPos[n.id] != null) {
+        start = _lastPos[n.id]!;
+      } else {
+        final a = (h % 360) * math.pi / 180;
+        start = Offset(math.cos(a), math.sin(a)) * (60.0 + 12 * out.length);
+      }
+      bodies[n.id] = _Body(start)..appear = bodies.isEmpty ? 1 : 0;
+    }
+    if (bodies.values.every((b) => b.appear == 0)) {
+      for (final b in bodies.values) {
+        b.appear = 1;
+      }
+    }
+    final changed = nodes.length != out.length || !nodes.every((n) => ids.contains(n.id));
+    nodes = out;
+    if (focus != null && !ids.contains(focus)) focus = null;
+    if (changed) _wake();
   }
+
+  /// Where folded members last were, so unfolding starts from there.
+  final _lastPos = <String, Offset>{};
+
+  void _wake() {
+    _calm = 0;
+    if (!physics.isActive) physics.start();
+  }
+
+  void _toggleFamily(String f) {
+    setState(() {
+      if (folded.contains(f)) {
+        folded.remove(f);
+      } else {
+        for (final n in nodes) {
+          if (n.family == f) _lastPos[n.id] = bodies[n.id]!.p;
+        }
+        folded.add(f);
+      }
+      focus = null;
+      selected = null;
+      _rebuild();
+    });
+  }
+
+  // ---- physics --------------------------------------------------------------
+
+  void _step(Duration _) {
+    final list = nodes;
+    final sz = nodeSize;
+    // Room each node wants around it, as an ellipse matching its shape.
+    final gap = busy ? 46.0 : 64.0;
+    final room = Offset(sz.width + gap, sz.height + gap);
+    final reachR = room.dx * 1.35;
+    var moving = 0.0;
+    final force = <String, Offset>{};
+    for (var i = 0; i < list.length; i++) {
+      final a = bodies[list[i].id]!;
+      // A spring to the middle; this device sits nearest it.
+      var f = -a.p * (list[i].id == widget.myId ? 0.03 : 0.012);
+      for (var j = 0; j < list.length; j++) {
+        if (i == j) continue;
+        final b = bodies[list[j].id]!;
+        var d = a.p - b.p;
+        if (d.distance < 0.01) d = Offset((i - j).toDouble(), 1);
+        final dist = d.distance, u = d / dist;
+        // Overlap pushes hard; nearby nodes push gently; far ones not at all.
+        final nx = d.dx / room.dx, ny = d.dy / room.dy;
+        final reach = math.sqrt(nx * nx + ny * ny); // 1 = just touching
+        if (reach < 1) f += u * (1 - reach) * 14;
+        if (dist < reachR) f += u * (reachR - dist) * 0.025;
+        // Family members drift towards each other, other families apart.
+        if (list[i].family == list[j].family) {
+          f -= d * 0.004;
+        } else if (dist < reachR * 1.5) {
+          f += u * (reachR * 1.5 - dist) * 0.012;
+        }
+      }
+      force[list[i].id] = f;
+    }
+    for (final n in list) {
+      final b = bodies[n.id]!;
+      b.v = (b.v + force[n.id]!) * 0.72;
+      if (b.v.distance > 24) b.v = b.v / b.v.distance * 24;
+      b.p += b.v;
+      moving = math.max(moving, b.v.distance);
+      if (b.appear < 1) b.appear = math.min(1, b.appear + 1 / 30);
+    }
+    // Then make sure nothing overlaps: nudge overlapping pairs apart.
+    for (var pass = 0; pass < 3; pass++) {
+      for (var i = 0; i < list.length; i++) {
+        for (var j = i + 1; j < list.length; j++) {
+          final a = bodies[list[i].id]!, b = bodies[list[j].id]!;
+          final d = a.p - b.p;
+          final ox = room.dx - 20 - d.dx.abs(), oy = room.dy - 20 - d.dy.abs();
+          if (ox <= 0 || oy <= 0) continue;
+          // Separate along the axis that needs the smaller move.
+          final push = ox * sz.height < oy * sz.width
+              ? Offset(d.dx >= 0 ? ox / 2 : -ox / 2, 0)
+              : Offset(0, d.dy >= 0 ? oy / 2 : -oy / 2);
+          a.p += push;
+          b.p -= push;
+        }
+      }
+    }
+    if (!userMoved) _fit(0.12);
+    final arriving = list.any((n) => bodies[n.id]!.appear < 1);
+    _calm = moving < 0.05 && !arriving ? _calm + 1 : 0;
+    if (_calm > 40) physics.stop();
+    setState(() {});
+  }
+
+  Rect _bounds() {
+    if (bodies.isEmpty) return Rect.zero;
+    final sz = nodeSize;
+    var r = Rect.fromCenter(center: bodies.values.first.p, width: sz.width, height: sz.height);
+    for (final b in bodies.values) {
+      r = r.expandToInclude(Rect.fromCenter(center: b.p, width: sz.width, height: sz.height));
+    }
+    // Room for the family names above each group.
+    return busy ? Rect.fromLTRB(r.left - 30, r.top - 64, r.right + 30, r.bottom + 30) : r.inflate(18);
+  }
+
+  /// Eases the camera towards showing every node.
+  void _fit(double ease) {
+    if (area.isEmpty) return;
+    final r = _bounds();
+    final z = math.min(area.width / r.width, area.height / r.height).clamp(0.3, 1.1);
+    final p = -r.center * z;
+    zoom += (z - zoom) * ease;
+    pan = Offset.lerp(pan, p, ease)!;
+  }
+
+  Offset _screen(Offset world) => Offset(area.width / 2, area.height / 2) + pan + world * zoom;
+  Offset _world(Offset screen) => (screen - Offset(area.width / 2, area.height / 2) - pan) / zoom;
+
+  // ---- view ---------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final devices = widget.devices;
-    if (devices.isEmpty) {
+    if (widget.devices.isEmpty) {
       return const Center(child: Text('No devices yet.', style: TextStyle(color: C.muted)));
     }
-    final names = {for (final d in devices) d.report.id: d.report.name};
-    final links = linksOf(devices);
+    final names = {for (final d in widget.devices) d.report.id: d.report.name};
+    final fam = <String, int>{};
+    for (final d in widget.devices) {
+      fam.update(familyOf(d.report), (n) => n + 1, ifAbsent: () => 1);
+    }
     return Column(children: [
       Expanded(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(18),
           child: DecoratedBox(
             decoration: BoxDecoration(
+              color: const Color(0xFF15181D),
               border: Border.all(color: C.line.withValues(alpha: 0.7)),
               borderRadius: BorderRadius.circular(18),
-              color: const Color(0xFF15181D),
             ),
-            child: Padding(padding: const EdgeInsets.all(12), child: _graph(devices, links)),
+            child: LayoutBuilder(builder: (context, box) {
+              final resized = area != Size(box.maxWidth, box.maxHeight);
+              area = Size(box.maxWidth, box.maxHeight);
+              if (resized && !userMoved) _fit(1);
+              return Stack(children: [
+                Positioned.fill(child: _canvas()),
+                for (final n in nodes) _placed(n),
+                if (busy) ..._familyLabels(fam),
+                Positioned(right: 10, bottom: 10, child: _controls()),
+                Positioned(
+                  left: 14,
+                  bottom: 12,
+                  child: Text('${widget.devices.length} devices', style: const TextStyle(color: C.muted, fontSize: 11.5, fontWeight: FontWeight.w500)),
+                ),
+              ]);
+            }),
           ),
         ),
       ),
       const SizedBox(height: 10),
-      AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        child: selected != null
-            ? _LinkDetail(
-                key: ValueKey(selected),
-                link: selected!,
-                text: selected!.describe(names[selected!.a] ?? selected!.a, names[selected!.b] ?? selected!.b),
-                onClose: () => setState(() => selected = null),
-              )
-            : const SizedBox(
-                height: 40,
-                child: Center(
-                  child: Text('Dots show traffic each way  ·  tap a cable for details',
-                      style: TextStyle(color: C.muted, fontSize: 11.5, letterSpacing: 0.1)),
-                ),
-              ),
-      ),
+      AnimatedSwitcher(duration: const Duration(milliseconds: 200), child: _detail(names)),
     ]);
   }
 
-  Widget _graph(List<DeviceStatus> devices, List<Link> links) {
-    return LayoutBuilder(builder: (context, box) {
-      final area = Size(box.maxWidth, box.maxHeight);
-      final card = cardSize(area);
-      final pos = layout([for (final d in devices) d.report.id], area);
-      final rects = {for (final e in pos.entries) e.key: Rect.fromCenter(center: e.value, width: card.width, height: card.height)};
-      final cables = {for (final l in links) l: _Cable.of(l, rects, Offset(area.width / 2, area.height / 2))};
-      return Stack(children: [
-        const Positioned.fill(child: CustomPaint(painter: _GridPainter())),
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapUp: (e) => setState(() => selected = _hit(cables, e.localPosition)),
-            child: AnimatedBuilder(
-              animation: Listenable.merge([flow, enter]),
-              builder: (_, _) => CustomPaint(painter: _CablePainter(cables, selected, flow.value, enter.value)),
+  Widget _canvas() {
+    return Listener(
+      onPointerSignal: (e) {
+        if (e is PointerScrollEvent) {
+          final w = _world(e.localPosition);
+          setState(() {
+            userMoved = true;
+            zoom = (zoom * (e.scrollDelta.dy > 0 ? 0.9 : 1.1)).clamp(0.25, 2.5);
+            pan = e.localPosition - Offset(area.width / 2, area.height / 2) - w * zoom;
+          });
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onScaleStart: (_) => _start = (pan, zoom),
+        onScaleUpdate: (e) => setState(() {
+          if (e.pointerCount > 1 || e.scale != 1) {
+            final w = _world(e.localFocalPoint);
+            zoom = (_start.$2 * e.scale).clamp(0.25, 2.5);
+            pan = e.localFocalPoint - Offset(area.width / 2, area.height / 2) - w * zoom;
+          }
+          pan += e.focalPointDelta;
+          if (e.focalPointDelta.distance > 0.5) userMoved = true;
+        }),
+        onTapUp: (e) => setState(() {
+          selected = _hit(e.localPosition);
+          if (selected == null) focus = null;
+        }),
+        child: AnimatedBuilder(
+          animation: flow,
+          builder: (_, _) => CustomPaint(
+            painter: _MapPainter(this, flow.value),
+          ),
+        ),
+      ),
+    );
+  }
+
+  (Offset, double) _start = (Offset.zero, 1);
+
+  Widget _placed(_Node n) {
+    final b = bodies[n.id]!;
+    final sz = nodeSize;
+    final c = _screen(b.p);
+    final t = Curves.easeOutBack.transform(b.appear.clamp(0.0, 1.0));
+    return Positioned(
+      left: c.dx - sz.width / 2,
+      top: c.dy - sz.height / 2,
+      width: sz.width,
+      height: sz.height,
+      child: Transform.scale(
+        scale: zoom * (0.6 + 0.4 * t),
+        child: Opacity(
+          opacity: b.appear.clamp(0.0, 1.0),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => focus = n.id),
+            onExit: (_) => setState(() => focus = focus == n.id ? null : focus),
+            child: GestureDetector(
+              onTap: () {
+                if (n.folded) return _toggleFamily(n.family);
+                if (busy && focus != n.id) return setState(() => focus = n.id);
+                widget.onOpen(n.id);
+              },
+              child: n.folded
+                  ? _FamilyNode(n)
+                  : busy
+                      ? _Chip(n.s, isMe: n.id == widget.myId, focused: focus == n.id)
+                      : _Card(n.s, isMe: n.id == widget.myId, lifted: focus == n.id),
             ),
           ),
         ),
-        for (var i = 0; i < devices.length; i++)
-          Positioned.fromRect(
-            rect: rects[devices[i].report.id]!,
-            child: AnimatedBuilder(
-              animation: enter,
-              builder: (_, child) {
-                final t = Curves.easeOutCubic.transform(((enter.value - i * 0.08) / 0.7).clamp(0.0, 1.0));
-                return Opacity(opacity: t, child: Transform.translate(offset: Offset(0, 10 * (1 - t)), child: child));
-              },
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onEnter: (_) => setState(() => hover = devices[i].report.id),
-                onExit: (_) => setState(() => hover = null),
-                child: GestureDetector(
-                  onTap: () => widget.onOpen(devices[i].report.id),
-                  child: _Card(devices[i], isMe: devices[i].report.id == widget.myId, lifted: hover == devices[i].report.id),
-                ),
-              ),
-            ),
-          ),
-      ]);
-    });
+      ),
+    );
   }
 
-  Link? _hit(Map<Link, _Cable> cables, Offset p) {
-    Link? best;
-    var bestD = 16.0;
-    for (final e in cables.entries) {
-      final d = e.value.distanceTo(p);
+  /// A small label over each family on a busy map; tap it to fold the family.
+  List<Widget> _familyLabels(Map<String, int> fam) {
+    final out = <Widget>[];
+    for (final f in fam.keys) {
+      if (folded.contains(f) || fam[f]! < 2) continue;
+      final members = nodes.where((n) => n.family == f).toList();
+      if (members.isEmpty) continue;
+      var top = double.infinity, sum = 0.0;
+      for (final m in members) {
+        final c = _screen(bodies[m.id]!.p);
+        top = math.min(top, c.dy - nodeSize.height * zoom / 2);
+        sum += c.dx;
+      }
+      out.add(Positioned(
+        left: sum / members.length - 90,
+        top: top - 30,
+        width: 180,
+        child: Center(
+          child: _FamilyTag('$f · ${fam[f]}', onTap: () => _toggleFamily(f)),
+        ),
+      ));
+    }
+    return out;
+  }
+
+  Widget _controls() {
+    Widget b(IconData i, String tip, VoidCallback f) => Tooltip(
+          message: tip,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: f,
+            child: SizedBox(width: 32, height: 30, child: Icon(i, size: 16, color: C.muted)),
+          ),
+        );
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C2026),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2C323B)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        b(Icons.remove, 'Zoom out', () => setState(() {
+              userMoved = true;
+              zoom = (zoom / 1.25).clamp(0.25, 2.5);
+              pan = pan / 1.25;
+            })),
+        b(Icons.add, 'Zoom in', () => setState(() {
+              userMoved = true;
+              zoom = (zoom * 1.25).clamp(0.25, 2.5);
+              pan = pan * 1.25;
+            })),
+        b(Icons.fit_screen_outlined, 'Show everything', () {
+          userMoved = false;
+          _wake();
+        }),
+      ]),
+    );
+  }
+
+  Widget _detail(Map<String, String> names) {
+    final e = selected;
+    if (e != null) {
+      final text = e.link != null
+          ? e.link!.describe(names[e.link!.a] ?? e.link!.a, names[e.link!.b] ?? e.link!.b)
+          : '${e.count} links between ${_label(e.a)} and ${_label(e.b)}. '
+              '${e.level == Level.ok ? 'All of them work both ways.' : 'Some get no answer; open the family to see which.'}';
+      return _LinkDetail(key: ValueKey(e), level: e.level, text: text, onClose: () => setState(() => selected = null));
+    }
+    final f = focus == null ? null : nodes.where((n) => n.id == focus).firstOrNull;
+    if (busy && f != null && !f.folded) {
+      final mine = edges.where((x) => x.a == f.id || x.b == f.id);
+      final ok = mine.where((x) => x.level == Level.ok).length;
+      return _LinkDetail(
+        key: ValueKey(f.id),
+        level: f.s.level,
+        text: '${f.s.report.name} · ${f.s.title}. Links: $ok of ${mine.length} work both ways.',
+        action: ('Open', () => widget.onOpen(f.id)),
+        onClose: () => setState(() => focus = null),
+      );
+    }
+    return SizedBox(
+      key: const ValueKey('hint'),
+      height: 40,
+      child: Center(
+        child: Text(
+            busy
+                ? 'Tap a device to see its links  ·  tap a family name to fold it  ·  pinch or scroll to zoom'
+                : 'Dots show traffic each way  ·  tap a cable for details',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: C.muted, fontSize: 11.5)),
+      ),
+    );
+  }
+
+  String _label(String id) => id.startsWith('family:') ? id.substring(7) : nodes.where((n) => n.id == id).firstOrNull?.s.report.name ?? id;
+
+  _Edge? _hit(Offset p) {
+    _Edge? best;
+    var bestD = 14.0;
+    for (final e in edges) {
+      if (busy && e.level == Level.ok && focus != e.a && focus != e.b) continue;
+      final a = bodies[e.a], b = bodies[e.b];
+      if (a == null || b == null) continue;
+      final d = _segDist(p, _screen(a.p), _screen(b.p));
       if (d < bestD) {
         bestD = d;
-        best = e.key;
+        best = e;
       }
     }
     return best;
   }
+
+  static double _segDist(Offset p, Offset a, Offset b) {
+    final ab = b - a;
+    final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+    if (len2 == 0) return (p - a).distance;
+    final t = (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
+    return (p - (a + ab * t)).distance;
+  }
 }
 
-/// A cable: a gentle curve from one card's edge to the other's.
-class _Cable {
-  _Cable(this.path, this.mid);
-  final Path path;
-  final Offset mid;
+class _MapPainter extends CustomPainter {
+  _MapPainter(this.m, this.t);
+  final _NetworkMapState m;
+  final double t;
 
-  static _Cable of(Link l, Map<String, Rect> rects, Offset centre) {
-    final ra = rects[l.a]!, rb = rects[l.b]!;
-    final a = _edge(ra, rb.center), b = _edge(rb, ra.center);
-    final v = b - a;
-    final len = v.distance;
-    var n = len == 0 ? Offset.zero : Offset(-v.dy, v.dx) / len;
-    // Bow outward, away from the middle of the map.
-    final m0 = (a + b) / 2 - centre;
-    if (m0.dx * n.dx + m0.dy * n.dy < 0) n = -n;
-    final bow = n * len * 0.10;
-    final c1 = a + v * 0.3 + bow, c2 = a + v * 0.7 + bow;
-    final path = Path()
-      ..moveTo(a.dx, a.dy)
-      ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy);
-    // Bezier midpoint at t = 0.5.
-    final mid = (a + c1 * 3 + c2 * 3 + b) / 8;
-    return _Cable(path, mid);
+  static const _quiet = Color(0xFF3B4450);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _grid(canvas, size);
+    if (m.busy) _hulls(canvas);
+    final sz = m.nodeSize * m.zoom;
+    final rects = {
+      for (final n in m.nodes)
+        n.id: Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: sz.width, height: sz.height),
+    };
+    final pills = <Rect>[...rects.values];
+    final order = [...m.edges]..sort((x, y) => _weight(x).compareTo(_weight(y)));
+    for (final e in order) {
+      final ra = rects[e.a], rb = rects[e.b];
+      if (ra == null || rb == null) continue;
+      final appear = math.min(m.bodies[e.a]!.appear, m.bodies[e.b]!.appear);
+      if (appear <= 0) continue;
+      final focused = m.focus == e.a || m.focus == e.b || identical(e, m.selected);
+      final full = !m.busy || focused;
+      // A busy map shows only this device's links, and a focused node's.
+      final spoke = e.a == m.widget.myId || e.b == m.widget.myId;
+      if (m.busy && !focused && (!spoke || m.focus != null)) continue;
+      final a = _edge(ra, rb.center), b = _edge(rb, ra.center);
+      final path = m.busy ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _curve(a, b, Offset(size.width / 2, size.height / 2));
+      final color = e.level == Level.ok ? _quiet : C.of(e.level);
+
+      if (!full) {
+        // A busy map: working links are a whisper, problems a thin line.
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2
+              ..color = e.level == Level.ok ? const Color(0xFF3B4450).withValues(alpha: 0.8 * appear) : color.withValues(alpha: 0.55 * appear));
+        continue;
+      }
+      final sel = identical(e, m.selected);
+      canvas.drawPath(
+          path,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = sel ? 9 : 6
+            ..strokeCap = StrokeCap.round
+            ..color = (e.level == Level.ok ? Colors.black : color).withValues(alpha: (e.level == Level.ok ? 0.35 : 0.10) * appear));
+      final line = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = sel ? 2.4 : 1.6
+        ..strokeCap = StrokeCap.round
+        ..color = (sel && e.level == Level.ok ? const Color(0xFF5A6575) : color).withValues(alpha: (e.level == Level.ok ? 1.0 : 0.8) * appear);
+      final metric = path.computeMetrics().first;
+      if (e.level == Level.fault || e.level == Level.inactive) {
+        for (var d = 0.0; d < metric.length; d += 9) {
+          canvas.drawPath(metric.extractPath(d, math.min(d + 4, metric.length)), line);
+        }
+      } else {
+        canvas.drawPath(path, line);
+      }
+      if (appear < 1) continue;
+
+      final dot = e.level == Level.ok ? C.flow : C.of(e.level);
+      void travel(bool forward) {
+        for (var k = 0; k < 2; k++) {
+          final p = (t + k / 2) % 1.0;
+          final at = metric.getTangentForOffset(metric.length * (forward ? p : 1 - p))!.position;
+          final fade = math.sin(p * math.pi);
+          canvas.drawCircle(at, 4.5, Paint()..color = dot.withValues(alpha: 0.18 * fade)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
+          canvas.drawCircle(at, 1.9, Paint()..color = dot.withValues(alpha: 0.95 * fade));
+        }
+      }
+
+      if (e.fwd) travel(true);
+      if (e.back) travel(false);
+
+      final label = e.count > 1 ? '${e.count} links' : e.ping != null ? '${e.ping} ms' : (e.level == Level.fault ? 'no answer' : null);
+      if (label != null && metric.length > 70) {
+        final tp = TextPainter(
+          text: TextSpan(
+              text: label,
+              style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: e.level == Level.fault ? C.fault : C.muted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w500,
+                  fontFeatures: const [FontFeature.tabularFigures()])),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        var box = Rect.zero;
+        for (final f in const [0.5, 0.36, 0.64, 0.28, 0.72]) {
+          final at = metric.getTangentForOffset(metric.length * f)!.position;
+          box = Rect.fromCenter(center: at, width: tp.width + 14, height: tp.height + 6);
+          if (!pills.any((p) => p.inflate(3).overlaps(box))) break;
+        }
+        pills.add(box);
+        final r = RRect.fromRectAndRadius(box, const Radius.circular(20));
+        canvas.drawRRect(r, Paint()..color = const Color(0xFF15181D));
+        canvas.drawRRect(r, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = color.withValues(alpha: e.level == Level.ok ? 1 : 0.5));
+        tp.paint(canvas, box.center - Offset(tp.width / 2, tp.height / 2));
+      }
+    }
+
+    // A ring spreads out where a device has just arrived.
+    for (final n in m.nodes) {
+      final b = m.bodies[n.id]!;
+      if (b.appear >= 1) continue;
+      final c = m._screen(b.p);
+      final r = (30 + 90 * b.appear) * m.zoom;
+      canvas.drawCircle(c, r, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.5..color = C.flow.withValues(alpha: 0.5 * (1 - b.appear)));
+    }
   }
 
-  /// Where the line from the rect's centre towards [to] leaves the rect.
+  int _weight(_Edge e) => (m.focus == e.a || m.focus == e.b ? 10 : 0) + e.level.index;
+
+  void _grid(Canvas canvas, Size size) {
+    final p = Paint()..color = Colors.white.withValues(alpha: 0.045);
+    final step = 22.0 * m.zoom.clamp(0.6, 2.0);
+    final o = Offset(size.width / 2, size.height / 2) + m.pan;
+    final sx = o.dx % step, sy = o.dy % step;
+    for (var y = sy; y < size.height; y += step) {
+      for (var x = sx; x < size.width; x += step) {
+        canvas.drawCircle(Offset(x, y), 0.9, p);
+      }
+    }
+  }
+
+  /// A soft rounded outline around each family with two or more members.
+  void _hulls(Canvas canvas) {
+    final fam = <String, List<_Node>>{};
+    for (final n in m.nodes) {
+      if (!n.folded) fam.putIfAbsent(n.family, () => []).add(n);
+    }
+    final sz = m.nodeSize * m.zoom;
+    for (final list in fam.values) {
+      if (list.length < 2) continue;
+      final pts = <Offset>[];
+      for (final n in list) {
+        final r = Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: sz.width, height: sz.height).inflate(6);
+        pts.addAll([r.topLeft, r.topRight, r.bottomLeft, r.bottomRight]);
+      }
+      final hull = _convex(pts);
+      final path = Path()..addPolygon(hull, true);
+      final pad = 16 * m.zoom.clamp(0.6, 1.5);
+      canvas.saveLayer(null, Paint()..color = Colors.white.withValues(alpha: 0.035));
+      final solid = Paint()..color = Colors.white;
+      canvas.drawPath(path, solid);
+      canvas.drawPath(path, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = pad * 2..strokeJoin = StrokeJoin.round);
+      canvas.restore();
+    }
+  }
+
+  static List<Offset> _convex(List<Offset> pts) {
+    final p = [...pts]..sort((a, b) => a.dx != b.dx ? a.dx.compareTo(b.dx) : a.dy.compareTo(b.dy));
+    double cross(Offset o, Offset a, Offset b) => (a.dx - o.dx) * (b.dy - o.dy) - (a.dy - o.dy) * (b.dx - o.dx);
+    final lower = <Offset>[], upper = <Offset>[];
+    for (final x in p) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower.last, x) <= 0) {
+        lower.removeLast();
+      }
+      lower.add(x);
+    }
+    for (final x in p.reversed) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper.last, x) <= 0) {
+        upper.removeLast();
+      }
+      upper.add(x);
+    }
+    return [...lower..removeLast(), ...upper..removeLast()];
+  }
+
   static Offset _edge(Rect r, Offset to) {
     final c = r.center, d = to - c;
     if (d == Offset.zero) return c;
@@ -234,125 +772,160 @@ class _Cable {
     return c + d * math.min(sx, sy);
   }
 
-  double distanceTo(Offset p) {
-    var best = double.infinity;
-    for (final m in path.computeMetrics()) {
-      for (var t = 0.0; t <= m.length; t += 6) {
-        final q = m.getTangentForOffset(t)!.position;
-        best = math.min(best, (q - p).distance);
-      }
-    }
-    return best;
+  /// A gentle curve that bows away from the middle of the map.
+  static Path _curve(Offset a, Offset b, Offset centre) {
+    final v = b - a;
+    final len = v.distance;
+    var n = len == 0 ? Offset.zero : Offset(-v.dy, v.dx) / len;
+    final m0 = (a + b) / 2 - centre;
+    if (m0.dx * n.dx + m0.dy * n.dy < 0) n = -n;
+    final bow = n * len * 0.08;
+    final c1 = a + v * 0.3 + bow, c2 = a + v * 0.7 + bow;
+    return Path()
+      ..moveTo(a.dx, a.dy)
+      ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy);
+  }
+
+  @override
+  bool shouldRepaint(_MapPainter o) => true;
+}
+
+/// A device on a busy map: one compact line.
+class _Chip extends StatelessWidget {
+  const _Chip(this.s, {required this.isMe, required this.focused});
+  final DeviceStatus s;
+  final bool isMe, focused;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = s.report;
+    final problem = s.level != Level.ok;
+    final sub = problem ? s.title : _cardWhat(r) + (isMe ? ' · this device' : '');
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: const EdgeInsets.fromLTRB(7, 6, 8, 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF232830), Color(0xFF1B1F25)]),
+        border: Border.all(
+            color: focused
+                ? C.text.withValues(alpha: 0.5)
+                : problem
+                    ? C.of(s.level).withValues(alpha: 0.55)
+                    : isMe
+                        ? C.flow.withValues(alpha: 0.45)
+                        : const Color(0xFF323944)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 6))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF2C323B))),
+          child: Icon(kindIcon(r.kind, r.name), size: 15, color: s.fresh ? C.text : C.muted),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.2)),
+            Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: problem ? C.of(s.level) : C.muted, height: 1.3)),
+          ]),
+        ),
+        _Pulse(s.level, live: r.live),
+      ]),
+    );
   }
 }
 
-class _CablePainter extends CustomPainter {
-  _CablePainter(this.cables, this.selected, this.t, this.enter);
-  final Map<Link, _Cable> cables;
-  final Link? selected;
-  final double t, enter;
-
-  static const _quiet = Color(0xFF3B4450);
+/// A folded family: a small stack of cards with a count.
+class _FamilyNode extends StatelessWidget {
+  const _FamilyNode(this.n);
+  final _Node n;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final pills = <Rect>[];
-    final order = cables.keys.toList()..sort((x, y) => x.level.index.compareTo(y.level.index));
-    for (final l in order) {
-      final cab = cables[l]!;
-      final sel = identical(l, selected);
-      final color = l.level == Level.ok ? _quiet : C.of(l.level);
-      final m = cab.path.computeMetrics().first;
-      final shown = m.extractPath(0, m.length * Curves.easeOutCubic.transform(enter));
-
-      // A soft underlay gives the cable some depth.
-      canvas.drawPath(
-          shown,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = sel ? 9 : 6
-            ..strokeCap = StrokeCap.round
-            ..color = (l.level == Level.ok ? Colors.black : color).withValues(alpha: l.level == Level.ok ? 0.35 : 0.10));
-      final line = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = sel ? 2.4 : 1.6
-        ..strokeCap = StrokeCap.round
-        ..color = sel && l.level == Level.ok ? const Color(0xFF5A6575) : color.withValues(alpha: l.level == Level.ok ? 1 : 0.8);
-      if (l.level == Level.fault || l.level == Level.inactive) {
-        for (var d = 0.0; d < m.length; d += 9) {
-          canvas.drawPath(m.extractPath(d, math.min(d + 4, m.length)), line);
-        }
-      } else {
-        canvas.drawPath(shown, line);
-      }
-      if (enter < 1) continue;
-
-      // Traffic: two dots each way that a device reaches the other.
-      final dot = l.level == Level.ok ? C.flow : C.of(l.level);
-      void travel(bool forward) {
-        for (var k = 0; k < 2; k++) {
-          final p = (t + k / 2) % 1.0;
-          final at = m.getTangentForOffset(m.length * (forward ? p : 1 - p))!.position;
-          final fade = math.sin(p * math.pi); // appear and vanish at the ends
-          canvas.drawCircle(at, 4.5, Paint()..color = dot.withValues(alpha: 0.18 * fade)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
-          canvas.drawCircle(at, 1.9, Paint()..color = dot.withValues(alpha: 0.95 * fade));
-        }
-      }
-
-      if (l.ab?.reachable == true) travel(true);
-      if (l.ba?.reachable == true) travel(false);
-
-      // Ping, on a small pill in the middle of the cable.
-      final ms = l.pingMs;
-      final label = ms != null ? '$ms ms' : (l.level == Level.fault ? 'no answer' : null);
-      if (label != null && m.length > 70) {
-        final tp = TextPainter(
-          text: TextSpan(
-              text: label,
-              style: TextStyle(
-                  fontFamily: 'Inter',
-                  color: l.level == Level.fault ? C.fault : C.muted,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w500,
-                  fontFeatures: const [FontFeature.tabularFigures()])),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        // In the middle of the cable, or nearer one end if another pill is there.
-        var box = Rect.zero;
-        for (final f in const [0.5, 0.36, 0.64, 0.28, 0.72]) {
-          final at = m.getTangentForOffset(m.length * f)!.position;
-          box = Rect.fromCenter(center: at, width: tp.width + 14, height: tp.height + 6);
-          if (!pills.any((p) => p.inflate(3).overlaps(box))) break;
-        }
-        pills.add(box);
-        final r = RRect.fromRectAndRadius(box, const Radius.circular(20));
-        canvas.drawRRect(r, Paint()..color = const Color(0xFF15181D));
-        canvas.drawRRect(r, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = color.withValues(alpha: l.level == Level.ok ? 1 : 0.5));
-        tp.paint(canvas, box.center - Offset(tp.width / 2, tp.height / 2));
-      }
-    }
+  Widget build(BuildContext context) {
+    final s = n.s;
+    final problem = s.level != Level.ok;
+    Widget sheet(double dx, double dy, double a) => Positioned(
+          left: dx,
+          right: -dx,
+          top: dy,
+          bottom: -dy,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Color.lerp(const Color(0xFF1B1F25), const Color(0xFF15181D), a),
+              border: Border.all(color: const Color(0xFF2C323B)),
+            ),
+          ),
+        );
+    return Stack(clipBehavior: Clip.none, children: [
+      sheet(6, 6, 0.6),
+      sheet(3, 3, 0.3),
+      Positioned.fill(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(7, 6, 10, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF262C35), Color(0xFF1D2128)]),
+            border: Border.all(color: problem ? C.of(s.level).withValues(alpha: 0.55) : const Color(0xFF3A424E)),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 6))],
+          ),
+          child: Row(children: [
+            Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF2C323B))),
+              child: Text('${n.members.length}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()])),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(n.family, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.2)),
+                Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: problem ? C.of(s.level) : C.muted, height: 1.3)),
+              ]),
+            ),
+            const Icon(Icons.unfold_more, size: 15, color: C.muted),
+          ]),
+        ),
+      ),
+    ]);
   }
-
-  @override
-  bool shouldRepaint(_CablePainter o) => true;
 }
 
-/// A faint blueprint dot grid.
-class _GridPainter extends CustomPainter {
-  const _GridPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = Colors.white.withValues(alpha: 0.05);
-    const step = 22.0;
-    for (var y = step / 2; y < size.height; y += step) {
-      for (var x = step / 2; x < size.width; x += step) {
-        canvas.drawCircle(Offset(x, y), 0.9, p);
-      }
-    }
-  }
+class _FamilyTag extends StatelessWidget {
+  const _FamilyTag(this.text, {required this.onTap});
+  final String text;
+  final VoidCallback onTap;
 
   @override
-  bool shouldRepaint(_GridPainter o) => false;
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(9, 3, 6, 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2026),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF2C323B)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(text.toUpperCase(), style: const TextStyle(fontSize: 9.5, letterSpacing: 0.9, fontWeight: FontWeight.w600, color: C.muted)),
+              const SizedBox(width: 4),
+              const Icon(Icons.unfold_less, size: 13, color: C.muted),
+            ]),
+          ),
+        ),
+      );
+}
+
+String _cardWhat(Report r) {
+  final os = r.os ?? '';
+  if (r.kind == 'android') return kindIcon(r.kind, r.name) == Icons.tablet_android ? 'Tablet' : 'Phone';
+  if (os.contains('Docker')) return 'Server · Docker';
+  return r.kind == 'windows' ? 'Windows' : r.kind == 'linux' ? 'Linux' : r.kind;
 }
 
 /// One device: what it is, whether it is well, and its key gauges.
@@ -529,23 +1102,25 @@ class _RingPainter extends CustomPainter {
 }
 
 class _LinkDetail extends StatelessWidget {
-  const _LinkDetail({super.key, required this.link, required this.text, required this.onClose});
-  final Link link;
+  const _LinkDetail({super.key, required this.level, required this.text, required this.onClose, this.action});
+  final Level level;
   final String text;
   final VoidCallback onClose;
+  final (String, VoidCallback)? action;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+        padding: const EdgeInsets.fromLTRB(14, 6, 4, 6),
         decoration: BoxDecoration(
           color: C.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: link.level == Level.ok ? C.line : C.of(link.level).withValues(alpha: 0.5)),
+          border: Border.all(color: level == Level.ok ? C.line : C.of(level).withValues(alpha: 0.5)),
         ),
         child: Row(children: [
-          StatusDot(link.level, size: 8),
+          StatusDot(level, size: 8),
           const SizedBox(width: 12),
           Expanded(child: Text(text, style: const TextStyle(fontSize: 12.5, height: 1.35))),
+          if (action != null) TextButton(onPressed: action!.$2, child: Text(action!.$1)),
           IconButton(onPressed: onClose, icon: const Icon(Icons.close, size: 16, color: C.muted)),
         ]),
       );
