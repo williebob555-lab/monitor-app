@@ -30,4 +30,19 @@ public sealed class MainActivity : AvaloniaMainActivity<AndroidApp>
             RequestPermissions([Manifest.Permission.PostNotifications], 1);
         }
     }
+
+    // Screen off or another app in front stops the activity without detaching its views. Live screens pause on this,
+    // so nothing refreshes or asks other devices for fast readings while nobody can see it. Monitoring itself runs in
+    // the foreground service and is unaffected.
+    protected override void OnStart()
+    {
+        base.OnStart();
+        MonitorApp.Client.Core.AppVisibility.Set(true);
+    }
+
+    protected override void OnStop()
+    {
+        MonitorApp.Client.Core.AppVisibility.Set(false);
+        base.OnStop();
+    }
 }

@@ -163,6 +163,44 @@ public sealed class LatestObservationsTests : IDisposable
         Assert.Equal(expected, page.Records.Select(record => (record.SubjectEntityId, record.SignalId, record.Sequence)).ToList());
     }
 
+    [Fact]
+    [Trait("Category", "SQLite")]
+    public async Task ReadsDoNotWaitForAnOpenWriteTransaction()
+    {
+        var store = await CreateStoreAsync();
+        await store.AppendOriginRecordAsync(Record("peer-b", 1, "host-b", "cpu", now, now));
+
+        // A sync batch in progress: another connection in this process holds an open write transaction on
+        // origin_records. It opens the way every store did before (shared cache), as another store instance would.
+        await using var writer = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = DatabasePath,
+            Pooling = false,
+            Cache = SqliteCacheMode.Shared,
+        }.ToString());
+        await writer.OpenAsync();
+        await using var transaction = writer.BeginTransaction(deferred: false);
+        await using (var insert = writer.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO origin_records SELECT origin_peer_id, origin_stream_id, 2, subject_entity_id, adapter_instance_id,
+                    signal_id, record_bytes, content_hash, signature, observed_at, received_at, received_from_peer_id, provenance, quality
+                FROM origin_records WHERE sequence = 1;
+                """;
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        // Under shared cache this read failed with "database table is locked" after the 30 s command timeout.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var state = await store.ReadOriginStateAsOfAsync(now.AddHours(1), now.AddHours(-1), null, null, 10).WaitAsync(TimeSpan.FromSeconds(10));
+        var range = await store.ReadOriginRangeAsync("peer-b", "origin-peer-b", 1, 10).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"reads took {stopwatch.Elapsed}");
+        Assert.Equal(1UL, Assert.Single(state.Records).Sequence);
+        Assert.Equal([1UL], range.Select(record => record.Sequence));
+        await transaction.RollbackAsync();
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

@@ -15,7 +15,7 @@ public sealed partial class PairingsView : UserControl
         InitializeComponent();
         connections.Tick += async (_, _) =>
         {
-            if (DataContext is PairingsViewModel model)
+            if (DataContext is PairingsViewModel model && MonitorApp.Client.Core.AppVisibility.IsVisible)
             {
                 await model.RefreshConnectionsAsync();
             }

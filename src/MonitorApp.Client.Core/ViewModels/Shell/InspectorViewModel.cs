@@ -105,6 +105,8 @@ public sealed partial class InspectorViewModel : ObservableObject
         this.environment = environment;
         this.connection = connection;
         Controls = new ControlsViewModel(connection, environment);
+        // Hidden app (screen off on a phone): stop asking the inspected device for fast readings until shown again.
+        AppVisibility.Changed += _ => SyncLiveViewing();
         environment.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(EnvironmentViewModel.SelectedNode) or nameof(EnvironmentViewModel.Scene))
@@ -151,7 +153,7 @@ public sealed partial class InspectorViewModel : ObservableObject
     {
         (IPeerDataSource, string?)? wanted = null;
         var selected = environment.SelectedNode;
-        if (liveViewingAllowed && !environment.IsHistorical && selected is { Kind: SceneNodeKind.LocalPeer or SceneNodeKind.Peer }
+        if (liveViewingAllowed && AppVisibility.IsVisible && !environment.IsHistorical && selected is { Kind: SceneNodeKind.LocalPeer or SceneNodeKind.Peer }
             && connection.Source is IViewingSource)
         {
             wanted = (connection.Source, selected.Kind == SceneNodeKind.LocalPeer ? null : selected.Id);
