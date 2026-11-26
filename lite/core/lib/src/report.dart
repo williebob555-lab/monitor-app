@@ -1,3 +1,5 @@
+import 'topology.dart';
+
 /// One device's latest report, as written to devices/<id>/now.json.
 ///
 /// Every field except id/name/kind/t is optional: a reading the device cannot
@@ -32,6 +34,8 @@ class Report {
     this.self,
     List<Reading>? readings,
     this.raw = const {},
+    this.node,
+    this.connected,
   })  : peers = peers ?? {},
         readings = readings ?? [];
 
@@ -86,6 +90,15 @@ class Report {
   /// Nothing is thrown away, so newer writers never break older readers and
   /// any field can be pulled out by path with [field].
   final Map<String, Object?> raw;
+
+  /// Where this sits in the hierarchy and what it is connected to (FORMAT.md
+  /// "node"). Null in files written before 2.5.
+  final NodeDecl? node;
+
+  /// Things only: false when the host no longer sees it (unplugged).
+  final bool? connected;
+
+  bool get isThing => kind == 'thing';
 
   /// Format version the writer used. Readers accept any version and use the
   /// fields they recognise.
@@ -149,6 +162,8 @@ class Report {
         screenOn: json['screen'] is String ? json['screen'] == 'on' : null,
         peers: peers,
         self: SelfCost.tryParse(json['self']),
+        node: NodeDecl.tryParse(json['node']),
+        connected: json['connected'] is bool ? json['connected'] as bool : null,
         readings: json['readings'] is List
             ? (json['readings'] as List).map(Reading.tryParse).whereType<Reading>().toList()
             : null,
@@ -188,6 +203,8 @@ class Report {
         'peers': {for (final e in peers.entries) e.key: e.value.toJson()},
         if (self != null) 'self': self!.toJson(),
         if (readings.isNotEmpty) 'readings': [for (final r in readings) r.toJson()],
+        if (node != null) 'node': node!.toJson(),
+        if (connected != null) 'connected': connected,
       };
 
   /// The compact line appended to the daily history file.
@@ -211,10 +228,19 @@ class Report {
 /// value: 54.2, unit: "°C", group: "Sensors"}. Value may be a number, text
 /// or true/false.
 class Reading {
-  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level});
+  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level, this.src, this.note});
   final String key;
-  final Object value;
+
+  /// A number, text or yes/no; null only when [src] is "unknown".
+  final Object? value;
   final String? label, unit, group;
+
+  /// Where the value comes from: "measured" (read from the hardware now),
+  /// "declared" (what the hardware says about itself, e.g. its rated
+  /// power), "estimated" (worked out, e.g. runtime left) or "unknown" (not
+  /// available, with [note] saying why). Missing means measured.
+  final String? src;
+  final String? note;
 
   /// Optional judgement by the device itself: "warn" or "fault". The app
   /// marks the reading's part with it.
@@ -222,10 +248,18 @@ class Reading {
 
   static Reading? tryParse(Object? j) {
     if (j is! Map) return null;
-    final k = j['key'], v = j['value'];
-    if (k is! String || k.isEmpty || !(v is num || v is String || v is bool)) return null;
+    final k = j['key'], v = j['value'], src = _str(j['src']);
+    if (k is! String || k.isEmpty) return null;
+    if (!(v is num || v is String || v is bool || (v == null && src == 'unknown'))) return null;
     return Reading(
-        key: k, value: v as Object, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']), level: _str(j['level']));
+        key: k,
+        value: v,
+        label: _str(j['label']),
+        unit: _str(j['unit']),
+        group: _str(j['group']),
+        level: _str(j['level']),
+        src: src,
+        note: _str(j['note']));
   }
 
   Map<String, Object?> toJson() => {
@@ -235,6 +269,8 @@ class Reading {
         if (unit != null) 'unit': unit,
         if (group != null) 'group': group,
         if (level != null) 'level': level,
+        if (src != null) 'src': src,
+        if (note != null) 'note': note,
       };
 }
 

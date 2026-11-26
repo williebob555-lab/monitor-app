@@ -79,6 +79,8 @@ List<Part> partsOf(Report r, Map<String, String> names) {
       ],
     ));
   }
+  // A thing (UPS, audio interface) has none of a computer's own parts.
+  if (!r.isThing) {
   out.add(Part(
     id: 'cpu',
     title: 'Processor',
@@ -168,6 +170,8 @@ List<Part> partsOf(Report r, Map<String, String> names) {
     ],
   ));
 
+  }
+
   // Extra readings, one part per group.
   final groups = <String, List<Reading>>{};
   for (final x in r.readings) {
@@ -213,6 +217,9 @@ int? _minus(int? a, int? b) => a == null || b == null ? null : a - b;
 
 String _readingText(Reading x) {
   final v = x.value;
+  if (v == null) return x.note == null ? 'not available' : 'not available: ${x.note}';
   final t = v is double ? (v.abs() >= 100 ? v.round().toString() : v.toStringAsFixed(1)) : v is bool ? (v ? 'yes' : 'no') : '$v';
-  return x.unit == null ? t : '$t ${x.unit}';
+  final s = x.unit == null ? t : '$t ${x.unit}';
+  // Only measured values go unmarked.
+  return x.src == 'estimated' ? '$s (estimated)' : x.src == 'declared' ? '$s (declared)' : s;
 }

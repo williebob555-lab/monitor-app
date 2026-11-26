@@ -199,6 +199,10 @@ object Collector {
             pool.shutdownNow()
             pingPool.shutdownNow()
             j.put("peers", peers)
+            // Where this phone sits in the hierarchy: a top-level device with
+            // nothing attached that it can see.
+            j.put("node", JSONObject().put("id", j.getString("id")).put("type", "device")
+                .put("parent", JSONObject.NULL).put("children", org.json.JSONArray()).put("links", org.json.JSONArray()))
 
             val runMs = SystemClock.elapsedRealtime() - started
             val cpuMs = Process.getElapsedCpuTime() - cpu0

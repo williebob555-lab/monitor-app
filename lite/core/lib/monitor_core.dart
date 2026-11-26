@@ -8,6 +8,7 @@
 library;
 
 export 'src/report.dart';
+export 'src/topology.dart';
 export 'src/status.dart';
 export 'src/folder.dart';
 export 'src/version.dart';

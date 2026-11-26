@@ -27,17 +27,18 @@ class _DevicePageState extends State<DevicePage> {
     return ListenableBuilder(
       listenable: widget.state,
       builder: (context, _) {
-        final a = widget.state.assessment;
-        final s = a.devices.where((d) => d.report.id == widget.id).firstOrNull;
+        final st = widget.state;
+        final s = st.statusOf(widget.id);
         if (s == null) {
           return Scaffold(appBar: AppBar(), body: const Center(child: Text('This device has no readings yet.')));
         }
         final r = s.report;
-        final names = {for (final d in a.devices) d.report.id: d.report.name};
+        final names = st.names;
+        final attached = st.thingsOf(r.id);
         return Scaffold(
           appBar: AppBar(
             title: Row(children: [
-              Icon(kindIcon(r.kind, r.name), color: C.muted, size: 22),
+              Icon(r.isThing ? thingIcon(r.node?.type) : kindIcon(r.kind, r.name), color: C.muted, size: 22),
               const SizedBox(width: 10),
               Flexible(child: Text(r.name, overflow: TextOverflow.ellipsis)),
             ]),
@@ -53,17 +54,19 @@ class _DevicePageState extends State<DevicePage> {
               onOpen: (p) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PartPage(widget.state, r.id, p.id))),
             );
             final left = <Widget>[
-              _about(r, s),
+              if (r.isThing) _connections(r, names) else if (attached.isNotEmpty) _attached(attached),
+              if (r.isThing || attached.isNotEmpty) const SizedBox(height: 14),
+              if (r.isThing) _params(r) else _about(r, s),
             ];
             final right = <Widget>[
               _fields(r),
               const SizedBox(height: 14),
               _log(r),
-              if (r.id != widget.state.host.id && widget.state.host.isAndroid) ...[
+              if (!r.isThing && r.id != widget.state.host.id && widget.state.host.isAndroid) ...[
                 const SizedBox(height: 14),
                 _notify(r),
               ],
-              if (r.id != widget.state.host.id) ...[
+              if (!r.isThing && r.id != widget.state.host.id) ...[
                 const SizedBox(height: 14),
                 Align(
                   alignment: Alignment.centerLeft,
@@ -103,6 +106,69 @@ class _DevicePageState extends State<DevicePage> {
           }),
         );
       },
+    );
+  }
+
+  /// Things plugged into this device, each one a way down the hierarchy.
+  Widget _attached(List<Thing> things) {
+    return Section(
+      'Attached',
+      Column(children: [
+        for (final t in things) _thingRow(t),
+      ]),
+    );
+  }
+
+  Widget _thingRow(Thing t) {
+    final s = widget.state.statusOf(t.id)!;
+    final vias = t.report.node?.links.where((l) => l.to == t.report.node?.parent).map((l) => l.via).toSet().join(' · ') ?? '';
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(widget.state, t.id))),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(children: [
+          Icon(thingIcon(t.report.node?.type), size: 20, color: s.level == Level.ok ? C.text : C.of(s.level)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t.report.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text('${s.title}${vias.isEmpty ? '' : '  ·  $vias'}', style: TextStyle(color: s.level == Level.ok ? C.muted : C.of(s.level), fontSize: 12)),
+            ]),
+          ),
+          const Icon(Icons.chevron_right, color: C.muted, size: 18),
+        ]),
+      ),
+    );
+  }
+
+  /// A thing's place in the hierarchy, as its file declares it.
+  Widget _connections(Report r, Map<String, String> names) {
+    final n = r.node;
+    String dir(String d) => switch (d) { 'in' => 'into it', 'out' => 'out of it', _ => 'both ways' };
+    return Section(
+      'Connections',
+      SelectableText(
+        [
+          'Attached to: ${n?.parent == null ? '-' : names[n!.parent] ?? n.parent}',
+          for (final l in n?.links ?? const <NodeLink>[]) '${l.via.toUpperCase()} with ${names[l.to] ?? l.to}, ${dir(l.dir)}${l.detail == null ? '' : ' (${l.detail})'}',
+          'Id: ${r.id}',
+        ].join('\n'),
+        style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.6),
+      ),
+    );
+  }
+
+  /// Settings a thing's own software exported to params.json, shown as is.
+  Widget _params(Report r) {
+    final p = widget.state.things[r.id]?.params;
+    return Section(
+      'Its settings',
+      p == null || p.isEmpty
+          ? const Text('None exported. Software that controls it can write params.json in its folder, and it shows here.',
+              style: TextStyle(color: C.muted, fontSize: 12))
+          : SelectableText(p.entries.map((e) => '${e.key}: ${e.value}').join('\n'),
+              style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.6)),
     );
   }
 

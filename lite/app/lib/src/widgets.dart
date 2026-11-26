@@ -170,3 +170,9 @@ IconData kindIcon(String kind, [String name = '']) => switch (kind) {
       'linux' => Icons.computer,
       _ => Icons.devices_other,
     };
+
+IconData thingIcon(String? type) => switch (type) {
+      'ups' => Icons.battery_charging_full,
+      'audio-interface' => Icons.graphic_eq,
+      _ => Icons.usb,
+    };

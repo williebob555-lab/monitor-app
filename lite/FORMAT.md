@@ -87,6 +87,52 @@ How it stays small:
 * Readers open at most 25 hour files (24 h view), the hourly file(s) (7 days)
   or the daily file(s) (year), so reading cost doesn't grow with history.
 
+## Hierarchy: `node`, attached things and `params.json`
+
+Every `now.json` (2.5.0 and later) declares its place in a `node` block.
+The map and the app draw the hierarchy from these declarations only; nothing
+is guessed.
+
+```json
+"node": {
+  "id": "de5c70a1fa00",            // same as the file's id
+  "type": "device",                 // device | ups | audio-interface | ...
+  "parent": null,                   // id of what it hangs off, null at the top
+  "children": ["usb-0764-0601-cxxlv2004567"],
+  "links": [{"to": "usb-0764-0601-cxxlv2004567", "via": "power", "dir": "in", "detail": "mains or battery power"}]
+}
+```
+
+* `via` is one of usb, power, network, audio, thunderbolt, serial, bluetooth.
+* `dir` is in, out or both, seen from the file that declares it.
+* Network reachability stays in `peers` (measured); `links` holds physical
+  connections.
+
+Things plugged into a device are written by that device to
+`devices/<host>/things/<thing id>/now.json`. Their `kind` is `thing`, they
+carry `connected: true|false`, and they keep their own `history/`. A thing's
+id is stable across reboots and across both systems of a dual-boot machine:
+`usb-<vendor>-<product>-<serial>` (or the port when there is no serial). When
+two systems wrote the same thing, the newer file wins. An unplugged thing is
+rewritten once as `connected: false` and stays in the hierarchy.
+
+Every reading may carry `src` (measured, declared, estimated or unknown) and a
+`note`. `value` may be null only when `src` is unknown, and the note then says
+why (for example "USB ports do not measure current").
+
+Software that controls a thing may write `params.json` next to its
+`now.json` (any flat JSON object under 1 MB). The app shows it under "Its
+settings". The CueMix rebuild is meant to use this.
+
+Checks: the app reports under Setup > Folder health any file whose id does not
+match its folder, a thing without a parent, a parent or child that does not
+exist, a parent that does not list its child, a link to a missing id, or an
+unknown via or dir.
+
+Linux reads, with no vendor software: USB from `/sys/bus/usb/devices`; a UPS
+through NUT's network protocol on 127.0.0.1:3493 if NUT runs, else `upower`;
+audio interfaces from `/proc/asound` and `amixer`.
+
 ## Planned: patterns instead of raw data
 
 Long-term, raw numbers matter less than what they show ("battery drains
