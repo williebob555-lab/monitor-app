@@ -1,8 +1,8 @@
 # Shared folder format (version 1)
 
 ```
-<Monitor folder>/
-  .stignore                       (?d)*.tmp  — temp files are never synced
+<Monitor folder>/                 any folder Syncthing shares, or a subfolder of one
+                                  (e.g. Infrastructure/Monitor)
   devices/<device id>/
     now.json                      latest report, replaced every cycle
     history-YYYY-MM-DD.jsonl      one compact line per cycle, 7 days kept
@@ -10,7 +10,12 @@
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees
-two writers for one file. `now.json` is written to `.now.json.tmp` and renamed.
+two writers for one file. `now.json` is written to `.syncthing.now.json.tmp`
+(Syncthing's own temp pattern, which it never syncs) and renamed.
+
+The folder is the database: plain files a person can open. Later kinds of
+things (non-primary devices, IoT) get their own top-level folder next to
+`devices/`, one folder per thing, in the same style. Nothing reads them yet.
 
 ## now.json
 

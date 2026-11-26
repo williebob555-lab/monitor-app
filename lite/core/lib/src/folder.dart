@@ -16,20 +16,31 @@ class SyncFolder {
 
   bool get exists => Directory(root).existsSync();
 
-  /// Syncthing puts a .stfolder marker in every folder it shares.
-  bool get sharedBySyncthing =>
-      FileSystemEntity.typeSync('$root${Platform.pathSeparator}.stfolder') != FileSystemEntityType.notFound;
+  /// Syncthing puts a .stfolder marker at the root of every folder it shares.
+  /// The Monitor folder may be that root or any subfolder of it (for example
+  /// Infrastructure/Monitor inside a bigger shared folder).
+  bool get sharedBySyncthing => syncthingRoot != null;
 
-  /// Create our directory and an ignore rule for half-written temp files.
-  void prepare(String id) {
-    Directory(deviceDir(id)).createSync(recursive: true);
-    final ignore = File('$root${Platform.pathSeparator}.stignore');
-    if (!ignore.existsSync()) ignore.writeAsStringSync('// Monitor writes temp files then renames them\n(?d)*.tmp\n');
+  String? get syncthingRoot {
+    var d = Directory(root).absolute;
+    for (var i = 0; i < 12; i++) {
+      if (FileSystemEntity.typeSync('${d.path}${Platform.pathSeparator}.stfolder') != FileSystemEntityType.notFound) return d.path;
+      final up = d.parent;
+      if (up.path == d.path) break;
+      d = up;
+    }
+    return null;
   }
 
-  /// Write now.json atomically: temp file, then rename over the old one.
+  void prepare(String id) {
+    Directory(deviceDir(id)).createSync(recursive: true);
+  }
+
+  /// Write now.json atomically: temp file, then rename over the old one. The
+  /// temp name uses Syncthing's own temp pattern (.syncthing.*.tmp), which
+  /// Syncthing never syncs, so no ignore file is needed anywhere.
   void writeNow(Report r) {
-    final tmp = File(_p(r.id, '.$nowFileName.tmp'));
+    final tmp = File(_p(r.id, '.syncthing.$nowFileName.tmp'));
     tmp.writeAsStringSync(jsonEncode(r.toJson()), flush: true);
     tmp.renameSync(_p(r.id, nowFileName));
   }
@@ -106,6 +117,44 @@ class SyncFolder {
     return out;
   }
 
+  /// Leftovers that Syncthing or interrupted writes can create. All of them
+  /// are ignored when reading; this lists them so they can be shown and,
+  /// for conflict copies, cleaned up.
+  FolderHealth health() {
+    final h = FolderHealth();
+    final dir = Directory(devicesPath);
+    if (!dir.existsSync()) return h;
+    for (final d in dir.listSync()) {
+      if (d is! Directory) continue;
+      final name = d.uri.pathSegments.where((x) => x.isNotEmpty).last;
+      var hasNow = false;
+      for (final f in d.listSync()) {
+        final n = f.uri.pathSegments.last;
+        if (n.contains('.sync-conflict-')) h.conflicts.add(f.path);
+        if (n == nowFileName) {
+          hasNow = true;
+          final c = _cache[f.path];
+          if (c != null && c.$3 == null) h.unreadable.add(name);
+        }
+      }
+      if (!hasNow) h.empty.add(name);
+    }
+    return h;
+  }
+
+  /// Deletes Syncthing conflict copies inside devices/. They are duplicates
+  /// that nothing reads; deleting them syncs to the other devices.
+  int removeConflicts() {
+    var n = 0;
+    for (final p in health().conflicts) {
+      try {
+        File(p).deleteSync();
+        n++;
+      } catch (_) {}
+    }
+    return n;
+  }
+
   /// One day of a device's history, oldest first.
   List<Map<String, Object?>> readHistory(String id, DateTime localDay) {
     final f = File(_p(id, historyFileName(localDay)));
@@ -134,4 +183,16 @@ class SyncFolder {
       raf.closeSync();
     }
   }
+}
+
+class FolderHealth {
+  final conflicts = <String>[];
+
+  /// Device folders whose now.json could not be read (half-synced or damaged).
+  final unreadable = <String>[];
+
+  /// Device folders with no now.json at all.
+  final empty = <String>[];
+
+  bool get clean => conflicts.isEmpty && unreadable.isEmpty && empty.isEmpty;
 }

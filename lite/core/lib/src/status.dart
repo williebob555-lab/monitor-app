@@ -41,6 +41,10 @@ class Assessment {
 
 /// How long a report stays "fresh": two missed cycles plus a minute for
 /// Syncthing to carry it, never less than 2.5 minutes.
+/// After this long without a reading a device is shown as away (gray)
+/// instead of down (red).
+const ghostAfter = Duration(days: 3);
+
 Duration freshLimit(Report r) => Duration(seconds: math.max(r.nextSeconds * 2 + 60, 150));
 
 String ago(Duration d) {
@@ -81,14 +85,40 @@ Assessment assess(Map<String, Report> reports, {String? myId, DateTime? now}) {
     final f = isFresh(d);
     DeviceStatus st(Level l, String title, String detail) => DeviceStatus(d, l, title, detail, fresh: f, age: age);
 
+    // An earlier install of the same device (reinstalled, or the app's data
+    // was cleared): same hardware and system, or for phones the same name,
+    // and a newer report exists. Shown gray as an old copy, never red.
+    if (d.id != myId) {
+      final newer = reports.values.where((o) =>
+          o.id != d.id &&
+          o.kind == d.kind &&
+          o.time.isAfter(d.time) &&
+          (d.kind == 'android' ? o.name == d.name : (d.machine != null && o.machine == d.machine && o.os == d.os)));
+      if (newer.isNotEmpty) {
+        out.add(st(Level.inactive, 'Old copy',
+            'Looks like an earlier install of ${newer.first.name}: same ${d.kind == 'android' ? 'name' : 'machine and system'}, '
+            'and its last reading was ${ago(age)} ago. You can hide it.'));
+        continue;
+      }
+    }
+
     // Another OS on the same physical machine is running: this one is simply
     // not booted. Never a red flag.
     final sibling = d.machine == null
         ? null
-        : fresh.where((o) => o.id != d.id && o.machine == d.machine).firstOrNull;
+        : fresh.where((o) => o.id != d.id && o.machine == d.machine && o.os != d.os).firstOrNull;
     if (!f && sibling != null) {
       out.add(st(Level.inactive, 'Not booted',
           'This machine is running ${sibling.os ?? sibling.name} right now, so ${d.os ?? 'this system'} is not running. That is normal.'));
+      continue;
+    }
+
+    // Silent for days: a retired device or one that's been put away. Gray,
+    // with when it was last seen, rather than an alarm forever.
+    if (!f && d.id != myId && age > ghostAfter) {
+      out.add(st(Level.inactive, 'Not seen for ${ago(age)}',
+          'Its last reading arrived ${ago(age)} ago (${d.time.toLocal().toString().substring(0, 16)}). '
+          'If it is retired you can hide it; it reappears on its own if it ever reports again.'));
       continue;
     }
 
@@ -237,12 +267,14 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
         groups: named);
   }
 
+  final away = devices.length - active.length;
+  final awayText = away == 0 ? '' : ' $away more ${away == 1 ? 'is' : 'are'} away or old copies.';
   final ok = active.where((d) => d.level == Level.ok).length;
   final worst = active.map((d) => d.level).reduce((a, b) => a.index >= b.index ? a : b);
   if (ok == active.length) {
     return NetworkStatus(Level.ok, active.length == 1 ? 'Only this device so far' : (active.length == 2 ? 'Both devices online' : 'All ${active.length} devices online'),
-        active.length == 1 ? 'Share the Monitor folder with your other devices in Syncthing to see them here.' : 'Every device is reporting and reachable.');
+        (active.length == 1 ? 'Share the Monitor folder with your other devices in Syncthing to see them here.' : 'Every device is reporting and reachable.') + awayText);
   }
   final bad = active.where((d) => d.level != Level.ok).map((d) => '${d.report.name}: ${d.title}');
-  return NetworkStatus(worst, '$ok of ${active.length} devices online', bad.join('. '));
+  return NetworkStatus(worst, '$ok of ${active.length} devices online', '${bad.join('. ')}.$awayText');
 }

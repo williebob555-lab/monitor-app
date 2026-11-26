@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
                         "name" to Collector.deviceName(ctx),
                         "version" to BuildConfig.VERSION_NAME,
                         "cacheDir" to cacheDir.absolutePath,
+                        "filesDir" to filesDir.absolutePath,
                     ),
                 )
                 "setFolder" -> {

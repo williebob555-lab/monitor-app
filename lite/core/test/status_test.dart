@@ -88,13 +88,37 @@ void main() {
 
   test('dual boot: the OS not running is gray, never red', () {
     final a = assess(m([
-      r('laptop-win', ageS: 20000, machine: 'hw1'),
-      r('laptop-fedora', machine: 'hw1', peers: {'pixel': ok()}),
+      Report(id: 'laptop-win', name: 'laptop-win', kind: 'windows', os: 'Windows 11', machine: 'hw1', time: now.subtract(const Duration(seconds: 20000))),
+      Report(id: 'laptop-fedora', name: 'laptop-fedora', kind: 'linux', os: 'Fedora 43', machine: 'hw1', time: now.subtract(const Duration(seconds: 20)), peers: {'pixel': ok()}),
       r('pixel', kind: 'android', peers: {'laptop-fedora': ok(), 'laptop-win': gone()}),
     ]), myId: 'pixel', now: now);
     expect(of(a, 'laptop-win').level, Level.inactive);
     expect(a.network.level, Level.ok);
     expect(a.network.title, 'Both devices online');
+  });
+
+  test('a device silent for days is gray with when it was last seen', () {
+    final a = assess(m([r('laptop'), r('oldphone', kind: 'android', ageS: 5 * 86400)]), myId: 'laptop', now: now);
+    expect(of(a, 'oldphone').level, Level.inactive);
+    expect(of(a, 'oldphone').title, 'Not seen for 5 days');
+    expect(a.network.level, Level.ok);
+    expect(a.network.detail, contains('1 more is away'));
+  });
+
+  test('a reinstalled phone leaves an old copy, not an alarm', () {
+    final old = Report(id: 'p1', name: 'Pixel 8', kind: 'android', time: now.subtract(const Duration(hours: 2)), machine: 'p1');
+    final fresh = Report(id: 'p2', name: 'Pixel 8', kind: 'android', time: now.subtract(const Duration(seconds: 20)), machine: 'p2');
+    final a = assess(m([old, fresh, r('laptop')]), myId: 'laptop', now: now);
+    expect(of(a, 'p1').title, 'Old copy');
+    expect(of(a, 'p2').level, Level.ok);
+  });
+
+  test('a reinstalled computer (same machine, same system) is an old copy, not dual boot', () {
+    final a = assess(m([
+      Report(id: 'w1', name: 'LAPTOP', kind: 'windows', os: 'Windows 11', machine: 'hw', time: now.subtract(const Duration(hours: 3))),
+      Report(id: 'w2', name: 'LAPTOP', kind: 'windows', os: 'Windows 11', machine: 'hw', time: now.subtract(const Duration(seconds: 20))),
+    ]), myId: 'w2', now: now);
+    expect(of(a, 'w1').title, 'Old copy');
   });
 
   test('this device stopped writing = not collecting', () {

@@ -6,7 +6,7 @@ import 'package:monitor_core/monitor_core.dart';
 
 /// Everything that differs between Android and computers, behind one class.
 class LocalHost {
-  LocalHost._(this.kind, this.id, this.folder, this.name, this.version, this.tempDir);
+  LocalHost._(this.kind, this.id, this.folder, this.name, this.version, this.tempDir, this.stateDir);
 
   static const _ch = MethodChannel('monitor/android');
 
@@ -18,17 +18,20 @@ class LocalHost {
   final String version;
   final String tempDir;
 
+  /// Private to this install, never synced: e.g. which devices are hidden here.
+  final String stateDir;
+
   bool get isAndroid => kind == 'android';
 
   static Future<LocalHost> load() async {
     if (Platform.isAndroid) {
       final c = (await _ch.invokeMapMethod<String, Object?>('config'))!;
       return LocalHost._('android', c['id']! as String, c['folder']! as String, c['name']! as String,
-          appVersion != 'dev' ? appVersion : c['version']! as String, c['cacheDir']! as String);
+          appVersion != 'dev' ? appVersion : c['version']! as String, c['cacheDir']! as String, c['filesDir']! as String);
     }
     final c = LocalConfig.load();
     return LocalHost._(Platform.isWindows ? 'windows' : 'linux', c.id, c.folder, c.name ?? Platform.localHostname,
-        appVersion, Directory.systemTemp.path);
+        appVersion, Directory.systemTemp.path, LocalConfig.dir);
   }
 
   Future<void> setFolder(String path) async {

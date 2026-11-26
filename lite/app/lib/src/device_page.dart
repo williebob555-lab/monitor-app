@@ -77,6 +77,25 @@ class _DevicePageState extends State<DevicePage> {
               _about(r, s),
               const SizedBox(height: 14),
               _log(r),
+              if (r.id != widget.state.host.id) ...[
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      widget.state.hide(r.id);
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.visibility_off_outlined, size: 18),
+                    label: const Text('Hide on this device'),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text('Nothing is deleted. It comes back by itself if it reports again.',
+                      style: TextStyle(color: C.muted, fontSize: 12)),
+                ),
+              ],
             ];
             return ListView(padding: EdgeInsets.fromLTRB(pad, 4, pad, 28), children: [
               if (wide)

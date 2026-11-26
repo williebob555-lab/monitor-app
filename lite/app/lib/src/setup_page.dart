@@ -69,7 +69,9 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
           ],
           _Check('Monitor folder exists', st.folder.exists, host.folder),
           _Check('Folder is shared in Syncthing', st.folder.sharedBySyncthing,
-              'In Syncthing, add a folder with Folder ID "$syncFolderId" and this path, then share it with your other devices. Use the same Folder ID on every device.'),
+              st.folder.syncthingRoot != null && st.folder.syncthingRoot != st.folder.root
+                  ? 'Inside the Syncthing folder ${st.folder.syncthingRoot}.'
+                  : 'Either put this folder inside a folder Syncthing already shares with your devices (for example Infrastructure/Monitor), or add it in Syncthing with Folder ID "$syncFolderId" on every device.'),
           _Check('This device is collecting', meStatus?.fresh == true,
               me == null ? 'No readings from this device yet.' : 'Last reading ${ago(meStatus!.age)} ago.',
               host.isAndroid ? 'Run now' : 'Start', () async {
@@ -95,6 +97,8 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
                     Section('This device', Column(children: [for (final c in checks) _checkRow(c)])),
                     const SizedBox(height: 14),
                     _folder(st),
+                    const SizedBox(height: 14),
+                    _health(st),
                     const SizedBox(height: 14),
                     Section(
                       'How it works',
@@ -174,6 +178,38 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               style: const TextStyle(color: C.muted, fontSize: 12)),
         ]),
       );
+
+  Widget _health(AppState st) {
+    final h = st.health;
+    String short(String p) => p.split(RegExp(r'[\\/]')).reversed.take(2).toList().reversed.join('/');
+    return Section(
+      'Folder health',
+      h.clean
+          ? const Text('No leftovers: no conflict copies, no damaged or empty device folders.', style: TextStyle(color: C.muted))
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (h.conflicts.isNotEmpty) ...[
+                Text('${h.conflicts.length} Syncthing conflict ${h.conflicts.length == 1 ? 'copy' : 'copies'}. The app ignores them.',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(h.conflicts.take(5).map(short).join('\n'), style: const TextStyle(color: C.muted, fontSize: 12)),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () {
+                    final n = st.removeConflicts();
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Removed $n conflict copies.')));
+                  },
+                  child: const Text('Remove conflict copies'),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (h.unreadable.isNotEmpty)
+                Text('Could not read the latest file from: ${h.unreadable.join(', ')}. Usually it is still syncing; it is skipped until it reads cleanly.',
+                    style: const TextStyle(color: C.muted, fontSize: 12.5)),
+              if (h.empty.isNotEmpty)
+                Text('Device folders with no readings yet: ${h.empty.join(', ')}.', style: const TextStyle(color: C.muted, fontSize: 12.5)),
+            ]),
+    );
+  }
 
   Widget _checkRow(_Check c) => Padding(
         padding: const EdgeInsets.only(bottom: 14),

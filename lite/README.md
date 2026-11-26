@@ -17,7 +17,10 @@ It has no server, no database, no pairing and no networking code of its own:
 ## Set up a device (once)
 
 1. Install it (see the release's "Which file do I need?" table).
-2. In Syncthing, add a folder with **Folder ID `monitor-lite`**. The path is
+2. Point the app at a folder Syncthing shares between your devices. Either a
+   subfolder of a folder you already share (e.g. `Infrastructure/Monitor`; set it
+   under Setup > Monitor folder), or a new Syncthing folder with
+   **Folder ID `monitor-lite`**. The default path is
    shown in the app under Setup (Windows: `C:\Monitor App\Sync` if `C:\Monitor App`
    exists, else `%USERPROFILE%\Monitor`; Linux: `~/Monitor`; Android:
    `/storage/emulated/0/Monitor`). Share it with your other devices.

@@ -69,6 +69,27 @@ class HomePage extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (state.hiddenReports.isNotEmpty)
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(pad, 0, pad, 28),
+                    sliver: SliverToBoxAdapter(
+                      child: Section(
+                        'Hidden on this device',
+                        Column(children: [
+                          for (final r in state.hiddenReports)
+                            Row(children: [
+                              Icon(kindIcon(r.kind, r.name), color: C.muted, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text('${r.name}  ·  last seen ${ago(DateTime.now().toUtc().difference(r.time))} ago',
+                                    style: const TextStyle(color: C.muted)),
+                              ),
+                              TextButton(onPressed: () => state.unhide(r.id), child: const Text('Show')),
+                            ]),
+                        ]),
+                      ),
+                    ),
+                  ),
               ]);
             }),
           ),

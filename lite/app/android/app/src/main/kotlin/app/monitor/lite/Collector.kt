@@ -106,8 +106,6 @@ object Collector {
             internalLog(ctx, "cannot write to ${dir.path} (all files access: ${canWrite()})")
             return next
         }
-        val ignore = File(root, ".stignore")
-        if (!ignore.exists()) runCatching { ignore.writeText("// Monitor writes temp files then renames them\n(?d)*.tmp\n") }
         try {
             val now = System.currentTimeMillis()
             val j = JSONObject()
@@ -198,7 +196,7 @@ object Collector {
             if (over.isNotEmpty()) self.put("over", org.json.JSONArray(over))
             j.put("self", self)
 
-            val tmp = File(dir, ".now.json.tmp")
+            val tmp = File(dir, ".syncthing.now.json.tmp") // Syncthing never syncs its own temp pattern
             tmp.writeText(j.toString())
             if (!tmp.renameTo(File(dir, "now.json"))) {
                 File(dir, "now.json").writeText(j.toString())

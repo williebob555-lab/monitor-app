@@ -184,7 +184,7 @@ class Reading {
     if (j is! Map) return null;
     final k = j['key'], v = j['value'];
     if (k is! String || k.isEmpty || !(v is num || v is String || v is bool)) return null;
-    return Reading(key: k, value: v, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']));
+    return Reading(key: k, value: v as Object, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']));
   }
 
   Map<String, Object?> toJson() => {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
@@ -16,7 +17,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   final LocalHost host;
   SyncFolder folder;
+  /// Reports shown (hidden ones removed).
   Map<String, Report> reports = {};
+
+  /// Devices hidden on this device: id -> time hidden. Local only, never
+  /// synced. A hidden device comes back by itself if it reports again.
+  Map<String, DateTime> hidden = {};
+  List<Report> hiddenReports = [];
+  FolderHealth health = FolderHealth();
   Assessment assessment = assess(const {});
   Timer? _timer;
   String _sig = '';
@@ -29,7 +37,49 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   double? downloadProgress;
   DateTime? _lastUpdateCheck;
 
+  File get _hiddenFile => File('${host.stateDir}${Platform.pathSeparator}hidden.json');
+
+  void _loadHidden() {
+    try {
+      final j = jsonDecode(_hiddenFile.readAsStringSync()) as Map<String, Object?>;
+      hidden = {
+        for (final e in j.entries)
+          if (e.value is num) e.key: DateTime.fromMillisecondsSinceEpoch((e.value! as num).toInt() * 1000, isUtc: true),
+      };
+    } catch (_) {}
+  }
+
+  void _saveHidden() {
+    try {
+      Directory(host.stateDir).createSync(recursive: true);
+      _hiddenFile.writeAsStringSync(jsonEncode({for (final e in hidden.entries) e.key: e.value.millisecondsSinceEpoch ~/ 1000}));
+    } catch (e) {
+      host.log('could not save hidden list: $e');
+    }
+  }
+
+  void hide(String id) {
+    hidden[id] = DateTime.now().toUtc();
+    _saveHidden();
+    host.log('hid device $id');
+    refresh(force: true);
+  }
+
+  void unhide(String id) {
+    hidden.remove(id);
+    _saveHidden();
+    refresh(force: true);
+  }
+
+  int removeConflicts() {
+    final n = folder.removeConflicts();
+    host.log('removed $n Syncthing conflict copies');
+    refresh(force: true);
+    return n;
+  }
+
   void start() {
+    _loadHidden();
     WidgetsBinding.instance.addObserver(this);
     host.log('open ${host.kind} app ${host.version}, folder ${host.folder}');
     host.nudge().then((_) => refresh(force: true));
@@ -44,7 +94,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState s) {
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final s = state;
     if (s == AppLifecycleState.resumed) {
       host.nudge().then((_) => refresh(force: true));
       _resume();
@@ -71,11 +122,20 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void refresh({bool force = false}) {
+    Map<String, Report> all;
     try {
-      reports = folder.readReports();
+      all = folder.readReports();
     } catch (_) {
-      reports = {};
+      all = {};
     }
+    // Hidden stays hidden only while the device stays silent.
+    final back = hidden.entries.where((e) => all[e.key] != null && all[e.key]!.time.isAfter(e.value)).map((e) => e.key).toList();
+    if (back.isNotEmpty) {
+      back.forEach(hidden.remove);
+      _saveHidden();
+    }
+    reports = {for (final e in all.entries) if (!hidden.containsKey(e.key)) e.key: e.value};
+    hiddenReports = all.values.where((r) => hidden.containsKey(r.id)).toList()..sort((a, b) => a.name.compareTo(b.name));
     final now = DateTime.now().toUtc();
     final sig = reports.values.map((r) => '${r.id}:${r.seq}:${r.time.millisecondsSinceEpoch}').join(',');
     // Redraw when data changed, or every 30 s so "x min ago" stays true.
@@ -83,6 +143,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _sig = sig;
     _lastNotify = now;
     assessment = assess(reports, myId: host.id, now: now);
+    try {
+      health = folder.health();
+    } catch (_) {}
     notifyListeners();
     _checkBudget();
   }
