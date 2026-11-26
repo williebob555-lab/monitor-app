@@ -37,7 +37,10 @@ public sealed partial class PeerStore
         {
             DataSource = fullPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            // Private cache: under WAL a reader sees the last commit while a writer works. Shared cache instead locks
+            // whole tables and fails readers with SQLITE_LOCKED after the 30 s command timeout (busy_timeout does not
+            // apply), so every read of origin_records stalled behind each sync batch.
+            Cache = SqliteCacheMode.Private,
             Pooling = false,
         }.ToString();
         busyTimeoutMilliseconds = checked((int)options.BusyTimeout.TotalMilliseconds);
