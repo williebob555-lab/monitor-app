@@ -11,13 +11,14 @@ systemctl daemon-reload >/dev/null 2>&1 || true
 # Start the collector for every user at sign-in. Servers without a sign-in
 # session also need: sudo loginctl enable-linger <user>
 systemctl --global enable monitor-agent.service >/dev/null 2>&1 || true
-# Let the collector read a USB UPS directly (read-only status, no vendor
-# software): its HID device becomes readable and gets a fixed name.
+# Let the collector read a USB UPS directly (status only, no vendor
+# software). Not world-readable: uaccess gives the signed-in user, who runs
+# the collector, access; nobody else gets it. The device also gets a fixed name.
 cat > /etc/udev/rules.d/70-monitor-ups.rules <<'RULES'
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0764", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="051d", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0463", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0644", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0764", MODE="0600", TAG+="uaccess", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="051d", MODE="0600", TAG+="uaccess", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0463", MODE="0600", TAG+="uaccess", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0600", TAG+="uaccess", SYMLINK+="monitor-ups"
 RULES
 udevadm control --reload >/dev/null 2>&1 || true
 udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true

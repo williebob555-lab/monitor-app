@@ -30,20 +30,26 @@ Installed without Docker (the .rpm/.deb), the collector reads it if your user is
 
 A USB UPS (CyberPower, APC, Eaton, Tripp Lite) is read directly over USB: on
 mains or battery, charge, load and runtime. No vendor software and no NUT. One
-rule lets the collector read it, without root, and gives it a fixed name:
+rule lets your own group (the one the collector runs as, `GID` in `.env`)
+read it, nobody else, and gives it a fixed name:
 
 ```sh
-sudo tee /etc/udev/rules.d/70-monitor-ups.rules >/dev/null <<'RULES'
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0764", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="051d", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0463", MODE="0644", SYMLINK+="monitor-ups"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0644", SYMLINK+="monitor-ups"
+sudo tee /etc/udev/rules.d/70-monitor-ups.rules >/dev/null <<RULES
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0764", MODE="0640", GROUP="$(id -gn)", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="051d", MODE="0640", GROUP="$(id -gn)", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0463", MODE="0640", GROUP="$(id -gn)", SYMLINK+="monitor-ups"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0640", GROUP="$(id -gn)", SYMLINK+="monitor-ups"
 RULES
 sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+ls -l /dev/monitor-ups /dev/$(readlink /dev/monitor-ups)   # crw-r----- root <your group>
 ```
 
 Then uncomment the `devices:` line in `compose.yaml` and run `docker compose up -d`.
-On a dual-boot machine, do this on each system. The .rpm/.deb installs the rule itself.
+On a dual-boot machine, do this on each system. The .rpm/.deb installs its own rule.
+
+The collector opens the device read-only and only asks for the UPS's status
+reports (the kernel's get-feature-report call, which a read-only handle may
+make). It never sends anything to the UPS.
 
 An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
 
