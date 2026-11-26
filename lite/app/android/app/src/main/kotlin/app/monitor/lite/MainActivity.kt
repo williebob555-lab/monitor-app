@@ -1,13 +1,14 @@
 package app.monitor.lite
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -69,13 +70,27 @@ class MainActivity : FlutterActivity() {
                     Collector.schedule(ctx, next)
                     main.post { result.success(next) }
                 }.start()
-                "installApk" -> {
-                    val f = File(call.argument<String>("path")!!)
-                    val uri = FileProvider.getUriForFile(ctx, "$packageName.files", f)
-                    open(
-                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                    )
+                "installApk" -> Thread {
+                    val r = runCatching { Installer.install(ctx, File(call.argument<String>("path")!!)) }
+                    r.exceptionOrNull()?.let { Collector.logToFolder(ctx, "ERROR install could not start: $it") }
+                    main.post {
+                        if (r.getOrNull() == "permission" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            open(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                        }
+                        r.fold({ result.success(it) }, { result.error("install", it.toString(), null) })
+                    }
+                }.start()
+                "notify" -> result.success(
+                    mapOf("ids" to Alerts.ids(ctx).toList(), "enabled" to Alerts.enabled(ctx)),
+                )
+                "setNotify" -> {
+                    val on = call.argument<Boolean>("on") == true
+                    Alerts.set(ctx, call.argument<String>("id")!!, on)
+                    if (on && Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
+                    }
                     result.success(null)
                 }
                 "log" -> {

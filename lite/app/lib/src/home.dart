@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
@@ -69,9 +71,12 @@ class HomePage extends StatelessWidget {
                   SliverPadding(
                     padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                     sliver: SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: (box.maxHeight - 150).clamp(420.0, 900.0),
-                        child: _MapPanel(state),
+                      child: Center(
+                        child: SizedBox(
+                          width: math.min(box.maxWidth - 2 * pad, 620),
+                          height: (box.maxWidth - 2 * pad).clamp(280.0, 470.0) + 100,
+                          child: _MapPanel(state),
+                        ),
                       ),
                     ),
                   )
@@ -179,7 +184,7 @@ class _Banner extends StatelessWidget {
                       Icon(x.$2.level == Level.fault ? Icons.error_outline : Icons.warning_amber_rounded, size: 16, color: C.of(x.$2.level)),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text('${x.$3.name} · ${x.$2.title}: ${x.$2.value}${x.$2.sub != null ? ' (${x.$2.sub})' : ''}',
+                        child: Text(x.$2.id == 'links' ? '${x.$3.name} · ${x.$2.sub}' : '${x.$3.name} · ${x.$2.title}: ${x.$2.value}${x.$2.sub != null ? ' (${x.$2.sub})' : ''}',
                             maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
                       ),
                       const Icon(Icons.chevron_right, size: 18, color: C.muted),
@@ -326,33 +331,32 @@ class _MapPanelState extends State<_MapPanel> {
           Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
         }),
       ),
-      const SizedBox(height: 6),
-      Row(children: [
-        if (local != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: C.warn.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-            child: Text('RECORDED · ${hm(local)}', style: const TextStyle(color: C.warn, fontSize: 11, fontWeight: FontWeight.w700)),
-          )
-        else
-          const Text('NOW', style: TextStyle(color: C.ok, fontSize: 11, fontWeight: FontWeight.w700)),
-        Expanded(
-          child: Directionality(
-            textDirection: TextDirection.rtl, // right end is now, drag left to go back
+      SizedBox(
+        height: 48,
+        child: Row(children: [
+          SizedBox(
+            width: 92,
+            child: Text(local == null ? 'Now' : hm(local),
+                style: TextStyle(color: local == null ? C.muted : C.warn, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
             child: Slider(
-              value: back,
+              // Left is 24 h ago, right is now.
+              value: 24 * 60 - back,
               min: 0,
               max: 24 * 60,
               divisions: 24 * 4,
-              onChanged: (v) => setState(() => back = v),
+              onChanged: (v) => setState(() => back = 24 * 60 - v),
             ),
           ),
-        ),
-        if (back > 0)
-          TextButton(onPressed: () => setState(() => back = 0), child: const Text('Now'))
-        else
-          const Text('24 h ←', style: TextStyle(color: C.muted, fontSize: 11)),
-      ]),
+          SizedBox(
+            width: 92,
+            child: back > 0
+                ? TextButton(onPressed: () => setState(() => back = 0), child: const Text('Back to now'))
+                : const Text('drag back 24 h', textAlign: TextAlign.right, style: TextStyle(color: C.muted, fontSize: 11)),
+          ),
+        ]),
+      ),
     ]);
   }
 }

@@ -60,6 +60,11 @@ syncs like everything else.
 * **A part**: its live chart since the app opened, its history (24 h, 7 days,
   a year) with low, average and high, its details, and anything else on that
   device that needs a look.
+* **Notifications (phones and tablets)**: on another device's page, switch on
+  "Notify me on this phone". The phone then tells you once if that device
+  stops reporting for 30 minutes, or its Syncthing folder stays not up to date
+  for 15 minutes, and clears the notification when it is over. It is checked
+  at the end of each normal collection run, so it costs nothing extra.
 
 ## Updates
 

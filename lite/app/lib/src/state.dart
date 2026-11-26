@@ -103,8 +103,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     return n;
   }
 
+  /// Android: devices this phone notifies about (kept by the collector).
+  Set<String> notify = {};
+  bool notificationsAllowed = false;
+
+  Future<void> loadNotify() async {
+    try {
+      final (ids, allowed) = await host.notifyState();
+      notify = ids;
+      notificationsAllowed = allowed;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> setNotify(String id, bool on) async {
+    await host.setNotify(id, on);
+    host.log('notifications for $id ${on ? 'on' : 'off'}');
+    await loadNotify();
+  }
+
   void start() {
     _loadHidden();
+    loadNotify();
     WidgetsBinding.instance.addObserver(this);
     host.log('open ${host.kind} app ${host.version}, folder ${host.folder}');
     host.nudge().then((_) => refresh(force: true));
@@ -122,6 +142,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final s = state;
     if (s == AppLifecycleState.resumed) {
+      loadNotify();
       host.nudge().then((_) => refresh(force: true));
       _resume();
     } else if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
@@ -240,7 +261,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       downloadProgress = null;
       updateMessage = 'Downloaded and checked. Opening the installer...';
       notifyListeners();
-      await host.install(f);
+      final r = await host.install(f);
+      if (r == 'permission') {
+        updateMessage = 'Android needs your OK first: switch on "Allow from this source" for Monitor App, come back, and tap Install again.';
+        notifyListeners();
+      }
     } catch (e) {
       downloadProgress = null;
       updateMessage = 'Update failed: $e';

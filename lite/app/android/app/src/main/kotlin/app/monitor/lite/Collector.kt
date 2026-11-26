@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
  * while the screen is on and every 5 minutes while it is off. Each run reads
  * a handful of system values, checks the other devices over Tailscale,
  * writes this device's files into the Syncthing folder and exits. Nothing
- * stays running in between: no service, no notification, no wake lock.
+ * stays running in between: no service, no ongoing notification, no wake lock.
  *
  * File format is shared with the Dart code in lite/core (see lite/FORMAT.md).
  */
@@ -227,6 +227,9 @@ object Collector {
                 history.add(JSONObject(historyLine(j)), now)
                 p.edit().putLong("lastHistory", now).apply()
             }
+
+            runCatching { Alerts.check(ctx, root, now / 1000) }
+                .onFailure { log(dir, "ERROR notifications check: $it") }
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")
             val lastSummary = p.getLong("lastSummary", 0)
