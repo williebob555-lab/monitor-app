@@ -22,9 +22,9 @@ class UpdateInfo {
 
 /// Which release file this device installs. [linuxPackage] is "rpm" or "deb".
 String assetNameFor(String platform, String version, {String linuxPackage = 'rpm'}) => switch (platform) {
-      'android' => 'monitor-lite-$version.apk',
-      'windows' => 'monitor-lite-$version-windows-setup.exe',
-      _ => linuxPackage == 'deb' ? 'monitor-lite_${version}_amd64.deb' : 'monitor-lite-$version-1.x86_64.rpm',
+      'android' => 'monitor-app-$version.apk',
+      'windows' => 'monitor-app-$version-windows-setup.exe',
+      _ => linuxPackage == 'deb' ? 'monitor-app_${version}_amd64.deb' : 'monitor-app-$version-1.x86_64.rpm',
     };
 
 Future<Object?> _getJson(HttpClient c, Uri u) async {

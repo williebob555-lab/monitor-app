@@ -84,7 +84,7 @@ jobs:
           CODE=$(( MA * 10000 + MI * 100 + PA ))
           flutter build apk --release --build-name=$VERSION --build-number=$CODE --dart-define=APP_VERSION=$VERSION
           mkdir -p ../../out
-          cp build/app/outputs/flutter-apk/app-release.apk ../../out/monitor-lite-$VERSION.apk
+          cp build/app/outputs/flutter-apk/app-release.apk ../../out/monitor-app-$VERSION.apk
           ls -la ../../out
       - uses: actions/upload-artifact@v4
         with:
@@ -157,13 +157,13 @@ jobs:
           cd ../..
           mkdir -p stage/usr/lib/monitor-lite stage/usr/bin stage/usr/share/applications stage/usr/lib/systemd/user out
           cp -r lite/app/build/linux/x64/release/bundle/. stage/usr/lib/monitor-lite/
-          ln -s ../lib/monitor-lite/monitor_lite stage/usr/bin/monitor-lite
+          ln -s ../lib/monitor-lite/monitor_lite stage/usr/bin/monitor-app
           ln -s ../lib/monitor-lite/monitor-agent stage/usr/bin/monitor-agent
-          cp lite/packaging/linux/monitor-lite.desktop stage/usr/share/applications/
+          cp lite/packaging/linux/monitor-lite.desktop stage/usr/share/applications/monitor-app.desktop
           cp lite/packaging/linux/monitor-agent.service stage/usr/lib/systemd/user/
-          common="-s dir -n monitor-lite -v $VERSION --iteration 1 -C stage --description Monitor-Lite --url https://github.com/${{ github.repository }} --after-install lite/packaging/linux/after-install.sh --before-remove lite/packaging/linux/before-remove.sh"
-          fpm $common -t rpm -a x86_64 -d gtk3 -p out/monitor-lite-$VERSION-1.x86_64.rpm .
-          fpm $common -t deb -a amd64 -d libgtk-3-0 -p out/monitor-lite_${VERSION}_amd64.deb .
+          common="-s dir -n monitor-app -v $VERSION --iteration 1 -C stage --description Monitor-App --url https://github.com/${{ github.repository }} --after-install lite/packaging/linux/after-install.sh --before-remove lite/packaging/linux/before-remove.sh"
+          fpm $common -t rpm -a x86_64 -d gtk3 -p out/monitor-app-$VERSION-1.x86_64.rpm .
+          fpm $common -t deb -a amd64 -d libgtk-3-0 -p out/monitor-app_${VERSION}_amd64.deb .
           cp lite/app/build/linux/x64/release/bundle/monitor-agent out/monitor-agent-$VERSION-linux-x64
           ls -la out
       - uses: actions/upload-artifact@v4
@@ -193,13 +193,13 @@ jobs:
           ### Which file do I need?
           | Device | File |
           |---|---|
-          | Pixel, tablet (Android) | monitor-lite-$VERSION.apk |
-          | Windows laptop | monitor-lite-$VERSION-windows-setup.exe |
-          | Fedora | monitor-lite-$VERSION-1.x86_64.rpm |
-          | Ubuntu | monitor-lite_${VERSION}_amd64.deb |
+          | Pixel, tablet (Android) | monitor-app-$VERSION.apk |
+          | Windows laptop | monitor-app-$VERSION-windows-setup.exe |
+          | Fedora | monitor-app-$VERSION-1.x86_64.rpm |
+          | Ubuntu | monitor-app_${VERSION}_amd64.deb |
           | Server without a screen | monitor-agent-$VERSION-linux-x64 (collector only) |
 
-          Already installed? Open Monitor Lite > Setup and updates > Install. Every file is listed in SHA256SUMS.
+          Each file installs over the old Monitor App and removes it completely. Later updates: open Monitor App > Setup and updates > Install. Every file is listed in SHA256SUMS.
           EOF
           sed -i 's/^          //' notes.md
-          gh release create "lite-v$VERSION" out/* --target "$GITHUB_SHA" --prerelease --title "Monitor Lite $VERSION" --notes-file notes.md
+          gh release create "lite-v$VERSION" out/* --target "$GITHUB_SHA" --prerelease --title "Monitor App $VERSION" --notes-file notes.md

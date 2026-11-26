@@ -31,7 +31,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "app.monitor.lite"
+        // Same id and signing key as the old Monitor App, so this installs as an
+        // update over it (no uninstall) and replaces it completely.
+        applicationId = "app.monitor.selfhosted"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

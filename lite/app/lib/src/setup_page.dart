@@ -8,7 +8,7 @@ import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-const syncFolderId = 'monitor-lite';
+const syncFolderId = 'monitor-app';
 
 /// Setup checklist, folder, updates. Every check reads the real state.
 class SetupPage extends StatefulWidget {

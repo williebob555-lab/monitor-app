@@ -1,5 +1,5 @@
 [Unit]
-Description=Monitor Lite background collector
+Description=Monitor App background collector
 After=network-online.target
 
 [Service]

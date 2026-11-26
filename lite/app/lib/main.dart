@@ -18,7 +18,7 @@ class MonitorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Monitor Lite',
+        title: 'Monitor App',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
         home: HomePage(state),

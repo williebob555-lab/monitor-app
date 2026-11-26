@@ -25,6 +25,7 @@ class AlarmReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val ctx = context.applicationContext
+        Migration.run(ctx)
         Collector.logToFolder(ctx, "start (${intent.action?.substringAfterLast('.')}) app ${BuildConfig.VERSION_NAME}")
         Collector.schedule(ctx, 15)
     }

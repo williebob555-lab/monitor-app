@@ -1,4 +1,4 @@
-# Monitor Lite
+# Monitor App (lightweight rebuild)
 
 A small app that shows the health of every one of your devices: battery, CPU,
 memory, disk and network, plus a plain-English status ("Online",
@@ -20,7 +20,7 @@ It has no server, no database, no pairing and no networking code of its own:
 2. Point the app at a folder Syncthing shares between your devices. Either a
    subfolder of a folder you already share (e.g. `Infrastructure/Monitor`; set it
    under Setup > Monitor folder), or a new Syncthing folder with
-   **Folder ID `monitor-lite`**. The default path is
+   **Folder ID `monitor-app`**. The default path is
    shown in the app under Setup (Windows: `C:\Monitor App\Sync` if `C:\Monitor App`
    exists, else `%USERPROFILE%\Monitor`; Linux: `~/Monitor`; Android:
    `/storage/emulated/0/Monitor`). Share it with your other devices.
@@ -57,3 +57,18 @@ Nothing installs without that tap.
 
 Builds and releases: `.github/workflows/lite.yml` (Actions > Monitor Lite > Run
 with a version publishes `lite-v<version>`).
+
+## Replacing the old Monitor App
+
+Version 2.0.0 and later replace the old .NET app in place:
+
+* **Android:** same app id (`app.monitor.selfhosted`) and signing key, higher
+  version, so the APK installs as an update. On first start it deletes
+  everything the old app kept in its private storage.
+* **Windows:** the installer finds the old app (its MSI, the `MonitorApp`
+  service, the `MonitorAppUpdate` task, `Program Files\MonitorApp`,
+  `ProgramData\MonitorApp`, `LocalAppData\MonitorApp`) and removes it, after one
+  Windows "Yes" prompt. The log is `%TEMP%\monitor-app-remove-old.log`.
+* **Fedora/Ubuntu:** the package is named `monitor-app` with a higher version,
+  so it upgrades over the old package, then stops the old services and removes
+  `/var/lib/monitor-app`, `/etc/monitor-app` and the `monitor-app` user.

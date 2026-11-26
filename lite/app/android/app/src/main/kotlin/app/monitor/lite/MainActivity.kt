@@ -18,6 +18,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        Migration.run(applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "monitor/android").setMethodCallHandler { call, result ->
             val ctx = applicationContext
             when (call.method) {
