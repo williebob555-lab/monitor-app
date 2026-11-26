@@ -1,0 +1,205 @@
+name: Monitor Lite
+
+# Builds and tests the lightweight app in lite/. A release is made only when
+# this is started by hand with a version (Actions > Monitor Lite > Run).
+on:
+  push:
+    paths:
+      - 'lite/**'
+      - '.github/workflows/lite.yml'
+  pull_request:
+    paths:
+      - 'lite/**'
+      - '.github/workflows/lite.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 2.0.0 (empty = build only)'
+        required: false
+        default: ''
+      notes:
+        description: 'What you will see (release notes)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lite-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.50.1'
+  VERSION: ${{ inputs.version != '' && inputs.version || '2.0.0' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Core tests
+        working-directory: lite/core
+        run: dart pub get && dart analyze --fatal-warnings && dart test
+      - name: App analysis
+        working-directory: lite/app
+        run: flutter pub get && flutter analyze --no-fatal-infos
+      - name: Agent smoke test (one real cycle on Linux)
+        working-directory: lite/core
+        run: |
+          dart compile exe bin/monitor_agent.dart -o /tmp/monitor-agent --define=APP_VERSION=$VERSION
+          /tmp/monitor-agent --once
+          cat ~/Monitor/devices/*/now.json
+          cat ~/Monitor/devices/*/log.txt
+          test -s ~/Monitor/devices/*/now.json
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build the signed APK
+        working-directory: lite/app
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          IFS=. read -r MA MI PA <<< "${VERSION%%-*}"
+          CODE=$(( MA * 10000 + MI * 100 + PA ))
+          flutter build apk --release --build-name=$VERSION --build-number=$CODE --dart-define=APP_VERSION=$VERSION
+          mkdir -p ../../out
+          cp build/app/outputs/flutter-apk/app-release.apk ../../out/monitor-app-$VERSION.apk
+          ls -la ../../out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build app and background collector
+        shell: pwsh
+        run: |
+          cd lite/app
+          flutter build windows --release --build-name=$env:VERSION --dart-define=APP_VERSION=$env:VERSION
+          cd ../core
+          dart pub get
+          dart compile exe bin/monitor_agent.dart -o ../app/build/windows/x64/runner/Release/monitor-agent.exe --define=APP_VERSION=$env:VERSION
+          python ../packaging/windows/gui_subsystem.py ../app/build/windows/x64/runner/Release/monitor-agent.exe
+      - name: Collector smoke test (real Win32 readings, no console window)
+        shell: pwsh
+        run: |
+          $agent = "lite/app/build/windows/x64/runner/Release/monitor-agent.exe"
+          $p = Start-Process -FilePath $agent -ArgumentList '--once' -PassThru -Wait
+          "exit code $($p.ExitCode)"
+          $now = Get-ChildItem "$env:USERPROFILE\Monitor\devices\*\now.json" | Select-Object -First 1
+          if (-not $now) { throw 'The collector did not write now.json' }
+          Get-Content $now.FullName
+          Get-Content ($now.DirectoryName + '\log.txt')
+          $j = Get-Content $now.FullName | ConvertFrom-Json
+          if (-not $j.mem.total -or -not $j.disk.total) { throw 'Memory or disk reading missing' }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /Qp "/DAppVersion=$env:VERSION" "/DBundle=$PWD\lite\app\build\windows\x64\runner\Release" "/DOutDir=$PWD\out" lite\packaging\windows\monitor-lite.iss
+          Get-ChildItem out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev rpm
+          sudo gem install --no-document fpm
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build app, collector and packages
+        run: |
+          cd lite/app
+          flutter build linux --release --build-name=$VERSION --dart-define=APP_VERSION=$VERSION
+          cd ../core && dart pub get
+          dart compile exe bin/monitor_agent.dart -o ../app/build/linux/x64/release/bundle/monitor-agent --define=APP_VERSION=$VERSION
+          cd ../..
+          mkdir -p stage/usr/lib/monitor-lite stage/usr/bin stage/usr/share/applications stage/usr/lib/systemd/user out
+          cp -r lite/app/build/linux/x64/release/bundle/. stage/usr/lib/monitor-lite/
+          ln -s ../lib/monitor-lite/monitor_lite stage/usr/bin/monitor-app
+          ln -s ../lib/monitor-lite/monitor-agent stage/usr/bin/monitor-agent
+          cp lite/packaging/linux/monitor-lite.desktop stage/usr/share/applications/monitor-app.desktop
+          cp lite/packaging/linux/monitor-agent.service stage/usr/lib/systemd/user/
+          common="-s dir -n monitor-app -v $VERSION --iteration 1 -C stage --description Monitor-App --url https://github.com/${{ github.repository }} --after-install lite/packaging/linux/after-install.sh --before-remove lite/packaging/linux/before-remove.sh"
+          fpm $common -t rpm -a x86_64 -d gtk3 -p out/monitor-app-$VERSION-1.x86_64.rpm .
+          fpm $common -t deb -a amd64 -d libgtk-3-0 -p out/monitor-app_${VERSION}_amd64.deb .
+          cp lite/app/build/linux/x64/release/bundle/monitor-agent out/monitor-agent-$VERSION-linux-x64
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: [android, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          mkdir out && find dl -type f -exec cp {} out/ \;
+          (cd out && sha256sum * > SHA256SUMS)
+          cat > notes.md <<EOF
+          $NOTES
+
+          ### Which file do I need?
+          | Device | File |
+          |---|---|
+          | Pixel, tablet (Android) | monitor-app-$VERSION.apk |
+          | Windows laptop | monitor-app-$VERSION-windows-setup.exe |
+          | Fedora | monitor-app-$VERSION-1.x86_64.rpm |
+          | Ubuntu | monitor-app_${VERSION}_amd64.deb |
+          | Server without a screen | monitor-agent-$VERSION-linux-x64 (collector only) |
+
+          Each file installs over the old Monitor App and removes it completely. Later updates: open Monitor App > Setup and updates > Install. Every file is listed in SHA256SUMS.
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "lite-v$VERSION" out/* --target "$GITHUB_SHA" --prerelease --title "Monitor App $VERSION" --notes-file notes.md

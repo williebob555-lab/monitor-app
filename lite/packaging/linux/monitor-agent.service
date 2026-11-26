@@ -1,0 +1,14 @@
+[Unit]
+Description=Monitor App background collector
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/monitor-agent
+Restart=always
+RestartSec=30
+Nice=10
+MemoryMax=64M
+CPUQuota=5%
+
+[Install]
+WantedBy=default.target

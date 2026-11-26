@@ -1,0 +1,22 @@
+name: monitor_lite
+description: "Monitor Lite: see every device's health, synced through Syncthing."
+publish_to: 'none'
+version: 2.0.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.1.0
+  monitor_core:
+    path: ../core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
