@@ -62,6 +62,9 @@ class HidUps {
     final close = libc.lookupFunction<Int32 Function(Int32), int Function(int)>('close');
     final ioctl = libc.lookupFunction<Int32 Function(Int32, UnsignedLong, VarArgs<(Pointer<Uint8>,)>), int Function(int, int, Pointer<Uint8>)>('ioctl');
     final path = dev.toNativeUtf8();
+    // Read-only is enough: Linux's hidraw checks no write access for
+    // HIDIOCGFEATURE (drivers/hid/hidraw.c, hidraw_open and hidraw_ioctl).
+    // Nothing is ever sent to the UPS.
     final fd = open(path, 0); // O_RDONLY
     malloc.free(path);
     if (fd < 0) {
