@@ -5,6 +5,7 @@ import 'device_page.dart';
 import 'dive.dart';
 import 'map_view.dart';
 import 'parts.dart';
+import 'timeline.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -70,9 +71,7 @@ class HomePage extends StatelessWidget {
                     sliver: SliverToBoxAdapter(
                       child: SizedBox(
                         height: (box.maxHeight - 150).clamp(420.0, 900.0),
-                        child: NetworkMap(a.devices, myId: state.host.id, onOpen: (id) {
-                          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
-                        }),
+                        child: _MapPanel(state),
                       ),
                     ),
                   )
@@ -289,4 +288,71 @@ class _Net extends StatelessWidget {
             maxLines: 1, overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
       ]);
+}
+
+
+/// The map with a timeline under it: drag back up to 24 hours to see who
+/// reached whom then. Recorded views are marked and can't be mistaken for now.
+class _MapPanel extends StatefulWidget {
+  const _MapPanel(this.state);
+  final AppState state;
+  @override
+  State<_MapPanel> createState() => _MapPanelState();
+}
+
+class _MapPanelState extends State<_MapPanel> {
+  late final timeline = Timeline(widget.state.folder);
+
+  /// Minutes back from now; 0 is live.
+  double back = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final a = state.assessment;
+    final now = DateTime.now().toUtc();
+    var devices = a.devices;
+    DateTime? at;
+    if (back > 0) {
+      at = now.subtract(Duration(minutes: back.round()));
+      timeline.load(a.devices.map((d) => d.report.id), now);
+      devices = timeline.at([for (final d in a.devices) d.report], at);
+    }
+    final local = at?.toLocal();
+    String hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    return Column(children: [
+      Expanded(
+        child: NetworkMap(devices, myId: state.host.id, onOpen: (id) {
+          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
+        }),
+      ),
+      const SizedBox(height: 6),
+      Row(children: [
+        if (local != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(color: C.warn.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
+            child: Text('RECORDED · ${hm(local)}', style: const TextStyle(color: C.warn, fontSize: 11, fontWeight: FontWeight.w700)),
+          )
+        else
+          const Text('NOW', style: TextStyle(color: C.ok, fontSize: 11, fontWeight: FontWeight.w700)),
+        Expanded(
+          child: Directionality(
+            textDirection: TextDirection.rtl, // right end is now, drag left to go back
+            child: Slider(
+              value: back,
+              min: 0,
+              max: 24 * 60,
+              divisions: 24 * 4,
+              onChanged: (v) => setState(() => back = v),
+            ),
+          ),
+        ),
+        if (back > 0)
+          TextButton(onPressed: () => setState(() => back = 0), child: const Text('Now'))
+        else
+          const Text('24 h ←', style: TextStyle(color: C.muted, fontSize: 11)),
+      ]),
+    ]);
+  }
 }

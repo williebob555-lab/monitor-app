@@ -53,6 +53,7 @@ syncs like everything else.
 * **Home**: the network in one line, then every device as a card, or as a
   **map** (the button next to Setup): devices as nodes, lines coloured by
   whether each pair reaches the other. Tap a line to read what each side sees.
+  Drag the timeline under the map back up to 24 hours to see the network then.
 * **A device, opened up**: the device in the middle and its parts around it
   (battery, processor, memory, storage, network, links, and any extra readings
   it publishes), each with its value and live line.
