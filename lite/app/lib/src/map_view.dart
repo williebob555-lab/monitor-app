@@ -715,7 +715,7 @@ class _MapPainter extends CustomPainter {
       for (final n in m.nodes)
         n.id: Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: m.sizeOf(n).width * m.zoom, height: m.sizeOf(n).height * m.zoom),
     };
-    final groups = _ties(canvas, rects);
+    final groups = _groups(rects);
     final pills = <Rect>[...rects.values, ...groups.values];
     final order = [...m.edges]..sort((x, y) => _weight(x).compareTo(_weight(y)));
     for (final e in order) {
@@ -730,7 +730,10 @@ class _MapPainter extends CustomPainter {
       final spoke = e.a == m.widget.myId || e.b == m.widget.myId;
       if (m.busy && !focused && (!spoke || m.focus != null)) continue;
       final a = _edge(ra, rb.center), b = _edge(rb, ra.center);
-      final path = m.busy ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _curve(a, b, Offset(size.width / 2, size.height / 2));
+      // A cable that would cross another device's group bends around it.
+      final around = _detour(a, b, [for (final g in groups.entries) if (g.key != e.a && g.key != e.b) g.value]);
+      final path = around ??
+          (m.busy ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _curve(a, b, Offset(size.width / 2, size.height / 2)));
       final color = e.level == Level.ok ? _quiet : C.of(e.level);
 
       if (!full) {
@@ -807,6 +810,8 @@ class _MapPainter extends CustomPainter {
       }
     }
 
+    _ties(canvas, rects, groups);
+
     // A ring spreads out where a device has just arrived.
     for (final n in m.nodes) {
       final b = m.bodies[n.id]!;
@@ -819,24 +824,35 @@ class _MapPainter extends CustomPainter {
 
   /// Device to junction, junction to each attached thing: the hierarchy.
   /// Dots show what flows: data both ways over USB, power out of a UPS.
-  Map<String, Rect> _ties(Canvas canvas, Map<String, Rect> rects) {
+  /// The outline around each device whose things are open.
+  Map<String, Rect> _groups(Map<String, Rect> rects) {
     final groups = <String, Rect>{};
+    for (final e in m.attached.entries) {
+      final host = rects[e.key];
+      if (host == null || !m.isOpen(e.key)) continue;
+      var box = host;
+      for (final th in e.value) {
+        final r = rects[th.report.id];
+        if (r != null) box = box.expandToInclude(r);
+      }
+      groups[e.key] = box.inflate(10 * m.zoom.clamp(0.6, 1.2));
+    }
+    return groups;
+  }
+
+  void _ties(Canvas canvas, Map<String, Rect> rects, Map<String, Rect> groups) {
     for (final e in m.attached.entries) {
       final host = rects[e.key];
       if (host == null) continue;
       final j = m._screen(m.junction(e.key));
       // A soft enclosure: the device and what hangs off it read as one unit.
-      if (m.isOpen(e.key)) {
-        var box = host;
-        for (final th in e.value) {
-          final r = rects[th.report.id];
-          if (r != null) box = box.expandToInclude(r);
-        }
-        box = box.inflate(10 * m.zoom.clamp(0.6, 1.2));
-        groups[e.key] = box;
+      // Opaque and drawn over the network cables, so none run through it.
+      final box = groups[e.key];
+      if (box != null) {
         final rr = RRect.fromRectAndRadius(box, Radius.circular(18 * m.zoom.clamp(0.6, 1.2)));
-        canvas.drawRRect(rr, Paint()..color = Colors.white.withValues(alpha: 0.025));
-        canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = Colors.white.withValues(alpha: 0.07));
+        canvas.drawRRect(rr.shift(const Offset(0, 6)), Paint()..color = Colors.black.withValues(alpha: 0.35)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+        canvas.drawRRect(rr, Paint()..color = const Color(0xFF181C22));
+        canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF2E353F));
       }
       final stem = Paint()
         ..style = PaintingStyle.stroke
@@ -887,7 +903,6 @@ class _MapPainter extends CustomPainter {
         }
       }
     }
-    return groups;
   }
 
   int _weight(_Edge e) => (m.focus == e.a || m.focus == e.b ? 10 : 0) + e.level.index;
@@ -953,6 +968,33 @@ class _MapPainter extends CustomPainter {
     final sx = d.dx == 0 ? double.infinity : (r.width / 2 + 3) / d.dx.abs();
     final sy = d.dy == 0 ? double.infinity : (r.height / 2 + 3) / d.dy.abs();
     return c + d * math.min(sx, sy);
+  }
+
+  /// A curve from [a] to [b] that clears every box it would cross, or null
+  /// when the straight way is clear.
+  static Path? _detour(Offset a, Offset b, List<Rect> boxes) {
+    final v = b - a;
+    final len = v.distance;
+    if (len < 1) return null;
+    final n = Offset(-v.dy, v.dx) / len;
+    var push = 0.0;
+    for (final r in boxes) {
+      // Only boxes that sit between the ends.
+      final t = ((r.center - a).dx * v.dx + (r.center - a).dy * v.dy) / (len * len);
+      if (t < 0 || t > 1) continue;
+      final side = (r.center - a).dx * n.dx + (r.center - a).dy * n.dy; // signed distance
+      final half = (r.width * n.dx.abs() + r.height * n.dy.abs()) / 2;
+      if (side.abs() >= half + 4) continue;
+      // Go round the side nearer the line; bezier peaks at 3/4 of the offset.
+      final need = (side >= 0 ? -(half - side) : (half + side)) - (side >= 0 ? 14 : -14);
+      final k = need / 0.75;
+      if (k.abs() > push.abs()) push = k;
+    }
+    if (push == 0) return null;
+    final c1 = a + v * 0.25 + n * push, c2 = a + v * 0.75 + n * push;
+    return Path()
+      ..moveTo(a.dx, a.dy)
+      ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy);
   }
 
   /// A gentle curve that bows away from the middle of the map.
