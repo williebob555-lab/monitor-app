@@ -2,6 +2,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
+import 'dive.dart';
+import 'map_view.dart';
+import 'parts.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -33,6 +36,11 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
               IconButton(
+                tooltip: state.showMap ? 'Show as cards' : 'Show as a map',
+                onPressed: () => state.setShowMap(!state.showMap),
+                icon: Icon(state.showMap ? Icons.grid_view_rounded : Icons.hub_outlined),
+              ),
+              IconButton(
                 tooltip: 'Setup and updates',
                 onPressed: () => _openSetup(context),
                 icon: Badge(isLabelVisible: setupNeeded, smallSize: 8, child: const Icon(Icons.tune)),
@@ -50,8 +58,25 @@ class HomePage extends StatelessWidget {
               return CustomScrollView(slivers: [
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 4, pad, 14),
-                  sliver: SliverToBoxAdapter(child: _Banner(a.network, setupNeeded: setupNeeded, onSetup: () => _openSetup(context))),
+                  sliver: SliverToBoxAdapter(
+                    child: _Banner(a.network, setupNeeded: setupNeeded, onSetup: () => _openSetup(context), attention: _attention(a), onOpen: (d, p) {
+                      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PartPage(state, d, p)));
+                    }),
+                  ),
                 ),
+                if (state.showMap)
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
+                    sliver: SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: (box.maxHeight - 150).clamp(420.0, 900.0),
+                        child: NetworkMap(a.devices, myId: state.host.id, onOpen: (id) {
+                          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
+                        }),
+                      ),
+                    ),
+                  )
+                else
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                   sliver: SliverGrid(
@@ -98,15 +123,31 @@ class HomePage extends StatelessWidget {
     );
   }
 
+  /// Parts that need a look on devices that are reporting now, worst first.
+  List<(String, Part, Report)> _attention(Assessment a) {
+    final names = {for (final d in a.devices) d.report.id: d.report.name};
+    final out = <(String, Part, Report)>[];
+    for (final d in a.devices) {
+      if (!d.fresh) continue;
+      for (final p in partsOf(d.report, names)) {
+        if (p.level == Level.warn || p.level == Level.fault) out.add((d.report.id, p, d.report));
+      }
+    }
+    out.sort((x, y) => (y.$2.level == Level.fault ? 1 : 0).compareTo(x.$2.level == Level.fault ? 1 : 0));
+    return out;
+  }
+
   void _openSetup(BuildContext context) =>
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => SetupPage(state)));
 }
 
 class _Banner extends StatelessWidget {
-  const _Banner(this.n, {required this.setupNeeded, required this.onSetup});
+  const _Banner(this.n, {required this.setupNeeded, required this.onSetup, required this.attention, required this.onOpen});
   final NetworkStatus n;
   final bool setupNeeded;
   final VoidCallback onSetup;
+  final List<(String, Part, Report)> attention;
+  final void Function(String device, String part) onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +168,27 @@ class _Banner extends StatelessWidget {
             if (n.detail.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(n.detail, style: const TextStyle(color: C.muted, height: 1.35)),
+            ],
+            if (attention.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (final x in attention.take(4))
+                InkWell(
+                  onTap: () => onOpen(x.$1, x.$2.id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      Icon(x.$2.level == Level.fault ? Icons.error_outline : Icons.warning_amber_rounded, size: 16, color: C.of(x.$2.level)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('${x.$3.name} · ${x.$2.title}: ${x.$2.value}${x.$2.sub != null ? ' (${x.$2.sub})' : ''}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                      ),
+                      const Icon(Icons.chevron_right, size: 18, color: C.muted),
+                    ]),
+                  ),
+                ),
+              if (attention.length > 4)
+                Text('and ${attention.length - 4} more', style: const TextStyle(color: C.muted, fontSize: 12)),
             ],
             if (setupNeeded) ...[
               const SizedBox(height: 10),
