@@ -261,7 +261,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       downloadProgress = null;
       updateMessage = 'Downloaded and checked. Opening the installer...';
       notifyListeners();
-      await host.install(f);
+      final r = await host.install(f);
+      if (r == 'permission') {
+        updateMessage = 'Android needs your OK first: switch on "Allow from this source" for Monitor App, come back, and tap Install again.';
+        notifyListeners();
+      }
     } catch (e) {
       downloadProgress = null;
       updateMessage = 'Update failed: $e';

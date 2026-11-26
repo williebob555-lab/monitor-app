@@ -102,10 +102,12 @@ class LocalHost {
 
   /// Hands a downloaded update to the system installer. On computers the app
   /// closes itself so the installer can replace it; the installer restarts it.
-  Future<void> install(File f) async {
+  /// Android: returns "permission" when Install unknown apps is off for the
+  /// app (its settings page has been opened), else "started".
+  Future<String?> install(File f) async {
     log('installing ${f.path}');
     if (isAndroid) {
-      await _ch.invokeMethod('installApk', {'path': f.path});
+      return _ch.invokeMethod<String>('installApk', {'path': f.path});
     } else if (Platform.isWindows) {
       await Process.start(f.path, ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], mode: ProcessStartMode.detached);
       exit(0);
@@ -115,5 +117,6 @@ class LocalHost {
       if (r.exitCode != 0) throw StateError('The installer failed: ${(r.stderr as String).trim()}');
       await Process.run('systemctl', ['--user', 'restart', 'monitor-agent.service']);
     }
+    return 'started';
   }
 }
