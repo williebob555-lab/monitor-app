@@ -55,12 +55,28 @@ An audio interface's readings need the `/proc/asound` line in `compose.yaml` unc
 
 ## Update
 
+Automatic (recommended), once per server:
+
+```sh
+cd ~/monitor-app
+curl -fsSLO https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/docker/update.sh
+sh update.sh --install
+```
+
+Every day around 04:20 it checks for a newer Monitor App release and, if
+there is one, rebuilds and restarts the collector (the SHA256 is checked
+before anything is used). Each update, and any failure, is written to this
+server's log in the app. Runs as you, not root; `sudo` is asked once so it
+also runs when nobody is signed in. To update right now: `sh update.sh`.
+
+By hand instead:
+
 ```sh
 cd ~/monitor-app && docker compose build --pull --no-cache && docker compose up -d
 ```
 
-That fetches the newest release and checks its SHA256 before using it.
-To pin a version, set `VERSION=2.0.1` in `.env` instead of `latest`.
+To pin a version, set `VERSION=2.0.1` in `.env` instead of `latest`; the daily
+check then leaves it alone.
 
 ## Check it
 
