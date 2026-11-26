@@ -28,6 +28,35 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, DateTime> hidden = {};
   List<Report> hiddenReports = [];
   FolderHealth health = FolderHealth();
+
+  /// Things attached to devices (UPS, audio interface), by thing id.
+  Map<String, Thing> things = {};
+
+  /// A device's or an attached thing's status, by id.
+  DeviceStatus? statusOf(String id) {
+    final d = assessment.devices.where((d) => d.report.id == id).firstOrNull;
+    if (d != null) return d;
+    final t = things[id];
+    if (t == null) return null;
+    final parent = t.report.node?.parent;
+    return thingStatus(t, hostName: parent == null ? null : reports[parent]?.name);
+  }
+
+  /// The folder holding [id]'s files (and its history).
+  String dirOf(String id) {
+    final t = things[id];
+    return t == null ? folder.deviceDir(id) : folder.thingDir(t.host, id);
+  }
+
+  /// Names of every device and thing, by id.
+  Map<String, String> get names => {
+        for (final r in reports.values) r.id: r.name,
+        for (final t in things.values) t.id: t.report.name,
+      };
+
+  /// The things whose declared parent is [id], connected ones first.
+  List<Thing> thingsOf(String id) => things.values.where((t) => t.report.node?.parent == id).toList()
+    ..sort((a, b) => (a.report.connected == false ? 1 : 0) - (b.report.connected == false ? 1 : 0));
   Assessment assessment = assess(const {});
   Timer? _timer;
   String _sig = '';
@@ -207,7 +236,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     reports = {for (final e in all.entries) if (!hidden.containsKey(e.key)) e.key: e.value};
     hiddenReports = all.values.where((r) => hidden.containsKey(r.id)).toList()..sort((a, b) => a.name.compareTo(b.name));
     final now = DateTime.now().toUtc();
-    final sig = reports.values.map((r) => '${r.id}:${r.seq}:${r.time.millisecondsSinceEpoch}').join(',');
+    try {
+      things = folder.readThings();
+    } catch (_) {
+      things = {};
+    }
+    _addLive({for (final t in things.values) t.id: t.report}, now);
+    final sig = [...reports.values.map((r) => r), ...things.values.map((t) => t.report)]
+        .map((r) => '${r.id}:${r.seq}:${r.time.millisecondsSinceEpoch}')
+        .join(',');
     // Redraw when data changed, or every 30 s so "x min ago" stays true.
     if (!force && sig == _sig && now.difference(_lastNotify) < const Duration(seconds: 30)) return;
     _sig = sig;
@@ -215,6 +252,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     assessment = assess(reports, myId: host.id, now: now);
     try {
       health = folder.health();
+      health.topology.addAll(checkTopology(all, things));
     } catch (_) {}
     notifyListeners();
     _checkBudget();

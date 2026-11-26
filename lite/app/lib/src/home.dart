@@ -327,7 +327,7 @@ class _MapPanelState extends State<_MapPanel> {
     String hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     return Column(children: [
       Expanded(
-        child: NetworkMap(devices, myId: state.host.id, onOpen: (id) {
+        child: NetworkMap(devices, myId: state.host.id, things: [for (final t in state.things.values) state.statusOf(t.id)!], onOpen: (id) {
           Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
         }),
       ),

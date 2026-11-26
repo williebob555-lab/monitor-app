@@ -272,7 +272,7 @@ class _PartPageState extends State<PartPage> {
     _seq = r.seq;
     _loadedRange = range;
     try {
-      history = readHistoryRange(widget.state.folder.deviceDir(r.id), range, DateTime.now());
+      history = readHistoryRange(widget.state.dirOf(r.id), range, DateTime.now());
     } catch (_) {
       history = const [];
     }
@@ -283,11 +283,10 @@ class _PartPageState extends State<PartPage> {
     return ListenableBuilder(
       listenable: widget.state,
       builder: (context, _) {
-        final a = widget.state.assessment;
-        final s = a.devices.where((d) => d.report.id == widget.deviceId).firstOrNull;
+        final s = widget.state.statusOf(widget.deviceId);
         if (s == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This device has no readings yet.')));
         final r = s.report;
-        final names = {for (final d in a.devices) d.report.id: d.report.name};
+        final names = widget.state.names;
         final parts = partsOf(r, names);
         final p = parts.where((x) => x.id == widget.partId).firstOrNull;
         if (p == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This part is no longer reported.')));

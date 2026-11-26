@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'format.dart';
 import 'report.dart';
+import 'topology.dart';
 
 /// The Syncthing-shared folder. Each device writes only inside its own
 /// devices/<id>/ directory, so Syncthing never sees two writers for a file.
@@ -102,6 +103,72 @@ class SyncFolder {
       }
     }
     return out;
+  }
+
+  String thingDir(String host, String id) => '${deviceDir(host)}${Platform.pathSeparator}$thingsDirName${Platform.pathSeparator}$id';
+
+  /// Writes an attached thing's now.json into its host's folder.
+  void writeThing(String host, Report r) {
+    final d = Directory(thingDir(host, r.id))..createSync(recursive: true);
+    final tmp = File('${d.path}${Platform.pathSeparator}.syncthing.$nowFileName.tmp');
+    tmp.writeAsStringSync(jsonEncode(r.toJson()), flush: true);
+    tmp.renameSync('${d.path}${Platform.pathSeparator}$nowFileName');
+  }
+
+  /// Ids of the things this host has written before.
+  List<String> thingIds(String host) {
+    final d = Directory('${deviceDir(host)}${Platform.pathSeparator}$thingsDirName');
+    if (!d.existsSync()) return const [];
+    return [for (final e in d.listSync()) if (e is Directory) e.uri.pathSegments.where((x) => x.isNotEmpty).last];
+  }
+
+  /// Every attached thing in the folder. A thing can sit under two device
+  /// folders (one per system of a dual-boot machine); the newer report wins.
+  Map<String, Thing> readThings() {
+    final out = <String, Thing>{};
+    final dir = Directory(devicesPath);
+    if (!dir.existsSync()) return out;
+    for (final host in dir.listSync()) {
+      if (host is! Directory) continue;
+      final hostId = host.uri.pathSegments.where((x) => x.isNotEmpty).last;
+      final td = Directory('${host.path}${Platform.pathSeparator}$thingsDirName');
+      if (!td.existsSync()) continue;
+      for (final t in td.listSync()) {
+        if (t is! Directory) continue;
+        final r = _readCached(File('${t.path}${Platform.pathSeparator}$nowFileName'));
+        if (r == null) continue;
+        Map<String, Object?>? params;
+        final pf = File('${t.path}${Platform.pathSeparator}$paramsFileName');
+        try {
+          if (pf.existsSync() && pf.lengthSync() < 1024 * 1024) {
+            final j = jsonDecode(pf.readAsStringSync());
+            if (j is Map) params = Map<String, Object?>.from(j);
+          }
+        } catch (_) {}
+        final old = out[r.id];
+        if (old == null || r.time.isAfter(old.report.time)) out[r.id] = Thing(r, hostId, params: params);
+      }
+    }
+    return out;
+  }
+
+  Report? _readCached(File f) {
+    try {
+      final s = f.statSync();
+      if (s.type != FileSystemEntityType.file || s.size > 1024 * 1024) return null;
+      final text = f.readAsStringSync();
+      final c = _cache[f.path];
+      if (c != null && c.$1 == text) return c.$2;
+      Report? parsed;
+      try {
+        parsed = Report.tryParse(jsonDecode(text));
+      } catch (_) {}
+      if (parsed == null && c?.$2 != null) return c!.$2;
+      _cache[f.path] = (text, parsed);
+      return parsed;
+    } catch (_) {
+      return _cache[f.path]?.$2;
+    }
   }
 
   /// Leftovers that Syncthing or interrupted writes can create. All of them
@@ -209,5 +276,9 @@ class FolderHealth {
   /// Device folders with no now.json at all.
   final empty = <String>[];
 
-  bool get clean => conflicts.isEmpty && unreadable.isEmpty && empty.isEmpty;
+  /// Declarations that do not agree: a parent or link naming a missing
+  /// file, a child its parent does not list (see checkTopology).
+  final topology = <String>[];
+
+  bool get clean => conflicts.isEmpty && unreadable.isEmpty && empty.isEmpty && topology.isEmpty;
 }

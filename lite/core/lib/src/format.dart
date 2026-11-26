@@ -13,3 +13,9 @@ const logMaxBytes = 256 * 1024;
 const watchDirName = 'watch';
 const watchIntervalSeconds = 10;
 const watchHoldSeconds = 90;
+
+/// Attached things live in their host's folder: devices/<host>/things/<id>/.
+const thingsDirName = 'things';
+
+/// Settings a thing's own software exported, read as they are.
+const paramsFileName = 'params.json';

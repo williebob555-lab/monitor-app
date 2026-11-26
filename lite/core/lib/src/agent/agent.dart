@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../config.dart';
@@ -7,10 +8,12 @@ import '../format.dart';
 import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
+import '../topology.dart';
 import '../version.dart';
 import 'extras.dart';
 import 'linux.dart';
 import 'sample.dart';
+import 'things.dart';
 import 'windows.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -76,6 +79,8 @@ class Agent {
   DateTime? _lastHistory;
   List<String> _watchers = const [];
   final _extras = Extras();
+  final _things = Things();
+  DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
   /// app open on any device (a fresh file in watch/), one every 10 s. The
@@ -105,6 +110,37 @@ class Agent {
   }
 
   bool _busy = false;
+
+  /// Writes each attached thing's file. A thing seen before but not now is
+  /// rewritten as disconnected, keeping its declared place in the hierarchy.
+  void _writeThings(SyncFolder folder, String host, List<Report> things, DateTime now) {
+    final seen = {for (final t in things) t.id};
+    for (final t in things) {
+      folder.writeThing(host, t);
+    }
+    for (final id in folder.thingIds(host)) {
+      if (seen.contains(id)) continue;
+      final f = File('${folder.thingDir(host, id)}${Platform.pathSeparator}now.json');
+      Report? old;
+      try {
+        old = Report.tryParse(jsonDecode(f.readAsStringSync()));
+      } catch (_) {}
+      if (old == null || old.connected == false) continue;
+      folder.writeThing(host, Report(
+        id: old.id, name: old.name, kind: old.kind, time: now, machine: old.machine,
+        nextSeconds: old.nextSeconds, connected: false, node: old.node,
+      ));
+      folder.log(host, 'thing ${old.name} ($id) unplugged');
+    }
+    // UPS charge, load and so on: one history line a minute per thing.
+    if (_lastThingHistory == null || now.difference(_lastThingHistory!) >= const Duration(seconds: 55)) {
+      for (final t in things) {
+        HistoryWriter(folder.thingDir(host, t.id), '${LocalConfig.dir}${Platform.pathSeparator}things${Platform.pathSeparator}${t.id}')
+            .add(t.historyLine(), now);
+      }
+      _lastThingHistory = now;
+    }
+  }
 
   Future<void> cycle({bool firstRun = false}) async {
     if (_busy) return; // never overlap cycles
@@ -152,6 +188,16 @@ class Agent {
         extra = const [];
       }
 
+      // Things plugged into this machine (UPS, audio interface), Linux only.
+      var things = <Report>[];
+      if (Platform.isLinux) {
+        try {
+          things = await _things.collect(cfg.id, _machine, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds);
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR things scan failed: $e');
+        }
+      }
+
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
       final cycleCpu = cpu0 != null && cpu1 != null ? cpu1 - cpu0 : null;
@@ -186,7 +232,14 @@ class Agent {
         peers: peers,
         readings: extra,
         self: SelfCost(rssMb: rss, runMs: sw.elapsedMilliseconds, cpuMs: cycleCpu, over: over),
+        node: NodeDecl(
+          id: cfg.id,
+          type: 'device',
+          children: {...folder.thingIds(cfg.id), for (final t in things) t.id}.toList()..sort(),
+          links: Things.hostLinks(things),
+        ),
       );
+      _writeThings(folder, cfg.id, things, now);
       folder.writeNow(r);
       final hw = HistoryWriter(folder.deviceDir(cfg.id), LocalConfig.dir);
       // History stays at one line a minute however fast the live rate is.

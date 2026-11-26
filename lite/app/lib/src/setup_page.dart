@@ -187,7 +187,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
     return Section(
       'Folder health',
       h.clean
-          ? const Text('No leftovers: no conflict copies, no damaged or empty device folders.', style: TextStyle(color: C.muted))
+          ? const Text('No leftovers: no conflict copies, no damaged or empty device folders, no broken links between files.', style: TextStyle(color: C.muted))
           : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (h.conflicts.isNotEmpty) ...[
                 Text('${h.conflicts.length} Syncthing conflict ${h.conflicts.length == 1 ? 'copy' : 'copies'}. The app ignores them.',
@@ -209,6 +209,12 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
                     style: const TextStyle(color: C.muted, fontSize: 12.5)),
               if (h.empty.isNotEmpty)
                 Text('Device folders with no readings yet: ${h.empty.join(', ')}.', style: const TextStyle(color: C.muted, fontSize: 12.5)),
+              if (h.topology.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text('Hierarchy problems', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(h.topology.take(8).join('\n'), style: const TextStyle(color: C.muted, fontSize: 12.5)),
+              ],
             ]),
     );
   }
