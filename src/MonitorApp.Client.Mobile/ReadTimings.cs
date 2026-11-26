@@ -10,7 +10,7 @@ namespace MonitorApp.Client.Mobile;
 /// it ran. Once a minute it writes one <c>[data]</c> line (with the thread pool's backlog) to the log the device sends to its
 /// computers, so a slow screen can be traced to the read, or the wait, that makes it slow.
 /// </summary>
-internal static class ReadTimings
+public static class ReadTimings
 {
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
     private static readonly ConcurrentDictionary<string, Totals> Kinds = new(StringComparer.Ordinal);
@@ -18,12 +18,16 @@ internal static class ReadTimings
     private static int writing;
     private static readonly TimeSpan LiveHeapEvery = TimeSpan.FromMinutes(10);
     private static long lastLiveHeap = Stopwatch.GetTimestamp();
+    private static TimeSpan lastCpu = Process.GetCurrentProcess().TotalProcessorTime;
+
+    /// <summary>Set by the Android app: whether the screen is on, so the log shows if reads go on while it is off.</summary>
+    public static Func<bool?>? ScreenOn { get; set; }
     private static TimeSpan lastPause = GC.GetTotalPauseDuration();
     private static int lastGen0 = GC.CollectionCount(0);
     private static int lastGen1 = GC.CollectionCount(1);
     private static int lastGen2 = GC.CollectionCount(2);
 
-    public static void Add(string kind, TimeSpan waited, TimeSpan ran)
+    internal static void Add(string kind, TimeSpan waited, TimeSpan ran)
     {
         Kinds.GetOrAdd(kind, _ => new Totals()).Add(waited, ran);
         if (Stopwatch.GetElapsedTime(Interlocked.Read(ref windowStart)) < Window || Interlocked.Exchange(ref writing, 1) == 1)
@@ -67,7 +71,7 @@ internal static class ReadTimings
             CultureInfo.InvariantCulture,
             $"memory clean-ups {gen0 - lastGen0}/{gen1 - lastGen1}/{gen2 - lastGen2} (gen 0/1/2) pausing all threads {(pause - lastPause).TotalMilliseconds:0} ms; " +
             $"heap {GC.GetTotalMemory(false) / (1024 * 1024)} MB, allocated {GC.GetTotalAllocatedBytes() / (1024 * 1024)} MB since start, " +
-            $"process memory {Environment.WorkingSet / (1024 * 1024)} MB{LiveHeap()}");
+            $"process memory {Environment.WorkingSet / (1024 * 1024)} MB{LiveHeap()}; {CpuSummary()}");
         (lastPause, lastGen0, lastGen1, lastGen2) = (pause, gen0, gen1, gen2);
         return text;
     }
@@ -85,6 +89,16 @@ internal static class ReadTimings
 
         lastLiveHeap = Stopwatch.GetTimestamp();
         return string.Create(CultureInfo.InvariantCulture, $", live heap after a full collection {GC.GetTotalMemory(true) / (1024 * 1024)} MB");
+    }
+
+    /// <summary>CPU time this app used since the last line: the part of the battery drain that is the app's own work.</summary>
+    private static string CpuSummary()
+    {
+        var cpu = Process.GetCurrentProcess().TotalProcessorTime;
+        var used = cpu - lastCpu;
+        lastCpu = cpu;
+        var screen = ScreenOn?.Invoke() switch { true => "on", false => "off", null => "unknown" };
+        return string.Create(CultureInfo.InvariantCulture, $"app CPU {used.TotalSeconds:0.0} s since the last line; screen {screen}");
     }
 
     private sealed class Totals

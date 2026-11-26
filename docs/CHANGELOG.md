@@ -25,6 +25,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - A thing quick-added as owned can be moved back to planned or ordered, so something you still have to buy can be marked that way.
 
 ### Fixed
+- Phone `[data]` lines report the app's own CPU time per minute and whether the screen is on, to measure how much of the battery drain is the app's work and whether reads continue with the screen off.
 - Phone `[data]` lines also report process memory, and every 10 minutes the heap after a full collection, to tell a memory leak from churn (Android's runtime counts uncollected garbage in the plain heap figure). Each minute's Things bridge pass logs what it created and how many model changes exist (`[bridge]`).
 - **Phones and tablets keep monitoring after an update or restart.** Before, an update closed monitoring and nothing started it again until you tapped Start monitoring, so the device went silent. Now, once you start it, it resumes by itself after updates, reboots and when you open the app, until you tap Stop. (After installing this version, tap Start monitoring once more so it is remembered.)
 - After a native crash or a freeze on a phone or tablet, the next start sends Android's own report once (`[exit]` lines: libraries, functions and the abort message), because such crashes never reach the app's crash catcher. On 2026-11-25 the Pixel's monitoring stopped at 21:31:46 UTC because of a native crash (Android exit reason 5).
