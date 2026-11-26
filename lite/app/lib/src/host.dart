@@ -76,6 +76,16 @@ class LocalHost {
   Future<Map<String, Object?>> androidPermissions() async =>
       isAndroid ? (await _ch.invokeMapMethod<String, Object?>('permissions')) ?? {} : const {};
 
+  /// Android: the devices this phone notifies about, and whether the app may
+  /// show notifications at all.
+  Future<(Set<String>, bool)> notifyState() async {
+    if (!isAndroid) return (<String>{}, false);
+    final m = await _ch.invokeMapMethod<String, Object?>('notify') ?? const {};
+    return ({...((m['ids'] as List?) ?? const []).whereType<String>()}, m['enabled'] == true);
+  }
+
+  Future<void> setNotify(String id, bool on) => _ch.invokeMethod('setNotify', {'id': id, 'on': on});
+
   Future<void> openAllFiles() => _ch.invokeMethod('openAllFiles');
   Future<void> openBattery() => _ch.invokeMethod('openBattery');
   Future<void> openSyncthing() => _ch.invokeMethod('openSyncthing');

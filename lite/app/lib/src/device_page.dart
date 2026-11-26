@@ -59,6 +59,10 @@ class _DevicePageState extends State<DevicePage> {
               _fields(r),
               const SizedBox(height: 14),
               _log(r),
+              if (r.id != widget.state.host.id && widget.state.host.isAndroid) ...[
+                const SizedBox(height: 14),
+                _notify(r),
+              ],
               if (r.id != widget.state.host.id) ...[
                 const SizedBox(height: 14),
                 Align(
@@ -99,6 +103,29 @@ class _DevicePageState extends State<DevicePage> {
           }),
         );
       },
+    );
+  }
+
+  Widget _notify(Report r) {
+    final st = widget.state;
+    final on = st.notify.contains(r.id);
+    return Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SwitchListTile(
+          value: on,
+          onChanged: (v) => st.setNotify(r.id, v),
+          secondary: Icon(on ? Icons.notifications_active_outlined : Icons.notifications_none, color: C.muted),
+          title: const Text('Notify me on this phone'),
+          subtitle: Text('If ${r.name} stops reporting for 30 min, or its Syncthing folder is stuck for 15 min.',
+              style: const TextStyle(color: C.muted, fontSize: 12)),
+        ),
+        if (on && !st.notificationsAllowed)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text('Notifications are off for Monitor App. Allow them in Android settings, or switch this off and on again to be asked.',
+                style: TextStyle(color: C.warn, fontSize: 12)),
+          ),
+      ]),
     );
   }
 

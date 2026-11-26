@@ -1,6 +1,8 @@
 package app.monitor.lite
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -76,6 +78,19 @@ class MainActivity : FlutterActivity() {
                         Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                     )
+                    result.success(null)
+                }
+                "notify" -> result.success(
+                    mapOf("ids" to Alerts.ids(ctx).toList(), "enabled" to Alerts.enabled(ctx)),
+                )
+                "setNotify" -> {
+                    val on = call.argument<Boolean>("on") == true
+                    Alerts.set(ctx, call.argument<String>("id")!!, on)
+                    if (on && Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
+                    }
                     result.success(null)
                 }
                 "log" -> {
