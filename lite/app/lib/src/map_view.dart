@@ -91,26 +91,35 @@ class _Body {
 
 /// What is drawn as one node: a device, or a folded family.
 class _Node {
-  _Node(this.id, this.s, this.family, {this.members = const [], this.parent});
+  _Node(this.id, this.s, this.family, {this.members = const [], this.parent, this.host});
   final String id;
   final DeviceStatus s;
   final String family;
   final List<DeviceStatus> members; // non-empty for a folded family
-  final String? parent; // set for an attached thing
+  final String? parent; // set for software that shares its host's box
+  final String? host; // set for attached hardware: its own node, cabled to the host
   bool get folded => members.isNotEmpty;
   bool get thing => parent != null;
+  bool get hw => host != null;
+  bool get small => thing || hw;
 }
 
 /// A cable between two nodes.
 class _Edge {
-  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.ping, this.link, this.count);
+  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.ping, this.link, this.count, {this.via, this.detail});
   final String a, b;
   final Level level;
   final bool fwd, back;
   final int? ping;
   final Link? link; // null when it stands for several links
   final int count;
+  final String? via; // attached hardware: "usb", "power"...
+  final String? detail;
 }
+
+/// Things that run on a host and share its box on the map. Hardware gets a
+/// node of its own instead.
+const _software = {'compose-project', 'container', 'service'};
 
 class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   final bodies = <String, _Body>{};
@@ -125,6 +134,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   Size area = Size.zero;
 
   String? focus; // node whose cables are shown in full
+  String? selDev; // device whose network cable was tapped
   _Edge? selected;
   int _calm = 0;
 
@@ -140,7 +150,10 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   bool isOpen(String host) => busy ? toggled.contains(host) : !toggled.contains(host);
 
   static const thingSize = Size(196, 44);
-  Size sizeOf(_Node n) => n.thing ? thingSize : nodeSize;
+  Size sizeOf(_Node n) => n.small ? thingSize : nodeSize;
+
+  /// The software in [host]'s box (attached also holds the other system).
+  List<DeviceStatus> boxed(String host) => [for (final t in attached[host] ?? const <DeviceStatus>[]) if (t.report.isThing) t];
 
   /// Where the junction under [host] sits, in map coordinates.
   Offset junction(String host) => bodies[host]!.p + Offset(0, nodeSize.height / 2 + 26);
@@ -184,9 +197,20 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
     }
     folded.removeWhere((f) => (byFamily[f]?.length ?? 0) < 2);
+    // A dual-boot machine is one host: the system not booted right now hangs
+    // under the one that is, instead of looking like a device that is down.
+    final asleep = <String, DeviceStatus>{}; // running system's id -> the other one
+    for (final d in devices) {
+      final m = d.report.machine;
+      if (m == null || d.fresh || d.report.kind == 'android') continue;
+      final up = devices.where((o) => o.report.id != d.report.id && o.report.machine == m && o.fresh).firstOrNull;
+      if (up != null) asleep[up.report.id] = d;
+    }
+    final sleeping = {for (final d in asleep.values) d.report.id};
     final owner = <String, String>{}; // device id -> node id
     final out = <_Node>[];
     for (final d in devices) {
+      if (sleeping.contains(d.report.id)) continue;
       final f = familyOf(d.report);
       if (folded.contains(f)) {
         owner[d.report.id] = 'family:$f';
@@ -207,8 +231,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     // Cables, folded families merged into one cable per pair of nodes.
     final merged = <String, List<Link>>{};
     for (final l in linksOf(devices)) {
-      final a = owner[l.a]!, b = owner[l.b]!;
-      if (a == b) continue;
+      final a = owner[l.a], b = owner[l.b];
+      if (a == null || b == null || a == b) continue;
       merged.putIfAbsent(a.compareTo(b) < 0 ? '$a\n$b' : '$b\n$a', () => []).add(l);
     }
     edges = [
@@ -224,15 +248,31 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
     // Attached things hang under their device, unless it is folded away.
     attached = {};
+    for (final e in asleep.entries) {
+      if (owner[e.key] == e.key) attached.putIfAbsent(e.key, () => []).add(e.value);
+    }
     for (final t in widget.things) {
       final parent = t.report.node?.parent;
       if (parent == null || owner[parent] != parent) continue;
-      attached.putIfAbsent(parent, () => []).add(t);
+      final host = out.firstWhere((n) => n.id == parent);
+      if (_software.contains(t.report.node?.type)) {
+        attached.putIfAbsent(parent, () => []).add(t);
+        continue;
+      }
+      // Hardware: its own node, with a cable to the host for each way it is
+      // connected (USB, power...), as its file declares.
+      out.add(_Node(t.report.id, t, host.family, host: parent));
+      final ls = [for (final l in t.report.node?.links ?? const <NodeLink>[]) if (l.to == parent) l];
+      final vias = {for (final l in ls) l.via};
+      edges.add(_Edge(t.report.id, parent, t.level == Level.inactive ? Level.inactive : Level.ok, true,
+          vias.any((v) => v != 'power') && ls.any((l) => l.dir != 'out'), null, null, 1,
+          via: vias.isEmpty ? 'attached' : vias.map((v) => v == 'usb' ? 'USB' : v).join(' + '),
+          detail: '${t.report.name} → ${host.s.report.name}: ${ls.isEmpty ? 'attached' : ls.map((l) => '${l.via == 'usb' ? 'USB' : l.via}${l.detail != null ? ' (${l.detail})' : ''}').join(', ')}.'));
     }
     for (final e in attached.entries) {
       if (!isOpen(e.key)) continue;
       final host = out.firstWhere((n) => n.id == e.key);
-      for (final t in e.value) {
+      for (final t in boxed(e.key)) {
         out.add(_Node(t.report.id, t, host.family, parent: e.key));
       }
     }
@@ -245,7 +285,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       Offset start;
       final kin = [
         for (final m in out)
-          if (m.family == n.family && !m.thing && bodies.containsKey(m.id)) bodies[m.id]!.p,
+          if (m.family == n.family && !m.small && bodies.containsKey(m.id)) bodies[m.id]!.p,
         if (n.folded)
           for (final d in n.members)
             if (_lastPos[d.report.id] != null) _lastPos[d.report.id]!,
@@ -261,6 +301,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
         start = Offset(math.cos(a), math.sin(a)) * (60.0 + 12 * out.length);
       }
       if (n.thing && bodies[n.parent] != null) start = bodies[n.parent]!.p + jitter / 4;
+      if (n.hw && bodies[n.host] != null) start = bodies[n.host]!.p + Offset(jitter.dx >= 0 ? 260 : -260, jitter.dy / 4);
       bodies[n.id] = _Body(start)..appear = bodies.isEmpty ? 1 : 0;
     }
     if (bodies.values.every((b) => b.appear == 0)) {
@@ -270,6 +311,30 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     }
     final changed = nodes.length != out.length || !nodes.every((n) => ids.contains(n.id));
     nodes = out;
+    netLevel.clear();
+    final ls = linksOf(devices);
+    for (final n in out.where((n) => !n.small)) {
+      final mine = [for (final l in ls) if (n.folded ? n.members.any((d) => d.report.id == l.a || d.report.id == l.b) : (l.a == n.id || l.b == n.id)) l];
+      final live = mine.where((l) => l.level != Level.inactive).toList();
+      netLevel[n.id] = live.isEmpty
+          ? Level.inactive
+          : live.every((l) => l.level == Level.ok)
+              ? Level.ok
+              : live.any((l) => l.level == Level.ok || l.level == Level.warn)
+                  ? Level.warn
+                  : Level.fault;
+    }
+    syncLevel.clear();
+    for (final n in out.where((n) => !n.small)) {
+      Level one(DeviceStatus d) => d.report.syncthingLocal == false
+          ? Level.fault
+          : d.fresh
+              ? Level.ok
+              : Level.warn;
+      final ms = n.folded ? n.members : [n.s];
+      syncLevel[n.id] = ms.map(one).reduce((a, b) => a.index >= b.index ? a : b);
+    }
+    _layout();
     if (focus != null && !ids.contains(focus)) focus = null;
     if (changed) _wake();
   }
@@ -301,118 +366,180 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   // ---- physics --------------------------------------------------------------
 
   void _step(Duration _) {
-    final list = nodes;
-    final sz = nodeSize;
-    // Room each node wants around it, as an ellipse matching its shape.
-    final gap = busy ? 46.0 : 64.0;
-    final room = Offset(sz.width + gap, sz.height + gap);
-    final reachR = room.dx * 1.35;
     var moving = 0.0;
-    final force = <String, Offset>{};
-    for (final n in list) {
-      force[n.id] = Offset.zero;
-    }
-    // Attached things: a stiff spring to their slot in a row under the
-    // device. The device feels the pull too, so a bumped thing moves it.
-    for (final e in attached.entries) {
-      if (!isOpen(e.key) || bodies[e.key] == null) continue;
-      final k = e.value.length;
-      for (var i = 0; i < k; i++) {
-        final id = e.value[i].report.id;
-        final b = bodies[id];
-        if (b == null) continue;
-        final slot = junction(e.key) + Offset((i - (k - 1) / 2) * (thingSize.width + 14), 30 + thingSize.height / 2);
-        final pull = (slot - b.p) * 0.18;
-        force[id] = force[id]! + pull;
-        force[e.key] = force[e.key]! - pull * 0.25;
-      }
-    }
-    for (var i = 0; i < list.length; i++) {
-      final a = bodies[list[i].id]!;
-      if (list[i].thing) continue;
-      // A spring to the middle; this device sits nearest it.
-      var f = force[list[i].id]! - a.p * (list[i].id == widget.myId ? 0.03 : 0.012);
-      for (var j = 0; j < list.length; j++) {
-        if (i == j || list[j].thing) continue;
-        final b = bodies[list[j].id]!;
-        var d = _box(list[i], a.p).center - _box(list[j], b.p).center;
-        if (d.distance < 0.01) d = Offset((i - j).toDouble(), 1);
-        final dist = d.distance, u = d / dist;
-        // Overlap pushes hard; nearby nodes push gently; far ones not at all.
-        final nx = d.dx / room.dx, ny = d.dy / room.dy;
-        final reach = math.sqrt(nx * nx + ny * ny); // 1 = just touching
-        if (reach < 1) f += u * (1 - reach) * 14;
-        if (dist < reachR) f += u * (reachR - dist) * 0.025;
-        // Family members drift towards each other, other families apart.
-        if (list[i].family == list[j].family) {
-          f -= d * 0.004;
-        } else if (dist < reachR * 1.5) {
-          f += u * (reachR * 1.5 - dist) * 0.012;
-        }
-      }
-      force[list[i].id] = f;
-    }
-    for (final n in list) {
+    for (final n in nodes) {
       final b = bodies[n.id]!;
-      b.v = (b.v + force[n.id]!) * 0.72;
-      if (b.v.distance > 24) b.v = b.v / b.v.distance * 24;
-      b.p += b.v;
-      moving = math.max(moving, b.v.distance);
+      final to = targets[n.id] ?? b.p;
+      final d = (to - b.p) * 0.2;
+      b.p += d;
+      moving = math.max(moving, d.distance);
       if (b.appear < 1) b.appear = math.min(1, b.appear + 1 / 30);
     }
-    // Then make sure nothing overlaps: nudge overlapping pairs apart. A
-    // device with its things open takes the room of the whole group.
-    final g = (gap - 20) / 2;
-    for (var pass = 0; pass < 3; pass++) {
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].thing) continue;
-        for (var j = i + 1; j < list.length; j++) {
-          if (list[j].thing) continue;
-          final a = bodies[list[i].id]!, b = bodies[list[j].id]!;
-          final ra = _box(list[i], a.p).inflate(g), rb = _box(list[j], b.p).inflate(g);
-          if (!ra.overlaps(rb)) continue;
-          final ox = math.min(ra.right, rb.right) - math.max(ra.left, rb.left);
-          final oy = math.min(ra.bottom, rb.bottom) - math.max(ra.top, rb.top);
-          final d = ra.center - rb.center;
-          final push = ox < oy ? Offset(d.dx >= 0 ? ox / 2 : -ox / 2, 0) : Offset(0, d.dy >= 0 ? oy / 2 : -oy / 2);
-          a.p += push;
-          b.p -= push;
-        }
-      }
-    }
-    if (!userMoved) _fit(0.12);
-    final arriving = list.any((n) => bodies[n.id]!.appear < 1);
+    if (!userMoved) _fit(0.15);
+    final arriving = nodes.any((n) => bodies[n.id]!.appear < 1);
     _calm = moving < 0.05 && !arriving ? _calm + 1 : 0;
     if (_calm > 40) physics.stop();
     setState(() {});
   }
 
-  /// The room a device takes: its card, and the row of things under it
-  /// when they are open.
-  Rect _box(_Node n, Offset p) {
+  // ---- layout ---------------------------------------------------------------
+  //
+  // Fixed and deterministic: the private network on top, then one region per
+  // kind of device (servers, computers, phones and tablets), devices in
+  // rows by name inside it. Attached hardware sits beside its device;
+  // software (Docker) in a box under it. Every device has one cable up to its
+  // row's bus, the buses join a trunk down the left side, and the trunk goes
+  // to the network. Which pairs reach each other shows on tap.
+
+  static const tierOrder = ['Servers', 'Computers', 'Phones and tablets'];
+  final targets = <String, Offset>{};
+  final regions = <(String, Rect)>[]; // family, world rect (header inside the top)
+  final buses = <(double, double, double)>[]; // y, x from, x to
+  final busOf = <String, double>{}; // node id -> its row's bus y
+  final _placedIds = <String>{};
+  Offset hub = Offset.zero;
+  double trunkX = 0;
+  Rect layoutBounds = Rect.zero;
+
+  /// How a device fares on the network: every peer reaches it both ways,
+  /// some do, none do, or nobody has checked.
+  final netLevel = <String, Level>{};
+
+  /// How its Syncthing fares: running and its file arriving fresh here.
+  final syncLevel = <String, Level>{};
+
+  /// Phone width: one device per row, hardware stacked on its right.
+  bool get narrow => area.width > 0 && area.width < 520;
+
+  static const _cellGap = 40.0, _rowGap = 62.0, _pad = 16.0, _header = 34.0, _tierGap = 24.0, _sideGap = 72.0;
+
+  List<_Node> hwOf(String host) => [for (final n in nodes) if (n.host == host) n];
+
+  /// A device's cell: card, hardware beside, software box under.
+  ({double w, double h, double left, double right}) _cell(_Node n) {
     final sz = sizeOf(n);
-    final r = Rect.fromCenter(center: p, width: sz.width, height: sz.height);
-    final k = isOpen(n.id) ? attached[n.id]?.length ?? 0 : 0;
-    if (k == 0) return r;
-    final w = k * thingSize.width + (k - 1) * 14;
-    final top = p.dy + sz.height / 2 + 56;
-    return r.expandToInclude(Rect.fromLTWH(p.dx - w / 2, top, w, thingSize.height));
+    final hw = hwOf(n.id);
+    final l = narrow ? 0 : (hw.length + 1) ~/ 2, r = hw.length - l;
+    final side = thingSize.width + _sideGap;
+    var left = l > 0 ? side : 0.0, right = r > 0 ? side : 0.0;
+    // The software box is centred under the card; make room for it.
+    final k0 = attached.containsKey(n.id) && isOpen(n.id) ? boxed(n.id).length : 0;
+    final half = math.max(k0 * thingSize.width + (k0 - 1) * 14 + 20, 170.0) / 2 - sz.width / 2;
+    left = math.max(left, half);
+    right = math.max(right, half);
+    var w = sz.width + left + right;
+    var h = math.max(sz.height, math.max(l, r) * (thingSize.height + 12) - 12);
+    if (attached.containsKey(n.id)) {
+      final k = isOpen(n.id) ? boxed(n.id).length : 0;
+      h = sz.height + 26 + 14 + (k > 0 ? 30 + thingSize.height + 10 : 0);
+    }
+    return (w: w, h: h, left: left, right: right);
   }
 
-  Rect _bounds() {
-    if (bodies.isEmpty) return Rect.zero;
-    final sz = nodeSize;
-    var r = Rect.fromCenter(center: bodies.values.first.p, width: sz.width, height: sz.height);
-    for (final n in nodes) {
-      final b = bodies[n.id];
-      if (b == null) continue;
-      final s = sizeOf(n);
-      r = r.expandToInclude(Rect.fromCenter(center: b.p, width: s.width, height: s.height));
-      if (attached.containsKey(n.id)) r = r.expandToInclude(Rect.fromCenter(center: junction(n.id), width: 120, height: 24));
+  void _layout() {
+    targets.clear();
+    regions.clear();
+    buses.clear();
+    busOf.clear();
+    final tops = [for (final n in nodes) if (!n.small) n];
+    if (tops.isEmpty) return;
+    final byTier = <String, List<_Node>>{};
+    for (final n in tops) {
+      byTier.putIfAbsent(n.family, () => []).add(n);
     }
-    // Room for the family names above each group.
-    return busy ? Rect.fromLTRB(r.left - 30, r.top - 64, r.right + 30, r.bottom + 30) : Rect.fromLTRB(r.left - 30, r.top - 30, r.right + 30, r.bottom + 44);
+    final tiers = [...tierOrder.where(byTier.containsKey), ...(byTier.keys.where((f) => !tierOrder.contains(f)).toList()..sort())];
+    for (final f in tiers) {
+      byTier[f]!.sort((a, b) => (a.folded ? '' : a.s.report.name.toLowerCase()).compareTo(b.folded ? '' : b.s.report.name.toLowerCase()));
+    }
+    final cells = {for (final n in tops) n.id: _cell(n)};
+    final widest = cells.values.map((c) => c.w).reduce(math.max);
+
+    // Rows for a given width; pick the width that lets the map be largest.
+    List<List<List<_Node>>> rowsFor(double maxW) => [
+          for (final f in tiers)
+            () {
+              final rows = <List<_Node>>[[]];
+              var x = 0.0;
+              for (final n in byTier[f]!) {
+                final w = cells[n.id]!.w;
+                if (rows.last.isNotEmpty && x + w > maxW) {
+                  rows.add([]);
+                  x = 0;
+                }
+                rows.last.add(n);
+                x += w + _cellGap;
+              }
+              return rows;
+            }(),
+        ];
+    double rowW(List<_Node> r) => r.fold(0.0, (a, n) => a + cells[n.id]!.w) + (r.length - 1) * _cellGap;
+    double rowH(List<_Node> r) => r.map((n) => cells[n.id]!.h).reduce(math.max);
+    final total = tops.fold(0.0, (a, n) => a + cells[n.id]!.w + _cellGap);
+    var best = widest, bestZoom = 0.0;
+    final view = area.isEmpty ? const Size(700, 500) : area;
+    for (var i = 0; i <= (narrow ? 0 : 16); i++) {
+      final maxW = widest + (total - widest) * i / 16;
+      final rows = rowsFor(maxW);
+      final w = rows.expand((t) => t).map(rowW).reduce(math.max) + 2 * _pad + 40;
+      final h = 60 + rows.fold(0.0, (a, t) => a + _header + t.fold(0.0, (b, r) => b + rowH(r) + _rowGap) + _pad + _tierGap);
+      final z = math.min(view.width / w, view.height / h);
+      if (z > bestZoom + 0.01) {
+        bestZoom = z;
+        best = maxW;
+      }
+    }
+    final rows = rowsFor(best);
+    final inner = rows.expand((t) => t).map(rowW).reduce(math.max);
+    final x0 = 0.0, width = inner + 2 * _pad;
+    trunkX = x0 - 18;
+    hub = Offset(x0 + width / 2, 0);
+    var y = 44.0;
+    for (var t = 0; t < tiers.length; t++) {
+      final top = y;
+      y += _header;
+      for (final row in rows[t]) {
+        final bus = y + 2;
+        y += _rowGap - 12;
+        var x = x0 + _pad + (inner - rowW(row)) / 2;
+        var last = x;
+        for (final n in row) {
+          final c = cells[n.id]!;
+          final sz = sizeOf(n);
+          final card = Offset(x + c.left + (c.w - c.left - c.right - sz.width) / 2 + sz.width / 2, y + sz.height / 2);
+          targets[n.id] = card;
+          busOf[n.id] = bus;
+          last = card.dx;
+          final hw = hwOf(n.id);
+          for (var k = 0; k < hw.length; k++) {
+            final side = narrow || k.isOdd ? 1.0 : -1.0;
+            final rowsHw = narrow ? hw.length : side < 0 ? (hw.length + 1) ~/ 2 : hw.length ~/ 2;
+            final dy = ((narrow ? k : k ~/ 2) - (rowsHw - 1) / 2) * (thingSize.height + 12);
+            targets[hw[k].id] = card + Offset(side * (sz.width / 2 + _sideGap + thingSize.width / 2), dy);
+          }
+          final kids = isOpen(n.id) ? boxed(n.id) : const <DeviceStatus>[];
+          for (var k = 0; k < kids.length; k++) {
+            targets[kids[k].report.id] =
+                card + Offset((k - (kids.length - 1) / 2) * (thingSize.width + 14), sz.height / 2 + 26 + 30 + thingSize.height / 2);
+          }
+          x += c.w + _cellGap;
+        }
+        buses.add((bus, trunkX, last));
+        y += rowH(row) + 12;
+      }
+      y += _pad - 12;
+      regions.add((tiers[t], Rect.fromLTRB(x0, top, x0 + width, y)));
+      y += _tierGap;
+    }
+    layoutBounds = Rect.fromLTRB(trunkX - 10, -20, x0 + width + 10, y + 30); // room for the zoom buttons
+    for (final n in nodes) {
+      if (bodies[n.id] != null && targets[n.id] != null && _placedIds.add(n.id)) {
+        // Arrivals start in place and grow, rather than flying in.
+        bodies[n.id]!.p = targets[n.id]!;
+      }
+    }
   }
+
+  Rect _bounds() => layoutBounds.isEmpty ? Rect.fromCenter(center: Offset.zero, width: 400, height: 300) : layoutBounds;
 
   /// Eases the camera towards showing every node.
   void _fit(double ease) {
@@ -452,13 +579,17 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
             child: LayoutBuilder(builder: (context, box) {
               final resized = area != Size(box.maxWidth, box.maxHeight);
               area = Size(box.maxWidth, box.maxHeight);
+              if (resized) {
+                _layout();
+                _wake();
+              }
               if (resized && !userMoved) _fit(1);
               return Stack(children: [
                 Positioned.fill(child: _canvas()),
                 for (final n in nodes) _placed(n),
                 for (final h in attached.keys)
                   if (bodies[h] != null) _junctionTag(h),
-                if (busy) ..._familyLabels(fam),
+                ..._regionHeaders(fam),
                 Positioned(right: 10, bottom: 10, child: _controls()),
                 Positioned(
                   left: 14,
@@ -501,7 +632,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
         }),
         onTapUp: (e) => setState(() {
           selected = _hit(e.localPosition);
-          if (selected == null) focus = null;
+          selDev = selected == null ? _hitStub(e.localPosition) : null;
+          if (selected == null && selDev == null) focus = null;
         }),
         child: AnimatedBuilder(
           animation: flow,
@@ -524,20 +656,48 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     final worst = list.map((t) => t.level).reduce((a, b) => a.index >= b.index ? a : b);
     final appear = bodies[host]!.appear.clamp(0.0, 1.0);
     return Positioned(
-      left: c.dx - 70,
+      left: c.dx - 130,
       top: c.dy - 12,
-      width: 140,
+      width: 260,
       height: 24,
       child: Opacity(
         opacity: appear,
         child: Transform.scale(
           scale: zoom.clamp(0.6, 1.2),
           child: Center(
-            child: _AttachTag(open ? 'attached · ${list.length}' : '${list.length} attached', open: open, level: worst, onTap: () => _toggleThings(host)),
+            child: _AttachTag(_tagText(list, open), open: boxed(host).isEmpty ? null : open, level: worst, onTap: () => _toggleThings(host)),
           ),
         ),
       ),
     );
+  }
+
+  /// The folded summary of a device's children, e.g. "docker 7/8 · UPS ·
+  /// wc-alpha asleep". Counts come from the children's own files.
+  static String _tagText(List<DeviceStatus> list, bool open) {
+    final parts = <String>[];
+    var run = 0, all = 0, projects = 0;
+    for (final d in list.where((d) => d.report.node?.type == 'compose-project')) {
+      projects++;
+      final m = RegExp(r'(\d+) of (\d+)').firstMatch('${d.report.readings.where((r) => r.key == 'cp.running').firstOrNull?.value ?? ''}');
+      if (m != null) {
+        run += int.parse(m.group(1)!);
+        all += int.parse(m.group(2)!);
+      }
+    }
+    if (projects > 0) parts.add(all > 0 ? 'docker $run/$all' : 'docker');
+    final plugged = [for (final d in list) if (d.report.isThing && d.report.node?.type != 'compose-project') d];
+    if (plugged.length <= 2) {
+      for (final d in plugged) {
+        parts.add(switch (d.report.node?.type) { 'ups' => 'UPS', 'audio-interface' => 'audio', _ => d.report.name });
+      }
+    } else {
+      parts.add('${plugged.length} attached');
+    }
+    for (final d in list.where((d) => !d.report.isThing)) {
+      parts.add('${d.report.name} asleep');
+    }
+    return parts.join(' · ');
   }
 
   Widget _placed(_Node n) {
@@ -566,7 +726,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
               },
               child: n.folded
                   ? _FamilyNode(n)
-                  : n.thing
+                  : n.small
                       ? _ThingChip(n.s, focused: focus == n.id)
                   : busy
                       ? _Chip(n.s, isMe: n.id == widget.myId, focused: focus == n.id)
@@ -578,29 +738,29 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     );
   }
 
-  /// A small label over each family on a busy map; tap it to fold the family.
-  List<Widget> _familyLabels(Map<String, int> fam) {
-    final out = <Widget>[];
-    for (final f in fam.keys) {
-      if (folded.contains(f) || fam[f]! < 2) continue;
-      final members = nodes.where((n) => n.family == f && !n.thing).toList();
-      if (members.isEmpty) continue;
-      var top = double.infinity, sum = 0.0;
-      for (final m in members) {
-        final c = _screen(bodies[m.id]!.p);
-        top = math.min(top, c.dy - nodeSize.height * zoom / 2);
-        sum += c.dx;
-      }
-      out.add(Positioned(
-        left: sum / members.length - 90,
-        top: top - 30,
-        width: 180,
-        child: Center(
-          child: _FamilyTag('$f · ${fam[f]}', onTap: () => _toggleFamily(f)),
-        ),
-      ));
+  /// Each region's name in its top-left corner; with two or more devices,
+  /// tap it to fold the region into one node.
+  List<Widget> _regionHeaders(Map<String, int> all) {
+    // Count what the region shows: a system not booted right now is a note
+    // on its twin, not a device of its own here.
+    final fam = <String, int>{};
+    for (final n in nodes) {
+      if (!n.small) fam.update(n.family, (c) => c + (n.folded ? n.members.length : 1), ifAbsent: () => n.folded ? n.members.length : 1);
     }
-    return out;
+    return [
+        for (final (f, r) in regions)
+          Positioned(
+            left: _screen(r.topLeft).dx + 10 * zoom,
+            top: _screen(r.topLeft).dy + 8 * zoom,
+            child: Transform.scale(
+              scale: zoom.clamp(0.6, 1.2),
+              alignment: Alignment.topLeft,
+              child: (fam[f] ?? 0) >= 2
+                  ? _FamilyTag('$f · ${fam[f]}', onTap: () => _toggleFamily(f))
+                  : Text(f, style: const TextStyle(color: C.muted, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+            ),
+          ),
+    ];
   }
 
   Widget _controls() {
@@ -641,11 +801,25 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   Widget _detail(Map<String, String> names) {
     final e = selected;
     if (e != null) {
-      final text = e.link != null
+      final text = e.detail != null
+          ? e.detail!
+          : e.link != null
           ? e.link!.describe(names[e.link!.a] ?? e.link!.a, names[e.link!.b] ?? e.link!.b)
           : '${e.count} links between ${_label(e.a)} and ${_label(e.b)}. '
               '${e.level == Level.ok ? 'All of them work both ways.' : 'Some get no answer; open the family to see which.'}';
       return _LinkDetail(key: ValueKey(e), level: e.level, text: text, onClose: () => setState(() => selected = null));
+    }
+    final sd = selDev == null ? null : nodes.where((n) => n.id == selDev).firstOrNull;
+    if (sd != null) {
+      final mine = edges.where((x) => x.via == null && (x.a == sd.id || x.b == sd.id)).toList();
+      final bad = [for (final x in mine) if (x.level != Level.ok) _label(x.a == sd.id ? x.b : x.a)];
+      return _LinkDetail(
+        key: ValueKey('net:${sd.id}'),
+        level: netLevel[sd.id] ?? Level.inactive,
+        text: '${_label(sd.id)} on the private network: ${mine.length - bad.length} of ${mine.length} links work both ways'
+            '${bad.isEmpty ? '.' : '; not with ${bad.join(', ')}.'} Its links are drawn on the map; tap one for details.',
+        onClose: () => setState(() => selDev = null),
+      );
     }
     final f = focus == null ? null : nodes.where((n) => n.id == focus).firstOrNull;
     if (busy && f != null && !f.folded) {
@@ -659,27 +833,45 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
         onClose: () => setState(() => focus = null),
       );
     }
-    return SizedBox(
+    return Padding(
       key: const ValueKey('hint'),
-      height: 40,
-      child: Center(
-        child: Text(
-            busy
-                ? 'Tap a device to see its links  ·  tap a family name to fold it  ·  pinch or scroll to zoom'
-                : 'Dots show traffic each way  ·  tap a cable for details',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: C.muted, fontSize: 11.5)),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        for (final (c, t) in const [
+          (_MapPainter.pulseNet, 'network'),
+          (_MapPainter.pulseSync, 'Syncthing'),
+          (_MapPainter.layerUsb, 'USB'),
+          (_MapPainter.pulsePower, 'power'),
+        ])
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 14, height: 2.5, color: c.withValues(alpha: 0.7)),
+            const SizedBox(width: 5),
+            Text(t, style: const TextStyle(color: C.muted, fontSize: 11.5)),
+          ]),
+        const Text('tap a trace for details', style: TextStyle(color: C.muted, fontSize: 11.5)),
+      ]),
     );
   }
 
   String _label(String id) => id.startsWith('family:') ? id.substring(7) : nodes.where((n) => n.id == id).firstOrNull?.s.report.name ?? id;
 
+  /// The device whose cable up to the network is under [p].
+  String? _hitStub(Offset p) {
+    for (final n in nodes) {
+      final by = busOf[n.id], b = bodies[n.id];
+      if (by == null || b == null) continue;
+      final top = _screen(b.p - Offset(0, sizeOf(n).height / 2)), bus = _screen(Offset(b.p.dx, by));
+      if (_segDist(p, bus, top) < 10) return n.id;
+    }
+    return null;
+  }
+
   _Edge? _hit(Offset p) {
     _Edge? best;
     var bestD = 14.0;
+    final sel = selDev ?? focus;
     for (final e in edges) {
-      if (busy && e.level == Level.ok && focus != e.a && focus != e.b) continue;
+      if (e.via == null && sel != e.a && sel != e.b) continue;
       final a = bodies[e.a], b = bodies[e.b];
       if (a == null || b == null) continue;
       final d = _segDist(p, _screen(a.p), _screen(b.p));
@@ -710,42 +902,35 @@ class _MapPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     _grid(canvas, size);
-    if (m.busy) _hulls(canvas);
     final rects = {
       for (final n in m.nodes)
         n.id: Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: m.sizeOf(n).width * m.zoom, height: m.sizeOf(n).height * m.zoom),
     };
+    _regions(canvas);
+    _network(canvas, rects);
+    _pins(canvas, rects);
+    _hardware(canvas, rects);
     final groups = _groups(rects);
     final pills = <Rect>[...rects.values, ...groups.values];
     final order = [...m.edges]..sort((x, y) => _weight(x).compareTo(_weight(y)));
     for (final e in order) {
-      // A device with its things open: cables plug into the whole group.
-      final ra = groups[e.a] ?? rects[e.a], rb = groups[e.b] ?? rects[e.b];
+      // Cables plug into the device card; they bend around rows of things.
+      final ra = rects[e.a], rb = rects[e.b];
       if (ra == null || rb == null) continue;
       final appear = math.min(m.bodies[e.a]!.appear, m.bodies[e.b]!.appear);
       if (appear <= 0) continue;
-      final focused = m.focus == e.a || m.focus == e.b || identical(e, m.selected);
-      final full = !m.busy || focused;
-      // A busy map shows only this device's links, and a focused node's.
-      final spoke = e.a == m.widget.myId || e.b == m.widget.myId;
-      if (m.busy && !focused && (!spoke || m.focus != null)) continue;
+      final who = m.selDev ?? m.focus;
+      final focused = who == e.a || who == e.b || identical(e, m.selected);
+      // Device to device: only the selected device's, over everything else.
+      // Hardware cables always show.
+      if (e.via != null || !focused) continue;
       final a = _edge(ra, rb.center), b = _edge(rb, ra.center);
       // A cable that would cross another device's group bends around it.
-      final around = _detour(a, b, [for (final g in groups.entries) if (g.key != e.a && g.key != e.b) g.value]);
+      final around = e.via != null ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _detour(a, b, [...groups.values]);
       final path = around ??
           (m.busy ? (Path()..moveTo(a.dx, a.dy)..lineTo(b.dx, b.dy)) : _curve(a, b, Offset(size.width / 2, size.height / 2)));
       final color = e.level == Level.ok ? _quiet : C.of(e.level);
 
-      if (!full) {
-        // A busy map: working links are a whisper, problems a thin line.
-        canvas.drawPath(
-            path,
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.2
-              ..color = e.level == Level.ok ? const Color(0xFF3B4450).withValues(alpha: 0.8 * appear) : color.withValues(alpha: 0.55 * appear));
-        continue;
-      }
       final sel = identical(e, m.selected);
       canvas.drawPath(
           path,
@@ -783,7 +968,7 @@ class _MapPainter extends CustomPainter {
       if (e.fwd) travel(true);
       if (e.back) travel(false);
 
-      final label = e.count > 1 ? '${e.count} links' : e.ping != null ? '${e.ping} ms' : (e.level == Level.fault ? 'no answer' : null);
+      final label = e.via != null ? e.via! : e.count > 1 ? '${e.count} links' : e.ping != null ? '${e.ping} ms' : (e.level == Level.fault ? 'no answer' : null);
       if (label != null && metric.length > 70) {
         final tp = TextPainter(
           text: TextSpan(
@@ -824,18 +1009,24 @@ class _MapPainter extends CustomPainter {
 
   /// Device to junction, junction to each attached thing: the hierarchy.
   /// Dots show what flows: data both ways over USB, power out of a UPS.
-  /// The outline around each device whose things are open.
+  /// For each device whose things are open: the strip holding its hub and
+  /// row of things, which cables keep out of.
   Map<String, Rect> _groups(Map<String, Rect> rects) {
     final groups = <String, Rect>{};
+    final z = m.zoom.clamp(0.6, 1.2);
     for (final e in m.attached.entries) {
       final host = rects[e.key];
       if (host == null || !m.isOpen(e.key)) continue;
-      var box = host;
+      final j = m._screen(m.junction(e.key));
+      var box = Rect.fromCenter(center: j, width: 150 * z, height: 22 * z);
+      var any = false;
       for (final th in e.value) {
         final r = rects[th.report.id];
-        if (r != null) box = box.expandToInclude(r);
+        if (r == null) continue;
+        box = box.expandToInclude(r);
+        any = true;
       }
-      groups[e.key] = box.inflate(10 * m.zoom.clamp(0.6, 1.2));
+      if (any) groups[e.key] = box.inflate(8 * z);
     }
     return groups;
   }
@@ -845,14 +1036,24 @@ class _MapPainter extends CustomPainter {
       final host = rects[e.key];
       if (host == null) continue;
       final j = m._screen(m.junction(e.key));
-      // A soft enclosure: the device and what hangs off it read as one unit.
-      // Opaque and drawn over the network cables, so none run through it.
-      final box = groups[e.key];
-      if (box != null) {
-        final rr = RRect.fromRectAndRadius(box, Radius.circular(18 * m.zoom.clamp(0.6, 1.2)));
-        canvas.drawRRect(rr.shift(const Offset(0, 6)), Paint()..color = Colors.black.withValues(alpha: 0.35)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
-        canvas.drawRRect(rr, Paint()..color = const Color(0xFF181C22));
-        canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF2E353F));
+      // The device and what hangs off it read as one unit: a tight outline
+      // around its card and the row under it, joined by a short neck. Only
+      // that shape is filled, so there is no big empty slab around it.
+      final row = groups[e.key];
+      if (row != null) {
+        final z = m.zoom.clamp(0.6, 1.2);
+        final card = host.inflate(6 * z);
+        final shape = Path.combine(
+          PathOperation.union,
+          Path.combine(
+            PathOperation.union,
+            Path()..addRRect(RRect.fromRectAndRadius(card, Radius.circular(14 * z))),
+            Path()..addRect(Rect.fromLTRB(j.dx - 14 * z, card.bottom - 4, j.dx + 14 * z, row.top + 4)),
+          ),
+          Path()..addRRect(RRect.fromRectAndRadius(row, Radius.circular(14 * z))),
+        );
+        canvas.drawPath(shape, Paint()..color = const Color(0xFF15181D));
+        canvas.drawPath(shape, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF2E353F));
       }
       final stem = Paint()
         ..style = PaintingStyle.stroke
@@ -867,9 +1068,7 @@ class _MapPainter extends CustomPainter {
         final appear = m.bodies[th.report.id]!.appear;
         final to = Offset(r.center.dx, r.top - 2);
         final mid = (j.dy + to.dy) / 2;
-        final path = Path()
-          ..moveTo(j.dx, j.dy)
-          ..cubicTo(j.dx, mid, to.dx, mid, to.dx, to.dy);
+        final path = _trace([j, Offset(j.dx, mid), Offset(to.dx, mid), to], 8 * m.zoom);
         final level = th.level;
         final color = level == Level.ok ? const Color(0xFF4A5562) : C.of(level);
         final line = Paint()
@@ -919,47 +1118,226 @@ class _MapPainter extends CustomPainter {
     }
   }
 
-  /// A soft rounded outline around each family with two or more members.
-  void _hulls(Canvas canvas) {
-    final fam = <String, List<_Node>>{};
-    for (final n in m.nodes) {
-      if (!n.folded && !n.thing) fam.putIfAbsent(n.family, () => []).add(n);
-    }
-    for (final list in fam.values) {
-      if (list.length < 2) continue;
-      final pts = <Offset>[];
-      for (final n in list) {
-        final r = Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: m.sizeOf(n).width * m.zoom, height: m.sizeOf(n).height * m.zoom).inflate(6);
-        pts.addAll([r.topLeft, r.topRight, r.bottomLeft, r.bottomRight]);
-      }
-      final hull = _convex(pts);
-      final path = Path()..addPolygon(hull, true);
-      final pad = 16 * m.zoom.clamp(0.6, 1.5);
-      canvas.saveLayer(null, Paint()..color = Colors.white.withValues(alpha: 0.035));
-      final solid = Paint()..color = Colors.white;
-      canvas.drawPath(path, solid);
-      canvas.drawPath(path, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = pad * 2..strokeJoin = StrokeJoin.round);
-      canvas.restore();
+  /// One clean rectangle per kind of device; its name is a widget on top.
+  void _regions(Canvas canvas) {
+    final r = 14 * m.zoom.clamp(0.6, 1.2);
+    for (final (_, w) in m.regions) {
+      final box = RRect.fromRectAndRadius(Rect.fromPoints(m._screen(w.topLeft), m._screen(w.bottomRight)), Radius.circular(r));
+      canvas.drawRRect(box, Paint()..color = Colors.white.withValues(alpha: 0.022));
+      canvas.drawRRect(box, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF282E36));
     }
   }
 
-  static List<Offset> _convex(List<Offset> pts) {
-    final p = [...pts]..sort((a, b) => a.dx != b.dx ? a.dx.compareTo(b.dx) : a.dy.compareTo(b.dy));
-    double cross(Offset o, Offset a, Offset b) => (a.dx - o.dx) * (b.dy - o.dy) - (a.dy - o.dy) * (b.dx - o.dx);
-    final lower = <Offset>[], upper = <Offset>[];
-    for (final x in p) {
-      while (lower.length >= 2 && cross(lower[lower.length - 2], lower.last, x) <= 0) {
-        lower.removeLast();
-      }
-      lower.add(x);
+  // ---- the board -----------------------------------------------------------
+  //
+  // Drawn like a circuit board: devices are chips, connections are traces
+  // with 45° bends, pads where they land and vias where they join a bus. Each
+  // kind of connection is its own quiet layer; colour is kept for problems.
+
+  static const board = Color(0xFF15181D);
+  static const layerNet = Color(0xFF3D5A61); // private network (Tailscale)
+  static const layerSync = Color(0xFF4A4E72); // Syncthing
+  static const layerUsb = Color(0xFF5C6878);
+  static const layerPower = Color(0xFF6A5734);
+  static const pulseNet = Color(0xFF6FD3DB);
+  static const pulseSync = Color(0xFF9EA6F0);
+  static const pulsePower = Color(0xFFE8B949);
+
+  /// An orthogonal path through [pts] with every corner cut at 45°.
+  static Path _trace(List<Offset> pts, double c) {
+    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length - 1; i++) {
+      final p = pts[i], a = pts[i - 1], b = pts[i + 1];
+      final da = (p - a), db = (b - p);
+      final k = math.min(c, math.min(da.distance, db.distance) / 2);
+      final before = da.distance == 0 ? p : p - da / da.distance * k;
+      final after = db.distance == 0 ? p : p + db / db.distance * k;
+      path
+        ..lineTo(before.dx, before.dy)
+        ..lineTo(after.dx, after.dy);
     }
-    for (final x in p.reversed) {
-      while (upper.length >= 2 && cross(upper[upper.length - 2], upper.last, x) <= 0) {
-        upper.removeLast();
-      }
-      upper.add(x);
+    path.lineTo(pts.last.dx, pts.last.dy);
+    return path;
+  }
+
+  /// One trace: a halo of board colour under it, so where layers cross the
+  /// upper one reads as passing over, then the copper.
+  void _copper(Canvas canvas, Path path, Color color, {double width = 1.6, bool dashed = false}) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = (width + 3) * z..color = board..strokeJoin = StrokeJoin.miter);
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width * z
+      ..strokeJoin = StrokeJoin.miter
+      ..color = color;
+    if (!dashed) {
+      canvas.drawPath(path, line);
+      return;
     }
-    return [...lower..removeLast(), ...upper..removeLast()];
+    for (final metric in path.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += 7 * z) {
+        canvas.drawPath(metric.extractPath(d, math.min(d + 3.5 * z, metric.length)), line);
+      }
+    }
+  }
+
+  void _via(Canvas canvas, Offset at, Color color) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    canvas.drawCircle(at, 3.2 * z, Paint()..color = board);
+    canvas.drawCircle(at, 3.2 * z, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4 * z..color = color);
+  }
+
+  void _pad(Canvas canvas, Offset at, Color color, {bool vertical = true}) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    final r = Rect.fromCenter(center: at, width: (vertical ? 6 : 5) * z, height: (vertical ? 5 : 6) * z);
+    canvas.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(1.2 * z)), Paint()..color = color);
+  }
+
+  /// Pulses travelling along a path; [dir] 1 forwards, -1 backwards.
+  void _pulses(Canvas canvas, Path path, Color color, double speed, {int dir = 1, int count = 1, double phase = 0}) {
+    for (final metric in path.computeMetrics()) {
+      for (var k = 0; k < count; k++) {
+        var p = (t * speed + phase + k / count) % 1.0;
+        if (dir < 0) p = 1 - p;
+        final at = metric.getTangentForOffset(metric.length * p)?.position;
+        if (at == null) continue;
+        final fade = math.sin(p * math.pi);
+        canvas.drawCircle(at, 3.6, Paint()..color = color.withValues(alpha: 0.16 * fade)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5));
+        canvas.drawCircle(at, 1.6, Paint()..color = color.withValues(alpha: 0.85 * fade));
+      }
+    }
+  }
+
+  Color _layer(Level l, Color base) => l == Level.ok ? base : l == Level.inactive ? base.withValues(alpha: 0.5) : C.of(l);
+
+  /// Pins along a chip's sides: the cards read as components on the board.
+  void _pins(Canvas canvas, Map<String, Rect> rects) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    final pin = Paint()
+      ..strokeWidth = 2.2 * z
+      ..color = const Color(0xFF48515D);
+    for (final n in m.nodes) {
+      final r = rects[n.id];
+      if (r == null || n.thing) continue;
+      final step = 10 * z, len = 5.5 * z;
+      final k = ((r.height - 16 * z) / step).floor();
+      final y0 = r.center.dy - (k - 1) * step / 2;
+      for (var i = 0; i < k; i++) {
+        final y = y0 + i * step;
+        canvas.drawLine(Offset(r.left - len, y), Offset(r.left, y), pin);
+        canvas.drawLine(Offset(r.right, y), Offset(r.right + len, y), pin);
+      }
+    }
+  }
+
+  /// The private network and Syncthing: two traces from the hub chip, down
+  /// a trunk on the left, a pair of buses over each row, and a pair of
+  /// traces up from each device, each coloured by how that layer fares.
+  void _network(Canvas canvas, Map<String, Rect> rects) {
+    if (m.buses.isEmpty) return;
+    final z = m.zoom.clamp(0.6, 1.4);
+    final gap = 7 * m.zoom;
+    final hub = m._screen(m.hub);
+    final tNet = m._screen(Offset(m.trunkX, 0)).dx - gap, tSync = tNet + gap;
+    final yNetHub = hub.dy - 4 * z, ySyncHub = hub.dy + 4 * z;
+    final lastBus = m._screen(Offset(0, m.buses.map((b) => b.$1).reduce(math.max))).dy;
+    final c = 8 * m.zoom;
+    final netTrunk = _trace([Offset(hub.dx, yNetHub), Offset(tNet, yNetHub), Offset(tNet, lastBus + gap)], c);
+    final syncTrunk = _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, lastBus)], c);
+    _copper(canvas, syncTrunk, layerSync);
+    _copper(canvas, netTrunk, layerNet);
+    _pulses(canvas, netTrunk, pulseNet, 0.35, count: 2);
+    _pulses(canvas, syncTrunk, pulseSync, 0.25, count: 2, phase: 0.3);
+    // Buses: Syncthing on the row line, the network a step below it.
+    for (final (y, _, x2) in m.buses) {
+      final sy = m._screen(Offset(0, y)).dy, ny = sy + gap;
+      final x = m._screen(Offset(x2, 0)).dx + gap;
+      _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
+      _copper(canvas, Path()..moveTo(tNet, ny)..lineTo(x, ny), layerNet);
+      _via(canvas, Offset(tSync, sy), layerSync);
+      _via(canvas, Offset(tNet, ny), layerNet);
+    }
+    for (final n in m.nodes) {
+      if (n.small) continue;
+      final r = rects[n.id], by = m.busOf[n.id];
+      if (r == null || by == null) continue;
+      final sy = m._screen(Offset(0, by)).dy, ny = sy + gap;
+      final net = m.netLevel[n.id] ?? Level.inactive, sync = m.syncLevel[n.id] ?? Level.inactive;
+      final sel = m.selDev == n.id;
+      final xs = r.center.dx + gap / 2 + 3 * z, xn = r.center.dx - gap / 2 - 3 * z;
+      final top = r.top - 1;
+      final syncPath = Path()..moveTo(xs, top)..lineTo(xs, sy);
+      final netPath = Path()..moveTo(xn, top)..lineTo(xn, ny);
+      _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+      _copper(canvas, netPath, _layer(net, layerNet), dashed: net == Level.fault || net == Level.inactive, width: sel ? 2.4 : 1.6);
+      _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
+      _via(canvas, Offset(xn, ny), _layer(net, layerNet));
+      _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
+      _pad(canvas, Offset(xn, top), _layer(net, layerNet));
+      final ph = (n.id.hashCode % 97) / 97;
+      // Files arrive down the Syncthing trace; the network carries both ways.
+      if (sync == Level.ok) _pulses(canvas, syncPath, pulseSync, 0.5, dir: -1, phase: ph);
+      if (net == Level.ok || net == Level.warn) _pulses(canvas, netPath, net == Level.ok ? pulseNet : C.of(net), 0.6, dir: (t * 2 + ph).floor().isEven ? 1 : -1, phase: ph);
+    }
+    // The hub chip.
+    final tp = TextPainter(
+      text: const TextSpan(text: 'Private network', style: TextStyle(fontFamily: 'Inter', color: C.text, fontSize: 11, fontWeight: FontWeight.w600)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final box = Rect.fromCenter(center: hub, width: (tp.width + 40) * z, height: 28 * z);
+    final pin = Paint()..strokeWidth = 2 * z..color = const Color(0xFF39414B);
+    for (var x = box.left + 10 * z; x < box.right - 6 * z; x += 11 * z) {
+      canvas.drawLine(Offset(x, box.top - 4 * z), Offset(x, box.top), pin);
+      canvas.drawLine(Offset(x, box.bottom), Offset(x, box.bottom + 4 * z), pin);
+    }
+    final rr = RRect.fromRectAndRadius(box, Radius.circular(6 * z));
+    canvas.drawRRect(rr, Paint()..color = const Color(0xFF1C2026));
+    canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF3A434F));
+    canvas.drawCircle(Offset(box.left + 12 * z, hub.dy), 3 * z, Paint()..color = C.flow);
+    canvas.save();
+    canvas.translate(box.left + 22 * z, hub.dy - tp.height * z / 2);
+    canvas.scale(z);
+    tp.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  /// Attached hardware: one trace per connection (USB, power), side by side,
+  /// from the device's edge to the thing's, with a jog where they differ.
+  void _hardware(Canvas canvas, Map<String, Rect> rects) {
+    final z = m.zoom.clamp(0.6, 1.4);
+    for (final e in m.edges) {
+      if (e.via == null) continue;
+      final thing = rects[e.a], host = rects[e.b];
+      if (thing == null || host == null) continue;
+      final appear = math.min(m.bodies[e.a]!.appear, m.bodies[e.b]!.appear);
+      if (appear < 1) continue;
+      final node = m.nodes.where((n) => n.id == e.a).firstOrNull;
+      final links = [for (final l in node?.s.report.node?.links ?? const <NodeLink>[]) if (l.to == e.b) l];
+      final kinds = links.isEmpty ? ['usb'] : {for (final l in links) l.via}.toList();
+      final right = thing.center.dx > host.center.dx;
+      final x1 = right ? host.right + 1 : host.left - 1, x2 = right ? thing.left - 1 : thing.right + 1;
+      final mid = (x1 + x2) / 2;
+      final dead = e.level == Level.inactive;
+      for (var i = 0; i < kinds.length; i++) {
+        final dy = (i - (kinds.length - 1) / 2) * 8 * z;
+        final a = Offset(x1, (thing.center.dy + dy).clamp(host.top + 8 * z, host.bottom - 8 * z));
+        final b = Offset(x2, thing.center.dy + dy);
+        final path = _trace([a, Offset(mid, a.dy), Offset(mid, b.dy), b], 8 * m.zoom);
+        final power = kinds[i] == 'power';
+        final base = power ? layerPower : layerUsb;
+        _copper(canvas, path, dead ? base.withValues(alpha: 0.5) : base, dashed: dead);
+        _pad(canvas, a, base, vertical: false);
+        _pad(canvas, b, base, vertical: false);
+        if (dead) continue;
+        final dirOut = links.where((l) => l.via == kinds[i]).firstOrNull?.dir;
+        if (power) {
+          _pulses(canvas, path, pulsePower, 0.7, dir: -1); // power flows from the UPS into the device
+        } else {
+          _pulses(canvas, path, pulseNet, 0.8, phase: 0.1);
+          if (dirOut == 'both') _pulses(canvas, path, pulseNet, 0.8, dir: -1, phase: 0.6);
+        }
+      }
+    }
   }
 
   static Offset _edge(Rect r, Offset to) {
@@ -1363,7 +1741,7 @@ class _ThingChip extends StatelessWidget {
     final problem = s.level == Level.warn || s.level == Level.fault;
     final off = s.level == Level.inactive;
     final head = _thingHeadline(r);
-    final sub = problem || off ? s.title : head ?? s.title;
+    final sub = !r.isThing ? '${r.os ?? r.name} · not booted now' : problem || off ? s.title : head ?? s.title;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       padding: const EdgeInsets.fromLTRB(6, 5, 9, 5),
@@ -1385,7 +1763,7 @@ class _ThingChip extends StatelessWidget {
             width: 26,
             height: 26,
             decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(7), border: Border.all(color: const Color(0xFF2C323B))),
-            child: Icon(thingIcon(r.node?.type), size: 14, color: problem ? C.of(s.level) : C.text),
+            child: Icon(r.isThing ? thingIcon(r.node?.type) : kindIcon(r.kind, r.name), size: 14, color: problem ? C.of(s.level) : C.text),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1414,6 +1792,10 @@ String? _thingHeadline(Report r) {
         if (v('ups.load') != null) '${n(v('ups.load'), '%')} load',
       ];
       return parts.isEmpty ? null : parts.join(' · ');
+    case 'compose-project':
+      return '${v('cp.running') ?? '?'} running · tap for containers';
+    case 'container':
+      return [v('ct.state'), if (v('ct.cpu') is num) '${v('ct.cpu')}% CPU', if (v('ct.mem') is num) '${(v('ct.mem') as num).round()} MB'].whereType<Object>().join(' · ');
     case 'audio-interface':
       final rate = r.readings.where((x) => x.key.endsWith('.rate') && x.value is num).firstOrNull?.value;
       final run = r.readings.any((x) => x.key.endsWith('.state') && x.value == 'running');
@@ -1425,8 +1807,9 @@ String? _thingHeadline(Report r) {
 /// The hub under a device with things attached.
 class _AttachTag extends StatelessWidget {
   const _AttachTag(this.text, {required this.open, required this.level, required this.onTap});
+
   final String text;
-  final bool open;
+  final bool? open; // null: nothing to unfold
   final Level level;
   final VoidCallback onTap;
 
@@ -1445,10 +1828,10 @@ class _AttachTag extends StatelessWidget {
             border: Border.all(color: problem ? C.of(level).withValues(alpha: 0.6) : const Color(0xFF3A434F)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.usb, size: 11, color: problem ? C.of(level) : C.muted),
-            const SizedBox(width: 4),
+            Container(width: 7, height: 7, decoration: BoxDecoration(shape: BoxShape.circle, color: problem ? C.of(level) : const Color(0xFF4FA36B))),
+            const SizedBox(width: 6),
             Text(text, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: problem ? C.of(level) : C.muted)),
-            Icon(open ? Icons.expand_less : Icons.expand_more, size: 13, color: C.muted),
+            if (open != null) Icon(open! ? Icons.expand_less : Icons.expand_more, size: 13, color: C.muted) else const SizedBox(width: 2),
           ]),
         ),
       ),

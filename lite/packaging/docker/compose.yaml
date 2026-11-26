@@ -20,6 +20,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       MONITOR_NAME: ${NAME:-}
+      # Optional, with the docker-list service below: this host's containers.
+      # DOCKER_HOST: tcp://127.0.0.1:2375
     volumes:
       - ${MONITOR_FOLDER:?set MONITOR_FOLDER in .env to the shared Monitor folder}:/monitor
       - ./data:/data
@@ -27,12 +29,6 @@ services:
       # Optional: readings from a USB audio interface. Docker hides the
       # host's sound card details; this shares them read-only.
       # - /proc/asound:/host/asound:ro
-      # Optional: list this server's containers (running, stopped, unhealthy).
-      # The collector only reads, but the Docker socket gives whoever holds it
-      # full control of Docker, so this is off unless you remove the #s.
-      # The group number is the docker group's: getent group docker
-      # - /var/run/docker.sock:/var/run/docker.sock
-    # group_add: ["${DOCKER_GID:-}"]
     # Optional: a USB UPS (charge, mains or battery, load, runtime), read
     # directly. Needs the one udev rule in README.md first, and the UPS
     # plugged in when the container starts.
@@ -40,3 +36,26 @@ services:
     logging:
       driver: json-file
       options: { max-size: "1m", max-file: "2" }
+
+  # Optional: lets the collector see this host's containers (state, health,
+  # CPU, memory, ports), and nothing else. The collector never gets the
+  # Docker socket; this proxy holds it and answers only GET requests under
+  # /containers (list and stats). Everything else, including every POST
+  # (start, stop, exec, create), is refused. Listens on 127.0.0.1 only.
+  # To use: remove the #s here and on DOCKER_HOST above, then
+  # docker compose up -d.
+  # docker-list:
+  #   image: tecnativa/docker-socket-proxy:v0.5.0
+  #   container_name: monitor-app-docker-list
+  #   restart: unless-stopped
+  #   environment:
+  #     CONTAINERS: 1
+  #     POST: 0
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   ports: ["127.0.0.1:2375:2375"]
+  #   read_only: true
+  #   tmpfs: [/run, /tmp]
+  #   security_opt: ["no-new-privileges:true"]
+  #   # Fedora with SELinux: the socket needs this to be readable here.
+  #   # security_opt: ["label=type:container_runtime_t", "no-new-privileges:true"]

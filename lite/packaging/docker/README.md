@@ -20,11 +20,15 @@ Within a minute the server shows up in Monitor App on every device.
 
 ## Containers (optional)
 
-To see this server's containers in the app (running, stopped, unhealthy), uncomment
-the two Docker-socket lines in `compose.yaml` and set `DOCKER_GID` in `.env`
-(`getent group docker | cut -d: -f3`). The collector only reads the list, but
-whoever holds the socket can control Docker, which is why it is off by default.
-Installed without Docker (the .rpm/.deb), the collector reads it if your user is in the docker group.
+To see this server's containers in the app (grouped by Compose project, with
+state, health, CPU, memory and a link to each one's web page), uncomment the
+`docker-list` service and the `DOCKER_HOST` line in `compose.yaml`, then
+`docker compose up -d`. The collector never gets the Docker socket: the small
+proxy holds it and only answers GET requests for the container list and
+stats; anything that could change Docker is refused. Your user needs no
+docker group. A container's link comes from a `monitor.url` label if it has
+one (for host-network containers like Syncthing or Pi-hole), else from its
+first published port, and only if that port answers.
 
 ## UPS (optional)
 
