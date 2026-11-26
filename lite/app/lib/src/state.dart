@@ -8,7 +8,10 @@ import 'package:monitor_core/monitor_core.dart';
 import 'host.dart';
 
 /// Budget for the app itself while it is open.
-const budgetAppRssMb = 150.0;
+/// Android counts the screen's graphics buffers in the app's memory, and a
+/// Pixel 9 Pro XL screen alone takes about 50 MB of them (seen: 160-220 MB
+/// with the app idle on Home), so phones get a higher line.
+double get budgetAppRssMb => Platform.isAndroid ? 250.0 : 150.0;
 
 /// Reads the shared folder while the app is visible. Nothing runs while the
 /// app is in the background or the screen is off: the timer is cancelled.
