@@ -4,6 +4,7 @@ name: Monitor Lite
 # this is started by hand with a version (Actions > Monitor Lite > Run).
 on:
   push:
+    branches: [main]
     paths:
       - 'lite/**'
       - '.github/workflows/lite.yml'
@@ -67,6 +68,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}

@@ -1,10 +1,9 @@
 name: CI
 
+# Old .NET app: manual only since Monitor App 2.0 (lite/) replaced it
+# (Wilson's choice, 2026-11-26). Run it from Actions when needed.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
