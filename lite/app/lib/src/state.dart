@@ -31,6 +31,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   DateTime _lastNotify = DateTime(2000);
   DateTime? _lastBudgetLog;
 
+  /// The last [liveWindow] of reports per device, as they arrived while the
+  /// app was open: the live charts. Memory only, never written anywhere.
+  final live = <String, List<Report>>{};
+  static const liveWindow = Duration(minutes: 15);
+
+  /// Home shows the device grid or the map.
+  bool showMap = false;
+  void setShowMap(bool v) {
+    showMap = v;
+    notifyListeners();
+  }
+
+  void _addLive(Map<String, Report> all, DateTime now) {
+    for (final r in all.values) {
+      final l = live.putIfAbsent(r.id, () => []);
+      if (l.isEmpty || l.last.time.isBefore(r.time)) l.add(r);
+      while (l.isNotEmpty && now.difference(l.first.time) > liveWindow) {
+        l.removeAt(0);
+      }
+    }
+  }
+
   UpdateInfo? update;
   String? updateMessage;
   bool checking = false;
@@ -157,6 +179,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       back.forEach(hidden.remove);
       _saveHidden();
     }
+    _addLive(all, DateTime.now().toUtc());
     reports = {for (final e in all.entries) if (!hidden.containsKey(e.key)) e.key: e.value};
     hiddenReports = all.values.where((r) => hidden.containsKey(r.id)).toList()..sort((a, b) => a.name.compareTo(b.name));
     final now = DateTime.now().toUtc();

@@ -132,7 +132,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
           Text('Version ${u.version} is available.', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
           if (u.notes.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(u.notes.trim(), maxLines: 12, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, height: 1.4)),
+            Text(plainNotes(u.notes), maxLines: 16, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, height: 1.4)),
           ],
           const SizedBox(height: 12),
           if (st.downloadProgress != null)
@@ -323,4 +323,13 @@ class _HistorySettingsState extends State<_HistorySettings> {
       ]),
     );
   }
+}
+
+/// Release notes as plain text for the app: the part before the download
+/// table, without Markdown marks.
+String plainNotes(String md) {
+  var t = md;
+  final cut = t.indexOf('### Which file');
+  if (cut >= 0) t = t.substring(0, cut);
+  return t.replaceAll('**', '').replaceAll(RegExp(r'^#+\s*', multiLine: true), '').trim();
 }

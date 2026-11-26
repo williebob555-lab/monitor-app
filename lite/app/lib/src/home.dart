@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
+import 'map_view.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -33,6 +34,11 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
               IconButton(
+                tooltip: state.showMap ? 'Show as cards' : 'Show as a map',
+                onPressed: () => state.setShowMap(!state.showMap),
+                icon: Icon(state.showMap ? Icons.grid_view_rounded : Icons.hub_outlined),
+              ),
+              IconButton(
                 tooltip: 'Setup and updates',
                 onPressed: () => _openSetup(context),
                 icon: Badge(isLabelVisible: setupNeeded, smallSize: 8, child: const Icon(Icons.tune)),
@@ -52,6 +58,19 @@ class HomePage extends StatelessWidget {
                   padding: EdgeInsets.fromLTRB(pad, 4, pad, 14),
                   sliver: SliverToBoxAdapter(child: _Banner(a.network, setupNeeded: setupNeeded, onSetup: () => _openSetup(context))),
                 ),
+                if (state.showMap)
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
+                    sliver: SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: (box.maxHeight - 150).clamp(420.0, 900.0),
+                        child: NetworkMap(a.devices, myId: state.host.id, onOpen: (id) {
+                          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
+                        }),
+                      ),
+                    ),
+                  )
+                else
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                   sliver: SliverGrid(

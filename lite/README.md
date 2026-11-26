@@ -48,6 +48,18 @@ the resting rate by itself.
 Breaking a budget writes `OVER BUDGET` into that device's `log.txt`, which
 syncs like everything else.
 
+## Screens
+
+* **Home**: the network in one line, then every device as a card, or as a
+  **map** (the button next to Setup): devices as nodes, lines coloured by
+  whether each pair reaches the other. Tap a line to read what each side sees.
+* **A device, opened up**: the device in the middle and its parts around it
+  (battery, processor, memory, storage, network, links, and any extra readings
+  it publishes), each with its value and live line.
+* **A part**: its live chart since the app opened, its history (24 h, 7 days,
+  a year) with low, average and high, its details, and anything else on that
+  device that needs a look.
+
 ## Updates
 
 Setup and updates > Install. The app downloads the release file, checks it
