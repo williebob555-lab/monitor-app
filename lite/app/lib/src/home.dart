@@ -57,7 +57,7 @@ class HomePage extends StatelessWidget {
                   sliver: SliverGrid(
                     gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                       maxCrossAxisExtent: 420,
-                      mainAxisExtent: 238,
+                      mainAxisExtent: 262,
                       mainAxisSpacing: 14,
                       crossAxisSpacing: 14,
                     ),
@@ -139,11 +139,13 @@ class DeviceCard extends StatelessWidget {
               Icon(kindIcon(r.kind, r.name), color: C.muted, size: 20),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(r.name + (isMe ? '  (this device)' : ''),
+                child: Text(r.name,
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               ),
-              StatusChip(s.level, s.title),
+              if (isMe) const Text('THIS DEVICE', style: TextStyle(color: C.muted, fontSize: 10.5, letterSpacing: 1)),
             ]),
+            const SizedBox(height: 10),
+            StatusChip(s.level, s.title),
             const SizedBox(height: 8),
             Text(s.detail, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.3)),
             const Spacer(),

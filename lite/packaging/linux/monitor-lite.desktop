@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Monitor Lite
+Comment=See every device's health, synced through Syncthing
+Exec=/usr/bin/monitor-lite
+Icon=utilities-system-monitor
+Categories=System;Monitor;
+Terminal=false

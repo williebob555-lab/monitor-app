@@ -135,7 +135,8 @@ Assessment assess(Map<String, Report> reports, {String? myId, DateTime? now}) {
         out.add(st(Level.warn, 'Partly synced',
             'Readings reach this device, but ${_names(notReceiving)} ${notReceiving.length == 1 ? 'is' : 'are'} not receiving them through Syncthing.'));
       } else {
-        out.add(st(Level.ok, 'Online', 'Last update ${ago(age)} ago.'));
+        out.add(st(Level.ok, 'Online',
+            reachBy.isEmpty ? 'Its readings are arriving through Syncthing.' : 'Readings arriving through Syncthing; ${_names(reachBy)} can reach it over Tailscale.'));
       }
       continue;
     }
@@ -242,6 +243,6 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
     return NetworkStatus(Level.ok, active.length == 1 ? 'Only this device so far' : (active.length == 2 ? 'Both devices online' : 'All ${active.length} devices online'),
         active.length == 1 ? 'Share the Monitor folder with your other devices in Syncthing to see them here.' : 'Every device is reporting and reachable.');
   }
-  final bad = active.where((d) => d.level != Level.ok).map((d) => '${d.report.name}: ${d.title.toLowerCase()}');
+  final bad = active.where((d) => d.level != Level.ok).map((d) => '${d.report.name}: ${d.title}');
   return NetworkStatus(worst, '$ok of ${active.length} devices online', bad.join('. '));
 }
