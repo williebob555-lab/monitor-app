@@ -145,6 +145,7 @@ object Collector {
                 j.put("battery", o)
             }
             j.put("cpuNote", "Android does not let apps read whole-device CPU use.")
+            j.put("readings", readings(ctx))
 
             val mi = ActivityManager.MemoryInfo()
             ctx.getSystemService(ActivityManager::class.java).getMemoryInfo(mi)
@@ -246,6 +247,53 @@ object Collector {
         return next
     }
 
+    /** Extra readings (lite/FORMAT.md "readings"): what the device is, its
+     *  battery's health and the Wi-Fi signal. None needs a permission. */
+    private fun readings(ctx: Context): org.json.JSONArray {
+        val a = org.json.JSONArray()
+        fun add(key: String, label: String, value: Any, group: String, unit: String? = null, level: String? = null) {
+            val o = JSONObject().put("key", key).put("label", label).put("value", value).put("group", group)
+            unit?.let { o.put("unit", it) }
+            level?.let { o.put("level", it) }
+            a.put(o)
+        }
+        add("sys.maker", "Maker", Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, "System")
+        add("sys.model", "Model", Build.MODEL, "System")
+        if (Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.isNotBlank() && Build.SOC_MODEL != "unknown") add("sys.cpu", "Processor", Build.SOC_MODEL, "System")
+        add("sys.cores", "Processor threads", Runtime.getRuntime().availableProcessors().toString(), "System")
+        ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { b ->
+            val h = when (b.getIntExtra(BatteryManager.EXTRA_HEALTH, 0)) {
+                BatteryManager.BATTERY_HEALTH_GOOD -> "good"
+                BatteryManager.BATTERY_HEALTH_OVERHEAT -> "overheating"
+                BatteryManager.BATTERY_HEALTH_DEAD -> "dead"
+                BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "over voltage"
+                BatteryManager.BATTERY_HEALTH_COLD -> "cold"
+                BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE -> "failure"
+                else -> null
+            }
+            h?.let { add("pow.health", "Battery health", it, "Power", level = if (it == "good") null else "warn") }
+            val mv = b.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+            if (mv > 0) add("pow.volts", "Battery voltage", Math.round(mv / 10.0) / 100.0, "Power", unit = "V")
+            if (Build.VERSION.SDK_INT >= 34) {
+                val c = b.getIntExtra(BatteryManager.EXTRA_CYCLE_COUNT, -1)
+                if (c >= 0) add("pow.cycles", "Charge cycles", c, "Power")
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 29) runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            for (n in cm.allNetworks) {
+                val c = cm.getNetworkCapabilities(n) ?: continue
+                if (!c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                val dbm = c.signalStrength
+                if (dbm != Int.MIN_VALUE && dbm < 0) {
+                    add("wifi.dbm", "Wi-Fi signal", dbm, "Wi-Fi", unit = "dBm", level = if (dbm < -80) "warn" else null)
+                }
+                break
+            }
+        }
+        return a
+    }
+
     /** Names of devices whose app is open now: fresh files in <folder>/watch/. */
     fun watchers(root: File, nowS: Long): List<String> =
         File(root, "watch").listFiles()?.filter { it.isFile && it.name.endsWith(".json") && !it.name.startsWith(".syncthing.") }
@@ -325,6 +373,13 @@ object Collector {
             }
         }
         h.put("p", pv)
+        j.optJSONArray("readings")?.let { rs ->
+            for (i in 0 until rs.length()) {
+                val r = rs.optJSONObject(i) ?: continue
+                val v = r.opt("value")
+                if (v is Number) h.put(r.getString("key"), v)
+            }
+        }
         return h.toString()
     }
 
