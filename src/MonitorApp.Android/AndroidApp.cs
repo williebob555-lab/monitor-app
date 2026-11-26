@@ -239,6 +239,8 @@ public sealed class AndroidApp : Avalonia.Application, IDisposable
         try
         {
             var context = global::Android.App.Application.Context;
+            var power = (global::Android.OS.PowerManager?)context.GetSystemService(global::Android.Content.Context.PowerService);
+            ReadTimings.ScreenOn = () => power?.IsInteractive;
             var runtime = await MobileRuntimeHost.GetAsync(context).ConfigureAwait(true);
             if (PeerForegroundService.ResumeIfLeftOn(context))
             {
