@@ -287,7 +287,7 @@ class _PartPageState extends State<PartPage> {
         if (s == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This device has no readings yet.')));
         final r = s.report;
         final names = widget.state.names;
-        final parts = partsOf(r, names);
+        final parts = partsOf(r, names, away: widget.state.away);
         final p = parts.where((x) => x.id == widget.partId).firstOrNull;
         if (p == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This part is no longer reported.')));
         _load(r);

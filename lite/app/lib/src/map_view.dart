@@ -312,7 +312,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     final changed = nodes.length != out.length || !nodes.every((n) => ids.contains(n.id));
     nodes = out;
     netLevel.clear();
-    final ls = linksOf(devices);
+    // Not answering is expected of a device that isn't running right now.
+    final resting = {for (final d in devices) if (d.level == Level.inactive) d.report.id};
+    final ls = [for (final l in linksOf(devices)) if (!resting.contains(l.a) && !resting.contains(l.b)) l];
     for (final n in out.where((n) => !n.small)) {
       final mine = [for (final l in ls) if (n.folded ? n.members.any((d) => d.report.id == l.a || d.report.id == l.b) : (l.a == n.id || l.b == n.id)) l];
       final live = mine.where((l) => l.level != Level.inactive).toList();

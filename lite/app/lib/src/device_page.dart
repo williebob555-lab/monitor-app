@@ -47,7 +47,7 @@ class _DevicePageState extends State<DevicePage> {
           body: LayoutBuilder(builder: (context, box) {
             final wide = box.maxWidth > 820;
             final pad = wide ? 24.0 : 14.0;
-            final parts = partsOf(r, names);
+            final parts = partsOf(r, names, away: widget.state.away);
             final hub = DeviceHub(
               status: s,
               parts: parts,

@@ -130,10 +130,11 @@ class HomePage extends StatelessWidget {
   /// Parts that need a look on devices that are reporting now, worst first.
   List<(String, Part, Report)> _attention(Assessment a) {
     final names = {for (final d in a.devices) d.report.id: d.report.name};
+    final away = {for (final d in a.devices) if (d.level == Level.inactive) d.report.id};
     final out = <(String, Part, Report)>[];
     for (final d in a.devices) {
       if (!d.fresh) continue;
-      for (final p in partsOf(d.report, names)) {
+      for (final p in partsOf(d.report, names, away: away)) {
         if (p.level == Level.warn || p.level == Level.fault) out.add((d.report.id, p, d.report));
       }
     }

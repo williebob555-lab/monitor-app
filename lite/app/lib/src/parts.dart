@@ -59,7 +59,10 @@ Level _high(double? v) => v == null ? Level.inactive : v >= 95 ? Level.fault : v
 
 String _pct(double? v) => v == null ? 'n/a' : '${v.round()}%';
 
-List<Part> partsOf(Report r, Map<String, String> names) {
+/// [away]: devices not running right now (the other system of a dual-boot
+/// machine, an old copy, one not seen for a while). Not answering is
+/// expected of them, so they don't count against this device's links.
+List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = const {}}) {
   final out = <Part>[];
   final b = r.battery;
   if (b?.pct != null) {
@@ -131,7 +134,8 @@ List<Part> partsOf(Report r, Map<String, String> names) {
   ));
 
   // Links: Tailscale and Syncthing, and how the other devices look from here.
-  final peers = r.peers.entries.toList();
+  final peers = r.peers.entries.where((e) => !away.contains(e.key)).toList();
+  final resting = r.peers.entries.where((e) => away.contains(e.key)).toList();
   final reach = peers.where((e) => e.value.reachable).length;
   final linkLevel = r.tailscaleIp == null
       ? Level.fault
@@ -167,6 +171,7 @@ List<Part> partsOf(Report r, Map<String, String> names) {
             if (e.value.seenAge != null) 'files ${ago(Duration(seconds: e.value.seenAge!))} old',
           ].whereType<String>().join(' · ')
         ),
+      for (final e in resting) (names[e.key] ?? e.key, 'not running right now'),
     ],
   ));
 

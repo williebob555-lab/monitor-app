@@ -54,6 +54,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         for (final t in things.values) t.id: t.report.name,
       };
 
+  /// Devices not running right now (not booted, old copy, long unseen).
+  Set<String> get away => {for (final d in assessment.devices) if (d.level == Level.inactive) d.report.id};
+
   /// The things whose declared parent is [id], connected ones first.
   List<Thing> thingsOf(String id) => things.values.where((t) => t.report.node?.parent == id).toList()
     ..sort((a, b) => (a.report.connected == false ? 1 : 0) - (b.report.connected == false ? 1 : 0));
