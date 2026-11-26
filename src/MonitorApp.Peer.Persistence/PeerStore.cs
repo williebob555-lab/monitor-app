@@ -7,7 +7,7 @@ namespace MonitorApp.Peer.Persistence;
 
 public sealed partial class PeerStore
 {
-    private const int SchemaVersion = 5;
+    private const int SchemaVersion = 7;
     private const int PublicKeyFingerprintSize = 32;
     private const int P256SignatureSize = 64;
     private readonly string connectionString;
@@ -37,7 +37,10 @@ public sealed partial class PeerStore
         {
             DataSource = fullPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            // Private cache: under WAL a reader sees the last commit while a writer works. Shared cache instead locks
+            // whole tables and fails readers with SQLITE_LOCKED after the 30 s command timeout (busy_timeout does not
+            // apply), so every read of origin_records stalled behind each sync batch.
+            Cache = SqliteCacheMode.Private,
             Pooling = false,
         }.ToString();
         busyTimeoutMilliseconds = checked((int)options.BusyTimeout.TotalMilliseconds);
@@ -248,6 +251,8 @@ public sealed partial class PeerStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         command.CommandText = MeshSchema;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await MigrateMeshStatementKindsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await MigrateLatestObservationsAsync(connection, cancellationToken).ConfigureAwait(false);
 
         await using var migration = connection.CreateCommand();
         migration.CommandText = "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES ($version, $now);";
@@ -558,6 +563,13 @@ public sealed partial class PeerStore
                     write.ReceivedFromPeerId, write.Provenance, write.Quality));
             }
 
+            // One latest-value upsert per (subject, signal) in the batch, not one per record: a catch-up batch holds
+            // hundreds of readings of the same few signals.
+            foreach (var newest in NewestPerSignal(inserted))
+            {
+                await UpsertLatestObservationAsync(connection, transaction, newest, cancellationToken).ConfigureAwait(false);
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -645,8 +657,25 @@ public sealed partial class PeerStore
         if (notBefore > asOf) throw new ArgumentException("Lookback start cannot follow the as-of time.", nameof(notBefore));
         if (limit is < 1 or > 10_000) throw new ArgumentOutOfRangeException(nameof(limit));
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One snapshot for the freshness check and the read, so a reading committed in between cannot slip past asOf.
+        await using var snapshot = connection.BeginTransaction(deferred: true);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.Transaction = snapshot;
+        command.CommandText = "SELECT COALESCE(MAX(observed_at) <= $asOf, 1) FROM latest_observations;";
+        command.Parameters.AddWithValue("$asOf", Format(asOf));
+        var asOfIsNow = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) == 1;
+        command.Parameters.Clear();
+        // When nothing stored is newer than asOf (the usual "state now" question), the newest record per signal is
+        // exactly the latest-value row, so the history scan is skipped.
+        command.CommandText = asOfIsNow ? """
+            SELECT r.origin_peer_id, r.origin_stream_id, r.sequence, r.subject_entity_id, r.adapter_instance_id, r.signal_id,
+                r.record_bytes, r.content_hash, r.signature, r.observed_at, r.received_at, r.received_from_peer_id, r.provenance, r.quality
+            FROM latest_observations l JOIN origin_records r ON r.origin_peer_id = l.origin_peer_id
+                AND r.origin_stream_id = l.origin_stream_id AND r.sequence = l.sequence
+            WHERE l.observed_at >= $notBefore AND ($subject IS NULL OR l.subject_entity_id = $subject)
+                AND ($signal IS NULL OR l.signal_id = $signal) AND $asOf IS NOT NULL
+            ORDER BY l.subject_entity_id, l.signal_id LIMIT $limit;
+            """ : """
             WITH ranked AS (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY subject_entity_id, signal_id
@@ -677,16 +706,11 @@ public sealed partial class PeerStore
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
+        // latest_observations is maintained on write (PeerStore.Latest.cs); this read no longer scans history.
         command.CommandText = """
-            WITH ranked AS (
-                SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY subject_entity_id, signal_id
-                    ORDER BY observed_at DESC, received_at DESC, origin_peer_id, origin_stream_id, sequence DESC) AS rank
-                FROM origin_records
-            )
             SELECT subject_entity_id, signal_id, origin_peer_id, origin_stream_id, sequence, record_bytes,
                 observed_at, received_at, provenance, quality
-            FROM ranked WHERE rank = 1 ORDER BY subject_entity_id, signal_id;
+            FROM latest_observations ORDER BY subject_entity_id, signal_id;
             """;
         var result = new List<CurrentObservation>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

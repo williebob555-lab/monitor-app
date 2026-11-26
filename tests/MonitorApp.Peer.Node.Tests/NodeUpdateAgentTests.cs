@@ -52,6 +52,26 @@ public sealed class NodeUpdateAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task ANewerReleaseReplacesTheBuildWaitingForApproval()
+    {
+        var applier = new RecordingApplier();
+        using (var waiting = Create(NodeUpdatePolicy.Approve, Envelope("0.1.2", Package), Package, applier))
+        {
+            await waiting.RunCycleAsync(default);
+            Assert.Equal(("Staged", "0.1.2"), (waiting.GetStatus().Stage, waiting.GetStatus().TargetVersion));
+        }
+
+        // 0.1.2 is still waiting for the owner when 0.1.3 comes out: the next check offers 0.1.3 instead, still waiting.
+        var newer = "node-package-0.1.3"u8.ToArray();
+        using var agent = Create(NodeUpdatePolicy.Approve, Envelope("0.1.3", newer), newer, applier);
+        await agent.CheckNowAsync(default);
+        var status = agent.GetStatus();
+        Assert.Equal(("Staged", "0.1.3", true), (status.Stage, status.TargetVersion, status.ApprovalPending));
+        Assert.NotNull(status.LastCheckedUtc);
+        Assert.Equal(0, applier.Calls);
+    }
+
+    [Fact]
     public async Task CheckNowStagesWithoutInstallingAndRecordsWhenItLooked()
     {
         var applier = new RecordingApplier();

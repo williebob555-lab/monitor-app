@@ -198,6 +198,18 @@
   <Style Selector="ListBox.nav.expanded TextBlock.navlabel">
     <Setter Property="IsVisible" Value="True" />
   </Style>
+  <Style Selector="ListBox.nav StackPanel.railwide">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ListBox.nav.expanded StackPanel.railwide">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="ListBox.nav.expanded StackPanel.railnarrow">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ListBox.nav TextBlock.raillabel">
+    <Setter Property="FontSize" Value="{DynamicResource Size.Small}" />
+  </Style>
   <Style Selector="ListBox.bottomnav TextBlock.navlabel">
     <Setter Property="IsVisible" Value="True" />
     <Setter Property="FontSize" Value="{DynamicResource Size.Small}" />

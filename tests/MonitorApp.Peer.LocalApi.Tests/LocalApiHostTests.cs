@@ -140,6 +140,26 @@ public sealed class LocalApiHostTests : IDisposable
         Assert.False(item.GetProperty("escalated").GetBoolean());
     }
 
+    [Theory]
+    [InlineData("attacker.example", HttpStatusCode.MisdirectedRequest)]
+    [InlineData("127.0.0.1.attacker.example:55432", HttpStatusCode.MisdirectedRequest)]
+    [InlineData("192.168.1.5:55432", HttpStatusCode.MisdirectedRequest)]
+    [InlineData("localhost:55432", HttpStatusCode.OK)]
+    [InlineData("127.0.0.1:55442", HttpStatusCode.OK)]
+    [InlineData("[::1]:55432", HttpStatusCode.OK)]
+    public async Task OnlyRequestsAddressedToALoopbackNameAreAnswered(string host, HttpStatusCode expected)
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+
+        foreach (var path in new[] { "/", "api/csrf", "api/runtime" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Host = host;
+            var response = await fixture.Client.SendAsync(request);
+            Assert.Equal(expected, response.StatusCode);
+        }
+    }
+
     [Fact]
     public async Task MutationWithoutCsrfTokenIsForbidden()
     {

@@ -43,13 +43,14 @@ public sealed record ThingValueGroup(string Title, IReadOnlyList<ThingValueRow> 
     public const string System = "System";
     public const string Network = "Network";
     public const string Power = "Power";
+    public const string Services = "Services";
     public const string Monitoring = "Monitoring";
     public const string Other = "Other readings";
 
     /// <summary>Groups larger than this start folded when the thing has many values.</summary>
     public const int FoldAbove = 4;
 
-    private static readonly string[] Order = [About, System, Network, Power, Other, Monitoring];
+    private static readonly string[] Order = [About, System, Network, Services, Power, Other, Monitoring];
 
     public string Header => $"{Title.ToUpperInvariant()} · {Values.Count}";
 
@@ -70,6 +71,8 @@ public sealed record ThingValueGroup(string Title, IReadOnlyList<ThingValueRow> 
         SceneLayerKind.Compute or SceneLayerKind.Memory or SceneLayerKind.Storage => System,
         SceneLayerKind.Network or SceneLayerKind.Connectivity => Network,
         SceneLayerKind.Power => Power,
+        SceneLayerKind.Services => Services,
+        SceneLayerKind.Description => About,
         SceneLayerKind.Collection => Monitoring,
         _ => Other,
     };
@@ -460,7 +463,11 @@ public sealed partial class ThingsViewModel : SectionViewModel
     public ThingsViewModel(NodeConnection connection)
         : base(connection, "Things")
     {
+        Discovery = new NetworkDiscoveryViewModel(() => Client as INetworkDiscoverySource);
     }
+
+    /// <summary>This computer's "Find devices on this network" switch; hidden on a phone or an older computer.</summary>
+    public NetworkDiscoveryViewModel Discovery { get; }
 
     private IThingsSource? Source => Client as IThingsSource;
 
@@ -511,6 +518,7 @@ public sealed partial class ThingsViewModel : SectionViewModel
             return;
         }
 
+        await Discovery.RefreshAsync(cancellationToken);
         await RunAsync(async () =>
         {
             var asOf = AsOf;

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace MonitorApp.Client.Core;
 
 /// <summary>Typed client for the peer's loopback HTTP API. Only maps HTTP to DTOs and errors; no UI concerns.</summary>
-public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, IThingsSource, IHistorySource, IViewingSource, IDisposable
+public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySource, ILocalUpdatesSource, IPhonePairingHost, INetworkDiscoverySource, IServiceFixSource, IThingsSource, IHistorySource, IViewingSource, IDiagnosticsSource, IDisposable
 {
     public const int DefaultMaxPages = 20;
     public const int PageSize = 1000;
@@ -143,6 +143,22 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     public Task ApprovePairingAsync(string pairingId, CancellationToken ct = default) =>
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/approve", ct, presenceAction: "pairing.approve", presenceSubject: pairingId);
 
+    /// <summary>Gives this computer's node the person's Syncthing address and key (see <see cref="SyncthingHandover"/>).</summary>
+    public Task HandOverSyncthingAsync(int port, bool tls, string apiKey, CancellationToken ct = default) =>
+        PostAsync("api/v1/services/syncthing", ct, body: new { port, tls, apiKey });
+
+    public Task<ServiceFixDto> RescanSyncthingAsync(CancellationToken ct = default) =>
+        PostJsonAsync<ServiceFixDto>("api/v1/services/syncthing/rescan", new { }, ct);
+
+    public Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default) =>
+        GetAsync<NetworkDiscoveryDto>("api/v1/network/discovery", ct);
+
+    public async Task<NetworkDiscoveryDto> SetNetworkDiscoveryAsync(bool enabled, CancellationToken ct = default)
+    {
+        await PostAsync("api/v1/network/discovery", ct, body: new { enabled }).ConfigureAwait(false);
+        return await GetNetworkDiscoveryAsync(ct).ConfigureAwait(false);
+    }
+
     public Task<PeerReachDto> GetPeerReachAsync(CancellationToken ct = default) => GetAsync<PeerReachDto>("api/v1/network/reach", ct);
 
     public async Task<PeerReachDto> SetPeerReachAsync(bool reachableByPhone, CancellationToken ct = default)
@@ -187,6 +203,20 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
     {
         ArgumentNullException.ThrowIfNull(edit);
         return PostAsync("api/v1/things/edit", ct, body: edit);
+    }
+
+    public async Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, $"api/v1/diagnostics/log?lines={lines}"), ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return ["This computer runs a version older than 0.1.31, which keeps no diagnostic log. Update it first."];
+        }
+
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 
     public async Task<LocalUpdateStatusDto> GetLocalUpdateStatusAsync(CancellationToken ct = default)
@@ -333,7 +363,7 @@ public sealed class LocalApiClient : IPeerDataSource, IAlertSource, ISecuritySou
         PostAsync($"api/pairings/{Uri.EscapeDataString(pairingId)}/reject", ct);
 
     public Task RevokePeerAsync(string peerId, CancellationToken ct = default) =>
-        PostAsync($"api/peers/{Uri.EscapeDataString(peerId)}/revoke", ct);
+        PostAsync($"api/peers/{Uri.EscapeDataString(peerId)}/revoke", ct, presenceAction: "peer.revoke", presenceSubject: peerId);
 
     /// <summary>Asks the node for live (fast) sampling of <paramref name="peerId"/> (null = the node's own data). Renew before the lease lapses.</summary>
     public async Task<LiveInterestLeaseDto> StartLiveInterestAsync(

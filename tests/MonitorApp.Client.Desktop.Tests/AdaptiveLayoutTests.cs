@@ -40,7 +40,9 @@ public sealed class AdaptiveLayoutTests
         Assert.True(view.IsCompact);
         Assert.True(Find<Border>(view, "BottomBar").IsVisible);
         Assert.False(Find<Border>(view, "RailPanel").IsVisible);
-        Assert.Contains(model.Sections, section => section is PairDeviceViewModel);
+        // One screen for adding, seeing and removing devices: Add a device lives on Add or remove devices, not in its own page.
+        Assert.DoesNotContain(model.Sections, section => section is PairDeviceViewModel);
+        Assert.True(model.Sections.OfType<PairingsViewModel>().Single().CanAdd);
 
         var bottom = Find<ListBox>(view, "BottomNav");
         Assert.Equal(model.Shell.Modes.Count, bottom.ItemCount);

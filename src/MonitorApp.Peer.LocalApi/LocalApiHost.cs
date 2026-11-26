@@ -60,7 +60,9 @@ public sealed class LocalApiHost : IAsyncDisposable
         MonitoringControlState? monitoring = null,
         LocalPresenceService? localPresence = null,
         IPeerReachController? reach = null,
-        MonitorApp.Model.ModelStore? model = null)
+        MonitorApp.Model.ModelStore? model = null,
+        PeerLinkStatusBoard? links = null,
+        INetworkDiscoveryController? discovery = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(peerStore);
@@ -115,6 +117,20 @@ public sealed class LocalApiHost : IAsyncDisposable
             builder.Services.AddSingleton(model);
         }
 
+        if (discovery is not null)
+        {
+            builder.Services.AddSingleton(discovery);
+            if (discovery is ISyncthingKeyStore keys)
+            {
+                builder.Services.AddSingleton(keys);
+            }
+
+            if (discovery is IServiceFixes fixes)
+            {
+                builder.Services.AddSingleton(fixes);
+            }
+        }
+
         if (monitoring is not null)
         {
             builder.Services.AddSingleton(monitoring);
@@ -125,10 +141,23 @@ public sealed class LocalApiHost : IAsyncDisposable
             builder.Services.AddSingleton(localPresence);
         }
 
-        builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore));
+        builder.Services.AddSingleton(new LocalApiDataSource(options.DatabasePath, peerStore, links, clock));
         builder.Services.AddSingleton(new PeerHistoryQueryService(peerStore, clock, options.EffectiveStaleAfter));
 
         var application = builder.Build();
+        application.Use(async (context, next) =>
+        {
+            // DNS rebinding defence: a web page can point its own hostname at 127.0.0.1 and then read this API (and its
+            // CSRF token) as same-origin. Only answer requests addressed to a loopback name; the port is not checked so an
+            // SSH tunnel to another local port still works.
+            if (!IsLoopbackHost(context.Request.Host))
+            {
+                context.Response.StatusCode = StatusCodes.Status421MisdirectedRequest;
+                return;
+            }
+
+            await next(context).ConfigureAwait(false);
+        });
         application.Use(async (context, next) =>
         {
             var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
@@ -144,6 +173,24 @@ public sealed class LocalApiHost : IAsyncDisposable
         });
         MapEndpoints(application);
         return new LocalApiHost(application);
+    }
+
+    /// <summary>True only for "localhost" or a loopback IP literal (127.0.0.0/8, [::1]); any port.</summary>
+    internal static bool IsLoopbackHost(HostString host)
+    {
+        if (!host.HasValue)
+        {
+            return false;
+        }
+
+        var name = host.Host;
+        if (string.Equals(name, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var literal = name.StartsWith('[') && name.EndsWith(']') ? name[1..^1] : name;
+        return IPAddress.TryParse(literal, out var address) && IPAddress.IsLoopback(address);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -681,14 +728,37 @@ public sealed class LocalApiHost : IAsyncDisposable
             var blocked = RequirePresence(context, LocalPresenceService.PeerRevokeAction, peerId);
             if (blocked is not null)
             {
+                DiagnosticLog.Write("removal", $"remove {peerId} needs presence confirmation first");
                 return blocked;
             }
 
-            await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
+            var peer = await store.ReadTrustedPeerAsync(peerId, token).ConfigureAwait(false);
+            if (peer is null)
+            {
+                DiagnosticLog.Write("removal", $"remove {peerId} refused: not a known device");
+                return Results.BadRequest(new { error = "This device is not on the list any more. Refresh the list." });
+            }
+
+            // Removing a device that is already removed is not an error: the result the person asked for already holds.
+            if (peer.TrustState == PeerTrustState.Active)
+            {
+                await store.RevokeTrustedPeerAsync(peerId, clock.UtcNow, token).ConfigureAwait(false);
+            }
+
+            DiagnosticLog.Write("removal", $"removed {peer.DisplayName} ({peerId}) here; other devices learn it when they next connect");
             return MutationResult(context, new { peerId, state = PeerTrustState.Revoked.ToString() });
         });
+        application.MapGet("/api/v1/diagnostics/peers/{peerId}/log", (string peerId) =>
+            DiagnosticLog.PeerLog(peerId) is { } log
+                ? Results.Text($"# sent by {peerId} at {log.ReceivedAt:yyyy-MM-ddTHH:mm:ssZ}\n" + string.Join('\n', log.Lines) + "\n",
+                    "text/plain; charset=utf-8")
+                : Results.NotFound());
+        application.MapGet("/api/v1/diagnostics/log", (int? lines) =>
+            Results.Text(string.Join('\n', DiagnosticLog.Recent(lines ?? 500)) + "\n", "text/plain; charset=utf-8"));
         MapControlEndpoints(application);
         MapPhoneReachEndpoints(application);
+        NetworkDiscoveryEndpoints.Map(application, IsValidMutationAsync);
+        SyncthingKeyEndpoints.Map(application, IsValidMutationAsync);
         LocalApiThings.Map(application);
         MapLocalPresenceEndpoints(application);
         application.MapGet("/api/v1/incidents", async (PeerStore store, CancellationToken token) =>

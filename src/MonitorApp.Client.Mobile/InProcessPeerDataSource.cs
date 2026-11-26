@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using MonitorApp.Client.Core;
+using MonitorApp.Client.Core.ViewModels;
 using MonitorApp.Model;
 using MonitorApp.Planning.Model;
 using MonitorApp.Peer.Application;
@@ -18,7 +19,7 @@ namespace MonitorApp.Client.Mobile;
 /// pushed from the store's commit stream; viewing interest goes to the runtime so viewed desktops sample fast.
 /// It does not own the runtime (a foreground service does) and never starts or stops it.
 /// </summary>
-public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IMeshJoinSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDisposable
+public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSource, IHistorySource, IViewingSource, IPairingInitiator, IQrPairingSource, IMeshJoinSource, IHostServiceControl, IControlSource, ILocalUpdatesSource, IThingsSource, IDiagnosticsSource, IDisposable
 {
     /// <summary>Quiet period that coalesces a burst of committed records into one <see cref="StateChanged"/>.</summary>
     private static readonly TimeSpan Coalesce = TimeSpan.FromMilliseconds(150);
@@ -47,6 +48,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         this.startHost = startHost;
         this.stopHost = stopHost;
         this.qrScanner = qrScanner;
+        // A minute's screen-refresh cost goes into the log the phone sends to its computers, so lag is measured, not guessed.
+        EnvironmentViewModel.PerformanceLog ??= line => DiagnosticLog.Write("ui", line);
         history = new PeerHistoryQueryService(runtime.Store, new SystemPeerClock(), staleAfter ?? TimeSpan.FromMinutes(5));
         alertHandler = _ => RaiseSoon();
         runtime.NewAlerts += alertHandler;
@@ -58,7 +61,8 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
     /// <summary>How often opening Things re-reads monitoring into the phone's own model.</summary>
     private static readonly TimeSpan BridgeSpacing = TimeSpan.FromMinutes(1);
 
-    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) => Task.Run(() => ReadThingsAsync(asOf, ct), ct);
+    public Task<ThingsDto?> GetThingsAsync(DateTimeOffset? asOf = null, CancellationToken ct = default) =>
+        Timed(asOf is null && Environment.TickCount64 >= Interlocked.Read(ref nextBridgeTicks) ? "GetThings+bridge" : "GetThings", () => ReadThingsAsync(asOf, ct));
 
     private async Task<ThingsDto?> ReadThingsAsync(DateTimeOffset? asOf, CancellationToken ct)
     {
@@ -69,7 +73,11 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
             await modelGate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
+                MonitoringBridge.ValueReader ??= MonitorApp.Contracts.ObservationValues.Read;
+                var before = store.ChangeCount;
+                var bridged = await MonitoringBridge.SyncFromPeerStoreAsync(runtime.Store, store, runtime.DisplayName, "device.phone", ct).ConfigureAwait(false);
+                DiagnosticLog.Write("bridge", string.Create(CultureInfo.InvariantCulture,
+                    $"pass: created {bridged.Created}, bound {bridged.BoundExisting}, already {bridged.AlreadyBound}; model changes {before} -> {store.ChangeCount}"));
                 Interlocked.Exchange(ref nextBridgeTicks, Environment.TickCount64 + (long)BridgeSpacing.TotalMilliseconds);
             }
             finally
@@ -232,17 +240,47 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
     {
         var peers = await runtime.Store.ReadTrustedPeersAsync(ct).ConfigureAwait(false);
         var provenance = await MeshProvenance.DescribeAsync(runtime.Store, ct).ConfigureAwait(false);
-        return (IReadOnlyList<TrustedPeerDto>)peers
-            .Select(peer => new TrustedPeerDto(
+        var latest = await runtime.Store.ReadLatestAcceptedByOriginAsync(ct).ConfigureAwait(false);
+        var syncs = runtime.GetStatus().Peers.ToDictionary(p => p.PeerId, StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        var result = new List<TrustedPeerDto>();
+        foreach (var peer in peers)
+        {
+            string? connection = null;
+            var connected = false;
+            if (peer.TrustState == PeerTrustState.Active)
+            {
+                var link = syncs.TryGetValue(peer.PeerId, out var sync)
+                    ? LinkOf(sync, now)
+                    : (await runtime.Store.ReadPeerLocatorsAsync(peer.PeerId, ct).ConfigureAwait(false)).Count == 0
+                        ? new PeerLinkStatus(peer.PeerId, PeerLinkState.Indirect, null, now, null, null, null)
+                        : null;
+                connected = link?.State == PeerLinkState.Connected;
+                connection = PeerLinkStatusBoard.Describe(link, latest.TryGetValue(peer.PeerId, out var at) ? at : null, now, peer.DisplayName);
+            }
+
+            result.Add(new TrustedPeerDto(
                 peer.PeerId,
                 peer.DisplayName,
                 Convert.ToHexString(peer.PublicKeyFingerprint),
                 peer.TrustState.ToString(),
                 peer.PairedAt,
                 peer.RevokedAt,
-                provenance.GetValueOrDefault(peer.PeerId)))
-            .ToArray();
+                provenance.GetValueOrDefault(peer.PeerId),
+                connection,
+                connected));
+        }
+
+        return (IReadOnlyList<TrustedPeerDto>)result;
     });
+
+    private static PeerLinkStatus LinkOf(MobilePeerSyncStatus sync, DateTimeOffset now) => sync.State switch
+    {
+        MobileSyncState.Synced => new PeerLinkStatus(sync.PeerId, PeerLinkState.Connected, null, sync.LastSuccess ?? now, sync.LastSuccess, null, null),
+        MobileSyncState.Refused => new PeerLinkStatus(sync.PeerId, PeerLinkState.Stopped, null, now, sync.LastSuccess, sync.LastError, now),
+        MobileSyncState.Offline => new PeerLinkStatus(sync.PeerId, PeerLinkState.Retrying, null, now, sync.LastSuccess, sync.LastError, now),
+        _ => new PeerLinkStatus(sync.PeerId, sync.LastError is null ? PeerLinkState.Connecting : PeerLinkState.Retrying, null, now, null, sync.LastError, null),
+    };
 
     /// <summary>The phone only initiates pairing, so the only pairing it can show is its own in-flight request.</summary>
     public Task<IReadOnlyList<PendingPairingDto>> GetPairingsAsync(CancellationToken ct = default)
@@ -406,7 +444,9 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
     public bool CanScanQr => qrScanner is { IsAvailable: true };
 
-    public async Task<string?> ScanAndPairAsync(CancellationToken ct = default)
+    public Task<string?> ScanAndPairAsync(CancellationToken ct = default) => ScanAndPairAsync(null, ct);
+
+    public async Task<string?> ScanAndPairAsync(Action<string>? progress, CancellationToken ct = default)
     {
         if (qrScanner is not { IsAvailable: true })
         {
@@ -425,11 +465,17 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
 
         if (text is not null && MeshFaceToFace.IsMeshCode(text))
         {
-            throw new ApiValidationException("That code is from a phone or tablet. Use \"Add a phone or tablet\" below instead.");
+            throw new ApiValidationException("That code is from a phone or tablet. Use \"Scan a code\" on Add or remove devices; it handles both kinds.");
         }
 
         // null: the person closed the scanner. Not an error and nothing to pair.
-        return text is null ? null : await PairWithInvitationAsync(text, ct).ConfigureAwait(false);
+        if (text is null)
+        {
+            return null;
+        }
+
+        progress?.Invoke("Code read. Asking the computer to add this device. Tap Accept on the computer when it asks; this waits up to 5 minutes.");
+        return await PairWithInvitationAsync(text, ct).ConfigureAwait(false);
     }
 
     /// <summary>Pairings are decided on the desktop; the phone has nothing to approve.</summary>
@@ -447,13 +493,24 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         }
         catch (UserPresenceDeniedException exception)
         {
-            throw new ApiValidationException("Not removed: " + exception.Message);
+            throw new ApiValidationException(exception.Message);
+        }
+        catch (Exception exception) when (exception is PeerPersistenceException or InvalidOperationException
+            or System.Data.Common.DbException or IOException)
+        {
+            DiagnosticLog.Write("removal", $"remove {peerId} failed", exception);
+            throw new ApiValidationException(exception.Message);
         }
 
         return true;
     });
 
+    public Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default) =>
+        Task.FromResult(DiagnosticLog.Recent(lines));
+
     public bool CanVerifyUserPresence => runtime.CanVerifyUserPresence;
+
+    public string RemovalCheck => runtime.RemovalCheck;
 
     public ControlTierDescription DescribeTier(ControlActionKind action, TimeSpan? duration = null) =>
         ControlMapping.Describe(action, duration, runtime.CanVerifyUserPresence);
@@ -691,18 +748,39 @@ public sealed partial class InProcessPeerDataSource : IPeerDataSource, IAlertSou
         }
     }
 
-    private static async Task<T> Guard<T>(Func<Task<T>> read)
+    private static async Task<T> Guard<T>(Func<Task<T>> read, [System.Runtime.CompilerServices.CallerMemberName] string kind = "")
     {
         try
         {
             // SQLite's async calls complete synchronously, so without this every read ran on the UI thread and each menu tap
             // waited for the phone's own database.
-            return await Task.Run(read).ConfigureAwait(false);
+            return await Timed(kind, read).ConfigureAwait(false);
         }
         catch (PeerQueryException exception)
         {
             throw new ApiValidationException(exception.Message);
         }
+    }
+
+    /// <summary>Runs <paramref name="read"/> on a background thread, timing the wait for a thread and the read itself.</summary>
+    private static Task<T> Timed<T>(string kind, Func<Task<T>> read)
+    {
+        var queued = System.Diagnostics.Stopwatch.GetTimestamp();
+        return Task.Run(async () =>
+        {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                return await read().ConfigureAwait(false);
+            }
+            finally
+            {
+                ReadTimings.Add(
+                    kind.Replace("Async", string.Empty, StringComparison.Ordinal),
+                    System.Diagnostics.Stopwatch.GetElapsedTime(queued, started),
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started));
+            }
+        });
     }
 
     private static HistoryPointDto ToDto(HistoryPointView point) => new(

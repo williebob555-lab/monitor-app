@@ -19,7 +19,9 @@ public sealed record TrustedPeerDto(
     string TrustState,
     DateTimeOffset PairedAt,
     DateTimeOffset? RevokedAt,
-    string? Provenance = null);
+    string? Provenance = null,
+    string? Connection = null,
+    bool Connected = false);
 
 public sealed record PendingPairingDto(
     string PairingId,
@@ -103,6 +105,20 @@ public sealed record CatalogDto(IReadOnlyList<CatalogSubjectDto> Subjects, IRead
 public sealed record PeerStateTransitionDto(string PeerId, string State, DateTimeOffset At, string? Reason = null);
 
 /// <summary>One update install outcome (Applied, RolledBack, Failed) for the history timeline.</summary>
+/// <summary>This computer's network discovery switch and its last pass (GET /api/v1/network/discovery).</summary>
+/// <summary>The result of a one-tap fix on this computer, in words for the person.</summary>
+public sealed record ServiceFixDto(bool Done, string Message);
+
+public sealed record NetworkDiscoveryDto(
+    bool Enabled,
+    bool Running,
+    DateTimeOffset? LastPassAt,
+    int DevicesFound,
+    int DevicesAnswered,
+    IReadOnlyList<string> Networks,
+    string? Problem,
+    string Explanation);
+
 /// <summary>Whether paired phones can reach this computer (GET /api/v1/network/reach).</summary>
 public sealed record PeerReachDto(
     bool ReachableByPhone,

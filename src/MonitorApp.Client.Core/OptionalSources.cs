@@ -57,7 +57,10 @@ public interface IQrPairingSource
     /// person cancelled the scanner. Throws <see cref="ApiValidationException"/> with a user-safe message when the camera is
     /// unavailable or denied (the UI should then point at the typed code) or the scanned code is not a valid invitation.
     /// </summary>
-    Task<string?> ScanAndPairAsync(CancellationToken ct = default);
+    Task<string?> ScanAndPairAsync(CancellationToken ct = default) => ScanAndPairAsync(null, ct);
+
+    /// <summary>As above, saying what it is doing once the code is read (contacting, waiting for Accept) through <paramref name="progress"/>.</summary>
+    Task<string?> ScanAndPairAsync(Action<string>? progress, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -195,6 +198,20 @@ public interface IControlSource
 /// Optional: sources talking to this computer's node that can manage desktop fingerprint (local presence) and phone
 /// control grants. The in-process phone runtime does not implement it, and the UI hides these controls there.
 /// </summary>
+/// <summary>A computer's own node: its "Find devices on this network" switch (off until turned on) and what the last pass found.</summary>
+public interface INetworkDiscoverySource
+{
+    Task<NetworkDiscoveryDto> GetNetworkDiscoveryAsync(CancellationToken ct = default);
+
+    Task<NetworkDiscoveryDto> SetNetworkDiscoveryAsync(bool enabled, CancellationToken ct = default);
+}
+
+/// <summary>One-tap fixes for services on the computer this app is connected to (only its own node, over loopback).</summary>
+public interface IServiceFixSource
+{
+    Task<ServiceFixDto> RescanSyncthingAsync(CancellationToken ct = default);
+}
+
 /// <summary>A computer's own node: lets a phone reach it and shows the phone pairing QR.</summary>
 public interface IPhonePairingHost
 {
@@ -219,6 +236,12 @@ public interface ILocalUpdatesSource
 
     /// <summary>Installs the staged update; needs the fingerprint when the node enforces it.</summary>
     Task ApproveUpdateAsync(string targetVersion, CancellationToken ct = default);
+}
+
+/// <summary>Optional: a source that can say, in words, how removing a device will be confirmed on this device.</summary>
+public interface IRemovalCheckSource
+{
+    string RemovalCheck { get; }
 }
 
 public interface ISecuritySource
@@ -279,6 +302,12 @@ public interface IMeshJoinSource
     /// <summary>Opens the camera and returns a scanned device code, or null when the person closed the scanner.</summary>
     Task<string?> ScanMeshCodeAsync(CancellationToken ct = default);
 
+    /// <summary>Opens the camera and returns whatever pairing code it read (a computer's or another phone's), or null.</summary>
+    Task<string?> ScanAnyCodeAsync(CancellationToken ct = default) => ScanMeshCodeAsync(ct);
+
+    /// <summary>True when <paramref name="code"/> came from a phone or tablet (face to face), false for a computer's invitation.</summary>
+    bool IsDeviceCode(string code) => true;
+
     /// <summary>Checks a scanned code and says what it is, without acting on it.</summary>
     MeshCodePreviewDto PreviewMeshCode(string code);
 
@@ -287,4 +316,20 @@ public interface IMeshJoinSource
 
     /// <summary>After the fingerprint, completes joining with a scanned welcome. Returns the other device's name.</summary>
     Task<string> JoinWithWelcomeAsync(string welcomeCode, CancellationToken ct = default);
+}
+
+/// <summary>The running app window: its own build, and starting it again on the installed build (desktop only).</summary>
+public interface IAppRestarter
+{
+    /// <summary>This window's version, as stamped at build ("0.1.31"), or null when unknown (a developer build).</summary>
+    string? RunningVersion { get; }
+
+    /// <summary>Starts the installed app and closes this window. False when it could not start the new one.</summary>
+    bool Restart();
+}
+
+/// <summary>This device's diagnostic log (pairing, connections and why they fail, removals, update checks), newest last.</summary>
+public interface IDiagnosticsSource
+{
+    Task<IReadOnlyList<string>> GetDiagnosticLogAsync(int lines = 300, CancellationToken ct = default);
 }

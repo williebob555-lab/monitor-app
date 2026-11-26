@@ -25,6 +25,7 @@ public static class NodeHost
         ArgumentNullException.ThrowIfNull(options);
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());
         builder.Logging.AddSimpleConsole(console => console.SingleLine = true);
+        builder.Logging.AddProvider(new DiagnosticLoggerProvider());
         builder.Services.AddWindowsService(service => service.ServiceName = WindowsServiceName);
         builder.Services.AddSystemd();
         builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(20));

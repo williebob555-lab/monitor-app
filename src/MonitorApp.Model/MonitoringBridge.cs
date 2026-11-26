@@ -130,10 +130,97 @@ public static class MonitoringBridge
             subjects.Add(new MonitoredSubject(MonitoringSubjectKind.ObservedDevice, entity.EntityId, shape.Value.Name, shape.Value.Kind, strong, inside));
         }
 
+        var current = await peers.ReadCurrentObservationsAsync(cancellationToken).ConfigureAwait(false);
+        var found = FoundDevices(current, subjects.Where(s => s.Kind == MonitoringSubjectKind.Peer).Select(s => s.DisplayName));
+        subjects.AddRange(found.Select(f => f.Subject));
+
         var result = await EnsureAsync(store, subjects, cancellationToken).ConfigureAwait(false);
         await EnsureMeasuredPartsAsync(peers, store, cancellationToken).ConfigureAwait(false);
+        await EnsureFoundLinksAsync(store, found, cancellationToken).ConfigureAwait(false);
         return result;
     }
+
+    /// <summary>A device found on a home network (net:{mac}) or the tailnet (ts:{id}), with what links it to the rest.</summary>
+    private sealed record FoundDevice(MonitoredSubject Subject, string? Network, bool IsGateway, string FoundByPeerId);
+
+    private const string FoundNetworkPrefix = "net:";
+    private const string FoundTailnetPrefix = "ts:";
+
+    /// <summary>
+    /// Devices discovery found, from their readings (which replicate, so every device in the mesh builds the same things).
+    /// The MAC address is the strong identity, so a device found by two computers is one thing. A tailnet device with the same
+    /// name as a member of the mesh is that member and gets no thing of its own. The kind is the discovery's estimate.
+    /// </summary>
+    private static List<FoundDevice> FoundDevices(IReadOnlyList<CurrentObservation> current, IEnumerable<string> memberNames)
+    {
+        var members = memberNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var result = new List<FoundDevice>();
+        foreach (var group in current
+            .Where(o => o.SubjectEntityId.StartsWith(FoundNetworkPrefix, StringComparison.Ordinal) || o.SubjectEntityId.StartsWith(FoundTailnetPrefix, StringComparison.Ordinal))
+            .GroupBy(o => o.SubjectEntityId, StringComparer.Ordinal))
+        {
+            var values = group.GroupBy(o => o.SignalId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(o => o.ObservedAt).First(), StringComparer.Ordinal);
+            string? Text(string signal) => values.TryGetValue(signal, out var o) ? DecodeText(o.RecordBytes) : null;
+            var name = Text("net.device.name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (group.Key.StartsWith(FoundTailnetPrefix, StringComparison.Ordinal) && members.Contains(name)) continue;
+            var mac = Text("net.device.mac");
+            var strong = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (mac is not null) strong["identity.mac"] = mac;
+            var kind = Text("net.device.kind");
+            var gateway = values.TryGetValue("net.device.gateway", out var g) && DecodeFlag(g.RecordBytes) == true;
+            result.Add(new FoundDevice(
+                new MonitoredSubject(MonitoringSubjectKind.ObservedDevice, group.Key, name.Trim(), kind is not null && kind.StartsWith("device", StringComparison.Ordinal) ? kind : "device", strong),
+                Text("net.device.network"), gateway, values.Values.OrderByDescending(o => o.ObservedAt).First().OriginPeerId));
+        }
+
+        return result;
+    }
+
+    /// <summary>"Connected to" links for found devices: each device to its network's router, and the router to the computer that found it.</summary>
+    private static async Task EnsureFoundLinksAsync(ModelStore store, List<FoundDevice> found, CancellationToken cancellationToken)
+    {
+        if (found.Count == 0) return;
+        var model = await store.LoadAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        var changes = new List<ModelChange>();
+        var routers = found.Where(f => f.IsGateway && f.Network is not null).ToList();
+        void Link(string fromId, string toId)
+        {
+            var id = $"bridge:connects:{fromId}>{toId}";
+            if (fromId == toId || model.Relationships.Any(r => r.RelationshipId == id) || changes.OfType<RelationshipAdded>().Any(r => r.RelationshipId == id)) return;
+            changes.Add(new RelationshipAdded(id, ThingsConnectsTo, fromId, toId));
+        }
+
+        foreach (var device in found)
+        {
+            if (model.FindBound(device.Subject.Kind, device.Subject.SubjectId) is not { } thing) continue;
+            if (device.IsGateway)
+            {
+                if (model.FindBound(MonitoringSubjectKind.Peer, device.FoundByPeerId) is { } computer) Link(computer.Id, thing.Id);
+            }
+            else if (routers.FirstOrDefault(r => r.Network == device.Network) is { } router &&
+                model.FindBound(router.Subject.Kind, router.Subject.SubjectId) is { } routerThing)
+            {
+                Link(thing.Id, routerThing.Id);
+            }
+        }
+
+        if (changes.Count > 0) await store.AppendAsync(changes, Origin, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The loose link Things draws as "Connected to" (<c>Things.ConnectsTo</c>).</summary>
+    private const string ThingsConnectsTo = "connects-to";
+
+    /// <summary>
+    /// Reads a stored reading's value (a string or a true/false) from its record bytes. The model does not depend on the wire
+    /// contracts, so the caller supplies it (<c>MonitorApp.Contracts.ObservationValues.Read</c>); without one, found devices are skipped.
+    /// </summary>
+    public static Func<byte[], object?>? ValueReader { get; set; }
+
+    private static string? DecodeText(byte[] recordBytes) => ValueReader?.Invoke(recordBytes) as string;
+
+    private static bool? DecodeFlag(byte[] recordBytes) => ValueReader?.Invoke(recordBytes) as bool?;
 
     /// <summary>The property that names which of the container's readings belong to a part (a signal id prefix).</summary>
     public const string SignalsKey = "monitoring.signals";
@@ -148,6 +235,10 @@ public static class MonitoringBridge
         ("system.memory.", "memory", "part.memory", "Memory"),
         ("system.storage.", "storage", "part.storage", "Storage"),
         ("android.battery.", "battery", "part.battery", "Battery"),
+        ("hardware.gpu.", "graphics", "part.graphics", "Graphics"),
+        // Services the computer runs and reports on in depth; their status shows on them.
+        ("service.tailscale.", "service-tailscale", "software.service", "Tailscale"),
+        ("service.syncthing.", "service-syncthing", "software.service", "Syncthing"),
     ];
 
     /// <summary>

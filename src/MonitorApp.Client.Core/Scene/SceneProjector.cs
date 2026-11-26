@@ -15,6 +15,12 @@ public static class SceneProjector
     public const string PeerSubjectPrefix = "peer:";
     public const string LocalLabel = "This device";
 
+    /// <summary>Subjects of devices found on a home network (net:{mac}) and on the tailnet (ts:{id}).</summary>
+    public const string NetworkPrefix = "net:";
+    public const string TailnetPrefix = "ts:";
+    private const string FoundName = "net.device.name";
+    private static readonly (string Id, string Name)[] DrawnServices = [("tailscale", "Tailscale"), ("syncthing", "Syncthing")];
+
     public static SceneGraph Project(
         RuntimeDto runtime,
         IReadOnlyList<TrustedPeerDto> peers,
@@ -23,7 +29,8 @@ public static class SceneProjector
         DateTimeOffset now,
         bool isHistorical,
         HealthClassifier? classifier = null,
-        string? localLabel = null)
+        string? localLabel = null,
+        IReadOnlyDictionary<string, string>? thingNames = null)
     {
         classifier ??= new HealthClassifier();
         rates ??= NetworkRates.None;
@@ -104,14 +111,69 @@ public static class SceneProjector
             }
         }
 
-        foreach (var (deviceId, points) in devicePoints.OrderBy(d => deviceParent[d.Key], StringComparer.Ordinal).ThenBy(d => d.Key, StringComparer.Ordinal))
+        // Tailscale and Syncthing are drawn as their own nodes beside the computer that runs them, with their own status.
+        foreach (var (peerId, points) in peerPoints.OrderBy(p => p.Key, StringComparer.Ordinal).ToList())
+        {
+            if (!labels.ContainsKey(peerId)) continue;
+            foreach (var (service, name) in DrawnServices)
+            {
+                var prefix = $"service.{service}.";
+                var mine = points.Where(p => p.SignalId.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+                if (mine.Count == 0) continue;
+                var serviceId = $"svc:{peerId}:{service}";
+                var node = MakeNode(serviceId, name, SceneNodeKind.Device, peerId, mine, PeerSubjectPrefix + peerId);
+                nodes.Add(node);
+                links.Add(new SceneLink($"hosting:{peerId}:{serviceId}", peerId, serviceId, SceneLinkKind.Hosting,
+                    node.Health, node.Activity, $"{labels[peerId]} runs {name}"));
+            }
+        }
+
+        // Found devices (net:{mac}, ts:{id}) carry their own name. A tailnet device that is already a member of the mesh is the
+        // same machine as that member, so it is not drawn twice; devices on a home network hang off their router.
+        var memberNames = labels.Values.Select(l => l.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string? Text(List<HistoryPointDto> points, string signal) =>
+            points.Where(p => p.SignalId == signal).OrderByDescending(p => p.ObservedAt).FirstOrDefault()?.Value?.Text;
+        bool Flag(List<HistoryPointDto> points, string signal) =>
+            points.Where(p => p.SignalId == signal).OrderByDescending(p => p.ObservedAt).FirstOrDefault()?.Value?.Boolean == true;
+        foreach (var deviceId in devicePoints.Keys.Where(id => id.StartsWith(TailnetPrefix, StringComparison.Ordinal)).ToList())
+        {
+            if (Text(devicePoints[deviceId], FoundName) is { } tailnetName && memberNames.Contains(tailnetName))
+            {
+                devicePoints.Remove(deviceId);
+            }
+        }
+
+        var routers = devicePoints
+            .Where(d => d.Key.StartsWith(NetworkPrefix, StringComparison.Ordinal) && Flag(d.Value, "net.device.gateway"))
+            .Select(d => (Id: d.Key, Network: Text(d.Value, "net.device.network")))
+            .ToList();
+        foreach (var (deviceId, points) in devicePoints)
+        {
+            if (!deviceId.StartsWith(NetworkPrefix, StringComparison.Ordinal) || routers.Any(r => r.Id == deviceId)) continue;
+            var network = Text(points, "net.device.network");
+            if (routers.FirstOrDefault(r => r.Network is not null && r.Network == network).Id is { } router)
+            {
+                deviceParent[deviceId] = router;
+            }
+        }
+
+        // Parents first, so a router is placed before the devices behind it.
+        int Depth(string id) => deviceParent.TryGetValue(id, out var parent) && devicePoints.ContainsKey(parent) ? 1 + Depth(parent) : 0;
+        foreach (var (deviceId, points) in devicePoints.OrderBy(d => Depth(d.Key)).ThenBy(d => deviceParent[d.Key], StringComparer.Ordinal).ThenBy(d => d.Key, StringComparer.Ordinal))
         {
             var parentId = deviceParent[deviceId];
-            var node = MakeNode(deviceId, deviceId, SceneNodeKind.Device, parentId, points, deviceId);
+            // A name the person gave the device in Things wins over what the network calls it.
+            var label = thingNames?.GetValueOrDefault(deviceId) ?? Text(points, FoundName) ?? deviceId;
+            var node = MakeNode(deviceId, label, SceneNodeKind.Device, parentId, points, deviceId);
             nodes.Add(node);
             links.Add(new SceneLink(
                 $"hosting:{parentId}:{deviceId}", parentId, deviceId, SceneLinkKind.Hosting,
-                node.Health, node.Activity, $"{labels.GetValueOrDefault(parentId, parentId)} collects {deviceId}"));
+                node.Health, node.Activity,
+                deviceId.StartsWith(NetworkPrefix, StringComparison.Ordinal)
+                    ? $"{node.Label} is on the network of {labels.GetValueOrDefault(parentId, parentId)}"
+                    : deviceId.StartsWith(TailnetPrefix, StringComparison.Ordinal)
+                        ? $"{node.Label} is on your tailnet, as seen by {labels.GetValueOrDefault(parentId, parentId)}"
+                        : $"{labels.GetValueOrDefault(parentId, parentId)} collects {node.Label}"));
         }
 
         return new SceneGraph(isHistorical ? state.AsOf : now, isHistorical, nodes, links, new Dictionary<string, ScenePoint>());

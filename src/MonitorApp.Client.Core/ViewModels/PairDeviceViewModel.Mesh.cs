@@ -19,7 +19,7 @@ public sealed partial class PairDeviceViewModel
 
     private string? pendingCode;
 
-    /// <summary>True on a phone or tablet: the "Add a phone or tablet" card is shown only then.</summary>
+    /// <summary>True on a phone or tablet: "Show my code" is offered only then (a computer shows its code on Pairing).</summary>
     public bool CanAddMeshDevices => Client is IMeshJoinSource;
 
     public bool HasShownCode => ShownCode is not null;
@@ -32,7 +32,7 @@ public sealed partial class PairDeviceViewModel
         ? $"Does the other screen ({device.DeviceName}) show {device.VerificationCode}? Only continue if it does."
         : string.Empty;
 
-    public string PendingDeviceAction => PendingDevice is { IsJoinRequest: true } ? "Add it with fingerprint" : "Join with fingerprint";
+    public string PendingDeviceAction => PendingDevice is { IsJoinRequest: true } ? "Add it" : "Join";
 
     public string ThisDeviceCodeText => Client is IMeshJoinSource source
         ? $"This device's check code is {source.ThisDeviceVerificationCode}. The other device shows it when it scans this one."
@@ -47,7 +47,7 @@ public sealed partial class PairDeviceViewModel
         return RunAsync(() =>
         {
             ShownCode = source.CreateJoinCode();
-            ShownCodeCaption = "On a phone or tablet that is already set up, open Pair, choose \"Scan the other device\" and scan this. " +
+            ShownCodeCaption = "On a phone or tablet that is already set up, open Add or remove devices, tap \"Scan a code\" and scan this. " +
                 "Then scan the code it shows back. This code works for ten minutes.";
             StatusMessage = null;
             return Task.CompletedTask;

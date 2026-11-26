@@ -178,6 +178,30 @@ public sealed class PeerPairingCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task RemovedPeerCanPairAgainOnlyThroughAFreshApproval()
+    {
+        await using var fixture = await Fixture.CreateAsync(directory);
+        await fixture.PairAsync("session-pair");
+        var firstPairedAt = (await fixture.PeerStore.ReadTrustedPeerAsync(fixture.RemoteIdentity.PeerId))!.PairedAt;
+        await fixture.PeerStore.RevokeTrustedPeerAsync(fixture.RemoteIdentity.PeerId, fixture.Clock.UtcNow);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(5);
+
+        // Asking to pair again waits for the owner, exactly like a new device; nothing is trusted yet.
+        var started = await fixture.Coordinator.BeginPairingAsync(fixture.Candidate());
+        Assert.Equal(PairingOperationStatus.ApprovalRequired, started.Status);
+        Assert.Equal(PeerTrustState.Revoked, (await fixture.PeerStore.ReadTrustedPeerAsync(fixture.RemoteIdentity.PeerId))?.TrustState);
+
+        var result = await fixture.PairAsync("session-again");
+
+        Assert.Equal(PairingOperationStatus.Completed, result.Status);
+        var trusted = (await fixture.PeerStore.ReadTrustedPeerAsync(fixture.RemoteIdentity.PeerId))!;
+        Assert.Equal(PeerTrustState.Active, trusted.TrustState);
+        Assert.Null(trusted.RevokedAt);
+        Assert.True(trusted.PairedAt > firstPairedAt);
+        await fixture.BeginReconnectAsync("session-back");
+    }
+
+    [Fact]
     public async Task IncompatibleMajorVersionIsRejectedBeforeApprovalStateIsCreated()
     {
         await using var fixture = await Fixture.CreateAsync(directory);

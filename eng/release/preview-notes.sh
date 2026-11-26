@@ -22,6 +22,13 @@ echo "| Ubuntu | \`monitorapp-node-ubuntu-x64-$version.deb\` (+ \`monitorapp-des
 echo
 echo "Everything else is used by the apps themselves, so you don't need to download it: \`update-manifest.json\` and \`SHA256SUMS\` (the signed update list and checksums) and \`monitorapp-node-windows-x64-$version.zip\` (what installed Windows PCs download when they update). Devices that already have Monitor App offer this version as an update and install it only after you approve it."
 echo
+# "What you'll see" notes written by whoever prepared the release (docs/release-notes/next.md), when present.
+if [ -s "$root/docs/release-notes/next.md" ]; then
+    echo "### What you'll see"
+    echo
+    cat "$root/docs/release-notes/next.md"
+    echo
+fi
 echo "### Changes since the previous preview"
 echo
 if [ -n "$previous" ] && git rev-parse --verify --quiet "refs/tags/$previous" >/dev/null; then

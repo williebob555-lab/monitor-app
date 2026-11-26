@@ -22,7 +22,7 @@ public sealed partial class OverviewViewModel : SectionViewModel
     private int pendingPairingCount;
 
     public OverviewViewModel(NodeConnection connection)
-        : base(connection, "Overview")
+        : base(connection, "About this device")
     {
     }
 

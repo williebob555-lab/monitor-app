@@ -7,6 +7,9 @@ public enum StoredMeshStatementKind
 {
     Admit = 1,
     Remove = 2,
+
+    /// <summary>An admission that lifts named removals (pair again after removal).</summary>
+    Readmit = 3,
 }
 
 /// <summary>
@@ -44,7 +47,7 @@ public sealed partial class PeerStore
     private const string MeshSchema = """
         CREATE TABLE IF NOT EXISTS mesh_statements (
             statement_id TEXT PRIMARY KEY,
-            kind INTEGER NOT NULL CHECK (kind IN (1, 2)),
+            kind INTEGER NOT NULL CHECK (kind IN (1, 2, 3)),
             issuer_peer_id TEXT NOT NULL,
             subject_peer_id TEXT NOT NULL,
             subject_fingerprint BLOB NOT NULL,
@@ -66,6 +69,121 @@ public sealed partial class PeerStore
         """;
 
     /// <summary>
+    /// Schema v6 adds re-admissions (kind 3). SQLite cannot change a CHECK constraint in place, so a v5 table is copied
+    /// into the new shape inside one transaction; the old table is dropped only after the copy.
+    /// </summary>
+    private static async Task MigrateMeshStatementKindsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var probe = connection.CreateCommand();
+        probe.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mesh_statements';";
+        if (await probe.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not string sql ||
+            !sql.Contains("kind IN (1, 2))", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+        await using var migrate = connection.CreateCommand();
+        migrate.Transaction = transaction;
+        migrate.CommandText = "DROP INDEX IF EXISTS ux_mesh_statements_claim; ALTER TABLE mesh_statements RENAME TO mesh_statements_v5;"
+            + MeshSchema
+            + """
+            INSERT INTO mesh_statements(statement_id, kind, issuer_peer_id, subject_peer_id, subject_fingerprint,
+                statement_bytes, issued_at, received_at, received_from_peer_id)
+            SELECT statement_id, kind, issuer_peer_id, subject_peer_id, subject_fingerprint,
+                statement_bytes, issued_at, received_at, received_from_peer_id
+            FROM mesh_statements_v5;
+            DROP TABLE mesh_statements_v5;
+            """;
+        await migrate.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Records a pairing the owner just approved. A new device is added. A device already known with the same key is
+    /// paired again: active, a new pairing time, and no longer marked as admitted or removed by the mesh (it is a direct
+    /// pairing now). That is how a removed device comes back; the mesh then lifts the removals this device had received
+    /// before this moment. A known id with a different key is refused, as before.
+    /// </summary>
+    public async Task PairTrustedPeerAsync(TrustedPeer peer, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(peer);
+        if (peer.TrustState != PeerTrustState.Active || peer.RevokedAt is not null) throw new ArgumentException("A pairing is active.", nameof(peer));
+        Validate(peer);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO trusted_peers(peer_id, public_key_spki, public_key_fingerprint, display_name, trust_state, paired_at, revoked_at)
+            VALUES ($peer, $key, $fingerprint, $name, $state, $paired, $revoked)
+            ON CONFLICT(peer_id) DO UPDATE SET
+                display_name = COALESCE(excluded.display_name, trusted_peers.display_name),
+                trust_state = excluded.trust_state,
+                paired_at = excluded.paired_at,
+                revoked_at = NULL
+            WHERE trusted_peers.public_key_spki = excluded.public_key_spki
+              AND trusted_peers.public_key_fingerprint = excluded.public_key_fingerprint;
+            """;
+        Bind(command, peer);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new PeerPersistenceConflictException("A trusted peer id cannot be rebound to another application identity.");
+        }
+
+        await using var mark = connection.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText = "DELETE FROM mesh_trust_marks WHERE peer_id = $peer;";
+        mark.Parameters.AddWithValue("$peer", peer.PeerId);
+        await mark.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Lets a device back in because the mesh lifted the removal that revoked it here, in one transaction with its mark.
+    /// Returns false when the peer is missing, already active, or bound to a different key.
+    /// </summary>
+    public async Task<bool> RestorePeerViaMeshAsync(string peerId, byte[] fingerprint, string restoredBy, DateTimeOffset at,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentifier(peerId, nameof(peerId));
+        EnsureIdentifier(restoredBy, nameof(restoredBy));
+        EnsureUtc(at, nameof(at));
+        if (fingerprint is not { Length: PublicKeyFingerprintSize }) throw new ArgumentException("Fingerprint must be 32 bytes.", nameof(fingerprint));
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE trusted_peers SET trust_state = $active, revoked_at = NULL
+            WHERE peer_id = $peer AND trust_state = $revoked AND public_key_fingerprint = $fingerprint;
+            """;
+        command.Parameters.AddWithValue("$revoked", (int)PeerTrustState.Revoked);
+        command.Parameters.AddWithValue("$active", (int)PeerTrustState.Active);
+        command.Parameters.AddWithValue("$peer", peerId);
+        command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint;
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            return false;
+        }
+
+        await using var mark = connection.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText = """
+            INSERT INTO mesh_trust_marks(peer_id, admitted_via_mesh, removed_via_mesh, admitted_by, removed_by, updated_at)
+            VALUES ($peer, 1, 0, $by, NULL, $at)
+            ON CONFLICT(peer_id) DO UPDATE SET admitted_via_mesh = 1, removed_via_mesh = 0, admitted_by = excluded.admitted_by,
+                removed_by = NULL, updated_at = excluded.updated_at;
+            """;
+        mark.Parameters.AddWithValue("$peer", peerId);
+        mark.Parameters.AddWithValue("$by", restoredBy);
+        mark.Parameters.AddWithValue("$at", Format(at));
+        await mark.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Stores a statement. One statement exists per (kind, issuer, subject, subject key): a newer one from the same
     /// issuer replaces the older (for example with fresher locators); an older or equal one is ignored.
     /// </summary>
@@ -75,7 +193,7 @@ public sealed partial class PeerStore
         EnsureIdentifier(statement.StatementId, nameof(statement.StatementId));
         EnsureIdentifier(statement.IssuerPeerId, nameof(statement.IssuerPeerId));
         EnsureIdentifier(statement.SubjectPeerId, nameof(statement.SubjectPeerId));
-        if (statement.Kind is not (StoredMeshStatementKind.Admit or StoredMeshStatementKind.Remove)) throw new ArgumentOutOfRangeException(nameof(statement));
+        if (statement.Kind is not (StoredMeshStatementKind.Admit or StoredMeshStatementKind.Remove or StoredMeshStatementKind.Readmit)) throw new ArgumentOutOfRangeException(nameof(statement));
         if (statement.SubjectFingerprint is not { Length: PublicKeyFingerprintSize }) throw new ArgumentException("Subject fingerprint must be 32 bytes.", nameof(statement));
         EnsureBytes(statement.StatementBytes, nameof(statement.StatementBytes));
         EnsureUtc(statement.IssuedAt, nameof(statement.IssuedAt));

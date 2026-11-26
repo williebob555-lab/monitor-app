@@ -18,6 +18,7 @@ public sealed class MeshMembershipTests : IAsyncDisposable
     private static readonly DateTimeOffset Now = new(2026, 11, 23, 12, 0, 0, TimeSpan.Zero);
     private readonly string directory = Path.Combine(Path.GetTempPath(), "monitor-mesh-" + Guid.NewGuid().ToString("N"));
     private readonly List<Device> devices = [];
+    private DateTimeOffset clock = Now;
 
     [Fact]
     public async Task PairingOnOneDeviceMakesEveryMemberTrustTheNewDeviceAndRecordsWhoAddedIt()
@@ -52,6 +53,23 @@ public sealed class MeshMembershipTests : IAsyncDisposable
         await ExchangeAsync(desktop, phone);
         await ExchangeAsync(laptop, phone);
         Assert.Equal(version, phone.Mesh.Version);
+    }
+
+    [Fact]
+    public async Task AComputerThatHasNotSpokenYetStillAcceptsWhatItsDirectlyPairedPhoneSends()
+    {
+        // The computer answers a session by applying first and sending its own statements after, as the service does.
+        // Before it has issued anything, its direct pairing with the phone must already let the phone's news in.
+        var desk = await DeviceAsync("desk");
+        var phone = await DeviceAsync("phone");
+        var tablet = await DeviceAsync("tablet");
+        await PairAsync(desk, phone);
+        await PairAsync(phone, tablet);
+
+        var result = await desk.Mesh.ApplyAsync(phone.Id, await phone.Mesh.GetStatementsForExchangeAsync());
+
+        Assert.Equal(0, result.Ignored);
+        Assert.Equal(PeerTrustState.Active, (await desk.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
     }
 
     [Fact]
@@ -198,6 +216,152 @@ public sealed class MeshMembershipTests : IAsyncDisposable
         Assert.Equal($"{b.Id}|{c.Id},{e.Id}".Split('|')[0], expected.Split('|')[0]);
     }
 
+    [Fact]
+    public async Task PairingARemovedDeviceAgainLetsItBackEverywhereAndANewerRemovalStillWins()
+    {
+        var phone = await DeviceAsync("phone");
+        var desktop = await DeviceAsync("desktop");
+        var tablet = await DeviceAsync("tablet");
+        await PairAsync(phone, desktop);
+        await PairAsync(desktop, tablet);
+        await ExchangeAsync(phone, desktop);
+        await ExchangeAsync(desktop, tablet);
+
+        // Removed on the phone; the desktop follows and the tablet learns it was removed.
+        await phone.Store.RevokeTrustedPeerAsync(tablet.Id, clock);
+        await phone.Mesh.RefreshAsync();
+        await ExchangeAsync(phone, desktop);
+        await tablet.Mesh.ApplyAsync(desktop.Id, await desktop.Mesh.GetStatementsForExchangeAsync());
+        Assert.Equal(PeerTrustState.Revoked, (await desktop.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+        Assert.True(tablet.Mesh.LocalRemoved);
+
+        // Later the owner pairs the tablet with the phone again and approves it.
+        clock = clock.AddMinutes(10);
+        await phone.Store.PairTrustedPeerAsync(new TrustedPeer(tablet.Id, tablet.Identity.PublicKeySpki, tablet.Identity.PublicKeyFingerprint,
+            "tablet", PeerTrustState.Active, clock, null));
+        await tablet.Store.PairTrustedPeerAsync(new TrustedPeer(phone.Id, phone.Identity.PublicKeySpki, phone.Identity.PublicKeyFingerprint,
+            "phone", PeerTrustState.Active, clock, null));
+        clock = clock.AddSeconds(1);
+        await ExchangeAsync(phone, tablet);
+        await ExchangeAsync(phone, desktop);
+        await ExchangeAsync(desktop, tablet);
+
+        Assert.Equal(PeerTrustState.Active, (await phone.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+        Assert.Equal(PeerTrustState.Active, (await desktop.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+        Assert.False(tablet.Mesh.LocalRemoved);
+        Assert.Equal(PeerTrustState.Active, (await tablet.Store.ReadTrustedPeerAsync(desktop.Id))?.TrustState);
+        var readmit = Assert.Single(await AllStatementsAsync(phone), item => item.Kind == MeshStatementKind.Readmit);
+        Assert.Equal(phone.Id, readmit.IssuerPeerId);
+        var history = (await desktop.Store.ReadPeerStateTransitionsAsync(Now.AddDays(-1), Now.AddDays(1), 50)).Where(item => item.PeerId == tablet.Id).ToArray();
+        Assert.Contains(history, item => item.Reason is { } reason && reason.Contains("Let back in (paired again on phone)", StringComparison.Ordinal));
+
+        // Exchanging again changes nothing.
+        var version = desktop.Mesh.Version;
+        await ExchangeAsync(phone, desktop);
+        await ExchangeAsync(desktop, tablet);
+        Assert.Equal(version, desktop.Mesh.Version);
+
+        // Removed again on the desktop this time: a new removal the re-admission does not name, so it wins everywhere.
+        clock = clock.AddMinutes(10);
+        await desktop.Store.RevokeTrustedPeerAsync(tablet.Id, clock);
+        await desktop.Mesh.RefreshAsync();
+        await ExchangeAsync(phone, desktop);
+        Assert.Equal(PeerTrustState.Revoked, (await phone.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+        await phone.Mesh.RefreshAsync();
+        Assert.Equal(PeerTrustState.Revoked, (await phone.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+    }
+
+    [Fact]
+    public async Task AReAdmissionLiftsOnlyTheRemovalsItNamesAndRemovedDevicesCannotLiftEachOther()
+    {
+        var root = await DeviceAsync("root");
+        var a = await DeviceAsync("a");
+        var b = await DeviceAsync("b");
+        var removeA = Remove(root, a, Now);
+        var removeB = Remove(root, b, Now);
+        var baseline = new List<MeshStatement> { Admit(root, a, Now), Admit(root, b, Now), removeA, removeB };
+
+        // Two removed devices vouching each other back in change nothing.
+        var mutual = baseline.Concat([Readmit(a, b, Now, removeB.StatementId), Readmit(b, a, Now, removeA.StatementId)]).ToArray();
+        var derivation = MeshMembership.Derive(root.Identity, mutual);
+        Assert.Empty(derivation.Trusted);
+        Assert.Equal(2, derivation.Removed.Count);
+
+        // A re-admission naming some other removal lifts nothing.
+        var wrong = baseline.Concat([Readmit(root, a, Now, removeB.StatementId)]).ToArray();
+        Assert.DoesNotContain(MeshMembership.Derive(root.Identity, wrong).Trusted, item => item.PeerId == a.Id);
+
+        // Naming the removal lifts it; then a's own re-admission of b counts too, because a is no longer removed.
+        var chain = mutual.Concat([Readmit(root, a, Now, removeA.StatementId)]).ToArray();
+        derivation = MeshMembership.Derive(root.Identity, chain);
+        Assert.Equal([a.Id, b.Id], derivation.Trusted.Select(item => item.PeerId).Order(StringComparer.Ordinal).ToArray());
+        Assert.Empty(derivation.Removed);
+
+        // Changing the lifted ids after signing breaks the signature, so it is ignored.
+        var tampered = Readmit(root, a, Now, removeB.StatementId);
+        tampered.LiftedStatementIds.Clear();
+        tampered.LiftedStatementIds.Add(removeA.StatementId);
+        Assert.DoesNotContain(MeshMembership.Derive(root.Identity, baseline.Append(tampered).ToArray()).Trusted, item => item.PeerId == a.Id);
+
+        // Shape rules: a re-admission must name at least one removal, and nothing else may name any.
+        Assert.NotNull(MeshStatementCryptography.ValidateShape(new MeshStatement(removeA) { Kind = MeshStatementKind.Readmit }));
+        var admitWithLift = Admit(root, a, Now);
+        admitWithLift.LiftedStatementIds.Add(removeA.StatementId);
+        Assert.NotNull(MeshStatementCryptography.ValidateShape(admitWithLift));
+    }
+
+    [Fact]
+    public async Task ARemovalThatArrivesAfterPairingAgainIsNeverLiftedByIt()
+    {
+        var phone = await DeviceAsync("phone");
+        var desktop = await DeviceAsync("desktop");
+        var tablet = await DeviceAsync("tablet");
+        await PairAsync(phone, desktop);
+        await PairAsync(phone, tablet);
+        await ExchangeAsync(phone, desktop);
+        await ExchangeAsync(phone, tablet);
+
+        // The phone pairs the tablet again (nothing was removed yet), then a removal made on the desktop arrives.
+        clock = clock.AddMinutes(5);
+        await phone.Store.PairTrustedPeerAsync(new TrustedPeer(tablet.Id, tablet.Identity.PublicKeySpki, tablet.Identity.PublicKeyFingerprint,
+            "tablet", PeerTrustState.Active, clock, null));
+        clock = clock.AddMinutes(5);
+        await desktop.Store.RevokeTrustedPeerAsync(tablet.Id, clock);
+        await desktop.Mesh.RefreshAsync();
+        await ExchangeAsync(phone, desktop);
+        await phone.Mesh.RefreshAsync();
+
+        Assert.Equal(PeerTrustState.Revoked, (await phone.Store.ReadTrustedPeerAsync(tablet.Id))?.TrustState);
+        Assert.DoesNotContain(await AllStatementsAsync(phone), item => item.Kind == MeshStatementKind.Readmit);
+    }
+
+    [Fact]
+    public async Task AStoreFromBeforeReAdmissionsKeepsItsStatementsAndAcceptsThem()
+    {
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "v5.db");
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE mesh_statements (statement_id TEXT PRIMARY KEY, kind INTEGER NOT NULL CHECK (kind IN (1, 2)), " +
+                "issuer_peer_id TEXT NOT NULL, subject_peer_id TEXT NOT NULL, subject_fingerprint BLOB NOT NULL, statement_bytes BLOB NOT NULL, " +
+                "issued_at TEXT NOT NULL, received_at TEXT NOT NULL, received_from_peer_id TEXT NULL); " +
+                "CREATE UNIQUE INDEX ux_mesh_statements_claim ON mesh_statements(kind, issuer_peer_id, subject_peer_id, subject_fingerprint); " +
+                "INSERT INTO mesh_statements VALUES ('old-1', 2, 'peer-a', 'peer-b', zeroblob(32), x'01', '2026-11-23T12:00:00.0000000+00:00', '2026-11-23T12:00:00.0000000+00:00', NULL);";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var store = new PeerStore(PeerStoreOptions.Create(path));
+        await store.InitializeAsync();
+        await store.InitializeAsync();
+
+        Assert.Equal("old-1", Assert.Single(await store.ReadMeshStatementsAsync()).StatementId);
+        Assert.Equal(MeshStatementWriteOutcome.Inserted, await store.UpsertMeshStatementAsync(new StoredMeshStatement(
+            "new-1", StoredMeshStatementKind.Readmit, "peer-a", "peer-b", new byte[32], [1], Now, Now, null)));
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var device in devices) device.Key.Dispose();
@@ -212,7 +376,7 @@ public sealed class MeshMembershipTests : IAsyncDisposable
         var identity = PeerPublicIdentity.Create(name + "-" + Guid.NewGuid().ToString("N")[..8], key);
         var store = new PeerStore(PeerStoreOptions.Create(Path.Combine(directory, name + "-" + Guid.NewGuid().ToString("N") + ".db")));
         await store.InitializeAsync();
-        var device = new Device(name, key, identity, store, new MeshMembership(store, identity, key, () => Now), $"100.64.0.{devices.Count + 1}");
+        var device = new Device(name, key, identity, store, new MeshMembership(store, identity, key, () => clock), $"100.64.0.{devices.Count + 1}");
         devices.Add(device);
         return device;
     }
@@ -246,6 +410,9 @@ public sealed class MeshMembershipTests : IAsyncDisposable
 
     private static MeshStatement Remove(Device issuer, Device subject, DateTimeOffset at) =>
         MeshStatementCryptography.CreateSigned(issuer.Key, issuer.Identity, MeshStatementKind.Remove, subject.Identity, subject.Name, [], at);
+
+    private static MeshStatement Readmit(Device issuer, Device subject, DateTimeOffset at, params string[] lifted) =>
+        MeshStatementCryptography.CreateSigned(issuer.Key, issuer.Identity, MeshStatementKind.Readmit, subject.Identity, subject.Name, [], at, lifted);
 
     private sealed record Device(string Name, EcdsaPeerIdentityKey Key, PeerPublicIdentity Identity, PeerStore Store, MeshMembership Mesh, string Host)
     {

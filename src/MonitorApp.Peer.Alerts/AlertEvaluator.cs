@@ -233,6 +233,12 @@ public sealed class AlertEvaluator(
             return new Outcome(Verdict.Unknown, rule.RuleId, subject, last.ObservedAt);
         }
 
+        if (rule.Explain is { } explain)
+        {
+            return new Outcome(Verdict.Breach, rule.RuleId, subject, start, rule.Severity, rule.Title,
+                string.Create(CultureInfo.InvariantCulture, $"{explain} Since {start:O}."));
+        }
+
         var comparison = rule.Comparison == ThresholdComparison.Below ? "below" : "above";
         return new Outcome(Verdict.Breach, rule.RuleId, subject, start, rule.Severity, rule.Title,
             string.Create(CultureInfo.InvariantCulture,
@@ -313,6 +319,7 @@ public sealed class AlertEvaluator(
                 MetricValue.ValueOneofCase.DoubleValue => value.DoubleValue,
                 MetricValue.ValueOneofCase.SignedIntegerValue => value.SignedIntegerValue,
                 MetricValue.ValueOneofCase.UnsignedIntegerValue => value.UnsignedIntegerValue,
+                MetricValue.ValueOneofCase.BooleanValue => value.BooleanValue ? 1 : 0,
                 _ => null,
             };
         }

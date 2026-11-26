@@ -26,6 +26,13 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
 
     private readonly StableLayout layout;
     private readonly TimeProvider timeProvider;
+    private readonly RefreshStats refreshStats = new();
+
+    /// <summary>
+    /// Where a once-a-minute summary of live refresh cost goes (the phone writes it to its diagnostic log, which it sends to its
+    /// computers), so slowness can be measured on the device instead of guessed. Null writes nothing.
+    /// </summary>
+    public static Action<string>? PerformanceLog { get; set; }
 
     [ObservableProperty]
     private SceneGraph scene = SceneGraph.Empty;
@@ -64,6 +71,9 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
 
     public ObservableCollection<OutlineItem> Outline { get; } = [];
 
+    /// <summary>The paired devices as of the last refresh, with whether this device reaches each one right now.</summary>
+    public IReadOnlyList<TrustedPeerDto> Peers { get; private set; } = [];
+
     partial void OnSelectedNodeIdChanged(string? value) => SelectedNode = Scene.Find(value);
 
     [RelayCommand]
@@ -71,15 +81,63 @@ public sealed partial class EnvironmentViewModel : SectionViewModel
     {
         await RunAsync(async () =>
         {
+            var timing = RefreshTiming.Start();
             var requestedAsOf = AsOf;
             var now = timeProvider.GetUtcNow();
             var runtime = await Client.GetRuntimeAsync(cancellationToken);
             var peers = await Client.GetPeersAsync(cancellationToken);
             var state = await Client.GetStateAsync(requestedAsOf, ct: cancellationToken);
+            timing.Mark(RefreshStage.Read);
             var rates = await LoadRatesAsync(requestedAsOf ?? now, cancellationToken);
-            var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null);
-            Apply(graph with { Layout = layout.Place(graph.Nodes) });
+            timing.Mark(RefreshStage.History);
+            var names = await LoadThingNamesAsync(requestedAsOf, cancellationToken);
+            timing.Mark(RefreshStage.Things);
+            var graph = SceneProjector.Project(runtime, peers, state, rates, now, requestedAsOf is not null, thingNames: names);
+            Peers = peers;
+            var placed = graph with { Layout = layout.Place(graph.Nodes) };
+            timing.Mark(RefreshStage.Project);
+            Apply(placed);
+            timing.Mark(RefreshStage.Screen);
+            refreshStats.Add(timing, state.Points.Count);
         });
+    }
+
+    /// <summary>
+    /// Names the person gave found devices in Things (net: and ts: subjects), so a rename shows on the Map too. Empty when the
+    /// node has no shared model; a failure here never stops the Map from drawing.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> LoadThingNamesAsync(DateTimeOffset? asOf, CancellationToken cancellationToken)
+    {
+        if (Client is not IThingsSource source)
+        {
+            return null;
+        }
+
+        try
+        {
+            var things = await source.GetThingsAsync(asOf, cancellationToken);
+            return things is null ? null : FoundDeviceNames(things.Things);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or LocalApiException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public static IReadOnlyDictionary<string, string> FoundDeviceNames(IEnumerable<ThingDto> things)
+    {
+        ArgumentNullException.ThrowIfNull(things);
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var thing in things.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
+        {
+            foreach (var subject in thing.ReadingSubjects.Where(id =>
+                id.StartsWith(SceneProjector.NetworkPrefix, StringComparison.Ordinal) || id.StartsWith(SceneProjector.TailnetPrefix, StringComparison.Ordinal)))
+            {
+                names.TryAdd(subject, thing.Name.Trim());
+            }
+        }
+
+        return names;
     }
 
     /// <summary>

@@ -31,7 +31,7 @@ public sealed partial class InProcessPeerDataSource
             var text = await qrScanner.ScanAsync(ct).ConfigureAwait(false);
             if (text is not null && !MeshFaceToFace.IsMeshCode(text))
             {
-                throw new ApiValidationException("That is a computer's pairing code. Use \"Scan the QR code\" at the top instead.");
+                throw new ApiValidationException("That is a computer's pairing code. Use \"Scan a code\" instead; it handles both kinds.");
             }
 
             return text;
@@ -41,6 +41,25 @@ public sealed partial class InProcessPeerDataSource
             throw new ApiValidationException(exception.Message);
         }
     }
+
+    public async Task<string?> ScanAnyCodeAsync(CancellationToken ct = default)
+    {
+        if (qrScanner is not { IsAvailable: true })
+        {
+            throw new ApiValidationException("This device cannot scan QR codes. Type the computer's code under \"Other ways\" instead.");
+        }
+
+        try
+        {
+            return await qrScanner.ScanAsync(ct).ConfigureAwait(false);
+        }
+        catch (QrScanUnavailableException exception)
+        {
+            throw new ApiValidationException(exception.Message);
+        }
+    }
+
+    public bool IsDeviceCode(string code) => MeshFaceToFace.IsMeshCode(code);
 
     public MeshCodePreviewDto PreviewMeshCode(string code)
     {

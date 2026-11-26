@@ -25,6 +25,7 @@ public sealed class ModelStore : IAsyncDisposable
     private readonly string connectionString;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly List<ModelChangeRecord> log = [];
+    private int changeCount;
     private readonly TimeProvider time;
     private bool loaded;
 
@@ -92,6 +93,7 @@ public sealed class ModelStore : IAsyncDisposable
                     reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetString(4), change));
             }
             loaded = true;
+            Volatile.Write(ref changeCount, log.Count);
         }
         finally
         {
@@ -118,6 +120,9 @@ public sealed class ModelStore : IAsyncDisposable
             gate.Release();
         }
     }
+
+    /// <summary>How many changes the in-memory log holds (diagnostics: a count that keeps rising means passes keep appending).</summary>
+    public int ChangeCount => Volatile.Read(ref changeCount);
 
     /// <summary>The full change log, oldest first: the raw material for history views and event lists.</summary>
     public async Task<IReadOnlyList<ModelChangeRecord>> ReadChangesAsync(long afterSequence = 0, CancellationToken cancellationToken = default)
@@ -179,6 +184,7 @@ public sealed class ModelStore : IAsyncDisposable
             }
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             log.AddRange(stored);
+            Volatile.Write(ref changeCount, log.Count);
             current = null;
             return model;
         }

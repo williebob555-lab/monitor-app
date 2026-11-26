@@ -14,8 +14,55 @@ public abstract partial class LiveSectionViewModel(NodeConnection connection, st
     [ObservableProperty]
     private string updateMode = "Manual refresh";
 
-    /// <summary>Runs until cancelled. Callers run it while the view is visible.</summary>
+    /// <summary>
+    /// Runs until cancelled. Callers run it while the view is attached; it also pauses, refreshing nothing and
+    /// withdrawing its viewing interest, while the app is hidden (<see cref="AppVisibility"/>), and resumes when shown.
+    /// </summary>
     public async Task RunLiveAsync(TimeSpan pollInterval, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await AppVisibility.WhenVisibleAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            using var shown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            void OnChanged(bool isVisible)
+            {
+                if (!isVisible)
+                {
+                    try
+                    {
+                        shown.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // This pass already ended.
+                    }
+                }
+            }
+
+            AppVisibility.Changed += OnChanged;
+            try
+            {
+                if (AppVisibility.IsVisible)
+                {
+                    await RunWhileShownAsync(pollInterval, shown.Token);
+                }
+            }
+            finally
+            {
+                AppVisibility.Changed -= OnChanged;
+            }
+        }
+    }
+
+    private async Task RunWhileShownAsync(TimeSpan pollInterval, CancellationToken cancellationToken)
     {
         var source = Client;
         IDisposable? viewing = null;

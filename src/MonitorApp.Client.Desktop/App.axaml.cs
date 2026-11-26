@@ -15,12 +15,23 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            UpdatesViewModel.Restarter = new DesktopRestarter(desktop);
+            if (OperatingSystem.IsWindows())
+            {
+                SectionViewModel.NodeStarter = new WindowsNodeStarter();
+            }
+
             var address = ResolveAddress();
             var model = new MainViewModel(address);
             var window = new MainWindow { DataContext = model };
             desktop.MainWindow = window;
             desktop.Exit += (_, _) => model.Dispose();
-            window.Opened += async (_, _) => await model.ConnectAsync();
+            window.Opened += async (_, _) =>
+            {
+                await model.ConnectAsync();
+                // The node runs as a service account; give it this person's Syncthing key so it can read folder status.
+                _ = SyncthingHandover.HandOverAsync(model.CurrentSource, address);
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

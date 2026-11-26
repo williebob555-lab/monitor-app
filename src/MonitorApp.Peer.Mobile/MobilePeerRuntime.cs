@@ -22,10 +22,14 @@ public sealed record MobilePeerOptions(
     TimeSpan MaximumSyncBackoff,
     TimeSpan? HeartbeatInterval = null,
     LiveInterestPolicy? InterestPolicy = null,
-    TimeSpan? RelayPullInterval = null)
+    TimeSpan? RelayPullInterval = null,
+    TimeSpan? DiagnosticUploadInterval = null,
+    ulong? MaximumBackfillRecords = null)
 {
+    /// <summary>The app's settings; tests build their own and leave the diagnostic upload off.</summary>
     public static MobilePeerOptions Default(string dataDirectory, string displayName) => new(
-        dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5));
+        dataDirectory, displayName, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(5),
+        DiagnosticUploadInterval: TimeSpan.FromMinutes(2));
 
     internal void Validate()
     {
@@ -143,6 +147,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         Directory.CreateDirectory(options.DataDirectory);
         var store = new PeerStore(PeerStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
         await store.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (store.LatestBackfill is { } backfill)
+        {
+            DiagnosticLog.Write("store", FormattableString.Invariant(
+                $"built the latest-value table: {backfill.Rows} readings in {backfill.Duration.TotalMilliseconds:F0} ms (one time, schema v7)"));
+        }
         var alertStore = new AlertStore(AlertStoreOptions.Create(Path.Combine(options.DataDirectory, "peer.db")));
         await alertStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await MobilePeerIdentity.EnsureRegisteredAsync(store, identity, cancellationToken).ConfigureAwait(false);
@@ -265,10 +274,12 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             await using var client = new PeerPairingClient(
                 PeerTransportOptions.Create(invitation.ToEndpoint()),
                 pairing,
-                new PeerInitialPairingOptions(90, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)));
+                PeerInitialPairingOptions.UntilRequestExpires);
+            DiagnosticLog.Write("pairing", $"asking {invitation.Address}:{invitation.Port} to add this device ({id})");
             var result = await client.PairAsync(
                 new PeerInitialPairingRequest(id, InitiatingUserApproved: true, invitation.FingerprintSha256),
                 cancellationToken).ConfigureAwait(false);
+            DiagnosticLog.Write("pairing", $"paired with {result.Remote.DisplayName} ({result.Remote.Identity.PeerId})");
             await store.UpsertPeerLocatorAsync(
                 new PeerLocator(result.Remote.Identity.PeerId, invitation.Address.ToString(), invitation.Port,
                     DateTimeOffset.UtcNow, null),
@@ -288,8 +299,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         catch (Exception exception) when (exception is PeerTransportException or RpcException or HttpRequestException
             or TimeoutException or PeerPersistenceException or InvalidOperationException or FormatException)
         {
+            DiagnosticLog.Write("pairing", $"pairing {id} did not complete", exception);
             throw new MobilePairingFailedException(
-                "Pairing did not complete. Verify the address, desktop identity, and desktop approval.", exception);
+                exception is TimeoutException
+                    ? "Nobody tapped Accept on the computer within 5 minutes. Scan the code again and tap Accept there."
+                    : "Pairing did not complete. Verify the address, desktop identity, and desktop approval.", exception);
         }
         finally
         {
@@ -332,6 +346,16 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     /// <summary>Stops trusting a paired peer on this phone; the next sync will not dial it.</summary>
     /// <summary>True when this phone can produce biometric (user-presence) signatures for high-risk commands.</summary>
     public bool CanVerifyUserPresence => presence?.IsAvailable == true;
+
+    /// <summary>How removing a device will be confirmed here, in words for the screen.</summary>
+    public string RemovalCheck => presence switch
+    {
+        { IsAvailable: true } => "Removing asks for your fingerprint.",
+        IDeviceLockConfirmation { CanConfirmWithDeviceLock: true } =>
+            "No fingerprint is set up on this phone, so removing asks for your screen lock (PIN, pattern or password) instead. " +
+            "To use a fingerprint, add one in Android Settings > Security.",
+        _ => "This phone has no fingerprint or screen lock, so removing is not double-checked. Set a screen lock in Android Settings > Security.",
+    };
 
     /// <summary>
     /// Hex SHA-256 of this phone's presence public key (what the desktop administrator compares when approving the
@@ -506,20 +530,31 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
     /// <summary>Revokes a device here and, through the mesh, on every other member.</summary>
     public async Task RevokeAsync(string peerId, CancellationToken cancellationToken = default)
     {
-        // Removing a device removes it from every device in the mesh, for good: ask for the fingerprint when one is set
-        // up, as computers do. Without one, removal still works, so a lost device can always be removed.
+        // Removing a device removes it from every device in the mesh: ask for the fingerprint when one is set up, as
+        // computers do, and otherwise for the screen lock. With neither, removal still works, so a lost device can
+        // always be removed; the screen says beforehand which check will be used (RemovalCheck).
+        var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
+        var name = string.IsNullOrWhiteSpace(peer?.DisplayName) ? "this device" : peer.DisplayName;
+        var challenge = new UserPresenceChallenge($"Remove {name}", $"{name} will be removed from all your devices.");
         if (presence is { IsAvailable: true } signer)
         {
-            var peer = await store.ReadTrustedPeerAsync(peerId, cancellationToken).ConfigureAwait(false);
-            var name = string.IsNullOrWhiteSpace(peer?.DisplayName) ? "this device" : peer.DisplayName;
             var payload = System.Text.Encoding.UTF8.GetBytes(
                 $"monitor-mesh-local-removal-v1|{identity.PublicIdentity.PeerId}|{peerId}|{Guid.NewGuid():N}");
-            await signer.SignAsync(payload, new UserPresenceChallenge($"Remove {name}",
-                $"{name} will be removed from all your devices and cannot be added back without reinstalling."), cancellationToken).ConfigureAwait(false);
+            await signer.SignAsync(payload, challenge, cancellationToken).ConfigureAwait(false);
+        }
+        else if (presence is IDeviceLockConfirmation { CanConfirmWithDeviceLock: true } deviceLock)
+        {
+            await deviceLock.ConfirmWithDeviceLockAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
 
-        await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        DiagnosticLog.Write("removal", $"removing {name} ({peerId})");
+        if (peer is { TrustState: PeerTrustState.Active })
+        {
+            await store.RevokeTrustedPeerAsync(peerId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        }
+
         await Mesh.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        DiagnosticLog.Write("removal", $"removed {name} ({peerId}) here; other devices learn it when they next connect");
     }
 
     /// <summary>One full collection (every signal plus the LAN model), as at the normal interval.</summary>
@@ -603,10 +638,12 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
 
             loopCancellation = new CancellationTokenSource();
             var token = loopCancellation.Token;
+            DiagnosticLog.Write("node", $"{options.DisplayName} started collecting and connecting");
             loops =
             [
                 Task.Run(() => CollectionLoopAsync(token), CancellationToken.None),
                 Task.Run(() => SuperviseSessionsAsync(token), CancellationToken.None),
+                Task.Run(() => UploadDiagnosticLogLoopAsync(token), CancellationToken.None),
             ];
         }
     }
@@ -741,6 +778,98 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         }
     }
 
+    /// <summary>Most of one upload: the newest lines that fit well inside a computer's 1 MB message limit.</summary>
+    private const int DiagnosticUploadBytes = 600 * 1024;
+
+    /// <summary>
+    /// Sends this device's recent diagnostic log to every paired computer it can dial, shortly after start and then on
+    /// <see cref="MobilePeerOptions.DiagnosticUploadInterval"/>, so the computer can show it and nobody has to copy it
+    /// off the phone. A computer too old to take it is skipped quietly until the next start.
+    /// </summary>
+    private async Task UploadDiagnosticLogLoopAsync(CancellationToken cancellationToken)
+    {
+        if (options.DiagnosticUploadInterval is not { } interval || interval <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var unsupported = new HashSet<string>(StringComparer.Ordinal);
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            // Shortly after start, so a just-opened app shows up on the computer within a minute.
+            await Task.Delay(interval < TimeSpan.FromSeconds(30) ? interval : TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                IReadOnlyList<TrustedPeer> peers;
+                try
+                {
+                    peers = await store.ReadTrustedPeersAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.Data.Common.DbException)
+                {
+                    peers = [];
+                }
+
+                foreach (var peer in peers.Where(item => item.TrustState == PeerTrustState.Active && !unsupported.Contains(item.PeerId)))
+                {
+                    try
+                    {
+                        if ((await store.ReadPeerLocatorsAsync(peer.PeerId, cancellationToken).ConfigureAwait(false)).Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var lines = NewestWithin(DiagnosticLog.Recent(DiagnosticLog.RingCapacity), DiagnosticUploadBytes);
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+                        await using var connector = await ConnectAsync(peer.PeerId, timeout.Token).ConfigureAwait(false);
+                        await connector.SendDiagnosticLogAsync(lines, timeout.Token).ConfigureAwait(false);
+                        if (reported.Add(peer.PeerId))
+                        {
+                            DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) now receives this device's log every {interval.TotalMinutes:0} min");
+                        }
+                    }
+                    catch (PeerAuthenticationException exception)
+                    {
+                        // An older computer answers an unknown request with a refusal: stop asking it until the next start.
+                        unsupported.Add(peer.PeerId);
+                        DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) did not take this device's log (older version?)", exception);
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                    {
+                        // Unreachable right now; the session log already says why. Try again next round.
+                        reported.Remove(peer.PeerId);
+                    }
+                }
+
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static List<string> NewestWithin(IReadOnlyList<string> lines, int maximumBytes)
+    {
+        var kept = new List<string>();
+        var bytes = 0;
+        for (var index = lines.Count - 1; index >= 0; index--)
+        {
+            bytes += System.Text.Encoding.UTF8.GetByteCount(lines[index]) + 4;
+            if (bytes > maximumBytes)
+            {
+                break;
+            }
+
+            kept.Add(lines[index]);
+        }
+
+        kept.Reverse();
+        return kept;
+    }
+
     /// <summary>
     /// Keeps exactly one long-lived live session per active paired peer: collection data and the desktop's data stream
     /// both ways over the phone-initiated connection, and a revoked peer's session is dropped.
@@ -780,6 +909,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
+                    DiagnosticLog.Write("link", "could not start connections", exception);
                     await Task.Delay(options.SyncInterval, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -833,6 +963,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                         : TimeSpan.Zero;
                 }
 
+                if (locators.Count == 0 && attempt++ == 0)
+                {
+                    DiagnosticLog.Write("link", $"{peerId} ({peer.DisplayName}): no address known for it, so this device waits for it to connect");
+                }
+
                 if (wait <= TimeSpan.Zero && locators.Count > 0)
                 {
                     // Best address first; one that never authenticates gives way to the next (T080 hotfix: an advertised
@@ -857,6 +992,11 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            // The supervisor starts it again; say why it stopped instead of failing silently.
+            DiagnosticLog.Write("link", $"{peerId} connection loop stopped", exception);
         }
     }
 
@@ -904,6 +1044,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
 
             var endpoint = new PeerPairingInvitation(address, locator.Port, peer.PeerId, peer.PublicKeyFingerprint, null)
                 .ToEndpoint();
+            DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) connecting to {locator.Host}:{locator.Port}");
             var remote = new PeerPublicIdentity(peer.PeerId, peer.PublicKeySpki, peer.PublicKeyFingerprint);
             var transport = PeerTransportOptions.Create(endpoint) with
             {
@@ -918,17 +1059,26 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
                 new PeerSyncApplication(
                     store,
                     replication,
+                    options: options.MaximumBackfillRecords is { } backfill
+                        ? PeerSyncOptions.Default with { MaximumBackfillRecords = backfill }
+                        : null,
                     alerts: alerts,
                     live: new PeerSyncLiveOptions(interests, RequestRemotePush: true, AlertsStored: RaiseNewAlertsAsync),
                     mesh: Mesh));
             connector.StateChanged += state =>
             {
+                if (state is PeerTransportState.Connecting or PeerTransportState.Authenticating)
+                {
+                    DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) {state.ToString().ToLowerInvariant()}");
+                }
+
                 if (state == PeerTransportState.Authenticated)
                 {
                     failuresSinceAuthentication = 0;
                     if (!authenticated)
                     {
                         authenticated = true;
+                        DiagnosticLog.Write("link", $"{peer.PeerId} ({peer.DisplayName}) connected via {locator.Host}:{locator.Port}");
                         _ = MarkConnectedAsync(peer.PeerId, locator);
                     }
 
@@ -995,8 +1145,9 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             var state = exception is PeerAuthenticationException or PeerCompatibilityException
                 ? MobileSyncState.Refused
                 : MobileSyncState.Offline;
+            DiagnosticLog.Write("link", $"{peerId} {state} (try {count}, next in {backoff.TotalSeconds:0} s)", exception);
             var lastSuccess = previous?.State == MobileSyncState.Synced ? DateTimeOffset.UtcNow : previous?.LastSuccess;
-            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, exception.Message);
+            peerStatus[peerId] = new MobilePeerSyncStatus(peerId, state, lastSuccess, PeerLinkErrors.Plain(exception));
             PeerStates.NotifySession(peerId, false, state == MobileSyncState.Refused ? "refused: " + exception.Message : exception.Message);
         }
     }
@@ -1016,7 +1167,7 @@ public sealed partial class MobilePeerRuntime : IAsyncDisposable
             PairingRemoteCandidate candidate,
             DateTimeOffset pairedAt,
             CancellationToken cancellationToken) =>
-            await store.UpsertTrustedPeerAsync(new TrustedPeer(
+            await store.PairTrustedPeerAsync(new TrustedPeer(
                 candidate.Identity.PeerId,
                 candidate.Identity.PublicKeySpki,
                 candidate.Identity.PublicKeyFingerprint,

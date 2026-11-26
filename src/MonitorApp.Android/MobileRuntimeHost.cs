@@ -70,14 +70,18 @@ internal static class MobileRuntimeHost
 
             var appContext = context.ApplicationContext ?? context;
             var directory = Path.Combine(appContext.FilesDir!.AbsolutePath, "peer");
+            MonitorApp.Peer.Application.DiagnosticLog.Configure(Path.Combine(appContext.FilesDir!.AbsolutePath, "logs"));
             var manufacturer = global::Android.OS.Build.Manufacturer;
             var model = global::Android.OS.Build.Model;
             var displayName = $"{manufacturer} {model}";
-            runtime = await MobilePeerRuntime.CreateAsync(
+            // SQLite work completes synchronously on the calling thread, and callers are the activity and the
+            // service's main thread. Opening the store can take seconds (the one-time schema v7 backfill reads all
+            // stored readings), so it runs on the thread pool instead of freezing the screen or the service start.
+            runtime = await Task.Run(() => MobilePeerRuntime.CreateAsync(
                 MobilePeerOptions.Default(directory, displayName),
                 new KeystorePeerIdentity("monitor-app-peer-v1"),
                 new AndroidDeviceReader(appContext),
-                new AndroidKeystoreUserPresenceSigner(appContext, "monitor-app-presence-v1")).ConfigureAwait(false);
+                new AndroidKeystoreUserPresenceSigner(appContext, "monitor-app-presence-v1"))).ConfigureAwait(false);
             return runtime;
         }
         finally

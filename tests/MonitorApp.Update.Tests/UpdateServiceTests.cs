@@ -49,6 +49,37 @@ public sealed class UpdateServiceTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public async Task ANewerReleaseReplacesABuildWaitingToInstallAndTheSameOneIsKeptAsync()
+    {
+        using var dir = new TempDir();
+        using var release = new SignedRelease();
+        var older = "peer-package-1.3.0"u8.ToArray();
+        var newer = "peer-package-1.4.0"u8.ToArray();
+        var fetcher = new FakeFetcher(release.Envelope("1.3.0", older));
+        var downloader = new FakeDownloader(older);
+        using var service = Create(dir, release, fetcher, downloader);
+        var installed = ReleaseVersion.Parse("1.2.0");
+        await service.CheckAsync(installed, null, default);
+        var waiting = await service.StageAsync(default);
+
+        // The same release again: the download waiting to install stays as it is, nothing is fetched again.
+        var again = await service.CheckAsync(installed, null, default);
+        Assert.Equal(UpdateStage.Staged, again!.Stage);
+        Assert.Equal(waiting.StagedPath, again.StagedPath);
+
+        // A newer release replaces it: the old download is removed and the newer one is downloaded and verified instead.
+        fetcher.Envelope = release.Envelope("1.4.0", newer);
+        downloader.Content = newer;
+        var available = await service.CheckAsync(installed, null, default);
+        Assert.Equal((UpdateStage.Available, "1.4.0"), (available!.Stage, available.TargetVersion));
+        Assert.False(File.Exists(waiting.StagedPath), "the superseded download is removed");
+        var staged = await service.StageAsync(default);
+        Assert.Equal(newer, await File.ReadAllBytesAsync(staged.StagedPath!));
+        Assert.Contains(new UpdateStateStore(dir.Combine("state")).ReadAudit(), l => l.Contains("superseded", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public async Task UpToDateReturnsNullAsync()
     {
         using var dir = new TempDir();

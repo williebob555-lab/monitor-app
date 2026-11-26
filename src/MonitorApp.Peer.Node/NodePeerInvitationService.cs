@@ -50,10 +50,7 @@ public sealed class NodePeerInvitationService(
             await using var client = new PeerPairingClient(
                 transport,
                 pairing,
-                new PeerInitialPairingOptions(
-                    MaximumApprovalPolls: 90,
-                    InitialPollDelay: TimeSpan.FromSeconds(1),
-                    MaximumPollDelay: TimeSpan.FromSeconds(2)));
+                PeerInitialPairingOptions.UntilRequestExpires);
             var result = await client.PairAsync(
                 new PeerInitialPairingRequest(
                     Guid.NewGuid().ToString("N"),
@@ -107,7 +104,7 @@ public sealed class NodePeerInvitationService(
             PairingRemoteCandidate candidate,
             DateTimeOffset pairedAt,
             CancellationToken cancellationToken) =>
-            await store.UpsertTrustedPeerAsync(new TrustedPeer(
+            await store.PairTrustedPeerAsync(new TrustedPeer(
                 candidate.Identity.PeerId,
                 candidate.Identity.PublicKeySpki,
                 candidate.Identity.PublicKeyFingerprint,

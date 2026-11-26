@@ -41,7 +41,8 @@ public sealed class MeshJoinScreenTests
             // The tablet shows its code; the phone scans it and is asked to compare the tablet's check code.
             await tabletScreen.ShowJoinCodeCommand.ExecuteAsync(null);
             Assert.True(tabletScreen.HasShownCode, tabletScreen.ErrorMessage);
-            await phoneScreen.ScanDeviceCodeCommand.ExecuteAsync(null);
+            // The one Scan button recognises a phone's or tablet's code and goes on to the face-to-face check.
+            await phoneScreen.ScanQrCommand.ExecuteAsync(null);
             Assert.True(phoneScreen.HasPendingDevice, phoneScreen.ErrorMessage);
             Assert.True(phoneScreen.PendingDevice!.IsJoinRequest);
             Assert.Equal("Tablet", phoneScreen.PendingDevice.DeviceName);
@@ -104,6 +105,11 @@ public sealed class MeshJoinScreenTests
             using var scansDeviceCode = new InProcessPeerDataSource(phone, qrScanner: new ScreenScanner(() => InProcessPeerDataSource.QrRows(joinCode)));
             var error = await Assert.ThrowsAsync<ApiValidationException>(() => scansDeviceCode.ScanAndPairAsync());
             Assert.Contains("phone or tablet", error.Message, StringComparison.Ordinal);
+
+            // The one Scan button tells them apart instead of refusing either.
+            Assert.True(scansDeviceCode.IsDeviceCode(joinCode));
+            Assert.False(scansInvitation.IsDeviceCode(invitation));
+            Assert.Equal(invitation, await scansInvitation.ScanAnyCodeAsync());
         }
         finally
         {

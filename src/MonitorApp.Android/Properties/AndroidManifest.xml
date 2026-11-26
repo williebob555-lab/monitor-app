@@ -3,11 +3,14 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <!-- specialUse avoids the 6-hour dataSync timeout of Android 15; this app is distributed by sideload, not Play. -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- Camera is only used to scan the pairing QR on a computer's admin page; the typed code works without it. -->
   <uses-permission android:name="android.permission.CAMERA" />
+  <!-- Lets the app ask whether a fingerprint is set up; without it Android throws instead of answering (0.1.32 crash). -->
+  <uses-permission android:name="android.permission.USE_BIOMETRIC" />
   <!-- Lets Monitor App hand its own verified update to Android's installer; Android still asks before every install. -->
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
   <uses-feature android:name="android.hardware.camera" android:required="false" />

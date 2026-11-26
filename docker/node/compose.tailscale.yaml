@@ -1,0 +1,16 @@
+# Lets the node read Tailscale's status (connected, this machine's address, which devices are online) the same way it
+# does on a normal install: by running "tailscale status --json" against the host's tailscaled.
+# Read-only: the node runs as an unprivileged user that is not a Tailscale operator, so tailscaled refuses any change.
+# Enabled by COMPOSE_FILE in .env. Both paths must exist on the host (they do once Tailscale is installed).
+services:
+  node:
+    volumes:
+      - type: bind
+        source: /usr/bin/tailscale
+        target: /usr/local/bin/tailscale
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /run/tailscale/tailscaled.sock
+        target: /run/tailscale/tailscaled.sock
+        bind: { create_host_path: false }

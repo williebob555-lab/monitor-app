@@ -157,6 +157,19 @@ public sealed partial class AlertPage(string alertId, ControlsViewModel? control
     [ObservableProperty]
     private bool hasActions;
 
+    /// <summary>A one-tap fix for what the alert is about (Syncthing: rescan), shown when the alert has one.</summary>
+    [ObservableProperty]
+    private bool hasFix;
+
+    [ObservableProperty]
+    private bool canFix;
+
+    [ObservableProperty]
+    private string fixText = string.Empty;
+
+    [ObservableProperty]
+    private string fixHint = string.Empty;
+
     [ObservableProperty]
     private string acknowledgeTier = string.Empty;
 
@@ -262,6 +275,7 @@ public static partial class AlertText
             : id.Contains("DISK", StringComparison.Ordinal) || id.Contains("STORAGE", StringComparison.Ordinal) ? SceneLayerKind.Storage
             : id.Contains("MEMORY", StringComparison.Ordinal) ? SceneLayerKind.Memory
             : id.Contains("BATTERY", StringComparison.Ordinal) ? SceneLayerKind.Power
+            : id.StartsWith("SERVICE.", StringComparison.Ordinal) ? SceneLayerKind.Services
             : null;
     }
 }
