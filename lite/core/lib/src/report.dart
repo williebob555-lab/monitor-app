@@ -29,7 +29,9 @@ class Report {
     this.screenOn,
     Map<String, PeerView>? peers,
     this.self,
-  }) : peers = peers ?? {};
+    List<Reading>? readings,
+  })  : peers = peers ?? {},
+        readings = readings ?? [];
 
   /// Stable random id for this install (one per OS on a dual-boot machine).
   final String id;
@@ -65,6 +67,11 @@ class Report {
   /// What this device sees of each other device, keyed by device id.
   final Map<String, PeerView> peers;
   final SelfCost? self;
+
+  /// Open-ended extra readings (name, value, unit, group). New kinds of data
+  /// (more sensors, services, IoT things) go here without changing the format;
+  /// the app shows any it finds, grouped.
+  final List<Reading> readings;
 
   static DateTime _sec(num s) => DateTime.fromMillisecondsSinceEpoch((s * 1000).round(), isUtc: true);
 
@@ -108,6 +115,9 @@ class Report {
         screenOn: json['screen'] is String ? json['screen'] == 'on' : null,
         peers: peers,
         self: SelfCost.tryParse(json['self']),
+        readings: json['readings'] is List
+            ? (json['readings'] as List).map(Reading.tryParse).whereType<Reading>().toList()
+            : null,
       );
     } catch (_) {
       return null;
@@ -142,6 +152,7 @@ class Report {
         if (screenOn != null) 'screen': screenOn! ? 'on' : 'off',
         'peers': {for (final e in peers.entries) e.key: e.value.toJson()},
         if (self != null) 'self': self!.toJson(),
+        if (readings.isNotEmpty) 'readings': [for (final r in readings) r.toJson()],
       };
 
   /// The compact line appended to the daily history file.
@@ -155,6 +166,33 @@ class Report {
         if (netRxBps != null) 'rx': netRxBps!.round(),
         if (netTxBps != null) 'tx': netTxBps!.round(),
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
+        for (final r in readings)
+          if (r.value is num) r.key: r.value,
+      };
+}
+
+/// One named reading, e.g. {key: "temp.cpu", label: "CPU temperature",
+/// value: 54.2, unit: "°C", group: "Sensors"}. Value may be a number, text
+/// or true/false.
+class Reading {
+  Reading({required this.key, required this.value, this.label, this.unit, this.group});
+  final String key;
+  final Object value;
+  final String? label, unit, group;
+
+  static Reading? tryParse(Object? j) {
+    if (j is! Map) return null;
+    final k = j['key'], v = j['value'];
+    if (k is! String || k.isEmpty || !(v is num || v is String || v is bool)) return null;
+    return Reading(key: k, value: v, label: _str(j['label']), unit: _str(j['unit']), group: _str(j['group']));
+  }
+
+  Map<String, Object?> toJson() => {
+        'key': key,
+        'value': value,
+        if (label != null) 'label': label,
+        if (unit != null) 'unit': unit,
+        if (group != null) 'group': group,
       };
 }
 

@@ -1,16 +1,26 @@
 import 'package:material_ui/material_ui.dart';
 
-void main() {
-  runApp(const MainApp());
+import 'src/home.dart';
+import 'src/host.dart';
+import 'src/state.dart';
+import 'src/theme.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final host = await LocalHost.load();
+  final state = AppState(host)..start();
+  runApp(MonitorApp(state));
 }
 
-class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+class MonitorApp extends StatelessWidget {
+  const MonitorApp(this.state, {super.key});
+  final AppState state;
 
   @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: Scaffold(body: Center(child: Text('Hello World!'))),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'Monitor Lite',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(),
+        home: HomePage(state),
+      );
 }

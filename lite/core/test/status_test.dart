@@ -117,6 +117,21 @@ void main() {
     expect(y.time, x.time.subtract(Duration(microseconds: x.time.microsecond)));
   });
 
+  test('extra readings round-trip and bad ones are dropped', () {
+    final y = Report.tryParse({
+      'id': 'a',
+      't': 1,
+      'readings': [
+        {'key': 'temp.cpu', 'label': 'CPU temperature', 'value': 54.2, 'unit': '°C', 'group': 'Sensors'},
+        {'key': 'svc.syncthing', 'value': true},
+        {'value': 3},
+        'junk',
+      ],
+    })!;
+    expect(y.readings.map((r) => r.key), ['temp.cpu', 'svc.syncthing']);
+    expect(Report.tryParse(y.toJson())!.readings.first.unit, '°C');
+  });
+
   test('garbage files are ignored, not fatal', () {
     expect(Report.tryParse('nope'), isNull);
     expect(Report.tryParse({'id': 3}), isNull);
