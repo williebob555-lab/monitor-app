@@ -14,6 +14,7 @@ import 'extras.dart';
 import 'linux.dart';
 import 'sample.dart';
 import 'things.dart';
+import 'containers.dart';
 import 'windows.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -80,6 +81,7 @@ class Agent {
   List<String> _watchers = const [];
   final _extras = Extras();
   final _things = Things();
+  final _containers = Containers();
   DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
@@ -113,8 +115,10 @@ class Agent {
 
   /// Writes each attached thing's file. A thing seen before but not now is
   /// rewritten as disconnected, keeping its declared place in the hierarchy.
-  void _writeThings(SyncFolder folder, String host, List<Report> things, DateTime now) {
+  /// Returns each thing's declared parent, connected or not.
+  Map<String, String?> _writeThings(SyncFolder folder, String host, List<Report> things, DateTime now) {
     final seen = {for (final t in things) t.id};
+    final parents = {for (final t in things) t.id: t.node?.parent};
     for (final t in things) {
       folder.writeThing(host, t);
     }
@@ -125,12 +129,14 @@ class Agent {
       try {
         old = Report.tryParse(jsonDecode(f.readAsStringSync()));
       } catch (_) {}
-      if (old == null || old.connected == false) continue;
+      if (old == null) continue;
+      parents[id] = old.node?.parent;
+      if (old.connected == false) continue;
       folder.writeThing(host, Report(
         id: old.id, name: old.name, kind: old.kind, time: now, machine: old.machine,
         nextSeconds: old.nextSeconds, connected: false, node: old.node,
       ));
-      folder.log(host, 'thing ${old.name} ($id) unplugged');
+      folder.log(host, 'thing ${old.name} ($id) ${old.node?.type == 'container' || old.node?.type == 'compose-project' ? 'gone' : 'unplugged'}');
     }
     // UPS charge, load and so on: one history line a minute per thing.
     if (_lastThingHistory == null || now.difference(_lastThingHistory!) >= const Duration(seconds: 55)) {
@@ -140,6 +146,7 @@ class Agent {
       }
       _lastThingHistory = now;
     }
+    return parents;
   }
 
   Future<void> cycle({bool firstRun = false}) async {
@@ -202,7 +209,14 @@ class Agent {
         } catch (e) {
           folder.log(cfg.id, 'ERROR things scan failed: $e');
         }
+        try {
+          things.addAll(await _containers.collect(cfg.id, _machine, ip, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds));
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR containers scan failed: $e');
+        }
       }
+
+      final parents = _writeThings(folder, cfg.id, things, now);
 
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
@@ -241,7 +255,7 @@ class Agent {
         node: NodeDecl(
           id: cfg.id,
           type: 'device',
-          children: {...folder.thingIds(cfg.id), for (final t in things) t.id}.toList()..sort(),
+          children: [for (final e in parents.entries) if (e.value == cfg.id) e.key]..sort(),
           links: [
             ...Things.hostLinks(things),
             // Other systems of this same machine (dual boot), from their files.
@@ -251,7 +265,6 @@ class Agent {
           ],
         ),
       );
-      _writeThings(folder, cfg.id, things, now);
       folder.writeNow(r);
       final hw = HistoryWriter(folder.deviceDir(cfg.id), LocalConfig.dir);
       // History stays at one line a minute however fast the live rate is.

@@ -51,6 +51,8 @@ dc() { if [ -n "$project" ]; then docker compose --project-directory "$dir" -p "
 # The collector service: the one built from this Dockerfile (or --service).
 if [ -z "$service" ]; then
   services=$(dc config --services) || { echo "no Compose project in $dir" >&2; exit 2; }
+  # With the optional Docker-list proxy next to it, the collector is "monitor".
+  if [ "$(echo "$services" | wc -l)" -ne 1 ] && echo "$services" | grep -qx monitor; then services=monitor; fi
   if [ "$(echo "$services" | wc -l)" -ne 1 ]; then
     echo "several services in $dir ($(echo $services)); say which with --service" >&2; exit 2
   fi

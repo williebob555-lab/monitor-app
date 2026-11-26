@@ -538,9 +538,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     final worst = list.map((t) => t.level).reduce((a, b) => a.index >= b.index ? a : b);
     final appear = bodies[host]!.appear.clamp(0.0, 1.0);
     return Positioned(
-      left: c.dx - 70,
+      left: c.dx - 130,
       top: c.dy - 12,
-      width: 140,
+      width: 260,
       height: 24,
       child: Opacity(
         opacity: appear,
@@ -556,7 +556,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
   static String _tagText(List<DeviceStatus> list, bool open) {
     final os = list.where((d) => !d.report.isThing).length, things = list.length - os;
-    final parts = [if (things > 0) '$things attached', if (os > 0) 'other system'];
+    final projects = list.where((d) => d.report.node?.type == 'compose-project').length;
+    final plugged = things - projects;
+    final parts = [if (plugged > 0) '$plugged attached', if (projects > 0) '$projects Docker', if (os > 0) 'other system'];
     return parts.join(' · ');
   }
 
@@ -1434,6 +1436,10 @@ String? _thingHeadline(Report r) {
         if (v('ups.load') != null) '${n(v('ups.load'), '%')} load',
       ];
       return parts.isEmpty ? null : parts.join(' · ');
+    case 'compose-project':
+      return '${v('cp.running') ?? '?'} running · tap for containers';
+    case 'container':
+      return [v('ct.state'), if (v('ct.cpu') is num) '${v('ct.cpu')}% CPU', if (v('ct.mem') is num) '${(v('ct.mem') as num).round()} MB'].whereType<Object>().join(' · ');
     case 'audio-interface':
       final rate = r.readings.where((x) => x.key.endsWith('.rate') && x.value is num).firstOrNull?.value;
       final run = r.readings.any((x) => x.key.endsWith('.state') && x.value == 'running');

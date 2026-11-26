@@ -5,7 +5,7 @@ import 'status.dart';
 /// "dual-boot": another operating system on the same physical machine.
 /// Only one runs at a time; they share the machine's disks and, if set up
 /// that way, its storage and Compose projects.
-const linkVias = {'usb', 'power', 'network', 'audio', 'thunderbolt', 'serial', 'bluetooth', 'dual-boot'};
+const linkVias = {'usb', 'power', 'network', 'audio', 'thunderbolt', 'serial', 'bluetooth', 'dual-boot', 'docker'};
 
 /// The direction a link carries what it carries, seen from the node that
 /// declares it: "out" (from me to them, e.g. a UPS giving power), "in" (to
@@ -94,10 +94,10 @@ List<String> checkTopology(Map<String, Report> devices, Map<String, Thing> thing
     if (r.isThing) {
       if (n.parent == null) {
         out.add('${r.name}: an attached thing must name its parent.');
-      } else if (!devices.containsKey(n.parent)) {
-        out.add('${r.name}: its parent "${n.parent}" is not a device in this folder.');
+      } else if (!all.containsKey(n.parent)) {
+        out.add('${r.name}: its parent "${n.parent}" is not in this folder.');
       } else {
-        final p = devices[n.parent]!.node;
+        final p = all[n.parent]!.node;
         if (p != null && !p.children.contains(r.id)) out.add('${r.name}: ${name(n.parent!)} does not list it as a child.');
       }
     }
@@ -141,11 +141,22 @@ DeviceStatus thingStatus(Thing t, {String? hostName, DateTime? now}) {
   }
   final bad = r.readings.where((x) => x.level == 'fault').firstOrNull ?? r.readings.where((x) => x.level == 'warn').firstOrNull;
   final level = bad == null ? Level.ok : bad.level == 'fault' ? Level.fault : Level.warn;
-  final title = bad == null ? 'Connected' : '${bad.label ?? bad.key}: ${bad.value ?? 'unknown'}';
+  Object? v(String k) => r.readings.where((x) => x.key == k).firstOrNull?.value;
+  final type = r.node?.type;
+  final title = bad != null
+      ? '${bad.label ?? bad.key}: ${bad.value ?? 'unknown'}'
+      : type == 'container'
+          ? '${v('ct.state') ?? 'unknown'}'
+          : type == 'compose-project'
+              ? '${v('cp.running') ?? '?'} running'
+              : 'Connected';
   final known = r.readings.where((x) => x.value != null).length;
-  return DeviceStatus(r, level, title,
-      'Plugged into $host${via.isEmpty ? '' : ' ($via)'}. $known of ${r.readings.length} readings available; the rest say why not.',
-      fresh: true, age: age);
+  final where = type == 'container'
+      ? 'A container in ${r.node?.parent?.replaceFirst(RegExp(r'^compose-[^-]+-'), '') ?? 'Docker'} on $host.'
+      : type == 'compose-project'
+          ? 'A Compose project in Docker on $host.'
+          : 'Plugged into $host${via.isEmpty ? '' : ' ($via)'}.';
+  return DeviceStatus(r, level, title, '$where $known of ${r.readings.length} readings available; the rest say why not.', fresh: true, age: age);
 }
 
 String _ago(Duration d) => d.inMinutes < 1

@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'dive.dart';
 import 'parts.dart';
@@ -54,9 +55,10 @@ class _DevicePageState extends State<DevicePage> {
               onOpen: (p) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PartPage(widget.state, r.id, p.id))),
             );
             final left = <Widget>[
-              if (r.isThing) _connections(r, names) else if (attached.isNotEmpty) _attached(attached),
-              if (r.isThing || attached.isNotEmpty) const SizedBox(height: 14),
-              if (r.isThing) _params(r) else _about(r, s),
+              if (_url(r) != null) ...[_open(_url(r)!), const SizedBox(height: 14)],
+              if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
+              if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
+              if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
             ];
             final right = <Widget>[
               _fields(r),
@@ -110,9 +112,9 @@ class _DevicePageState extends State<DevicePage> {
   }
 
   /// Things plugged into this device, each one a way down the hierarchy.
-  Widget _attached(List<Thing> things) {
+  Widget _attached(List<Thing> things, {bool docker = false}) {
     return Section(
-      'Attached',
+      docker ? 'Containers' : 'Attached',
       Column(children: [
         for (final t in things) _thingRow(t),
       ]),
@@ -171,6 +173,22 @@ class _DevicePageState extends State<DevicePage> {
               style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.6)),
     );
   }
+
+  static String? _url(Report r) {
+    final v = r.readings.where((x) => x.key == 'ct.url').firstOrNull?.value;
+    return v is String && v.startsWith(RegExp('https?://')) ? v : null;
+  }
+
+  /// A container's web interface, found by the collector (a port that
+  /// answers, or its monitor.url label).
+  Widget _open(String url) => Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.tonalIcon(
+          onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: Text('Open ${Uri.parse(url).host}:${Uri.parse(url).port}'),
+        ),
+      );
 
   Widget _notify(Report r) {
     final st = widget.state;

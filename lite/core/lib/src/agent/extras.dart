@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'containers.dart';
+
 import '../report.dart';
 import 'linux.dart' show linuxStatvfs;
 import 'windows.dart' show windowsDrives, windowsRegString;
@@ -159,17 +161,8 @@ class Extras {
 
   Future<List<Reading>> _containers() async {
     if (!Platform.isLinux) return const [];
-    const path = '/var/run/docker.sock';
-    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) return const [];
-    Socket? sock;
     try {
-      sock = await Socket.connect(InternetAddress(path, type: InternetAddressType.unix), 0).timeout(const Duration(seconds: 2));
-      sock.write('GET /containers/json?all=1 HTTP/1.0\r\nHost: docker\r\n\r\n');
-      await sock.flush();
-      final raw = await sock.cast<List<int>>().transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
-      final cut = raw.indexOf('\r\n\r\n');
-      if (cut < 0 || !raw.startsWith('HTTP/1.') || !raw.substring(0, raw.indexOf('\r\n')).contains(' 200')) return const [];
-      final list = jsonDecode(raw.substring(cut + 4));
+      final list = await Containers.dockerGet('/containers/json?all=1');
       if (list is! List) return const [];
       var running = 0;
       final bad = <String>[];
@@ -197,8 +190,6 @@ class Extras {
       ];
     } catch (_) {
       return const [];
-    } finally {
-      sock?.destroy();
     }
   }
 

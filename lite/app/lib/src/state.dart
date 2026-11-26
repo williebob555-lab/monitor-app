@@ -38,8 +38,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (d != null) return d;
     final t = things[id];
     if (t == null) return null;
-    final parent = t.report.node?.parent;
-    return thingStatus(t, hostName: parent == null ? null : reports[parent]?.name);
+    // The device whose folder it is in: for a container, the Docker host.
+    return thingStatus(t, hostName: reports[t.host]?.name);
   }
 
   /// The folder holding [id]'s files (and its history).
