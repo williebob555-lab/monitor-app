@@ -149,7 +149,9 @@ List<Part> partsOf(Report r, Map<String, String> names) {
             ? 'Syncthing not running here'
             : peers.isEmpty
                 ? 'no other devices yet'
-                : 'devices reachable',
+                : reach < peers.length
+                    ? 'no answer from ${peers.where((e) => !e.value.reachable).map((e) => names[e.key] ?? e.key).join(', ')}'
+                    : 'devices reachable',
     level: linkLevel,
     facts: [
       ('Tailscale', r.tailscaleIp ?? 'off (no address)'),

@@ -273,7 +273,7 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
   final worst = active.map((d) => d.level).reduce((a, b) => a.index >= b.index ? a : b);
   if (ok == active.length) {
     return NetworkStatus(Level.ok, active.length == 1 ? 'Only this device so far' : (active.length == 2 ? 'Both devices online' : 'All ${active.length} devices online'),
-        (active.length == 1 ? 'Share the Monitor folder with your other devices in Syncthing to see them here.' : 'Every device is reporting and reachable.') + awayText);
+        (active.length == 1 ? 'Share the Monitor folder with your other devices in Syncthing to see them here.' : 'Every device is reporting.') + awayText);
   }
   final bad = active.where((d) => d.level != Level.ok).map((d) => '${d.report.name}: ${d.title}');
   return NetworkStatus(worst, '$ok of ${active.length} devices online', '${bad.join('. ')}.$awayText');
