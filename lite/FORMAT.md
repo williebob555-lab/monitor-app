@@ -9,6 +9,12 @@
     history/hourly/YYYY-MM.jsonl         one summary line per hour
     history/daily/YYYY.jsonl             one summary line per day
     log.txt                       the app's own log, kept under 256 KB
+    patterns.json                 what its history shows, in words (computers, every 6 h)
+    things/<thing id>/            things it hosts: USB UPS, audio interface, Docker
+      now.json                    projects and containers (same shape as a device's)
+      history/ , params.json      its own history; optional settings from its software
+    requests/<id>.json            changes this device asked another device to make
+    results/<id>.json             this device's answers to requests it applied
   watch/<device id>.json          {"id","name","until"}: that device's app is open
                                   until "until" (Unix seconds); collectors go live
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
@@ -43,6 +49,10 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `screen` | `on`/`off` (Android) |
 | `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms, `seen` = age in seconds of that device's now.json here |
 | `self` | collector cost: `runMs`, `cpuMs`, `rssMb`, `over` (broken budgets) |
+| `node` | its place in the hierarchy (see "Hierarchy") |
+| `controls` | settings anyone may ask it to change (see "Controls") |
+| `connected` | things only: `true`, or `false` once unplugged / gone |
+| `watch` | names of the devices that have the app open, when written at the live rate |
 | `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable) |
 
 Missing keys mean "not available"; readers never guess.
@@ -103,7 +113,8 @@ is guessed.
 }
 ```
 
-* `via` is one of usb, power, network, audio, thunderbolt, serial, bluetooth.
+* `via` is one of usb, power, network, audio, thunderbolt, serial, bluetooth,
+  dual-boot (two systems of one machine), docker (a Compose project on its host).
 * `dir` is in, out or both, seen from the file that declares it.
 * Network reachability stays in `peers` (measured); `links` holds physical
   connections.
@@ -135,6 +146,63 @@ rule; NUT or upower only as a fallback if present), giving just its basic
 status: on mains or battery, charge, load, runtime; audio interfaces from
 `/proc/asound` and `amixer`.
 
+## Dual-boot twins
+
+Two systems on one physical machine (wc-alpha / wc-desktop, Wilsons-Laptop /
+wc-laptop-f) are two devices with two ids, two folders and the same `machine`
+key (the lowest burned-in wired or Wi-Fi MAC; Android has none). Each computer
+declares `{"to": <twin id>, "via": "dual-boot", "dir": "both"}` in its
+`node.links`. Only one runs at a time, so the twin with the older `t` is not
+booted: core `assess()` gives it `Level.inactive` ("This machine is running X
+right now"), not a fault, and peers do not probe it. The UI should draw twins
+as one machine with the running system on top.
+
+## Things written today
+
+| `node.type` | Written by | Parent | Readings (all `src`-marked) |
+|---|---|---|---|
+| `ups` | Linux collector, from USB HID | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
+| `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
+| `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open) |
+
+USB set: `usb.speed` Mbit/s, `usb.version`, `usb.port`, `usb.maxPower` mA
+(declared), `usb.current` and `usb.errors` (always unknown, with a note),
+`usb.connectedMin`, `usb.reconnects`, `usb.serial`, `usb.id`.
+UPS and audio things link to the host `via: usb` (a UPS also `via: power`,
+`dir: out`). A container that disappears is rewritten once with
+`connected: false`. Windows and Android write no things yet.
+
+## Controls (change a setting from any device)
+
+A device or thing that offers a change declares it in its own `now.json`:
+
+```json
+"controls": [{"key": "ups.alarm", "label": "Alarm", "options": ["on", "off", "quiet"],
+              "value": "on", "note": "...", "confirm": "what to say before sending"}]
+```
+
+One option means an action (a button); several mean a choice. Declared today:
+`ups.alarm` on a UPS thing (only when the UPS reports the setting), and
+`update` (one option, `value` = installed version) on Windows (installs the
+newest release silently) and Android (posts a notification; Android installs
+only with a tap). Linux and Docker declare no `update`: they update by hand or
+by their 15-minute timer.
+
+To ask, a device writes into **its own** folder
+`devices/<asker>/requests/<id>.json`:
+`{"id", "from", "fromName", "host", "target", "key", "value", "t"}`
+(`host` = the device that applies it, `target` = that device or one of its
+things, `id` = 24 random hex characters). The host applies each request at
+most once and only within 10 minutes of `t` (either way). Only keys it can
+apply are done (`ups.alarm` on Linux, `update` on Windows and Android); anything else is
+answered `"ok": false`. It logs "control key=value for target, asked by fromName: message", and
+answers in `devices/<host>/results/<id>.json`: `{"id", "ok", "message", "value"?, "t"}`.
+No answer after 10 minutes means it lapsed (host off or not synced). Both
+folders are pruned after a day. In Dart: `sendRequest`, `myRequests`,
+`resultOf` (the app side) and `requestsFor`, `handled`, `writeResult`,
+`pruneControls` (the collector side), in `control.dart`.
+
 ## Patterns
 
 What a device's history shows, in words, worked out from the history files
@@ -163,5 +231,32 @@ result in `devices/<id>/patterns.json` (rewritten every 6 hours):
    "value": 4.1, "unit": "%/h", "hours": 4.9}]}
 ```
 
-Next: phones write it too, and older summaries are cut back once patterns
-cover them.
+
+## Reading the folder from Dart (`package:monitor_core`)
+
+The app reads everything through core; it never parses files itself.
+
+| Need | Call |
+|---|---|
+| Open the folder | `SyncFolder(root)`; `exists`, `sharedBySyncthing` |
+| Every device's latest report | `readReports()` -> `Map<id, Report>` (a half-synced file keeps showing the previous report; files over 1 MB are skipped) |
+| Things | `readThings()` -> `Map<id, Thing>` (`Thing.report`, `.host`, `.params`) |
+| Status in words | `assess(reports, myId:)` -> `Assessment` (`devices`: `DeviceStatus` with `level` ok/inactive/warn/fault, `title`, `detail`, `fresh`, `age`; `network`: `NetworkStatus` with split `groups`); `thingStatus(thing)`; `freshLimit(r)`, `ghostAfter` (3 days) |
+| Any value | `Report.field('battery.pct')`, `.number(path)`, `.flatten()`, `.readings`, `.node`, `.controls`, `.raw` |
+| History | `readHistoryRange(deviceDir, HistoryRange.day/week/year, now)`, `seriesOf(lines, path)`, `chartValue` |
+| Patterns | `findPatterns(readDetail(dir, now), readHourly(dir, now), names:, upHours:)` (heavy: run off the UI thread) |
+| Hierarchy checks | `checkTopology(devices, things)`; `health()` -> `FolderHealth` |
+| Live rate | `writeWatch(myId, myName, now)` every `watchIntervalSeconds` while visible, `clearWatch` when hidden; `watchers(now)` |
+| Log | `readLog(id)` |
+| Settings | `Retention.load(root)` / `.save(root)` |
+
+## What stays stable
+
+* Paths, file names and every key listed in this file keep their meaning.
+  Fields and reading keys are only added, never renamed or removed without a
+  `v` bump, and a `v` bump is announced in `docs/COLLABORATION.md` first.
+* The public `monitor_core` API above keeps its names; additions are fine.
+  A breaking change is done by the backend owner, with the app updated in the
+  same PR.
+* This file describes only what is written today. A planned field is not
+  listed here until a collector writes it.
