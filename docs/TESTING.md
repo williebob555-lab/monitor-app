@@ -386,8 +386,8 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 
 From `lite/app`, run `flutter test test/pattern_history_test.dart`. The widget
 test writes and reads real archive files using `monitor_core` and checks
-the trend, archived zero and negative values, dates, units, and empty state
-at phone width.
+the trend, archived zero and negative values, dates, units, the empty
+state, and archived UPS runtime estimates at phone width.
 
 ## Desktop client tests
 

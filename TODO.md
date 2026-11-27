@@ -99,3 +99,4 @@ This file contains active and near-term tasks only. Read it with the required do
 ## Monitor App 2.x pattern history
 
 - [x] T077: show recorded daily pattern values on device pages through `monitor_core`, including dates and gaps.
+- [x] Expose the UPS reading source and archive trends when the collector supplies them.

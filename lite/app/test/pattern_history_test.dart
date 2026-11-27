@@ -82,4 +82,30 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'keeps archived UPS runtime labelled as estimated without recent metadata',
+    (tester) async {
+      final fixture = Directory.systemTemp.createTempSync(
+        'monitor-ups-pattern-widget-',
+      );
+      addTearDown(() => fixture.deleteSync(recursive: true));
+      recordPatterns(fixture.path, const [
+        Pattern(
+          key: 'ups.runtime.full',
+          group: 'Power',
+          text: 'Expected runtime',
+          hours: 5,
+          value: 42,
+          unit: 'min',
+          estimated: true,
+        ),
+      ], today);
+
+      await open(tester, readPatternHistory(fixture.path, today));
+      expect(find.text('Estimated UPS runtime at full charge'), findsOneWidget);
+      expect(find.text('High 42 min'), findsOneWidget);
+      expect(find.text('This pattern is an estimate.'), findsOneWidget);
+    },
+  );
 }

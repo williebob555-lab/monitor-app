@@ -57,6 +57,14 @@ class _PatternHistoryPageState extends State<PatternHistoryPage> {
         final known = widget.patterns
             .where((pattern) => pattern.key == key)
             .firstOrNull;
+        final unit =
+            known?.unit ??
+            switch (key) {
+              'ups.load.usual' => '%',
+              'ups.runtime.full' => 'min',
+              _ => null,
+            };
+        final estimated = known?.estimated == true || key == 'ups.runtime.full';
         final points = [
           for (final row in rows)
             if (row['t'] case final num timestamp)
@@ -104,7 +112,7 @@ class _PatternHistoryPageState extends State<PatternHistoryPage> {
                 if (points.isEmpty)
                   const Text('No dated values are available for this pattern.')
                 else ...[
-                  _Trend(points, unit: known?.unit),
+                  _Trend(points, unit: unit),
                   const SizedBox(height: 12),
                   Section(
                     'Latest entries',
@@ -116,7 +124,7 @@ class _PatternHistoryPageState extends State<PatternHistoryPage> {
                             child: Row(
                               children: [
                                 Expanded(child: Text(point.date)),
-                                Text(_value(point.value, known?.unit)),
+                                Text(_value(point.value, unit)),
                               ],
                             ),
                           ),
@@ -124,7 +132,7 @@ class _PatternHistoryPageState extends State<PatternHistoryPage> {
                     ),
                   ),
                 ],
-                if (known?.estimated == true)
+                if (estimated)
                   const Padding(
                     padding: EdgeInsets.only(top: 10),
                     child: Text(
@@ -152,6 +160,9 @@ String _patternName(String key) => switch (key) {
   'mem.usual' => 'Usual memory usage',
   'temp.cpu.usual' => 'Usual CPU temperature',
   'net.perDay' => 'Network data per day',
+  'ups.cuts' => 'Power cuts',
+  'ups.load.usual' => 'Usual UPS load',
+  'ups.runtime.full' => 'Estimated UPS runtime at full charge',
   'reach.always' => 'Devices always reached',
   _ => key,
 };
