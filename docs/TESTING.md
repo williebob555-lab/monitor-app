@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x network details
+
+From `lite/app`, run `flutter test test/network_parts_test.dart`. The tests check that older reports are interpreted without inventing a VPN state and that the Network part opens at phone width with the reported DNS results and timing.

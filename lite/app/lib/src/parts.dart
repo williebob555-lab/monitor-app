@@ -17,6 +17,7 @@ class Part {
     this.level = Level.ok,
     this.series = const [],
     this.facts = const [],
+    this.networkChecks = const [],
   });
 
   final String id;
@@ -33,6 +34,7 @@ class Part {
 
   /// Label/value lines shown when the part is opened.
   final List<(String, String)> facts;
+  final List<Reading> networkChecks;
 }
 
 /// One charted number: how to read it from a live report and from a
@@ -59,11 +61,15 @@ Level _high(double? v) => v == null ? Level.inactive : v >= 95 ? Level.fault : v
 
 String _pct(double? v) => v == null ? 'n/a' : '${v.round()}%';
 
+const _networkCheckKeys = ['net.gateway', 'net.dns', 'net.dnsDirect', 'net.internet'];
+const _networkDetailKeys = ['net.ifaces', 'net.pihole'];
+
 /// [away]: devices not running right now (the other system of a dual-boot
 /// machine, an old copy, one not seen for a while). Not answering is
 /// expected of them, so they don't count against this device's links.
 List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = const {}}) {
   final out = <Part>[];
+  final readings = {for (final reading in r.readings) reading.key: reading};
   final b = r.battery;
   if (b?.pct != null) {
     final p = b!.pct!;
@@ -119,49 +125,66 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
     series: [Series('Storage', 'disk', (x) => pct(x.diskUsed, x.diskTotal), max: 100, unit: '%')],
     facts: [('Used', fmtBytes(r.diskUsed)), ('Free', fmtBytes(_minus(r.diskTotal, r.diskUsed))), ('Total', fmtBytes(r.diskTotal))],
   ));
+  final networkChecks = [
+    for (final key in _networkCheckKeys)
+      if (readings[key] case final reading? when reading.group == 'Network') reading,
+  ];
+  final networkDetails = r.readings.where((x) => x.group == 'Network' && _networkDetailKeys.contains(x.key)).toList();
+  final networkLevel = _readingLevel([...networkChecks, ...networkDetails]);
   out.add(Part(
     id: 'network',
     title: 'Network',
     icon: r.netType == 'cellular' ? Icons.signal_cellular_alt : r.netType == 'ethernet' ? Icons.settings_ethernet : Icons.wifi,
     value: '↓ ${fmtRate(r.netRxBps)}',
     sub: '↑ ${fmtRate(r.netTxBps)}  ·  ${r.netType ?? '-'}',
-    level: r.netType == 'none' ? Level.fault : Level.ok,
+    level: r.netType == 'none' ? Level.fault : networkLevel,
     series: [
       Series('Download', 'rx', (x) => x.netRxBps, rate: true),
       Series('Upload', 'tx', (x) => x.netTxBps, rate: true),
     ],
-    facts: [('Connection', r.netType ?? '-'), ('Download', fmtRate(r.netRxBps)), ('Upload', fmtRate(r.netTxBps))],
+    networkChecks: networkChecks,
+    facts: [
+      ('Connection', r.netType ?? 'Not reported'),
+      ('Download', fmtRate(r.netRxBps)),
+      ('Upload', fmtRate(r.netTxBps)),
+      for (final reading in networkDetails) (reading.label ?? reading.key, readingText(reading)),
+    ],
   ));
 
   // Links: Tailscale and Syncthing, and how the other devices look from here.
   final peers = r.peers.entries.where((e) => !away.contains(e.key)).toList();
   final resting = r.peers.entries.where((e) => away.contains(e.key)).toList();
   final reach = peers.where((e) => e.value.reachable).length;
-  final linkLevel = r.tailscaleIp == null
-      ? Level.fault
-      : r.syncthingLocal == false
-          ? Level.warn
-          : peers.isNotEmpty && reach < peers.length
-              ? Level.warn
-              : Level.ok;
+  final tailscale = readings['ts.state'];
+  final syncthing = readings['st.state'];
+  final reportedLinkLevel = _readingLevel([?tailscale, ?syncthing]);
+  final linkLevel = reportedLinkLevel != Level.ok ? reportedLinkLevel
+      : r.syncthingLocal == false || reach < peers.length ? Level.warn
+      : r.tailscaleIp == null && tailscale?.value == null && r.syncthingLocal == null && syncthing?.value == null && peers.isEmpty
+          ? Level.inactive : Level.ok;
+  final tailState = tailscale?.value == null ? null : readingText(tailscale!);
+  final syncState = syncthing?.value == null ? null : readingText(syncthing!);
+  final tailDetails = [?tailState, ?r.tailscaleIp].join(' · ');
   out.add(Part(
     id: 'links',
     title: 'Links',
     icon: Icons.hub_outlined,
     value: peers.isEmpty ? '-' : '$reach of ${peers.length}',
-    sub: r.tailscaleIp == null
-        ? 'Tailscale is off'
-        : r.syncthingLocal == false
+    sub: tailscale?.level == 'fault' || tailscale?.level == 'warn'
+        ? 'Tailscale · ${tailState ?? 'Not reported'}'
+        : syncthing?.level == 'fault' || syncthing?.level == 'warn'
+            ? 'Syncthing · ${syncState ?? 'Not reported'}'
+            : r.syncthingLocal == false
             ? 'Syncthing not running here'
             : peers.isEmpty
-                ? 'no other devices yet'
+                ? (linkLevel == Level.inactive ? 'Link status not reported' : 'No peer checks reported')
                 : reach < peers.length
                     ? 'no answer from ${peers.where((e) => !e.value.reachable).map((e) => names[e.key] ?? e.key).join(', ')}'
                     : 'devices reachable',
     level: linkLevel,
     facts: [
-      ('Tailscale', r.tailscaleIp ?? 'off (no address)'),
-      ('Syncthing', r.syncthingLocal == null ? '-' : r.syncthingLocal! ? 'running' : 'not running'),
+      ('Tailscale', tailDetails.isEmpty ? 'Not reported' : tailDetails),
+      ('Syncthing', syncState ?? (r.syncthingLocal == null ? 'Not reported' : r.syncthingLocal! ? 'Running' : 'Not running')),
       for (final e in peers)
         (
           names[e.key] ?? e.key,
@@ -180,13 +203,16 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
   // Extra readings, one part per group.
   final groups = <String, List<Reading>>{};
   for (final x in r.readings) {
+    if (!r.isThing && x.group == 'Network' &&
+        (_networkCheckKeys.contains(x.key) || _networkDetailKeys.contains(x.key))) {
+      continue;
+    }
     groups.putIfAbsent(x.group ?? 'Other', () => []).add(x);
   }
   for (final g in groups.entries) {
     final nums = g.value.where((x) => x.value is num).toList();
-    final flagged = g.value.map((x) => x.level).whereType<String>().toSet();
     out.add(Part(
-      level: flagged.contains('fault') ? Level.fault : flagged.contains('warn') ? Level.warn : Level.ok,
+      level: _readingLevel(g.value),
       id: 'g:${g.key}',
       title: g.key,
       icon: Icons.sensors,
@@ -197,7 +223,7 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
           Series(x.label ?? x.key, x.key, (rr) => rr.readings.where((y) => y.key == x.key).map((y) => y.value).whereType<num>().firstOrNull?.toDouble(),
               unit: x.unit ?? ''),
       ],
-      facts: [for (final x in g.value) (x.label ?? x.key, _readingText(x))],
+      facts: [for (final x in g.value) (x.label ?? x.key, readingText(x))],
     ));
   }
   return out;
@@ -209,18 +235,24 @@ String _headline(List<Reading> g) {
   final x = g.where((r) => r.level == 'fault').firstOrNull ??
       g.where((r) => r.level == 'warn').firstOrNull ??
       (g.length == 1 ? g.first : null);
-  if (x != null) return _readingText(x);
-  return _readingText(g.first);
+  if (x != null) return readingText(x);
+  return readingText(g.first);
 }
 
 String? _subline(List<Reading> g) {
-  final rest = g.skip(1).take(2).map((r) => '${r.label ?? r.key} ${_readingText(r)}');
+  final rest = g.skip(1).take(2).map((r) => '${r.label ?? r.key} ${readingText(r)}');
   return rest.isEmpty ? null : rest.join('  ·  ');
 }
 
 int? _minus(int? a, int? b) => a == null || b == null ? null : a - b;
 
-String _readingText(Reading x) {
+Level _readingLevel(Iterable<Reading> readings) {
+  if (readings.any((reading) => reading.level == 'fault')) return Level.fault;
+  if (readings.any((reading) => reading.level == 'warn')) return Level.warn;
+  return Level.ok;
+}
+
+String readingText(Reading x) {
   final v = x.value;
   if (v == null) return x.note == null ? 'not available' : 'not available: ${x.note}';
   final t = v is double ? (v.abs() >= 100 ? v.round().toString() : v.toStringAsFixed(1)) : v is bool ? (v ? 'yes' : 'no') : '$v';

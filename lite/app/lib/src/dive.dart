@@ -322,6 +322,28 @@ class _PartPageState extends State<PartPage> {
                     if (p.level == Level.warn || p.level == Level.fault) StatusChip(p.level, p.level == Level.fault ? 'Needs you' : 'Look at this'),
                   ]),
                   const SizedBox(height: 16),
+                  if (p.networkChecks.isNotEmpty) ...[
+                    Section(
+                      'Connection checks',
+                      Column(
+                        children: [
+                          for (final reading in p.networkChecks)
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: StatusDot(switch (reading.level) {
+                                'warn' => Level.warn,
+                                'fault' => Level.fault,
+                                _ => Level.inactive,
+                              }),
+                              title: Text('${reading.label ?? reading.key} · ${readingText(reading)}'),
+                              subtitle: reading.note == null || reading.value == null ? null : Text(reading.note!),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   if (p.series.isNotEmpty) ...[
                     Section(
                       'Live',
