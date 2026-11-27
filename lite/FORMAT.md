@@ -172,7 +172,7 @@ as one machine with the running system on top.
 | `ups` | Linux collector: USB HID, else NUT, else UPower (`upower` or the host's exported file, packaging/linux/upower-export.sh) | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
-| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP), `ct.http` (HTTP status of one HEAD to that page each minute, or `no answer`; `warn` at 5xx or no answer) and `ct.httpMs` (its answer time). A stopped container that served a page earlier gets `ct.state` `warn` with note `was serving <url>`. A Pi-hole container also gets group Pi-hole: `ph.queries`, `ph.blocked` (today), `ph.blockedPct` %, `ph.domains`, `ph.gravityAge` (days since blocklists updated, `warn` over 14), or `ph.api` saying why there are no numbers (`needs its password`: give the collector `MONITOR_PIHOLE_PASSWORD` or `MONITOR_PIHOLE_PASSWORD_FILE`, an app password from Pi-hole's settings) |
 
 `ups.source` says which path was used. Through UPower, `ups.load` is unknown
 and no `ups.alarm` (or control) is written.
@@ -341,7 +341,9 @@ Same versioning, history, conflict and time-travel rules as items
 * `state`: `draft`, `active`, `done`, `archived` (never deleted).
 * A placement points at a model `item`, a live `thing`/device id, or neither
   (a planned part with only a name). `u`: `[bottom, top]` rack units, or
-  `null` while not placed. `face`: `front` or `rear`; `fullDepth: true`
+  `null` while not placed. `height`: rack units it takes, kept while it is
+  not placed (a 2U amplifier with no position yet); `check()` flags a
+  placement whose `u` range doesn't match it. `face`: `front` or `rear`; `fullDepth: true`
   blocks both faces.
 * Quantities are `{"value", "unit", "src"}`. Units understood: mm, cm, m,
   in, ft; g, kg, lb, oz; mW, W, kW. Others are kept but not added up.
