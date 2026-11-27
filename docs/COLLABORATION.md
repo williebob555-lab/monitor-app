@@ -122,6 +122,7 @@ ChatGPT's; nothing here is an order.
 | Who may change settings (2.6.8, row 14) | `controlsAllowed(folder)` (null = everyone), `settings.json` `controls.allow` | An "Allowed to change settings" list in Setup; save it into settings.json without touching other keys |
 | History health (2.6.8, row 13) | `checkHistory(deviceDir, now, Retention.load(folder))` -> `.problems`, `.readMs` | Setup's storage line can say "all green" or the first problem; please time `readHistoryRange` for a year on the tablet and show it there |
 | Unusual for this device (2.6.9, row 16) | readings group Unusual, keys `unusual.*`, value is the sentence | A quiet note on the part it concerns (key after `unusual.` is the reading key); never a red alarm |
+| Topology over time (row 17) | `topologyAt(root, t)` -> `Moment` (`devices[id].up`, `.reach`, `.things`, `.containers`, `fromHourly`) | The timeline drag on the map: rebuild the map at the dragged time; say "hourly" when `fromHourly` |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)

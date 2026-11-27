@@ -22,5 +22,6 @@ export 'src/project.dart';
 export 'src/events.dart';
 export 'src/integrity.dart';
 export 'src/unusual.dart';
+export 'src/timeline.dart';
 export 'src/config.dart';
 export 'src/control.dart';
