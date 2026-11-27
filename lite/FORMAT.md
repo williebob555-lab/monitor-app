@@ -433,6 +433,16 @@ model/items/<id>/history/<device>.jsonl every version, appended only by that dev
 * `props`: every value carries `src` (`measured`, `declared`, `estimated`,
   `unknown`) and optionally `unit`.
 * `observes`: the device or thing id in `devices/` whose telemetry this item is.
+* `match` (items made from what was seen): the object's lasting identity,
+  `usb:<vid:pid>:<serial>` (else `usb:<vid:pid>@<host>:<port>`),
+  `machine:<machine key>`, `device:<id>` or `thing:<id>`. When the
+  telemetry id changes (a UPS without a serial moved to another port), the
+  item is offered a relink, not a duplicate.
+* `alsoObserves`: the other systems of a dual-boot machine.
+* `suggestLinks(reports, things, items, now)` lists devices (one per
+  machine) and things not yet in the model; `acceptLink(store, s)` makes an
+  `owned` item under its host's item, or relinks. `tool/suggest.dart`
+  prints them for a folder.
 * `rev`, `by`, `t`: revision, the device that wrote it, when (Unix seconds).
 * Unknown keys are kept on every edit.
 * Written to `.syncthing.item.json.tmp` and renamed.
@@ -476,6 +486,35 @@ Same versioning, history, conflict and time-travel rules as items
   totals with how many parts had a value (`Total.known` of `count`); free units.
 * `ProjectStore(root, deviceId)`: `list()`, `get`, `put`, `archive`,
   `history`, `asOf`, `conflicts()`, `resolveConflicts()`.
+
+## Library: connectors and signals (`model/library/*.json`)
+
+The built-in library is in the code (`Library.builtIn`), so the phone
+loads it instantly: 86 connector shapes and 110 signals in the families
+usb, display, network, power, audio, eurorack, storage, rf and control. It
+comes from the old app's planning catalogue, with pinouts and limits added.
+It keeps four things apart:
+
+- **shape** (`connectors[]`): `fit` says what mates (a plug goes into a
+  receptacle with the same `fit`, or one listed in the receptacle's
+  `alsoMates`); `genders`; `pins` when the standard fixes them.
+- **signals the shape may carry** (`signals`): never a promise. A USB-C
+  shape guarantees USB 2 and 5 V; Thunderbolt or DisplayPort only when the
+  port and the cable declare it.
+- **signal** (`signals[]`): `kind` (data, video, audio, power, control),
+  `direction` (`both` or `out-to-in`), `limits` from the standard (`gbps`,
+  `v`, `vMin`, `a`, `w`, `dbu`, `impedanceOhm`, `polarity`, `m`).
+
+Your own additions go in `model/library/<name>.json`:
+
+```json
+{"signals": [{"id": "motu-avb", "label": "MOTU AVB", "family": "network", "kind": "audio"}],
+ "connectors": [{"id": "motu-combo", "label": "Combo XLR/TRS", "family": "audio",
+   "fit": "xlr3", "alsoMates": ["jack-635"], "signals": ["mic-level", "line-pro"]}]}
+```
+
+Ids follow the model id rule. A file may not replace a built-in id; a bad
+file is listed in `Library.load(root).problems` and skipped.
 
 ## Reading the folder from Dart (`package:monitor_core`)
 
