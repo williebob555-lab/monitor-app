@@ -57,6 +57,8 @@ syncs like everything else.
 * **A device, opened up**: the device in the middle and its parts around it
   (battery, processor, memory, storage, network, links, and any extra readings
   it publishes), each with its value and live line.
+  Hosts that report Docker Compose projects show a **Services** section with
+  each container's reported state, health check, and published web interface.
 * **A part**: its live chart since the app opened, its history (24 h, 7 days,
   a year) with low, average and high, its details, and anything else on that
   device that needs a look.
