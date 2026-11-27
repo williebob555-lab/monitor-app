@@ -44,6 +44,13 @@ services:
       #   target: /host/upower
       #   read_only: true
       #   bind: { create_host_path: false, selinux: z }
+      # Optional: disk health from the host's SMART timer ("Disk health" in
+      # README.md), read-only.
+      # - type: bind
+      #   source: /var/lib/monitor-app/smart
+      #   target: /host/smart
+      #   read_only: true
+      #   bind: { create_host_path: false, selinux: z }
     # Optional: a USB UPS (charge, mains or battery, load, runtime), read
     # directly. Needs the one udev rule in README.md first, and the UPS
     # plugged in when the container starts.

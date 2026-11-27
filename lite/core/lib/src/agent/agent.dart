@@ -16,6 +16,7 @@ import 'linux.dart';
 import 'sample.dart';
 import 'things.dart';
 import 'containers.dart';
+import 'smart.dart';
 import 'windows.dart';
 import 'updater.dart';
 import 'hid_ups.dart';
@@ -178,6 +179,7 @@ class Agent {
   String? _ctWhyLogged;
   final _things = Things();
   final _containers = Containers();
+  final _smart = Smart();
   DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
@@ -474,6 +476,11 @@ class Agent {
           things = await _things.collect(cfg.id, _machine, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds);
         } catch (e) {
           folder.log(cfg.id, 'ERROR things scan failed: $e');
+        }
+        try {
+          things.addAll(_smart.collect(cfg.id, _machine, now, interval.inSeconds));
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR disk health read failed: $e');
         }
         try {
           things.addAll(await _containers.collect(cfg.id, _machine, ip, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds));

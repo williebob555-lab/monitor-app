@@ -133,6 +133,38 @@ Installed from the .rpm or .deb (no Docker), the collector asks UPower itself
 
 An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
 
+## Disk health (SMART, optional)
+
+Each disk's health verdict, temperature, hours powered on, wear (SSDs) and
+error counts, as a `disk` thing under this server. Reading SMART needs root,
+so the collector doesn't do it: a small host timer does, every 30 minutes,
+and writes one read-only file per disk that the collector reads. The timer
+keeps only the two capabilities smartctl needs, sees disk devices read-only,
+has no network, can write only its own folder, never runs a self-test and
+never wakes a sleeping disk.
+
+On the host (each system of a dual-boot machine, once):
+
+```sh
+sudo dnf install smartmontools        # Fedora;  Ubuntu: sudo apt install smartmontools
+sudo sh lite/packaging/linux/smart-export.sh --check
+sudo sh lite/packaging/linux/smart-export.sh --install --dir /var/lib/monitor-app/smart
+```
+
+Then in `compose.yaml`, under the `monitor` service's `volumes:`, add
+
+```yaml
+      - type: bind
+        source: /var/lib/monitor-app/smart
+        target: /host/smart
+        read_only: true
+        bind: { create_host_path: false, selinux: z }
+```
+
+and run `docker compose up -d`. A collector installed from the .rpm/.deb
+reads `/var/lib/monitor-app/smart` directly. To remove:
+`sudo sh lite/packaging/linux/smart-export.sh --remove`.
+
 ## Update
 
 Automatic (recommended), once per deployment. `--dir` is the folder holding
