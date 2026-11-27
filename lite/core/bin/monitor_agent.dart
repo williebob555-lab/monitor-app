@@ -40,8 +40,10 @@ Future<void> main(List<String> args) async {
   } catch (_) {
     exit(0); // already running
   }
-  final agent = Agent();
-  if (args.contains('--once')) {
+  final once = args.contains('--once');
+  final claim = once ? null : (InstanceClaim('${LocalConfig.dir}${Platform.pathSeparator}agent.owner', pid: pid)..take());
+  final agent = Agent(claim: claim);
+  if (once) {
     agent.host.sample();
     await Future<void>.delayed(const Duration(seconds: 2));
     await agent.cycle(firstRun: true);

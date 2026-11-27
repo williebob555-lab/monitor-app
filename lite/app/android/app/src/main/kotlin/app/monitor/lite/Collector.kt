@@ -13,7 +13,6 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
-import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
 import android.provider.Settings
@@ -95,7 +94,11 @@ object Collector {
 
     private fun runLocked(ctx: Context, reason: String): Int {
         val started = SystemClock.elapsedRealtime()
-        val cpu0 = Process.getElapsedCpuTime()
+        // CPU of this collection thread only. The whole-process figure
+        // (Process.getElapsedCpuTime) also counts the app's screen when it is
+        // open in the same process, which logged false "OVER BUDGET: cpu 4 s"
+        // lines on the Pixel while Wilson looked at it (2026-11-26 22:42).
+        val cpu0 = SystemClock.currentThreadTimeMillis()
         val p = prefs(ctx)
         val id = deviceId(ctx)
         val pm = ctx.getSystemService(PowerManager::class.java)
@@ -213,7 +216,7 @@ object Collector {
                 .onFailure { log(dir, "ERROR requests: $it") }
 
             val runMs = SystemClock.elapsedRealtime() - started
-            val cpuMs = Process.getElapsedCpuTime() - cpu0
+            val cpuMs = SystemClock.currentThreadTimeMillis() - cpu0
             val rssMb = rssMb()
             val over = mutableListOf<String>()
             if (runMs > BUDGET_RUN_MS) over += "run $runMs ms > $BUDGET_RUN_MS ms"

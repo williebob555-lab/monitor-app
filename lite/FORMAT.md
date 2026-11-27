@@ -48,8 +48,8 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `ts.ip` | Tailscale address or null |
 | `st.up` | Syncthing listening on this device (port 22000) |
 | `screen` | `on`/`off` (Android) |
-| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms, `seen` = age in seconds of that device's now.json here |
-| `self` | collector cost: `runMs`, `cpuMs`, `rssMb`, `over` (broken budgets) |
+| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms (ICMP), `tcpMs` (computers: TCP handshake time to its port 22000, open or refused; present where ICMP is not allowed, e.g. Docker), `seen` = age in seconds of that device's now.json here |
+| `self` | collector cost: `runMs`, `cpuMs` (the collector's own CPU; on Android its collection thread, not the app screen sharing the process), `rssMb`, `over` (broken budgets) |
 | `node` | its place in the hierarchy (see "Hierarchy") |
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
@@ -95,8 +95,13 @@ How it stays small:
 * Each device deletes its own old files by the limits in `settings.json`
   (shown and editable under Setup > History), then enforces the size cap
   oldest-detail-first. Defaults: every reading 7 days, hourly 1 year, daily 5 years, 50 MB.
-* Readers open at most 25 hour files (24 h view), the hourly file(s) (7 days)
-  or the daily file(s) (year), so reading cost doesn't grow with history.
+* File names use the **writing device's local time** (a server in Docker is
+  UTC unless it mounts the host's `/etc/localtime`). Readers therefore look at
+  every name the period could have on any clock (UTC-12 to UTC+14) and keep
+  lines by `t`: at most about 53 hour names for the 24 h view (most don't
+  exist), the hourly file(s) for 7 days, the daily file(s) for a year, so
+  reading cost doesn't grow with history. Use `readHistoryRange`,
+  `readDetail`, `readHourly`; never build the names from your own clock.
 
 ## Hierarchy: `node`, attached things and `params.json`
 
@@ -165,7 +170,7 @@ as one machine with the running system on top.
 | `ups` | Linux collector: USB HID, else NUT, else UPower (`upower` or the host's exported file, packaging/linux/upower-export.sh) | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
-| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP) |
 
 `ups.source` says which path was used. Through UPower, `ups.load` is unknown
 and no `ups.alarm` (or control) is written.

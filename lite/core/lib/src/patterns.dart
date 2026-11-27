@@ -69,20 +69,23 @@ void recordPatterns(String deviceDir, List<Pattern> list, DateTime now) {
 /// The pattern lines of the last [years] years, oldest first.
 List<Map<String, Object?>> readPatternHistory(String deviceDir, DateTime now, {int years = 5}) {
   final sep = Platform.pathSeparator;
-  final y = now.toLocal().year;
+  final y = now.toUtc().add(const Duration(hours: 14)).year;
   return [
-    for (var i = years - 1; i >= 0; i--) ...readLines(File('$deviceDir${sep}history${sep}patterns$sep${y - i}.jsonl')),
+    for (var i = years; i >= 0; i--) ...readLines(File('$deviceDir${sep}history${sep}patterns$sep${y - i}.jsonl')),
   ];
 }
 
 /// The last [days] of detail lines (one a minute or so), oldest first.
 List<Map<String, Object?>> readDetail(String deviceDir, DateTime now, {int days = 7}) {
   final sep = Platform.pathSeparator;
-  final local = now.toLocal();
+  final from = now.subtract(Duration(days: days));
   final out = <Map<String, Object?>>[];
-  for (var i = days * 24; i >= 0; i--) {
-    out.addAll(readLines(File('$deviceDir${sep}history${sep}detail$sep${detailName(local.subtract(Duration(hours: i)))}')));
+  // Named in the writing device's local time: see historyNames.
+  for (final n in historyNames(from, now, detailName)) {
+    out.addAll(readLines(File('$deviceDir${sep}history${sep}detail$sep$n')));
   }
+  final f = from.millisecondsSinceEpoch ~/ 1000;
+  out.removeWhere((l) => (l['t']! as num) < f);
   out.sort((a, b) => (a['t']! as num).compareTo(b['t']! as num));
   return out;
 }
@@ -93,13 +96,13 @@ Set<int> hoursUp(List<Map<String, Object?>> hourly) => {for (final l in hourly) 
 /// The last [days] of hourly summary lines, oldest first.
 List<Map<String, Object?>> readHourly(String deviceDir, DateTime now, {int days = 30}) {
   final sep = Platform.pathSeparator;
-  final local = now.toLocal();
-  final from = now.millisecondsSinceEpoch ~/ 1000 - days * 86400;
+  final from = now.subtract(Duration(days: days));
   final out = <Map<String, Object?>>[];
-  for (final m in {for (var d = days; d >= 0; d -= 28) hourlyName(local.subtract(Duration(days: d))), hourlyName(local)}) {
+  for (final m in historyNames(from, now, hourlyName, step: const Duration(days: 1))) {
     out.addAll(readLines(File('$deviceDir${sep}history${sep}hourly$sep$m')));
   }
-  out.removeWhere((l) => (l['t']! as num) < from);
+  final f = from.millisecondsSinceEpoch ~/ 1000;
+  out.removeWhere((l) => (l['t']! as num) < f);
   out.sort((a, b) => (a['t']! as num).compareTo(b['t']! as num));
   return out;
 }
@@ -211,6 +214,8 @@ List<Pattern> _byTimeOfDay(List<Map<String, Object?>> hourly, String k, String g
   final hours = n.fold<int>(0, (a, b) => a + b).toDouble();
   if (parts.length < 2 || hours < 6) return const [];
   double avg(int i) => sum[i] / n[i];
+  // A server in Docker often runs on UTC: say so rather than call 3 AM "afternoon".
+  final zone = DateTime.now().timeZoneOffset == Duration.zero ? ' (UTC)' : '';
   final hi = parts.reduce((a, b) => avg(a) >= avg(b) ? a : b);
   final lo = parts.reduce((a, b) => avg(a) <= avg(b) ? a : b);
   if (avg(hi) - avg(lo) < 2) {
@@ -220,7 +225,7 @@ List<Pattern> _byTimeOfDay(List<Map<String, Object?>> hourly, String k, String g
     Pattern(
         key: '$k.busiest',
         group: group,
-        text: '$label is busiest ${_parts[hi]} (${_f(avg(hi))} %) and quietest ${_parts[lo]} (${_f(avg(lo))} %), over ${_h(hours)}',
+        text: '$label is busiest ${_parts[hi]} (${_f(avg(hi))} %) and quietest ${_parts[lo]} (${_f(avg(lo))} %)$zone, over ${_h(hours)}',
         value: avg(hi),
         unit: '%',
         hours: hours),

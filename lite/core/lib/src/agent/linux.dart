@@ -185,10 +185,19 @@ class LinuxHost implements Host {
     return (ut + st) * 10; // USER_HZ is 100 on every Linux we target
   }
 
+  String? _pingProblem;
+  @override
+  String? get pingProblem => _pingProblem;
+
   @override
   Future<int?> ping(String ip) async {
     try {
       final r = await Process.run('ping', ['-c', '1', '-W', '2', '-n', ip]).timeout(const Duration(seconds: 4));
+      // Exit 1 is "no reply"; anything else (2, or a message on stderr) means
+      // ping itself could not run, e.g. no permission for ICMP here.
+      final err = (r.stderr as String).trim();
+      if ((r.exitCode != 0 && r.exitCode != 1) || err.isNotEmpty) _pingProblem = err.isEmpty ? 'exit ${r.exitCode}' : err.split('\n').first;
+      if (r.exitCode == 0) _pingProblem = null;
       if (r.exitCode != 0) return null;
       final m = RegExp(r'time[=<]([\d.]+)').firstMatch(r.stdout as String);
       return m == null ? 0 : double.parse(m.group(1)!).round();
