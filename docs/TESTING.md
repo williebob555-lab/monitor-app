@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x map
+
+From `lite/app`, run `flutter test test/map_view_test.dart`. The widget tests use the real core assessment and render the map at 390 logical pixels wide. They check that known dual-boot installs share one node, retain separate navigation, and are labeled by report freshness. They also check that a UPS reported by the other install remains visible and contributes to the warning count. Physical-device behavior requires platform smoke testing.
