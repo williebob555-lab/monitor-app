@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'report.dart';
+import 'version.dart' show compareVersions;
 
 /// How bad a status is. Colors in the UI: ok green, warn amber, fault red,
 /// inactive gray.
@@ -32,11 +33,91 @@ class NetworkStatus {
 }
 
 class Assessment {
-  Assessment(this.devices, this.network);
+  Assessment(this.devices, this.network) : machines = machinesOf(devices);
 
-  /// Ordered: this device first, then by name.
+  /// Ordered: this device first, then by name. One entry per system: a
+  /// dual-boot machine has two.
   final List<DeviceStatus> devices;
   final NetworkStatus network;
+
+  /// One entry per physical machine, in the same order: the two systems of
+  /// a dual-boot machine (same `machine` key, e.g. wc-alpha and wc-desktop)
+  /// are one [Machine] whose [Machine.current] is the system running now.
+  /// Lists of "devices" should use this.
+  final List<Machine> machines;
+
+  /// Ids of every system on the same physical machine as [id], [id] first.
+  List<String> systemsOf(String id) {
+    for (final m in machines) {
+      if (m.systems.any((d) => d.report.id == id)) return [id, ...m.systems.map((d) => d.report.id).where((x) => x != id)];
+    }
+    return [id];
+  }
+}
+
+/// One physical machine. Most have one system; a dual-boot machine has two
+/// or more, of which at most one runs at a time.
+class Machine {
+  Machine(this.current, this.others);
+
+  /// The system running now (fresh), else the one heard from last.
+  final DeviceStatus current;
+
+  /// The other systems on the same hardware, newest first. Their status is
+  /// "Not booted" while [current] runs.
+  final List<DeviceStatus> others;
+
+  List<DeviceStatus> get systems => [current, ...others];
+  String get id => current.report.id;
+
+  /// "wc-alpha" for one system; "wc-alpha / wc-desktop" for a dual-boot
+  /// machine, the running system first.
+  String get name => systems.map((d) => d.report.name).join(' / ');
+  Level get level => current.level;
+}
+
+String? _sys(Report r, String k) {
+  final v = r.readings.where((x) => x.key == k).firstOrNull?.value?.toString().trim();
+  return v == null || v.isEmpty ? null : v;
+}
+
+/// Two systems on the same hardware. Normally their `machine` keys match.
+/// Before 2.6.1 Windows and Linux derived the key differently (the laptop
+/// and laptop-f had different keys on 2.6.0), so while either side is older
+/// than that, same maker, model (ignoring a trailing "(SKU)") and processor
+/// with a different system counts too.
+bool sameMachine(Report a, Report b) {
+  if (a.id == b.id) return true;
+  if (a.kind == 'android' || b.kind == 'android' || a.isThing || b.isThing) return false;
+  if (a.machine != null && a.machine == b.machine) return true;
+  bool old(Report r) => r.app == null || (r.app != 'dev' && compareVersions(r.app!, '2.6.1') < 0);
+  if (!old(a) && !old(b)) return false;
+  String? model(Report r) => _sys(r, 'sys.model')?.replaceFirst(RegExp(r'\s*\([^)]*\)$'), '');
+  final ma = _sys(a, 'sys.maker'), mb = _sys(b, 'sys.maker'), ca = _sys(a, 'sys.cpu'), cb = _sys(b, 'sys.cpu');
+  return ma != null && ma == mb && ca != null && ca == cb && model(a) != null && model(a) == model(b) && a.os != b.os && a.kind != b.kind;
+}
+
+/// Groups systems by their hardware key (`machine` in now.json). Phones never
+/// group: their key is not hardware-derived. Order follows [devices].
+List<Machine> machinesOf(List<DeviceStatus> devices) {
+  final groups = <String, List<DeviceStatus>>{};
+  final order = <String>[];
+  for (final d in devices) {
+    final twin = order.where((k) => groups[k]!.any((o) => sameMachine(o.report, d.report))).firstOrNull;
+    final key = twin ?? 'd:${d.report.id}';
+    if (!groups.containsKey(key)) order.add(key);
+    groups.putIfAbsent(key, () => []).add(d);
+  }
+  return [
+    for (final k in order)
+      () {
+        final g = [...groups[k]!]..sort((a, b) {
+            if (a.fresh != b.fresh) return a.fresh ? -1 : 1;
+            return b.report.time.compareTo(a.report.time);
+          });
+        return Machine(g.first, g.sublist(1));
+      }(),
+  ];
 }
 
 /// How long a report stays "fresh": two missed cycles plus a minute for
@@ -106,7 +187,8 @@ Assessment assess(Map<String, Report> reports, {String? myId, DateTime? now}) {
     // not booted. Never a red flag.
     final sibling = d.machine == null
         ? null
-        : fresh.where((o) => o.id != d.id && o.machine == d.machine && o.os != d.os).firstOrNull;
+        : fresh.where((o) => o.id != d.id && o.machine == d.machine && o.os != d.os).firstOrNull ??
+            fresh.where((o) => o.id != d.id && sameMachine(o, d)).firstOrNull;
     if (!f && sibling != null) {
       out.add(st(Level.inactive, 'Not booted',
           'This machine is running ${sibling.os ?? sibling.name} right now, so ${d.os ?? 'this system'} is not running. That is normal.'));
@@ -285,7 +367,9 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
 
   if (layer != null) return layer;
 
-  final away = devices.length - active.length;
+  // A dual-boot system that isn't booted is part of a machine that is up:
+  // not "away".
+  final away = devices.where((d) => d.level == Level.inactive && d.title != 'Not booted').length;
   final awayText = away == 0 ? '' : ' $away more ${away == 1 ? 'is' : 'are'} away or old copies.';
   final ok = active.where((d) => d.level == Level.ok).length;
   final worst = active.map((d) => d.level).reduce((a, b) => a.index >= b.index ? a : b);
@@ -307,8 +391,10 @@ NetworkStatus? networkLayer(List<Report> fresh, String? myId) {
   final checking = fresh.where((r) => _reading(r, 'net.internet') != null).toList();
   final noNet = checking.where((r) => _reading(r, 'net.internet') == 'no').toList();
   final withNet = checking.where((r) => _reading(r, 'net.internet') == 'reachable').toList();
+  // Pi-hole runs on one server at a time (Tailscale sends DNS to whichever
+  // is up), so one answering means Pi-hole is fine and the others are idle.
   final pihole = fresh.where((r) => _reading(r, 'net.pihole') != null).toList();
-  final piholeDown = pihole.where((r) => _reading(r, 'net.pihole') != 'answers').toList();
+  final piholeDown = pihole.any((r) => _reading(r, 'net.pihole') == 'answers') ? <Report>[] : pihole;
 
   if (noNet.length >= 2 && withNet.isEmpty) {
     final routerOk = noNet.where((r) => _reading(r, 'net.gateway') == 'answers').toList();
@@ -318,17 +404,15 @@ NetworkStatus? networkLayer(List<Report> fresh, String? myId) {
   }
 
   final dnsBad = checking.where((r) => _reading(r, 'net.dns') == 'no answer' && _reading(r, 'net.internet') == 'reachable').toList();
-  if (dnsBad.isNotEmpty || piholeDown.isNotEmpty) {
+  // Pi-hole not answering while every device still resolves names is an
+  // idle Pi-hole (another server's is serving, maybe one we can't see), not
+  // a problem.
+  if (dnsBad.isNotEmpty) {
     final directOk = dnsBad.where((r) => _reading(r, 'net.dnsDirect') == 'answers').isNotEmpty;
     final ph = piholeDown.isNotEmpty;
     final how = ph
         ? 'Pi-hole on ${_names(piholeDown)} is ${piholeDown.every((r) => _reading(r, 'net.pihole') == 'stopped') ? 'stopped' : 'not answering'}'
         : null;
-    if (dnsBad.isEmpty) {
-      // Pi-hole is down but every device still resolves (they use another
-      // resolver too): worth knowing, not an outage.
-      return NetworkStatus(Level.warn, 'Pi-hole not answering', '$how. Devices still look names up through another resolver, so nothing is blocked from working.');
-    }
     return NetworkStatus(dnsBad.length >= 2 || dnsBad.length == checking.length ? Level.fault : Level.warn, ph ? 'DNS failing (Pi-hole)' : 'DNS failing',
         '${_names(dnsBad)} ${dnsBad.length == 1 ? 'has' : 'have'} internet but can\'t look up names, so websites and apps won\'t load. '
         '${how != null ? '$how. ' : ''}'

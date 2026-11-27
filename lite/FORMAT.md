@@ -58,7 +58,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
 | `watch` | names of the devices that have the app open, when written at the live rate |
-| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Computers (2.6.9+) add group Unusual when the last hour is far outside what the device usually does at that time of day: `unusual.cpu` / `unusual.mem` / `unusual.temp.cpu`, `level: warn`, value in words ("CPU 70 %, usually 8 % at night"), at most 3 new a day. Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
+| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Computers (2.6.9+) add group Unusual when the last hour is far outside what the device usually does at that time of day: `unusual.cpu` / `unusual.mem` / `unusual.temp.cpu`, `level: warn`, value in words ("CPU 70 %, usually 8 % at night"), at most 3 new a day. Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53, no `level`: Pi-hole serves from one server at a time, so an idle one is normal; one answering anywhere means Pi-hole is fine). A Linux host where Docker runs (its `docker0` network exists) but the collector can't list containers adds `ct.access` = `not visible` with the reason in `note` (2.7.1+). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing" (only when a device can't resolve names), "No internet on <device>". `assess().machines` groups the systems of one physical machine (same `machine` key, not phones) into one `Machine` (`current` = the system running now, `others`, `name` "wc-alpha / wc-desktop"); `systemsOf(id)` gives every system id on that machine" |
 
 Missing keys mean "not available"; readers never guess.
 
@@ -192,6 +192,7 @@ as one machine with the running system on top.
 |---|---|---|---|
 | `ups` | Linux collector: UPower (natively, or the host's exported file), plus USB HID for what UPower lacks; USB HID alone, else NUT, when UPower can't be reached | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.hostAction` (declared, e.g. `host powers off at 20 %`), `ups.maker`, `ups.model`, `ups.serial` (only when it has one), `ups.identity`, `ups.source`, plus the USB set; UPS readings carry `from` |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
+| `disk` (2.7.1) | Linux collector, from the host's SMART export (`packaging/linux/smart-export.sh`: `/host/smart/smart-<dev>.json` in Docker, else `/var/lib/monitor-app/smart` or `MONITOR_SMART_DIR`) | host device; link `via: sata` or `pcie` | `disk.health` (`passed`/`FAILING` (fault)/`asleep`), `disk.temp` °C (warn from 60), `disk.hours`, `disk.wear` % of rated endurance used (NVMe `percentage_used`, SATA SSD attribute 177/231/233; warn from 90), `disk.realloc`, `disk.pending`, `disk.uncorrectable` (fault above 0), `disk.mediaErrors`, `disk.kind`, `disk.size` GB, `disk.serial`, `disk.device`. Id `disk-<model>-<serial>`, so both systems of a dual-boot machine write the same disk. An export with `error`, or older than 75 min, makes the readings unknown with that reason |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
 | `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP), `ct.http` (HTTP status of one HEAD to that page each minute, or `no answer`; `warn` at 5xx or no answer) and `ct.httpMs` (its answer time). A stopped container that served a page earlier gets `ct.state` `warn` with note `was serving <url>`. A Pi-hole container also gets group Pi-hole: `ph.queries`, `ph.blocked` (today), `ph.blockedPct` %, `ph.domains`, `ph.gravityAge` (days since blocklists updated, `warn` over 14), or `ph.api` saying why there are no numbers (`needs its password`: give the collector `MONITOR_PIHOLE_PASSWORD` or `MONITOR_PIHOLE_PASSWORD_FILE`, an app password from Pi-hole's settings) |
 
@@ -642,6 +643,24 @@ copy.
 - `bestOffer()` returns the cheapest offer that is in stock or whose stock
   is unknown.
 - A BOM line reaches its product through its item.
+
+### Fetched offers (`model/products/<id>/offers.jsonl`, 2.7.1)
+
+One computer fetches offers for every active product once a day: the one
+named in `model/fetch.json` (`{"on": "<device id>"}`; no file = off). It uses
+official shop APIs only, a second apart, and appends one line per offer:
+`{"t", "source", "seller", "price", "currency", "url", "inStock", "title"}`.
+Search words are the product's maker and model, or else its name. Shops
+(Wilson, 2026-11-27: Amazon, eBay, Walmart):
+
+- **eBay** (Browse API, new fixed-price US listings): needs an eBay developer
+  app key, `ebay.clientId` and `ebay.secret` in that computer's own
+  `keys.json` (next to its local settings), or `MONITOR_EBAY_CLIENT_ID` and
+  `MONITOR_EBAY_SECRET` in its environment.
+- **Amazon** (Product Advertising API) and **Walmart** (affiliate API): need
+  keys from their programs; until then the log says so each day.
+
+The file stops growing at 2 MB; price history and pruning are row 32.
 
 ## Reading the folder from Dart (`package:monitor_core`)
 

@@ -1,9 +1,0 @@
-[Unit]
-Description=Monitor App approved-update request
-
-[Path]
-PathExists=/var/lib/monitor-app/update/apply-request.json
-Unit=monitor-app-update.service
-
-[Install]
-WantedBy=multi-user.target

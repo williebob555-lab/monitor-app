@@ -1,10 +1,13 @@
-# Host telemetry companion (design, not built)
+# Host telemetry companion
 
 Status: pattern approved by Wilson 2026-11-27 ("the file-based UPower exporter
 architecture is approved ... a promising architectural pattern for future
-Docker, SMART and GPU telemetry providers"). Roadmap row 38. Only the UPower
-exporter (`lite/packaging/linux/upower-export.sh`) runs today; every new
-provider follows its contract below.
+Docker, SMART and GPU telemetry providers"). Roadmap row 38. Built: the UPower
+exporter (`lite/packaging/linux/upower-export.sh`) and, from 2.7.1 (Wilson
+OK'd the root timer 2026-11-27), the SMART exporter
+(`lite/packaging/linux/smart-export.sh`, one script per source rather than
+one `host-export.sh`, so the working UPower timer is never touched). Every
+new provider follows the contract below.
 
 ## The problem
 

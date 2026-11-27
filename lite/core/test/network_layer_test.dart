@@ -43,10 +43,15 @@ void main() {
     expect(n.detail, contains('Public DNS still answers'));
   });
 
-  test('Pi-hole down but names still resolve: a warning only', () {
-    final n = net([dev('beta', pihole: 'no answer'), dev('pixel')]);
-    expect(n.title, 'Pi-hole not answering');
-    expect(n.level, Level.warn);
+  test('Pi-hole idle on one server while names resolve: fine (one runs at a time)', () {
+    final n = net([dev('alpha', pihole: 'no answer'), dev('beta'), dev('pixel')]);
+    expect(n.level, Level.ok);
+  });
+
+  test('one Pi-hole answering: the idle one is never blamed', () {
+    final n = net([dev('alpha', pihole: 'no answer', dns: 'no answer'), dev('beta', pihole: 'answers'), dev('pixel', dns: 'no answer')]);
+    expect(n.title, 'DNS failing');
+    expect(n.detail, isNot(contains('Pi-hole')));
   });
 
   test("one device's own connection", () {
