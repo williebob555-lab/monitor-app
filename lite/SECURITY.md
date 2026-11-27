@@ -109,6 +109,8 @@ folder:
 - Anyone with a device in the Syncthing folder can read all telemetry,
   including device names, addresses on Tailscale and the local network,
   and container names.
+- A phone's location, when its owner switches it on (off by default), is
+  rounded to about 1 km and readable by every device in the folder.
 - A device that is fully compromised can still write wrong readings about
   itself, and ask for allowed controls.
 - Model, project and event files are trusted as data from the devices in

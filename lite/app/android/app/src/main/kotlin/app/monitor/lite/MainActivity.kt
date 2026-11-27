@@ -93,6 +93,13 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "location" -> result.success(mapOf("on" to Location.on(ctx), "granted" to Location.granted(ctx)))
+                "setLocation" -> {
+                    val on = call.argument<Boolean>("on") == true
+                    Location.set(ctx, on)
+                    if (on && !Location.granted(ctx)) requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION), 8)
+                    result.success(null)
+                }
                 "log" -> {
                     Collector.logToFolder(ctx, call.argument<String>("line") ?: "")
                     result.success(null)

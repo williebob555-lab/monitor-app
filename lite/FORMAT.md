@@ -613,6 +613,14 @@ library connector id, `dir`, `signals`, `power`, `gender`, `required`).
   It says whether the item's device was up, or whether its thing was
   attached and on (a container: running).
 
+### Location (Android, opt-in)
+
+A phone whose owner switched location on writes the reading `loc`, for
+example `"45.52,-122.68"`, with `src: measured`. It is the last position
+Android already has, rounded to two decimals (about 1 km). The note gives
+its age and accuracy. Switched off, which is the default, there is no
+reading.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

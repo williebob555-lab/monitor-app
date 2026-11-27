@@ -209,7 +209,7 @@ says otherwise; tests alone are never enough.
 
 | # | Item | Size | Depends | Done when | UI it enables | Status |
 |---|---|---|---|---|---|---|
-| 29 | **Location (opt-in).** Android coarse location as a reading, off by default, a switch on the device's own page. | M | | the Pixel's location appears only after switching it on | where a phone is | Todo |
+| 29 | **Location (opt-in).** Android coarse location as a reading, off by default, a switch on the device's own page. | M | | the Pixel's location appears only after switching it on | where a phone is | Built (Android, 2.7.0): reading `loc` ("lat,lon" rounded to about 1 km, last position Android already has, no GPS or extra wake-ups) only when switched on; method channel `location` / `setLocation` asks for coarse permission. Needs the switch on the device page (UI, ChatGPT); verify on the Pixel after that |
 | 30 | **Product records.** `model/products/<id>.json` (specs with `src`, images, docs links, offers), linked to items and BOM lines. Manual entry first. | M | 22 | a product added on one device is linked to an item on another | product lens of an item | Todo |
 | 31 | **Fetcher.** One collector (a server, chosen in settings) fetches offers from the sources Wilson picks, politely (rate limits, robots.txt, permitted APIs only), into `model/products/<id>/offers.jsonl`. | L | 30 | real prices for three real products refresh daily | price history | Gate: sources and keys |
 | 32 | **Price and stock tracking.** Price history, availability, product changes; rule triggers "price below", "back in stock". | M | 31, 19 | a real price change fires a rule once | price alerts | Todo |
