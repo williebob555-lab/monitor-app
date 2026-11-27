@@ -9,6 +9,7 @@ import 'device_page.dart';
 import 'dive.dart';
 import 'map_view.dart';
 import 'parts.dart';
+import 'past_moment_page.dart';
 import 'timeline.dart';
 import 'timeline_activity.dart';
 import 'setup_page.dart';
@@ -454,6 +455,13 @@ class _MapPanelState extends State<_MapPanel> {
               style: const TextStyle(color: C.muted),
             ),
             TextButton(onPressed: _chooseTime, child: const Text('Choose time')),
+            if (_selected case final selected?)
+              TextButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => PastMomentPage(state.folder.root, selected, topology: _recorded)),
+                ),
+                child: const Text('Recorded workspace'),
+              ),
             if (local != null) TextButton(onPressed: () => _select(null), child: const Text('Back to live')),
           ],
         ),

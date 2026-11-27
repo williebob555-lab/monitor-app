@@ -263,3 +263,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - The activity button on a device page shows recorded events about or from that device for the last seven days, with local time and the observing device.
 - The map timeline marks recent recorded events. Open the event list and select one to move the map to its time.
 - The recorded map uses saved reachability, attachments, and container state. Choose a time in the archive or use the one-day slider.
+- Open the recorded workspace from the map to see inventory and projects as they were at that time.

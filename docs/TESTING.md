@@ -397,3 +397,4 @@ Run `flutter test test/device_activity_test.dart` from `lite/app`. The widget te
 The timeline test writes real core event records, filters them to the last 24 hours, and selects a displayed event at phone width.
 
 From `lite/app`, run `flutter test test/recorded_topology_test.dart` to check recorded map data against a real archive. The test includes current metadata for a device with no record at the selected time.
+Run `flutter test test/past_moment_page_test.dart` to verify that the recorded workspace selects the saved versions that existed at the chosen time.
