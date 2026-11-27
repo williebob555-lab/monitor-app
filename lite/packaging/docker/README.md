@@ -68,6 +68,29 @@ sudo docker compose exec monitor monitor-agent --ups-alarm off    # or: on, quie
 The setting lives in the UPS itself. Turning it off also silences the
 low-battery warning, so you rely on the app for that.
 
+## UPS through UPower (optional, instead of the USB step)
+
+If UPower on the host already reads the UPS (for example because it shuts the
+machine down at low battery), the collector can show what UPower sees
+without getting the USB device or D-Bus. A small timer on the host writes
+`upower -i` for the UPS into one file once a minute, as your user, and the
+container gets only that folder, read-only. It only reads from UPower,
+never writes to the UPS, and has no part in shutdown.
+
+```sh
+curl -fsSL -o /tmp/upower-export.sh https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/linux/upower-export.sh
+sh /tmp/upower-export.sh --check          # what UPower sees; changes nothing
+sudo sh /tmp/upower-export.sh --install --dir /var/lib/monitor-app/upower --user "$(id -un)"
+```
+
+Then uncomment the `/host/upower` line in `compose.yaml` (same folder as
+`--dir`) and run `docker compose up -d`. You get on mains or battery (and
+"battery, low" when UPower warns), charge, runtime (the UPS's own estimate),
+maker and model. Load shows as unknown, because UPower doesn't report it,
+and the beeper setting isn't offered, since this path is read-only. An export
+older than 3 minutes is shown as unknown, never as current. Needs collector
+2.6.5 or later. Remove with `sudo sh /usr/local/lib/monitor-app/upower-export.sh --remove`.
+
 An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
 
 ## Update

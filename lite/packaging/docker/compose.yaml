@@ -29,6 +29,10 @@ services:
       # Optional: readings from a USB audio interface. Docker hides the
       # host's sound card details; this shares them read-only.
       # - /proc/asound:/host/asound:ro
+      # Optional: a UPS that UPower on the host reads, shared as one small
+      # read-only file by packaging/linux/upower-export.sh ("UPS through
+      # UPower" in README.md). No D-Bus and no USB device in here.
+      # - /var/lib/monitor-app/upower:/host/upower:ro,z
     # Optional: a USB UPS (charge, mains or battery, load, runtime), read
     # directly. Needs the one udev rule in README.md first, and the UPS
     # plugged in when the container starts.
