@@ -247,6 +247,7 @@ class _ProjectPageState extends State<_ProjectPage> {
           ),
         ],
         bottom: const TabBar(
+          dividerColor: C.line,
           tabs: [
             Tab(text: 'Rack'),
             Tab(text: 'Equipment'),
@@ -292,6 +293,7 @@ class _ProjectPageState extends State<_ProjectPage> {
       _RackElevation(
         draft.rackUnits!,
         draft.equipment,
+        depthMm: draft.rackDepthMm,
         onOpen: (item) => _editEquipment(item: item),
         onEmpty: (unit) => _editEquipment(unit: unit),
       ),
@@ -400,15 +402,20 @@ class _RackElevation extends StatelessWidget {
   const _RackElevation(
     this.units,
     this.equipment, {
+    required this.depthMm,
     required this.onOpen,
     required this.onEmpty,
   });
 
   final int units;
   final List<EquipmentDraft> equipment;
+  final double? depthMm;
   final ValueChanged<EquipmentDraft> onOpen;
   final ValueChanged<int> onEmpty;
   static const _unitHeight = 44.0;
+  static const _railWidth = 18.0;
+  static const _rulerWidth = 38.0;
+  static const _frame = Color(0xFF0E1114);
 
   @override
   Widget build(BuildContext context) {
@@ -416,88 +423,190 @@ class _RackElevation extends StatelessWidget {
       for (final item in equipment)
         if (item.topUnit != null) item.topUnit!: item,
     };
-    final rows = <Widget>[];
+    final bays = <Widget>[];
     for (var unit = units; unit >= 1;) {
       final item = byTopUnit[unit];
       final count = item?.heightUnits ?? 1;
       final top = unit;
-      rows.add(
-        Row(
+      bays.add(
+        SizedBox(
+          height: _unitHeight * count,
+          child: item == null ? _emptyBay(top) : _faceplate(item),
+        ),
+      );
+      unit -= count;
+    }
+
+    return Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 52,
-              child: Column(
-                children: [
-                  for (var tick = top; tick > top - count; tick--)
-                    SizedBox(
-                      height: _unitHeight,
-                      child: Center(
-                        child: Text(
-                          'U$tick',
-                          style: const TextStyle(color: C.muted),
+            Padding(
+              padding: const EdgeInsets.only(top: 9),
+              child: SizedBox(
+                width: _rulerWidth,
+                child: Column(
+                  children: [
+                    for (var unit = units; unit > 0; unit--)
+                      SizedBox(
+                        height: _unitHeight,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'U$unit',
+                            style: const TextStyle(
+                              color: C.muted,
+                              fontSize: 11,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
             Expanded(
-              child: SizedBox(
-                height: _unitHeight * count,
-                child: Material(
-                  color: item == null
-                      ? C.surface
-                      : _design.withValues(alpha: 0.13),
-                  shape: Border(
-                    bottom: BorderSide(color: item == null ? C.line : _design),
-                  ),
-                  child: InkWell(
-                    onTap: item == null
-                        ? () => onEmpty(top)
-                        : () => onOpen(item),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(
-                        children: [
-                          if (item == null)
-                            const Icon(Icons.add, size: 17, color: C.muted),
-                          if (item == null) const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              item == null ? 'Add at U$top' : item.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: item == null ? C.muted : C.text,
-                              ),
-                            ),
-                          ),
-                          if (item != null)
-                            const Icon(
-                              Icons.chevron_right,
-                              size: 18,
-                              color: _design,
-                            ),
-                        ],
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _frame,
+                  border: Border.all(color: C.line),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _rail(),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: bays,
                       ),
                     ),
-                  ),
+                    _rail(),
+                  ],
                 ),
               ),
             ),
           ],
         ),
-      );
-      unit -= count;
-    }
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: C.raised,
-        border: Border.all(color: C.line),
       ),
-      child: Column(children: rows),
     );
   }
+
+  Widget _rail() => SizedBox(
+    width: _railWidth,
+    height: _unitHeight * units,
+    child: CustomPaint(painter: _RackRail(units, _unitHeight)),
+  );
+
+  Widget _emptyBay(int unit) => Material(
+    color: const Color(0xFF090C0F),
+    shape: const Border(bottom: BorderSide(color: Color(0xFF252D35))),
+    child: Tooltip(
+      message: 'Add at U$unit',
+      excludeFromSemantics: true,
+      child: Semantics(
+        button: true,
+        label: 'Add at U$unit',
+        child: InkWell(
+          key: ValueKey('rack-empty:$unit'),
+          onTap: () => onEmpty(unit),
+          child: const Center(child: Icon(Icons.add, size: 16, color: C.muted)),
+        ),
+      ),
+    ),
+  );
+
+  Widget _faceplate(EquipmentDraft item) {
+    final tooDeep =
+        depthMm != null && item.depthMm != null && item.depthMm! > depthMm!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 1),
+      child: Material(
+        color: C.raised,
+        shape: const Border(
+          top: BorderSide(color: Color(0xFF37404A)),
+          bottom: BorderSide(color: Colors.black),
+        ),
+        child: InkWell(
+          onTap: () => onOpen(item),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (tooDeep)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Tooltip(
+                      message: 'Depth exceeds entered rack depth',
+                      child: Icon(
+                        Icons.warning_amber_rounded,
+                        color: C.warn,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Text(
+                  '${item.heightUnits}U',
+                  style: const TextStyle(color: C.muted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RackRail extends CustomPainter {
+  const _RackRail(this.units, this.unitHeight);
+
+  final int units;
+  final double unitHeight;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = const Color(0xFF292F36),
+    );
+    final groove = Paint()..color = const Color(0xFF39414B);
+    canvas.drawLine(const Offset(1, 0), Offset(1, size.height), groove);
+    final hole = Paint()..color = const Color(0xFF101317);
+    final x = size.width / 2;
+    for (var unit = 0; unit < units; unit++) {
+      for (final position in const [1 / 7, 1 / 2, 6 / 7]) {
+        final y = (unit + position) * unitHeight;
+        final slot = Rect.fromCenter(center: Offset(x, y), width: 5, height: 4);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(slot, const Radius.circular(0.7)),
+          hole,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RackRail oldDelegate) =>
+      units != oldDelegate.units || unitHeight != oldDelegate.unitHeight;
 }
 
 Widget _workspaceList(List<Widget> children, {String page = 'projects'}) =>

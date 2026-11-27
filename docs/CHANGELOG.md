@@ -263,3 +263,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - Projects on Home opens a session draft with a numbered rack elevation, editable equipment dimensions and positions, and a task checklist. The draft rejects overlapping or out-of-range positions and shows depth, weight, and power only where values were entered.
 - Start a project with just a name and add rack details later. Equipment can link back to its existing Monitor report while plan changes remain in the draft.
 - Copy plan puts a plain-text copy of the draft rack layout, equipment, and checklist on the clipboard.
+- The rack front uses a numbered ruler, mounting rails, faceplates sized in rack units, and a depth warning beside the affected faceplate.

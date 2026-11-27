@@ -112,14 +112,16 @@ void main() {
     final draft = ProjectDraft('Studio rack', rackUnits: 4, rackDepthMm: 400);
     await openWorkspace(tester, [draft]);
     await tap(tester, draft.name);
-    await tap(tester, 'Add at U1');
+    await tester.tap(find.byKey(const ValueKey('rack-empty:1')));
+    await tester.pumpAndSettle();
     await tester.enterText(field('Equipment name'), 'Power amp');
     await tester.enterText(field('Height (U), optional'), '2');
     await tester.enterText(field('Depth (mm), optional'), '430');
     await tester.enterText(field('Weight (kg), optional'), '9.5');
     await tap(tester, 'Add to project');
     expect(find.textContaining('2 of 4U occupied'), findsOneWidget);
-    expect(find.text('Add at U2'), findsNothing);
+    expect(find.byKey(const ValueKey('rack-empty:2')), findsNothing);
+    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
 
     await tap(tester, 'Equipment');
     expect(
