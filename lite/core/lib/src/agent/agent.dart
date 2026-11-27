@@ -16,6 +16,7 @@ import 'linux.dart';
 import 'sample.dart';
 import 'things.dart';
 import 'containers.dart';
+import 'smart.dart';
 import 'windows.dart';
 import 'updater.dart';
 import 'hid_ups.dart';
@@ -28,6 +29,7 @@ import '../unusual.dart';
 import '../rules.dart';
 import '../rule_eval.dart';
 import '../notify.dart';
+import '../fetch.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
 import '../products.dart';
@@ -51,13 +53,25 @@ bool isTailscaleIp(InternetAddress a) {
 
 Future<String?> tailscaleIp() async {
   try {
+    final found = <(String, String)>[];
     for (final i in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
       for (final a in i.addresses) {
-        if (isTailscaleIp(a)) return a.address;
+        if (isTailscaleIp(a)) found.add((i.name, a.address));
       }
     }
+    return pickTailscale(found);
   } catch (_) {}
   return null;
+}
+
+/// 100.64/10 is also what mobile carriers and some ISPs hand out (CGNAT):
+/// the Pixel on 2026-11-27 had rmnet16 100.86.5.58 (the carrier) next to
+/// tun0 100.88.178.60 (Tailscale), and published the carrier's, so nobody
+/// could reach it. Prefer the VPN interface; never a cellular one.
+String? pickTailscale(List<(String, String)> found) {
+  bool vpn(String n) => n.startsWith('tailscale') || n.startsWith('tun') || n.startsWith('utun') || n.toLowerCase().contains('tailscale');
+  bool cell(String n) => RegExp(r'^(rmnet|ccmni|pdp|wwan|clat|v4-rmnet|seth|ccinet|wwp)').hasMatch(n);
+  return found.where((f) => vpn(f.$1)).firstOrNull?.$2 ?? found.where((f) => !cell(f.$1)).firstOrNull?.$2;
 }
 
 Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async => (await tcpProbeTimed(host, timeout: timeout)).$1;
@@ -163,8 +177,12 @@ class Agent {
   List<Reading> _unusual = const [];
   final _unusualLimit = UnusualLimiter();
   final _extras = Extras();
+  String? _ctWhyLogged;
   final _things = Things();
   final _containers = Containers();
+  final _smart = Smart();
+  DateTime? _fetchAt;
+  bool _fetching = false;
   DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
@@ -430,6 +448,11 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      final ctWhy = extra.where((r) => r.key == 'ct.access').firstOrNull?.note;
+      if (ctWhy != _ctWhyLogged) {
+        if (ctWhy != null) folder.log(cfg.id, 'containers: $ctWhy');
+        _ctWhyLogged = ctWhy;
+      }
       // Unusual for this device (row 16): every 5 minutes, from its history.
       if (_unusualAt == null || now.difference(_unusualAt!) >= const Duration(minutes: 5)) {
         _unusualAt = now;
@@ -456,6 +479,11 @@ class Agent {
           things = await _things.collect(cfg.id, _machine, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds);
         } catch (e) {
           folder.log(cfg.id, 'ERROR things scan failed: $e');
+        }
+        try {
+          things.addAll(_smart.collect(cfg.id, _machine, now, interval.inSeconds));
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR disk health read failed: $e');
         }
         try {
           things.addAll(await _containers.collect(cfg.id, _machine, ip, now, _watchers.isNotEmpty ? fast.inSeconds : interval.inSeconds));
@@ -629,6 +657,20 @@ class Agent {
         } catch (e) {
           folder.log(cfg.id, 'ERROR model conflicts: $e');
         }
+      }
+      // Offers (row 31): only on the computer named in model/fetch.json,
+      // once a day, in the background so the cycle stays in budget.
+      if (!_fetching && (_fetchAt == null || now.difference(_fetchAt!) >= const Duration(hours: 24)) && fetcherDevice(cfg.folder) == cfg.id) {
+        _fetchAt = now;
+        _fetching = true;
+        final f = folder, id = cfg.id, root = cfg.folder;
+        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now).then((lines) {
+          for (final l in lines) {
+            f.log(id, l);
+          }
+        }).catchError((Object e) {
+          f.log(id, 'ERROR offers: $e');
+        }).whenComplete(() => _fetching = false));
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {
