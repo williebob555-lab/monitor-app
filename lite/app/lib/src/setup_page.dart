@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
-import 'controls_view.dart';
+import 'fleet_updates.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -213,101 +213,39 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               style: const TextStyle(color: C.muted, fontSize: 12.5),
             ),
           ],
-          ..._others(st),
+          if (_fleet(st) case final rows when rows.isNotEmpty)
+            FleetUpdates(rows, onRequest: (devices) => _updateAll(st, devices)),
         ],
       ),
     );
   }
 
-  /// Every other device that can update itself when asked: one button for
-  /// all, plus where each one stands. Android isn't listed: installing there
-  /// always needs a tap on that phone or tablet.
-  List<Widget> _others(AppState st) {
-    final can = [
-      for (final r in st.reports.values)
-        if (r.id != st.host.id &&
-            !st.away.contains(r.id) &&
-            r.controls.any((c) => c.key == 'update'))
-          r,
-    ]..sort((a, b) => a.name.compareTo(b.name));
-    // Linux machines update on the machine itself; listed with how.
-    final byHand = [
-      for (final r in st.reports.values)
-        if (r.id != st.host.id &&
-            !st.away.contains(r.id) &&
-            r.kind == 'linux' &&
-            !r.controls.any((c) => c.key == 'update'))
-          r,
-    ]..sort((a, b) => a.name.compareTo(b.name));
-    if (can.isEmpty && byHand.isEmpty) return const [];
-    String ver(Report r) =>
-        r.controls.firstWhere((c) => c.key == 'update').value ?? '?';
-    final waiting = can.any((r) {
-      final l = st.lastAsk(r.id, 'update');
-      return l != null &&
-          l.$2 == null &&
-          DateTime.now().toUtc().difference(l.$1.time) < ControlRequest.maxAge;
-    });
+  List<FleetDeviceUpdate> _fleet(AppState st) {
+    final now = DateTime.now().toUtc();
     return [
-      const Divider(height: 28, color: C.line),
-      const Text(
-        'Other devices',
-        style: TextStyle(fontWeight: FontWeight.w600),
-      ),
-      const SizedBox(height: 6),
-      for (final r in can) ...[
-        Text(
-          '${r.name}: version ${ver(r)}',
-          style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.5),
-        ),
-        if (st.lastAsk(r.id, 'update') case final l?)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, bottom: 4),
-            child: Text(
-              askStatus(st, l.$1, l.$2),
-              style: TextStyle(
-                color: l.$2?.ok == false ? C.fault : C.muted,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-          ),
-      ],
-      for (final r in byHand)
-        Text(
-          '${r.name}: version ${r.app ?? '?'}, updated on the machine: '
-          '${(r.os ?? '').contains('Docker') ? 'by itself within 15 minutes of a release' : 'Setup and updates > Install there'}',
-          style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.5),
-        ),
-      if (can.isNotEmpty) ...[
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: waiting ? null : () => _updateAll(st, can),
-          icon: const Icon(Icons.system_update_alt, size: 18),
-          label: Text(
-            can.length == 1
-                ? 'Update ${can.single.name}'
-                : 'Update all ${can.length}',
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Windows installs the newest release itself, checked against its SHA256SUMS. '
-          'Phones and tablets get a notification: Android installs only with a tap on the device itself.',
-          style: TextStyle(color: C.muted, fontSize: 12, height: 1.4),
-        ),
-      ],
-    ];
+      for (final device in st.assessment.devices)
+        if (device.report.id != st.host.id)
+          FleetDeviceUpdate(device, st.latestUpdateVersion, st.lastAsk(device.report.id, 'update'), now),
+    ]..sort((a, b) => a.report.name.toLowerCase().compareTo(b.report.name.toLowerCase()));
   }
 
-  Future<void> _updateAll(AppState st, List<Report> can) async {
+  Future<void> _updateAll(AppState st, List<FleetDeviceUpdate> devices) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Update ${can.length} devices?'),
-        content: Text(
-          '${can.map((r) => r.name).join(', ')}.\n\nEach restarts its collector and is back in a minute or two. '
-          'Their logs note that ${st.myName} asked.',
+        title: Text(devices.length == 1 ? 'Request an update?' : 'Request ${devices.length} updates?'),
+        scrollable: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(devices.map((device) => device.report.name).join(', ')),
+            const SizedBox(height: 12),
+            if (devices.any((device) => device.report.kind == 'windows'))
+              const Text('Windows starts its installer and may restart Monitor App.'),
+            if (devices.any((device) => device.report.kind == 'android'))
+              const Text('On Android, open the update notification and approve installation on the device.'),
+          ],
         ),
         actions: [
           TextButton(
@@ -316,14 +254,17 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Update all'),
+            child: const Text('Send requests'),
           ),
         ],
       ),
     );
-    if (ok != true) return;
-    for (final r in can) {
-      st.ask(r.id, 'update', 'update');
+    if (ok != true || !mounted) return;
+    final selected = devices.map((device) => device.report.id).toSet();
+    for (final row in _fleet(st)) {
+      if (selected.contains(row.report.id) && row.canSend) {
+        st.ask(row.report.id, 'update', 'update');
+      }
     }
   }
 

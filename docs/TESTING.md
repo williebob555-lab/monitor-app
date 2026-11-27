@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x fleet updates
+
+From `lite/app`, run `flutter test test/fleet_updates_test.dart`. The Setup test writes real core request and result files, tests batch confirmation at phone width, and verifies that an Android reply does not count as a fresh report of the target version.

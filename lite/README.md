@@ -68,6 +68,10 @@ syncs like everything else.
 
 ## Updates
 
+Setup shows the version each device last reported, alongside its update
+request status. A host reply can confirm that it sent an Android notification
+or started an installer. A fresh version report confirms the version itself.
+
 Setup and updates > Install. The app downloads the release file, checks it
 against the release's SHA256SUMS and hands it to the system installer.
 
