@@ -28,7 +28,7 @@ class DeviceHub extends StatelessWidget {
     });
   }
 
-  Widget _tile(Part p) => SizedBox(height: tileH, child: PartTile(p, live: live, onTap: () => onOpen(p)));
+  Widget _tile(Part p) => SizedBox(height: tileH, child: PartTile(p, live: live, showUnusual: status.fresh, onTap: () => onOpen(p)));
 
   Widget _center({double? width}) {
     final r = status.report;
@@ -160,10 +160,11 @@ class _TrunkPainter extends CustomPainter {
 
 /// One part on the hub: name, value and the live line.
 class PartTile extends StatelessWidget {
-  const PartTile(this.p, {super.key, required this.live, required this.onTap});
+  const PartTile(this.p, {super.key, required this.live, required this.onTap, this.showUnusual = false});
   final Part p;
   final List<Report> live;
   final VoidCallback onTap;
+  final bool showUnusual;
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +197,9 @@ class PartTile extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: p.level == Level.inactive ? C.muted : C.text,
                     fontFeatures: const [FontFeature.tabularFigures()])),
-            if (p.sub != null)
+            if (showUnusual && p.unusual.isNotEmpty)
+              const Text('Unusual reading', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: C.muted, fontSize: 11))
+            else if (p.sub != null)
               Text(p.sub!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 11)),
             const Spacer(),
             if (values.whereType<double>().length >= 2) Spark(values, max: s!.max, height: 18, color: C.of(p.level == Level.ok ? Level.ok : p.level).withValues(alpha: 0.9)),
@@ -322,6 +325,16 @@ class _PartPageState extends State<PartPage> {
                     if (p.level == Level.warn || p.level == Level.fault) StatusChip(p.level, p.level == Level.fault ? 'Needs you' : 'Look at this'),
                   ]),
                   const SizedBox(height: 16),
+                  if (s.fresh && p.unusual.isNotEmpty) ...[
+                    Section(
+                      'Unusual for this device',
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [for (final note in p.unusual) Text(note)],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   if (p.series.isNotEmpty) ...[
                     Section(
                       'Live',

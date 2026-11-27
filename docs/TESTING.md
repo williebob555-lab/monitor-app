@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x unusual readings
+
+Run `flutter test test/unusual_readings_test.dart` from `lite/app`. The test checks that processor and sensor notes reach their related parts without raising the ordinary part severity.

@@ -17,6 +17,7 @@ class Part {
     this.level = Level.ok,
     this.series = const [],
     this.facts = const [],
+    this.unusual = const [],
   });
 
   final String id;
@@ -33,6 +34,7 @@ class Part {
 
   /// Label/value lines shown when the part is opened.
   final List<(String, String)> facts;
+  final List<String> unusual;
 }
 
 /// One charted number: how to read it from a live report and from a
@@ -64,6 +66,19 @@ String _pct(double? v) => v == null ? 'n/a' : '${v.round()}%';
 /// expected of them, so they don't count against this device's links.
 List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = const {}}) {
   final out = <Part>[];
+  const unusualPrefix = 'unusual.';
+  final attachedKeys = {
+    if (!r.isThing) ...['cpu', 'mem'],
+    for (final reading in r.readings)
+      if (!reading.key.startsWith(unusualPrefix)) reading.key,
+  };
+  final unusual = {
+    for (final reading in r.readings)
+      if (reading.key.startsWith(unusualPrefix) &&
+          attachedKeys.contains(reading.key.substring(unusualPrefix.length)))
+        if (reading.value case final String note when note.trim().isNotEmpty)
+          reading.key.substring(unusualPrefix.length): note,
+  };
   final b = r.battery;
   if (b?.pct != null) {
     final p = b!.pct!;
@@ -86,6 +101,7 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
   if (!r.isThing) {
   out.add(Part(
     id: 'cpu',
+    unusual: [?unusual['cpu']],
     title: 'Processor',
     icon: Icons.memory,
     value: r.cpuPct == null ? 'n/a' : _pct(r.cpuPct),
@@ -100,6 +116,7 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
   final mem = pct(r.memUsed, r.memTotal);
   out.add(Part(
     id: 'memory',
+    unusual: [?unusual['mem']],
     title: 'Memory',
     icon: Icons.developer_board,
     value: _pct(mem),
@@ -180,6 +197,9 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
   // Extra readings, one part per group.
   final groups = <String, List<Reading>>{};
   for (final x in r.readings) {
+    if (x.key.startsWith(unusualPrefix) && unusual.containsKey(x.key.substring(unusualPrefix.length))) {
+      continue;
+    }
     groups.putIfAbsent(x.group ?? 'Other', () => []).add(x);
   }
   for (final g in groups.entries) {
@@ -188,6 +208,7 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
     out.add(Part(
       level: flagged.contains('fault') ? Level.fault : flagged.contains('warn') ? Level.warn : Level.ok,
       id: 'g:${g.key}',
+      unusual: [for (final reading in g.value) ?unusual[reading.key]],
       title: g.key,
       icon: Icons.sensors,
       value: _headline(g.value),
