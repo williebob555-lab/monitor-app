@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x products
+
+Run `flutter test test/products_page_test.dart` from `lite/app`. It creates an exact product at phone width and links it through the real product and item stores, then reads the link through a second device ID.
