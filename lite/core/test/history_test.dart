@@ -71,4 +71,26 @@ void main() {
     r.save(tmp.path);
     expect(Retention.load(tmp.path).detailDays, 90);
   });
+
+  test('a clock that ran hours ahead and came back still gets every hour summarized', () {
+    // wc-desktop 2026-11-27: booted with the clock 5 h ahead (07:34), then
+    // synced back to 02:50 and ran until 03:11.
+    final wrong = DateTime(2026, 11, 27, 7, 34);
+    w.add({'t': s(wrong), 'cpu': 1}, wrong);
+    final after = DateTime(2026, 11, 27, 8, 1);
+    w.add({'t': s(after), 'cpu': 1}, after); // hour 07 summarized, marker at 07
+    for (var m = 50; m < 60; m += 3) {
+      final t = DateTime(2026, 11, 27, 2, m);
+      w.add({'t': s(t), 'cpu': 2}, t);
+    }
+    for (var m = 0; m < 12; m += 3) {
+      final t = DateTime(2026, 11, 27, 3, m);
+      w.add({'t': s(t), 'cpu': 3}, t);
+    }
+    final t4 = DateTime(2026, 11, 27, 4, 0, 30);
+    w.add({'t': s(t4), 'cpu': 4}, t4);
+    final hourly = readLines(File('${tmp.path}/dev/history/hourly/${hourlyName(wrong)}')).map((l) => l['t']).toList();
+    expect(hourly, containsAll([s(DateTime(2026, 11, 27, 2)), s(DateTime(2026, 11, 27, 3)), s(DateTime(2026, 11, 27, 7))]));
+    expect(hourly.toSet().length, hourly.length, reason: 'no hour twice');
+  });
 }

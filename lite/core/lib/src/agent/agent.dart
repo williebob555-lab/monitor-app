@@ -7,7 +7,7 @@ import '../folder.dart';
 import '../format.dart';
 import '../history.dart';
 import '../report.dart';
-import '../status.dart' show freshLimit;
+import '../status.dart' show freshLimit, ago;
 import '../topology.dart';
 import '../update.dart';
 import '../version.dart';
@@ -23,6 +23,7 @@ import '../control.dart';
 import '../patterns.dart';
 import '../model.dart';
 import '../events.dart';
+import '../integrity.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -504,7 +505,11 @@ class Agent {
       folder.writeNow(r);
       final hw = HistoryWriter(folder.deviceDir(cfg.id), LocalConfig.dir);
       // History stays at one line a minute however fast the live rate is.
-      if (_lastHistory == null || now.difference(_lastHistory!) >= const Duration(seconds: 55)) {
+      // A clock that jumped back (dual-boot hardware clock in local time,
+      // then a time sync) must not stop history until it catches up.
+      final back = hw.clockWentBack(now);
+      if (back != null) folder.log(cfg.id, 'clock went back ${ago(back)}: earlier lines were stamped ahead (is the hardware clock in local time on another system of this machine?)');
+      if (_lastHistory == null || now.isBefore(_lastHistory!) || now.difference(_lastHistory!) >= const Duration(seconds: 55)) {
         hw.add(r.historyLine(), now);
         _lastHistory = now;
       }
@@ -531,6 +536,11 @@ class Agent {
         final used = hw.prune(now, ret);
         pruneEvents(folder.deviceDir(cfg.id), now, ret.hourlyDays);
         folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
+        try {
+          folder.log(cfg.id, checkHistory(folder.deviceDir(cfg.id), now, ret).line);
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR history check: $e');
+        }
         _lastPrune = now;
         _writePatterns(folder, cfg.id, others, now);
         try {
