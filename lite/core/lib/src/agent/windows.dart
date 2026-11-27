@@ -267,3 +267,41 @@ List<(String, int, int)> windowsDrives() {
   }
   return out;
 }
+
+final _createFileW = _k32.lookupFunction<IntPtr Function(Pointer<Utf16>, Uint32, Uint32, Pointer<Void>, Uint32, Uint32, IntPtr),
+    int Function(Pointer<Utf16>, int, int, Pointer<Void>, int, int, int)>('CreateFileW');
+final _writeFile = _k32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Void>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Void>)>('WriteFile');
+final _readFile = _k32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Void>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Void>)>('ReadFile');
+final _closeHandle = _k32.lookupFunction<Int32 Function(IntPtr), int Function(int)>('CloseHandle');
+final _getLastError = _k32.lookupFunction<Uint32 Function(), int Function()>('GetLastError');
+
+/// Sends [request] down a named pipe and reads until the other side closes
+/// it (blocking: call it on a side isolate). Throws with the Win32 error.
+List<int> windowsPipeRequest(String path, List<int> request, {int maxBytes = 4 * 1024 * 1024}) {
+  const genericRw = 0xC0000000, openExisting = 3, invalid = -1;
+  final p = path.toNativeUtf16();
+  final h = _createFileW(p, genericRw, 0, nullptr, openExisting, 0, 0);
+  calloc.free(p);
+  if (h == invalid || h == 0) throw OSError('cannot open $path', _getLastError());
+  final buf = calloc<Uint8>(64 * 1024);
+  final n = calloc<Uint32>();
+  try {
+    final req = calloc<Uint8>(request.length);
+    req.asTypedList(request.length).setAll(0, request);
+    final ok = _writeFile(h, req, request.length, n, nullptr);
+    calloc.free(req);
+    if (ok == 0) throw OSError('cannot write to $path', _getLastError());
+    final out = <int>[];
+    while (out.length < maxBytes) {
+      if (_readFile(h, buf, 64 * 1024, n, nullptr) == 0 || n.value == 0) break; // closed: done
+      out.addAll(buf.asTypedList(n.value));
+    }
+    return out;
+  } finally {
+    calloc.free(buf);
+    calloc.free(n);
+    _closeHandle(h);
+  }
+}

@@ -519,7 +519,7 @@ class Agent {
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${Extras.tailscaleProblem == null ? '' : ' ts-problem="${Extras.tailscaleProblem}"'}${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;

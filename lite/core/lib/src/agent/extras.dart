@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'containers.dart';
 
 import '../report.dart';
 import 'linux.dart' show linuxStatvfs;
-import 'windows.dart' show windowsDrives, windowsRegString;
+import 'windows.dart' show windowsDrives, windowsRegString, windowsPipeRequest;
 
 /// Readings beyond the basics, all through the open-ended `readings` list so
 /// the app shows them without knowing them: what the machine is (read once),
@@ -136,12 +137,24 @@ class Extras {
 
   // ---- Tailscale (Linux: its own CLI, read-only) --------------------------
 
+  /// Why the Windows local API could not be read (logged once, by the agent).
+  static String? tailscaleProblem;
+
   Future<List<Reading>> _tailscale() async {
-    if (!Platform.isLinux) return const [];
+    if (!Platform.isLinux && !Platform.isWindows) return const [];
     try {
-      final r = await Process.run('tailscale', ['status', '--json']).timeout(const Duration(seconds: 4));
-      if (r.exitCode != 0 && (r.stdout as String).isEmpty) return const [];
-      final j = jsonDecode(r.stdout as String);
+      Object? j;
+      if (Platform.isWindows) {
+        // No child processes on Windows (a console would flash): ask
+        // tailscaled's local API over its named pipe, on a side isolate.
+        final body = await Isolate.run(_windowsTailscaleStatus).timeout(const Duration(seconds: 4));
+        j = jsonDecode(body);
+        tailscaleProblem = null;
+      } else {
+        final r = await Process.run('tailscale', ['status', '--json']).timeout(const Duration(seconds: 4));
+        if (r.exitCode != 0 && (r.stdout as String).isEmpty) return const [];
+        j = jsonDecode(r.stdout as String);
+      }
       if (j is! Map) return const [];
       final peers = j['Peer'] is Map ? (j['Peer'] as Map).values.whereType<Map>().toList() : const <Map>[];
       final online = peers.where((p) => p['Online'] == true).length;
@@ -152,7 +165,8 @@ class Extras {
         Reading(key: 'ts.devices', label: 'Devices in tailnet', value: peers.length, group: 'Tailscale'),
         if (exit != null) Reading(key: 'ts.exit', label: 'Exit node', value: '$exit', group: 'Tailscale'),
       ];
-    } catch (_) {
+    } catch (e) {
+      if (Platform.isWindows) tailscaleProblem = '$e';
       return const [];
     }
   }
@@ -270,4 +284,34 @@ class Extras {
       http.close(force: true);
     }
   }
+}
+
+/// GET /localapi/v0/status from tailscaled on Windows, over its named pipe
+/// (the same one the tailscale CLI uses). Returns the JSON body.
+String _windowsTailscaleStatus() => httpBody(windowsPipeRequest(r'\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled',
+    utf8.encode('GET /localapi/v0/status HTTP/1.1\r\nHost: local-tailscaled.sock\r\nConnection: close\r\n\r\n')));
+
+/// The body of a raw HTTP/1.1 response (status 200 only; chunked or not).
+String httpBody(List<int> raw) {
+  final text = utf8.decode(raw, allowMalformed: true);
+  final split = text.indexOf('\r\n\r\n');
+  if (split < 0) throw const FormatException('no HTTP header');
+  final head = text.substring(0, split).toLowerCase();
+  final status = head.split('\r\n').first;
+  if (!status.contains(' 200')) throw FormatException('tailscaled answered "$status"');
+  var body = text.substring(split + 4);
+  if (head.contains('transfer-encoding: chunked')) {
+    final out = StringBuffer();
+    var i = 0;
+    while (i < body.length) {
+      final eol = body.indexOf('\r\n', i);
+      if (eol < 0) break;
+      final size = int.parse(body.substring(i, eol).split(';').first.trim(), radix: 16);
+      if (size == 0) break;
+      out.write(body.substring(eol + 2, eol + 2 + size));
+      i = eol + 2 + size + 2;
+    }
+    body = out.toString();
+  }
+  return body;
 }
