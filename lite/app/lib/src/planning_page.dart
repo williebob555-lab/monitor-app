@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:monitor_core/monitor_core.dart';
 
 import 'planning_draft.dart';
 import 'planning_forms.dart';
@@ -11,11 +12,13 @@ class PlanningPage extends StatefulWidget {
   const PlanningPage(
     this.drafts, {
     super.key,
+    this.store,
     this.monitoredEquipment,
     this.openMonitorReport,
   });
 
   final List<ProjectDraft> drafts;
+  final ProjectStore? store;
   final Map<String, String> Function()? monitoredEquipment;
   final void Function(BuildContext, String)? openMonitorReport;
 
@@ -24,6 +27,33 @@ class PlanningPage extends StatefulWidget {
 }
 
 class _PlanningPageState extends State<PlanningPage> {
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProjects();
+  }
+
+  void _loadProjects() {
+    final store = widget.store;
+    if (store == null) return;
+    try {
+      final saved = store.list();
+      final drafts = widget.drafts;
+      drafts.removeWhere((draft) => !draft.dirty);
+      final editing = drafts.map((draft) => draft.source?.id).toSet();
+      drafts.addAll(
+        saved
+            .where((p) => !editing.contains(p.id))
+            .map(ProjectDraft.fromProject),
+      );
+      _loadError = null;
+    } on Exception {
+      _loadError = 'Could not open saved projects. Check the Monitor folder, then try again.';
+    }
+  }
+
   Future<void> _newProject() async {
     final draft = await editProject(context);
     if (draft == null || !mounted) return;
@@ -36,22 +66,36 @@ class _PlanningPageState extends State<PlanningPage> {
       MaterialPageRoute(
         builder: (_) => _ProjectPage(
           draft,
+          store: widget.store,
           monitoredEquipment: widget.monitoredEquipment,
           openMonitorReport: widget.openMonitorReport,
         ),
       ),
     );
-    if (mounted) setState(() {});
+    if (mounted) setState(_loadProjects);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Projects')),
+    appBar: AppBar(
+      title: const Text('Projects'),
+      actions: [
+        if (widget.store != null)
+          IconButton(
+            tooltip: 'Reload projects',
+            onPressed: () => setState(_loadProjects),
+            icon: const Icon(Icons.refresh),
+          ),
+      ],
+    ),
     body: _workspaceList([
-      const Text(
-        'Drafts stay in this session and clear when the app closes.',
-        style: TextStyle(color: _design),
-      ),
+      if (widget.store == null)
+        const Text(
+          'Drafts stay in this session and clear when the app closes.',
+          style: TextStyle(color: _design),
+        ),
+      if (_loadError case final error?)
+        Text(error, style: const TextStyle(color: C.warn)),
       Align(
         alignment: Alignment.centerLeft,
         child: FilledButton.icon(
@@ -68,7 +112,8 @@ class _PlanningPageState extends State<PlanningPage> {
             title: Text(draft.name),
             subtitle: Text(
               '${draft.rackUnits == null ? '' : '${draft.rackUnits}U rack · '}${draft.equipment.length} equipment entries · '
-              '${draft.tasks.where((t) => !t.done).length} open tasks',
+              '${draft.tasks.where((t) => !t.done).length} open tasks'
+              '${draft.dirty && widget.store != null ? ' · Unsaved' : ''}',
             ),
             trailing: const Icon(Icons.chevron_right),
           ),
@@ -80,11 +125,13 @@ class _PlanningPageState extends State<PlanningPage> {
 class _ProjectPage extends StatefulWidget {
   const _ProjectPage(
     this.draft, {
+    this.store,
     this.monitoredEquipment,
     this.openMonitorReport,
   });
 
   final ProjectDraft draft;
+  final ProjectStore? store;
   final Map<String, String> Function()? monitoredEquipment;
   final void Function(BuildContext, String)? openMonitorReport;
 
@@ -94,11 +141,55 @@ class _ProjectPage extends StatefulWidget {
 
 class _ProjectPageState extends State<_ProjectPage> {
   ProjectDraft get draft => widget.draft;
+  String? _saveError;
+  bool _rear = false;
+
+  void _change(VoidCallback change) => setState(() {
+    change();
+    draft.dirty = true;
+    _saveError = null;
+  });
+
+  void _save() {
+    try {
+      draft.save(widget.store!);
+      setState(() => _saveError = null);
+    } on StateError catch (error) {
+      setState(() => _saveError = error.message);
+    } on Exception {
+      setState(
+        () => _saveError = 'Could not save this project. Check the Monitor folder and try again.',
+      );
+    }
+  }
+
+  Future<void> _reopenSavedProject() async {
+    final reload = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard unsaved edits?'),
+        content: const Text('You can then reopen the latest saved project.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Discard edits'),
+          ),
+        ],
+      ),
+    );
+    if (reload != true || !mounted) return;
+    draft.dirty = false;
+    Navigator.of(context).pop();
+  }
 
   Future<void> _editProject() async {
     final edited = await editProject(context, draft);
     if (edited == null || !mounted) return;
-    setState(() {
+    _change(() {
       draft.name = edited.name;
       draft.goal = edited.goal;
       draft.rackUnits = edited.rackUnits;
@@ -119,7 +210,7 @@ class _ProjectPageState extends State<_ProjectPage> {
       monitored: monitored,
     );
     if (edited == null || !mounted) return;
-    setState(() {
+    _change(() {
       if (item == null) {
         draft.equipment.add(edited);
       } else {
@@ -161,7 +252,7 @@ class _ProjectPageState extends State<_ProjectPage> {
   Future<void> _addTask() async {
     final title = await addProjectTask(context);
     if (title == null || !mounted) return;
-    setState(() => draft.tasks.add(ProjectTaskDraft(title)));
+    _change(() => draft.tasks.add(ProjectTaskDraft(title)));
   }
 
   Future<void> _copyPlan() async {
@@ -224,7 +315,7 @@ class _ProjectPageState extends State<_ProjectPage> {
       ),
     );
     if (confirmed == true && mounted) {
-      setState(() => draft.equipment.remove(item));
+      _change(() => draft.equipment.remove(item));
     }
   }
 
@@ -235,6 +326,12 @@ class _ProjectPageState extends State<_ProjectPage> {
       appBar: AppBar(
         title: Text(draft.name),
         actions: [
+          if (widget.store != null)
+            IconButton(
+              tooltip: 'Save project',
+              onPressed: draft.dirty ? _save : null,
+              icon: const Icon(Icons.save_outlined),
+            ),
           IconButton(
             tooltip: 'Copy plan',
             onPressed: _copyPlan,
@@ -257,13 +354,26 @@ class _ProjectPageState extends State<_ProjectPage> {
       ),
       body: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('Session draft', style: TextStyle(color: _design)),
+              child: Text(
+                _saveError ??
+                    (widget.store == null
+                        ? 'Session draft'
+                        : draft.dirty
+                        ? 'Unsaved changes'
+                        : 'Saved to Monitor folder'),
+                style: TextStyle(color: _saveError == null ? C.muted : C.warn),
+              ),
             ),
           ),
+          if (_saveError != null && draft.source != null)
+            TextButton(
+              onPressed: _reopenSavedProject,
+              child: const Text('Back to saved projects'),
+            ),
           Expanded(
             child: TabBarView(children: [_rack(), _equipment(), _tasks()]),
           ),
@@ -284,7 +394,21 @@ class _ProjectPageState extends State<_ProjectPage> {
           label: const Text('Add a rack'),
         ),
       )
+    else if (draft.rackUnits! < 1 || draft.rackUnits! > 60)
+      const Text('The rack view supports heights from 1 to 60U.')
     else ...[
+      if (draft.equipment.any((e) => e.face == 'rear'))
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Front')),
+              ButtonSegment(value: true, label: Text('Rear')),
+            ],
+            selected: {_rear},
+            onSelectionChanged: (side) => setState(() => _rear = side.single),
+          ),
+        ),
       Text(
         '${draft.occupiedUnits} of ${draft.rackUnits}U occupied · '
         '${draft.rackDepthMm == null ? 'Depth unknown' : '${_number(draft.rackDepthMm!)} mm entered depth'}',
@@ -292,10 +416,12 @@ class _ProjectPageState extends State<_ProjectPage> {
       ),
       _RackElevation(
         draft.rackUnits!,
-        draft.equipment,
+        draft.equipment
+            .where((e) => e.fullDepth || (e.face == 'rear') == _rear)
+            .toList(),
         depthMm: draft.rackDepthMm,
         onOpen: (item) => _editEquipment(item: item),
-        onEmpty: (unit) => _editEquipment(unit: unit),
+        onEmpty: _rear ? null : (unit) => _editEquipment(unit: unit),
       ),
     ],
   ], page: 'rack');
@@ -366,7 +492,7 @@ class _ProjectPageState extends State<_ProjectPage> {
         child: CheckboxListTile(
           title: Text(task.title),
           value: task.done,
-          onChanged: (done) => setState(() => task.done = done ?? false),
+          onChanged: (done) => _change(() => task.done = done ?? false),
         ),
       ),
   ], page: 'tasks');
@@ -411,7 +537,7 @@ class _RackElevation extends StatelessWidget {
   final List<EquipmentDraft> equipment;
   final double? depthMm;
   final ValueChanged<EquipmentDraft> onOpen;
-  final ValueChanged<int> onEmpty;
+  final ValueChanged<int>? onEmpty;
   static const _unitHeight = 44.0;
   static const _railWidth = 18.0;
   static const _rulerWidth = 38.0;
@@ -421,7 +547,12 @@ class _RackElevation extends StatelessWidget {
   Widget build(BuildContext context) {
     final byTopUnit = {
       for (final item in equipment)
-        if (item.topUnit != null) item.topUnit!: item,
+        if (item.bottomUnit != null &&
+            item.bottomUnit! >= 1 &&
+            item.topUnit != null &&
+            item.topUnit! >= item.bottomUnit! &&
+            item.topUnit! <= units)
+          item.topUnit!: item,
     };
     final bays = <Widget>[];
     for (var unit = units; unit >= 1;) {
@@ -508,15 +639,17 @@ class _RackElevation extends StatelessWidget {
     color: const Color(0xFF090C0F),
     shape: const Border(bottom: BorderSide(color: Color(0xFF252D35))),
     child: Tooltip(
-      message: 'Add at U$unit',
+      message: onEmpty == null ? 'Empty U$unit' : 'Add at U$unit',
       excludeFromSemantics: true,
       child: Semantics(
-        button: true,
-        label: 'Add at U$unit',
+        button: onEmpty != null,
+        label: onEmpty == null ? 'Empty U$unit' : 'Add at U$unit',
         child: InkWell(
           key: ValueKey('rack-empty:$unit'),
-          onTap: () => onEmpty(unit),
-          child: const Center(child: Icon(Icons.add, size: 16, color: C.muted)),
+          onTap: onEmpty == null ? null : () => onEmpty!(unit),
+          child: onEmpty == null
+              ? null
+              : const Center(child: Icon(Icons.add, size: 16, color: C.muted)),
         ),
       ),
     ),

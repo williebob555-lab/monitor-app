@@ -48,7 +48,8 @@ class HomePage extends StatelessWidget {
                 tooltip: 'Projects',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => PlanningPage(
-                    state.projectDrafts,
+                    state.projectDrafts.putIfAbsent(state.folder.root, () => []),
+                    store: state.folder.exists ? ProjectStore(state.folder.root, state.host.id) : null,
                     monitoredEquipment: () => {
                       for (final report in state.reports.values) report.id: report.name,
                       for (final thing in state.things.values)

@@ -101,4 +101,5 @@ This file contains active and near-term tasks only. Read it with the required do
 ## Monitor App 2.x project planning
 
 - [x] T076: add session drafts for named projects, rack layout, equipment, tasks, and references back to monitor reports.
-- [ ] Wire shared project persistence and durable Thing references into the planning UI when `monitor_core` exposes a planning contract.
+- [x] Save project goals, rack positions, monitored equipment references, and tasks through `ProjectStore` (roadmap row 6).
+- [ ] Verify saved plans on a second synced device and support saving a known equipment height before assigning a rack position.

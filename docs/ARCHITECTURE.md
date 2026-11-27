@@ -267,7 +267,7 @@ SQLite WAL remains the personal-scale starting point. Schema migrations, backup,
 
 ## Experience clients
 
-In Monitor App 2.x, Projects in `lite/app` keeps a working draft in Flutter session state. The rack elevation and equipment list are two views of that same draft. Equipment may reference an existing monitor report by ID so the UI can open it through the usual device route. This path has no shared-folder writes or operational actions. The production data interface is documented in `lite/FORMAT.md`.
+In Monitor App 2.x, Projects in `lite/app` keeps editable working copies and saves project revisions through `monitor_core.ProjectStore` in the selected Monitor folder. The rack elevation and equipment list show the first rack in the same project. Equipment may reference an existing monitor report by ID so the UI can open it through the usual device route. Projects describe design state. The production data interface is documented in `lite/FORMAT.md`.
 
 The local experience renders the same domain model available to replication and query. The living schematic summarizes relationships and state. Domain lenses expose power, audio, storage, network infrastructure, thermal, security, and other coherent subsets. Search reaches exact signals. The final scene remains a projection of the domain model, never the source of truth.
 

@@ -264,3 +264,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - Start a project with just a name and add rack details later. Equipment can link back to its existing Monitor report while plan changes remain in the draft.
 - Copy plan puts a plain-text copy of the draft rack layout, equipment, and checklist on the clipboard.
 - The rack front uses a numbered ruler, mounting rails, faceplates sized in rack units, and a depth warning beside the affected faceplate.
+- Save project goals, rack layouts, equipment, and tasks to the Monitor folder and reopen them later. Saved rack layouts with rear equipment have a separate rear view.

@@ -104,6 +104,8 @@ Future<EquipmentDraft?> editEquipment(
     weightKg: double.tryParse(weight.trim()),
     powerW: double.tryParse(power.trim()),
     monitorId: draft?.monitorId ?? monitored?.$1,
+    source: draft?.source,
+    id: draft?.id,
   );
 
   return showDialog<EquipmentDraft>(

@@ -23,7 +23,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   SyncFolder folder;
 
   /// Work in progress for this app session.
-  final projectDrafts = <ProjectDraft>[];
+  final projectDrafts = <String, List<ProjectDraft>>{};
   /// Reports shown (hidden ones removed).
   Map<String, Report> reports = {};
 

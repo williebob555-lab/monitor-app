@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_lite/src/planning_draft.dart';
 import 'package:monitor_lite/src/planning_page.dart';
 import 'package:monitor_lite/src/theme.dart';
+import 'package:monitor_core/monitor_core.dart';
 
 void main() {
   Finder field(String name) => find.byKey(ValueKey(name));
@@ -12,6 +15,7 @@ void main() {
     WidgetTester tester,
     List<ProjectDraft> drafts, {
     Size size = const Size(390, 780),
+    ProjectStore? store,
     Map<String, String> Function()? monitoredEquipment,
     void Function(BuildContext, String)? openMonitorReport,
   }) async {
@@ -22,6 +26,7 @@ void main() {
         theme: buildTheme(),
         home: PlanningPage(
           drafts,
+          store: store,
           monitoredEquipment: monitoredEquipment,
           openMonitorReport: openMonitorReport,
         ),
@@ -33,6 +38,101 @@ void main() {
     await tester.tap(find.text(text));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('saved racks and tasks reopen for another device', (
+    tester,
+  ) async {
+    final folder = Directory.systemTemp.createTempSync('monitor-projects');
+    addTearDown(() => folder.deleteSync(recursive: true));
+    final first = ProjectStore(folder.path, 'laptop');
+    final second = ProjectStore(folder.path, 'tablet');
+    await openWorkspace(tester, [], store: first);
+    await tap(tester, 'New project');
+    await tester.enterText(field('Project name'), 'Studio rack');
+    await tester.enterText(field('Rack height (U), optional'), '4');
+    await tap(tester, 'Create project');
+    await tester.tap(find.byKey(const ValueKey('rack-empty:1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(field('Equipment name'), 'Interface');
+    await tap(tester, 'Add to project');
+    await tap(tester, 'Tasks');
+    await tap(tester, 'New task');
+    await tester.enterText(field('Task'), 'Connect interface');
+    await tap(tester, 'Add task');
+    await tap(tester, 'Connect interface');
+    await tester.tap(find.byTooltip('Save project'));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved to Monitor folder'), findsOneWidget);
+    final saved = second.list().single;
+    expect(saved.tasks.single.done, true);
+    expect(saved.assemblies.single.placements.single.u, (1, 1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await openWorkspace(tester, [], store: second);
+    await tap(tester, 'Studio rack');
+    expect(find.text('Interface'), findsOneWidget);
+    await tap(tester, 'Tasks');
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      true,
+    );
+  });
+
+  test(
+    'saving preserves the original quantities and rejects a newer revision',
+    () {
+      final folder = Directory.systemTemp.createTempSync(
+        'monitor-project-revisions',
+      );
+      addTearDown(() => folder.deleteSync(recursive: true));
+      final first = ProjectStore(folder.path, 'laptop');
+      final second = ProjectStore(folder.path, 'tablet');
+      final saved = first.put(
+        Project(
+          id: 'studio',
+          name: 'Studio',
+          assemblies: [
+            Assembly(
+              id: 'back',
+              name: 'Rear rack',
+              units: 4,
+              placements: [
+                Placement(
+                  id: 'ups',
+                  name: 'UPS',
+                  face: 'rear',
+                  thing: 'power',
+                  u: (1, 2),
+                  depth: Qty(14, 'in', src: 'measured'),
+                ),
+              ],
+            ),
+            Assembly(id: 'pedals', name: 'Pedalboard', type: 'board'),
+          ],
+        ),
+      );
+      final draft = ProjectDraft.fromProject(saved)..name = 'Renamed';
+      draft.save(first);
+      draft.rackUnits = 6;
+      draft.save(first);
+      final copy = second.get('studio')!;
+      expect(copy.assemblies.first.units, 6);
+      expect(copy.assemblies.map((a) => a.id), ['back', 'pedals']);
+      final placement = copy.assemblies.first.placements.single;
+      expect(
+        (placement.depth?.value, placement.depth?.unit, placement.depth?.src),
+        (14, 'in', 'measured'),
+      );
+      expect((placement.face, placement.thing), ('rear', 'power'));
+      draft.equipment.add(EquipmentDraft(name: 'Unplaced', heightUnits: 2));
+      expect(() => draft.save(first), throwsStateError);
+      expect(second.get('studio')!.rev, copy.rev);
+      draft.equipment.removeLast();
+      second.put(copy..name = 'Changed on tablet');
+      expect(() => draft.save(first), throwsStateError);
+      expect(first.get('studio')!.name, 'Changed on tablet');
+    },
+  );
 
   testWidgets('create a rack project and reopen its task checklist', (
     tester,
