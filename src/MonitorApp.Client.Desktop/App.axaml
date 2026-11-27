@@ -1,9 +1,0 @@
-<Application xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ui="using:MonitorApp.Client.Ui"
-             x:Class="MonitorApp.Client.Desktop.App"
-             RequestedThemeVariant="Dark">
-  <Application.Styles>
-    <ui:MonitorUiStyles />
-  </Application.Styles>
-</Application>
