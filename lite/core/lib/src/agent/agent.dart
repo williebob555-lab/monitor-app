@@ -29,6 +29,7 @@ import '../unusual.dart';
 import '../rules.dart';
 import '../rule_eval.dart';
 import '../notify.dart';
+import '../fetch.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
 import '../products.dart';
@@ -180,6 +181,8 @@ class Agent {
   final _things = Things();
   final _containers = Containers();
   final _smart = Smart();
+  DateTime? _fetchAt;
+  bool _fetching = false;
   DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
@@ -654,6 +657,20 @@ class Agent {
         } catch (e) {
           folder.log(cfg.id, 'ERROR model conflicts: $e');
         }
+      }
+      // Offers (row 31): only on the computer named in model/fetch.json,
+      // once a day, in the background so the cycle stays in budget.
+      if (!_fetching && (_fetchAt == null || now.difference(_fetchAt!) >= const Duration(hours: 24)) && fetcherDevice(cfg.folder) == cfg.id) {
+        _fetchAt = now;
+        _fetching = true;
+        final f = folder, id = cfg.id, root = cfg.folder;
+        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now).then((lines) {
+          for (final l in lines) {
+            f.log(id, l);
+          }
+        }).catchError((Object e) {
+          f.log(id, 'ERROR offers: $e');
+        }).whenComplete(() => _fetching = false));
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {

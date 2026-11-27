@@ -644,6 +644,24 @@ copy.
   is unknown.
 - A BOM line reaches its product through its item.
 
+### Fetched offers (`model/products/<id>/offers.jsonl`, 2.7.1)
+
+One computer fetches offers for every active product once a day: the one
+named in `model/fetch.json` (`{"on": "<device id>"}`; no file = off). It uses
+official shop APIs only, a second apart, and appends one line per offer:
+`{"t", "source", "seller", "price", "currency", "url", "inStock", "title"}`.
+Search words are the product's maker and model, or else its name. Shops
+(Wilson, 2026-11-27: Amazon, eBay, Walmart):
+
+- **eBay** (Browse API, new fixed-price US listings): needs an eBay developer
+  app key, `ebay.clientId` and `ebay.secret` in that computer's own
+  `keys.json` (next to its local settings), or `MONITOR_EBAY_CLIENT_ID` and
+  `MONITOR_EBAY_SECRET` in its environment.
+- **Amazon** (Product Advertising API) and **Walmart** (affiliate API): need
+  keys from their programs; until then the log says so each day.
+
+The file stops growing at 2 MB; price history and pruning are row 32.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

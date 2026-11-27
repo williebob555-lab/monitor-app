@@ -94,6 +94,8 @@ folder:
   (`MONITOR_PIHOLE_PASSWORD` or `_FILE`).
 - **Tailscale:** read through its local socket or named pipe, which needs
   no key.
+- **Shop API keys** (offers, 2.7.1): only in the fetching computer's own
+  `keys.json` or its environment. The shared folder holds only the offers.
 
 ## Docker collector
 

@@ -36,3 +36,4 @@ export 'src/products.dart';
 export 'src/config.dart';
 export 'src/control.dart';
 export 'src/glance.dart';
+export 'src/fetch.dart';
