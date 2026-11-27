@@ -5,6 +5,7 @@ import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
 import 'dive.dart';
+import 'inventory_page.dart';
 import 'map_view.dart';
 import 'parts.dart';
 import 'timeline.dart';
@@ -42,6 +43,13 @@ class HomePage extends StatelessWidget {
                 tooltip: state.showMap ? 'Show as cards' : 'Show as a map',
                 onPressed: () => state.setShowMap(!state.showMap),
                 icon: Icon(state.showMap ? Icons.grid_view_rounded : Icons.hub_outlined),
+              ),
+              IconButton(
+                tooltip: 'Inventory',
+                icon: const Icon(Icons.inventory_2_outlined),
+                onPressed: !state.folder.exists ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => InventoryPage(ModelStore(state.folder.root, state.host.id)),
+                )),
               ),
               IconButton(
                 tooltip: 'Setup and updates',

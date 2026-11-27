@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x inventory
+
+From `lite/app`, run `flutter test test/inventory_page_test.dart`. It uses the production ModelStore over a temporary folder and checks that a field written under a second device ID survives an edit from the UI.
