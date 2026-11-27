@@ -95,8 +95,13 @@ How it stays small:
 * Each device deletes its own old files by the limits in `settings.json`
   (shown and editable under Setup > History), then enforces the size cap
   oldest-detail-first. Defaults: every reading 7 days, hourly 1 year, daily 5 years, 50 MB.
-* Readers open at most 25 hour files (24 h view), the hourly file(s) (7 days)
-  or the daily file(s) (year), so reading cost doesn't grow with history.
+* File names use the **writing device's local time** (a server in Docker is
+  UTC unless it mounts the host's `/etc/localtime`). Readers therefore look at
+  every name the period could have on any clock (UTC-12 to UTC+14) and keep
+  lines by `t`: at most about 53 hour names for the 24 h view (most don't
+  exist), the hourly file(s) for 7 days, the daily file(s) for a year, so
+  reading cost doesn't grow with history. Use `readHistoryRange`,
+  `readDetail`, `readHourly`; never build the names from your own clock.
 
 ## Hierarchy: `node`, attached things and `params.json`
 
