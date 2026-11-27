@@ -105,6 +105,8 @@ ChatGPT's; nothing here is an order.
 | UPS source | reading `ups.source` ("USB", "UPower on the host (exported file)", ...) | Say where the UPS numbers come from; when it is UPower, `ups.load` is unknown and there is no alarm control, so hide the beeper row instead of showing it disabled |
 | Settings from any device | `controls`, `sendRequest`, `myRequests`, `resultOf` | Already on device pages; a single "Waiting for…" list across devices would help on a phone |
 | Twins | `node.links` `via: dual-boot`, `Level.inactive` | One machine card, the running system on top, the other as a quiet line ("Fedora, last up 2 h ago") |
+| UPS patterns (2.6.7) | the UPS thing's `patterns.json` (`readPatternHistory(thingDir, now)` for months) | "On battery 2 times, 17 min in all", usual load, runtime when full (estimated); the runtime line over months shows the battery ageing |
+| One-way reachability | `assess()` title "Can't be reached" | A device that reaches others but blocks incoming connections (the Pixel today) is a warning with its own wording, not "offline" |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)

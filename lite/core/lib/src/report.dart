@@ -228,6 +228,10 @@ class Report {
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
         for (final r in readings)
           if (r.value is num) r.key: r.value,
+        // A UPS's mains/battery state as a number, so history and patterns
+        // can count power cuts.
+        for (final r in readings)
+          if (r.key == 'ups.status' && r.value is String) 'ups.onBattery': (r.value as String).startsWith('battery') ? 1 : 0,
       };
 }
 

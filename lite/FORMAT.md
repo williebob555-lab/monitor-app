@@ -229,6 +229,14 @@ What a device's history shows, in words, worked out from the history files
 * Connections: how often it reached each other device, counting only hours
   that device was itself reporting (one switched off is not a connection
   problem).
+* UPS (a `ups` thing, written next to its own `now.json` in
+  `things/<id>/patterns.json` with its own `history/patterns/`): power cuts
+  ridden through in the last 7 days, with minutes on battery and the longest
+  (`ups.cuts`, or "No power cuts"); the usual and highest load
+  (`ups.load.usual`); and the runtime the UPS expects when full on mains
+  (`ups.runtime.full`, estimated: falling over months is the battery wearing
+  out). Cuts are counted from `ups.onBattery` (1 on battery, 0 on mains),
+  which a UPS thing's history lines carry from 2.6.7.
 
 Each pattern says how many hours of history it rests on, and nothing resting
 on under an hour (six for daily shapes) is shown. Every device (computers in
