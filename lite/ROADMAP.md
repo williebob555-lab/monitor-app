@@ -1,36 +1,17 @@
 # Monitor App 2.x: the list
 
-Worked top to bottom, in small releases. Each line says what you will see.
-Sizes: **S** under an hour, **M** one to three hours, **L** a night or more.
+Moved to [`docs/ROADMAP.md`](../docs/ROADMAP.md), the single ordered plan
+from today's state to the full scope, with the standing order for long
+working sessions.
 
-## Done
+## Released so far
 
 | Release | What you see |
 |---|---|
 | 2.0.1 | One app on every device, replacing the old one. Each device writes its own files into the shared Syncthing folder, including while the app is closed. |
-| 2.1.0 | **Live while you look**: with the app open anywhere, computers update every 10 s and phones every 15 s (screen on or charging). Servers can run the collector in Docker. |
-| 2.2.0 | **Dive + map**: a map of the network (who reaches whom, ping times). Each device opens up into its parts, and each part opens into live and history charts. Home lists what needs a look. Computers say what they are (maker, model, processor), their CPU temperature (Linux), and how Tailscale (Linux) and Syncthing are doing. Phones report battery health, charge cycles and Wi-Fi signal. Computers with more than one drive list each. |
-| 2.3.0 | **Phones' and tablets' latest readings now reach the other devices every time** (before, an update was skipped whenever the file kept the same size). Docker containers on servers (running, stopped, unhealthy) as a Containers part. Android memory line set to what a phone screen really costs. **Timeline under the map**: drag back up to 24 h to see who reached whom then. |
-| 2.4.0 | **Notifications, opt-in per device** (phones and tablets): "LAPTOP stopped reporting 31 min ago", "Syncthing folder stuck". A switch on each device's page; nothing is sent for devices you leave off. |
-| 2.6.5 | **Patterns last**: phones and tablets work out their own patterns too, and every device keeps one line of pattern values a day for years, after the detailed history is gone. **UPS through UPower**: a server whose UPS is read by UPower on the host can share it with the collector as one read-only file (no USB device or D-Bus in Docker). |
-| 2.6.x | **Patterns** on each device's page (battery drain by screen, busiest time of day, usual memory, data per day, how often it reaches each device). **Change settings from any device**: the UPS beeper, Update now (Windows, Android), Update all. Map fills the screen. |
-
-## Next
-
-| # | Item | Size | What you will see |
-|---|---|---|---|
-| 1 | Verify 2.2.0 on your devices from their logs, and fix what shows up | M | Every device's parts filled in on every other device |
-| 7 | More things: Windows-side USB/UPS reading; the UPS udev rule + `devices:` line on both Docker systems of the desktop (wc-desktop Fedora, wc-alpha Ubuntu); xruns via PipeWire | M | The UPS readable whichever system the desktop runs |
-| 8 | Verify 2.5.0 on the desktop: the CyberPower UPS and MOTU files appear under its device folder | S | The real UPS and MOTU on the map |
-
-## Handoff (2026-11-26)
-
-* 2.5.0: map v4 (arranges itself, families fold, pan and zoom), strict
-  hierarchy (`node` blocks, things, `params.json`, Folder health checks), UPS
-  and audio interface telemetry on Linux, thing pages in Dive.
-* Not verified on real hardware yet: the UPS/MOTU collector (screenshots used
-  a made-up desktop in the real format). First check: the desktop's
-  `devices/<id>/things/` folder and its log after installing 2.5.0.
-* Android: confirm the in-app install works from 2.4.0 on (log lines
-  "install handed to Android" then "install succeeded").
-* Phone-size map text is small with 5+ devices; consider a larger minimum zoom.
+| 2.1.0 | Live while you look (10 s computers, 15 s phones). Servers can run the collector in Docker. |
+| 2.2.0 | Dive + map, device parts with live and history charts, system identity, CPU temperature, Tailscale and Syncthing on Linux, phone battery health and Wi-Fi. |
+| 2.3.0 | Phone readings reach every device every time; Docker containers; timeline under the map. |
+| 2.4.0 | Notifications, opt-in per device (phones and tablets). |
+| 2.5.x | Strict hierarchy (`node`, things, `params.json`), UPS and audio interface on Linux, map v4. |
+| 2.6.x | Patterns on every device and the UPS, kept for years; settings from any device; UPS through UPower; one collector per computer; TCP latency; "Can't be reached" for one-way devices. |
