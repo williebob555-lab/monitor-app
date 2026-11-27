@@ -257,3 +257,9 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x shared inventory (unreleased)
+
+- Inventory on Home can add, find, and edit items through the shared Monitor folder. Editing name, kind, or state preserves other stored fields.
+- The inventory editor shows saved properties with units and the source of each value.
+- Device pages can add observed equipment to owned inventory or review a suggested link to an existing item.
