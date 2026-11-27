@@ -150,12 +150,20 @@ class Section extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Text(title.toUpperCase(),
-                  style: const TextStyle(color: C.muted, fontSize: 11, letterSpacing: 1.2, fontWeight: FontWeight.w600)),
-              const Spacer(),
-              ?trailing,
-            ]),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Text(title.toUpperCase(),
+                      style: const TextStyle(color: C.muted, fontSize: 11, letterSpacing: 1.2, fontWeight: FontWeight.w600)),
+                  ?trailing,
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
             child,
           ]),
