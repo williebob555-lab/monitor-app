@@ -389,3 +389,14 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x map
+
+From `lite/app`, run `flutter test test/map_view_test.dart`. The widget tests use the real core assessment and render the map at 390 logical pixels wide. They check that known dual-boot installs share one node, retain separate navigation, and are labeled by report freshness. They also check that a UPS reported by the other install remains visible and contributes to the warning count. Physical-device behavior requires platform smoke testing.
+
+Run `flutter test test/map_history_test.dart` for the recorded-map regression.
+It reads real history files written through core and verifies that a selected
+instant stays fixed during live refresh, future samples and live attachments
+stay out of that view, and recorded nodes open read-only details.
+The map widget suite also checks which latency label comes from each probe and verifies the TCP fallback on the device Links page.
+Run `flutter test test/home_map_test.dart` to check that Home paints the network banner and reaches its map through the normal navigation.

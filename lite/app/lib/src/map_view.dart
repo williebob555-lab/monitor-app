@@ -25,19 +25,25 @@ class Link {
     return Level.fault;
   }
 
-  int? get pingMs {
-    final p = [ab?.pingMs, ba?.pingMs].whereType<int>();
-    return p.isEmpty ? null : p.reduce(math.min);
+  String? get latency {
+    final ping = [ab?.pingMs, ba?.pingMs].whereType<int>();
+    if (ping.isNotEmpty) return 'Ping ${ping.reduce(math.min)} ms';
+    final tcp = [ab?.tcpMs, ba?.tcpMs].whereType<int>();
+    return tcp.isEmpty ? null : 'TCP ${tcp.reduce(math.min)} ms';
   }
 
   String describe(String na, String nb) {
-    String one(String from, String to, PeerView? v) => v == null
-        ? '$from has not checked $to'
-        : v.reachable
-            ? '$from reaches $to${v.pingMs != null ? ' (${v.pingMs} ms)' : ''}${v.tcp == 'refused' ? ', Syncthing there is down' : ''}'
-            : v.tcp == 'noip'
-                ? '$from has no Tailscale address for $to'
-                : '$from gets no answer from $to';
+    String one(String from, String to, PeerView? view) {
+      if (view == null) return '$from has not checked $to';
+      if (view.reachable) {
+        final latency = peerLatencyLabel(view);
+        return '$from reaches $to${latency == null ? '' : ' ($latency)'}'
+            '${view.tcp == 'refused' ? ', Syncthing there is down' : ''}';
+      }
+      return view.tcp == 'noip'
+          ? '$from has no Tailscale address for $to'
+          : '$from gets no answer from $to';
+    }
     return '${one(na, nb, ab)}. ${one(nb, na, ba)}.';
   }
 }
@@ -68,12 +74,13 @@ String familyOf(Report r) {
 /// go. Pan and zoom; with many devices each family can fold into one node.
 /// Dots travel along a cable in each direction a device reaches the other.
 class NetworkMap extends StatefulWidget {
-  const NetworkMap(this.devices, {super.key, required this.myId, required this.onOpen, this.things = const []});
+  const NetworkMap(this.devices, {super.key, required this.myId, required this.onOpen, this.things = const [], this.recorded = false});
   final List<DeviceStatus> devices;
 
   /// Attached things (UPS, audio interface). Each hangs under the device its
   /// file names as parent, and folds into it.
   final List<DeviceStatus> things;
+  final bool recorded;
   final String myId;
   final void Function(String id) onOpen;
 
@@ -106,11 +113,11 @@ class _Node {
 
 /// A cable between two nodes.
 class _Edge {
-  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.ping, this.link, this.count, {this.via, this.detail});
+  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.latency, this.link, this.count, {this.via, this.detail});
   final String a, b;
   final Level level;
   final bool fwd, back;
-  final int? ping;
+  final String? latency;
   final Link? link; // null when it stands for several links
   final int count;
   final String? via; // attached hardware: "usb", "power"...
@@ -120,6 +127,7 @@ class _Edge {
 /// Things that run on a host and share its box on the map. Hardware gets a
 /// node of its own instead.
 const _software = {'compose-project', 'container', 'service'};
+const _otherSystemHeight = 44.0;
 
 class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   final bodies = <String, _Body>{};
@@ -150,13 +158,18 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   bool isOpen(String host) => busy ? toggled.contains(host) : !toggled.contains(host);
 
   static const thingSize = Size(196, 44);
-  Size sizeOf(_Node n) => n.small ? thingSize : nodeSize;
+  Size sizeOf(_Node n) => n.small ? thingSize : Size(nodeSize.width, _hostHeight(n.id));
 
-  /// The software in [host]'s box (attached also holds the other system).
+  double _hostHeight(String id) =>
+      nodeSize.height + (otherSystem.containsKey(id) ? _otherSystemHeight : 0);
+
+  Map<String, DeviceStatus> otherSystem = {};
+
+  /// The software in [host]'s box.
   List<DeviceStatus> boxed(String host) => [for (final t in attached[host] ?? const <DeviceStatus>[]) if (t.report.isThing) t];
 
   /// Where the junction under [host] sits, in map coordinates.
-  Offset junction(String host) => bodies[host]!.p + Offset(0, nodeSize.height / 2 + 26);
+  Offset junction(String host) => bodies[host]!.p + Offset(0, _hostHeight(host) / 2 + 26);
 
   void _toggleThings(String host) {
     setState(() {
@@ -165,9 +178,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     });
   }
 
-  /// Many devices: compact nodes, families, quiet cables.
-  bool get busy => widget.devices.length > 7;
-  Size get nodeSize => busy ? const Size(168, 46) : (area.width < 460 ? const Size(166, 118) : const Size(190, 120));
+  /// Many physical hosts: fold software and show links on demand.
+  bool get busy => widget.devices.length - otherSystem.length > 7;
+  Size get nodeSize => Size(area.width < 460 ? 184 : 208, 60);
 
   @override
   void initState() {
@@ -192,25 +205,44 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
   void _rebuild() {
     final devices = widget.devices;
+    final installs = [...devices]..sort((a, b) {
+      final time = b.report.time.compareTo(a.report.time);
+      return time != 0 ? time : a.report.id.compareTo(b.report.id);
+    });
+    otherSystem = {};
+    final primaryByTwin = <String, String>{};
+    for (final d in installs) {
+      final r = d.report;
+      if (primaryByTwin.containsKey(r.id) || r.machine == null || r.kind == 'android') continue;
+      final twin = installs.where((o) {
+        final other = o.report;
+        if (other.id == r.id ||
+            other.machine != r.machine ||
+            other.kind == 'android' ||
+            otherSystem.containsKey(other.id) ||
+            primaryByTwin.containsKey(other.id)) {
+          return false;
+        }
+        if (r.os != null && other.os != null) return r.os != other.os;
+        return r.node?.links.any((l) => l.via == 'dual-boot' && l.to == other.id) == true ||
+            other.node?.links.any((l) => l.via == 'dual-boot' && l.to == r.id) == true;
+      }).firstOrNull;
+      if (twin != null) {
+        otherSystem[r.id] = twin;
+        primaryByTwin[twin.report.id] = r.id;
+      }
+    }
     final byFamily = <String, List<DeviceStatus>>{};
     for (final d in devices) {
-      byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
+      if (!primaryByTwin.containsKey(d.report.id)) {
+        byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
+      }
     }
     folded.removeWhere((f) => (byFamily[f]?.length ?? 0) < 2);
-    // A dual-boot machine is one host: the system not booted right now hangs
-    // under the one that is, instead of looking like a device that is down.
-    final asleep = <String, DeviceStatus>{}; // running system's id -> the other one
-    for (final d in devices) {
-      final m = d.report.machine;
-      if (m == null || d.fresh || d.report.kind == 'android') continue;
-      final up = devices.where((o) => o.report.id != d.report.id && o.report.machine == m && o.fresh).firstOrNull;
-      if (up != null) asleep[up.report.id] = d;
-    }
-    final sleeping = {for (final d in asleep.values) d.report.id};
     final owner = <String, String>{}; // device id -> node id
     final out = <_Node>[];
     for (final d in devices) {
-      if (sleeping.contains(d.report.id)) continue;
+      if (primaryByTwin.containsKey(d.report.id)) continue;
       final f = familyOf(d.report);
       if (folded.contains(f)) {
         owner[d.report.id] = 'family:$f';
@@ -239,7 +271,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       for (final e in merged.entries)
         if (e.value.length == 1)
           _Edge(owner[e.value.first.a]!, owner[e.value.first.b]!, e.value.first.level, e.value.first.ab?.reachable == true,
-              e.value.first.ba?.reachable == true, e.value.first.pingMs, e.value.first, 1)
+              e.value.first.ba?.reachable == true, e.value.first.latency, e.value.first, 1)
         else
           _Edge(e.key.split('\n')[0], e.key.split('\n')[1], e.value.map((l) => l.level).reduce((a, b) => a.index >= b.index ? a : b),
               e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true), e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true),
@@ -248,11 +280,9 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
     // Attached things hang under their device, unless it is folded away.
     attached = {};
-    for (final e in asleep.entries) {
-      if (owner[e.key] == e.key) attached.putIfAbsent(e.key, () => []).add(e.value);
-    }
     for (final t in widget.things) {
-      final parent = t.report.node?.parent;
+      final declaredParent = t.report.node?.parent;
+      final parent = primaryByTwin[declaredParent] ?? declaredParent;
       if (parent == null || owner[parent] != parent) continue;
       final host = out.firstWhere((n) => n.id == parent);
       if (_software.contains(t.report.node?.type)) {
@@ -262,12 +292,15 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       // Hardware: its own node, with a cable to the host for each way it is
       // connected (USB, power...), as its file declares.
       out.add(_Node(t.report.id, t, host.family, host: parent));
-      final ls = [for (final l in t.report.node?.links ?? const <NodeLink>[]) if (l.to == parent) l];
+      final ls = [for (final l in t.report.node?.links ?? const <NodeLink>[]) if (l.to == declaredParent) l];
       final vias = {for (final l in ls) l.via};
+      final reportedHost = parent == declaredParent
+          ? host.s.report.name
+          : otherSystem[parent]!.report.name;
       edges.add(_Edge(t.report.id, parent, t.level == Level.inactive ? Level.inactive : Level.ok, true,
           vias.any((v) => v != 'power') && ls.any((l) => l.dir != 'out'), null, null, 1,
           via: vias.isEmpty ? 'attached' : vias.map((v) => v == 'usb' ? 'USB' : v).join(' + '),
-          detail: '${t.report.name} → ${host.s.report.name}: ${ls.isEmpty ? 'attached' : ls.map((l) => '${l.via == 'usb' ? 'USB' : l.via}${l.detail != null ? ' (${l.detail})' : ''}').join(', ')}.'));
+          detail: '${t.report.name} → $reportedHost: ${ls.isEmpty ? 'attached' : ls.map((l) => '${l.via == 'usb' ? 'USB' : l.via}${l.detail != null ? ' (${l.detail})' : ''}').join(', ')}.'));
     }
     for (final e in attached.entries) {
       if (!isOpen(e.key)) continue;
@@ -313,7 +346,11 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     nodes = out;
     netLevel.clear();
     // Not answering is expected of a device that isn't running right now.
-    final resting = {for (final d in devices) if (d.level == Level.inactive) d.report.id};
+    final resting = {
+      ...primaryByTwin.keys,
+      for (final d in devices)
+        if (widget.recorded ? !d.fresh : d.level == Level.inactive) d.report.id,
+    };
     final ls = [for (final l in linksOf(devices)) if (!resting.contains(l.a) && !resting.contains(l.b)) l];
     for (final n in out.where((n) => !n.small)) {
       final mine = [for (final l in ls) if (n.folded ? n.members.any((d) => d.report.id == l.a || d.report.id == l.b) : (l.a == n.id || l.b == n.id)) l];
@@ -338,6 +375,10 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     }
     _layout();
     if (focus != null && !ids.contains(focus)) focus = null;
+    if (selDev != null && !ids.contains(selDev)) selDev = null;
+    if (selected case final current?) {
+      selected = edges.where((e) => e.a == current.a && e.b == current.b && e.via == current.via).firstOrNull;
+    }
     if (changed) _wake();
   }
 
@@ -594,10 +635,11 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       return const Center(child: Text('No devices yet.', style: TextStyle(color: C.muted)));
     }
     final names = {for (final d in widget.devices) d.report.id: d.report.name};
-    final fam = <String, int>{};
-    for (final d in widget.devices) {
-      fam.update(familyOf(d.report), (n) => n + 1, ifAbsent: () => 1);
-    }
+    final hostCount = widget.devices.length - otherSystem.length;
+    final needsAttention = [
+      for (final d in [...widget.devices, ...widget.things])
+        if (!otherSystem.values.contains(d) && (d.level == Level.warn || d.level == Level.fault)) d,
+    ];
     return Column(children: [
       Expanded(
         child: ClipRRect(
@@ -621,12 +663,21 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
                 for (final n in nodes) _placed(n),
                 for (final h in attached.keys)
                   if (bodies[h] != null) _junctionTag(h),
-                ..._regionHeaders(fam),
+                ..._regionHeaders(),
                 Positioned(right: 10, bottom: 10, child: _controls()),
                 Positioned(
                   left: 14,
                   bottom: 12,
-                  child: Text('${widget.devices.length} devices', style: const TextStyle(color: C.muted, fontSize: 11.5, fontWeight: FontWeight.w500)),
+                  child: Text(
+                    needsAttention.isEmpty
+                        ? '$hostCount ${hostCount == 1 ? 'device' : 'devices'}'
+                        : 'Attention needed · ${needsAttention.length}',
+                    style: TextStyle(
+                      color: needsAttention.isEmpty ? C.muted : C.warn,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ]);
             }),
@@ -704,8 +755,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     );
   }
 
-  /// The folded summary of a device's children, e.g. "docker 7/8 · UPS ·
-  /// wc-alpha asleep". Counts come from the children's own files.
+  /// The folded summary of the reported attached things.
   static String _tagText(List<DeviceStatus> list, bool open) {
     final parts = <String>[];
     var run = 0, all = 0, projects = 0;
@@ -725,9 +775,6 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       }
     } else {
       parts.add('${plugged.length} attached');
-    }
-    for (final d in list.where((d) => !d.report.isThing)) {
-      parts.add('${d.report.name} asleep');
     }
     return parts.join(' · ');
   }
@@ -760,9 +807,13 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
                   ? _FamilyNode(n)
                   : n.small
                       ? _ThingChip(n.s, focused: focus == n.id)
-                  : busy
-                      ? _Chip(n.s, isMe: n.id == widget.myId, focused: focus == n.id)
-                      : _Card(n.s, isMe: n.id == widget.myId, lifted: focus == n.id),
+                  : _DeviceNode(
+                      n.s,
+                      isMe: n.id == widget.myId,
+                      focused: focus == n.id,
+                      otherSystem: otherSystem[n.id],
+                      onOpen: widget.onOpen,
+                    ),
             ),
           ),
         ),
@@ -772,9 +823,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
   /// Each region's name in its top-left corner; with two or more devices,
   /// tap it to fold the region into one node.
-  List<Widget> _regionHeaders(Map<String, int> all) {
-    // Count what the region shows: a system not booted right now is a note
-    // on its twin, not a device of its own here.
+  List<Widget> _regionHeaders() {
+    // Count physical hosts represented by each family.
     final fam = <String, int>{};
     for (final n in nodes) {
       if (!n.small) fam.update(n.family, (c) => c + (n.folded ? n.members.length : 1), ifAbsent: () => n.folded ? n.members.length : 1);
@@ -869,11 +919,13 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       key: const ValueKey('hint'),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        for (final (c, t) in const [
-          (_MapPainter.pulseNet, 'network'),
-          (_MapPainter.pulseSync, 'Syncthing'),
-          (_MapPainter.layerUsb, 'USB'),
-          (_MapPainter.pulsePower, 'power'),
+        for (final (c, t) in [
+          (_MapPainter.pulseNet, widget.recorded ? 'Recorded reachability' : 'network'),
+          if (!widget.recorded) ...const [
+            (_MapPainter.pulseSync, 'Syncthing'),
+            (_MapPainter.layerUsb, 'USB'),
+            (_MapPainter.pulsePower, 'power'),
+          ],
         ])
           Row(mainAxisSize: MainAxisSize.min, children: [
             Container(width: 14, height: 2.5, color: c.withValues(alpha: 0.7)),
@@ -933,14 +985,12 @@ class _MapPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    _grid(canvas, size);
     final rects = {
       for (final n in m.nodes)
         n.id: Rect.fromCenter(center: m._screen(m.bodies[n.id]!.p), width: m.sizeOf(n).width * m.zoom, height: m.sizeOf(n).height * m.zoom),
     };
     _regions(canvas);
     _network(canvas, rects);
-    _pins(canvas, rects);
     _hardware(canvas, rects);
     final groups = _groups(rects);
     final pills = <Rect>[...rects.values, ...groups.values];
@@ -1000,7 +1050,7 @@ class _MapPainter extends CustomPainter {
       if (e.fwd) travel(true);
       if (e.back) travel(false);
 
-      final label = e.via != null ? e.via! : e.count > 1 ? '${e.count} links' : e.ping != null ? '${e.ping} ms' : (e.level == Level.fault ? 'no answer' : null);
+      final label = e.via ?? (e.count > 1 ? '${e.count} links' : e.latency ?? (e.level == Level.fault ? 'no answer' : null));
       if (label != null && metric.length > 70) {
         final tp = TextPainter(
           text: TextSpan(
@@ -1138,18 +1188,6 @@ class _MapPainter extends CustomPainter {
 
   int _weight(_Edge e) => (m.focus == e.a || m.focus == e.b ? 10 : 0) + e.level.index;
 
-  void _grid(Canvas canvas, Size size) {
-    final p = Paint()..color = Colors.white.withValues(alpha: 0.045);
-    final step = 22.0 * m.zoom.clamp(0.6, 2.0);
-    final o = Offset(size.width / 2, size.height / 2) + m.pan;
-    final sx = o.dx % step, sy = o.dy % step;
-    for (var y = sy; y < size.height; y += step) {
-      for (var x = sx; x < size.width; x += step) {
-        canvas.drawCircle(Offset(x, y), 0.9, p);
-      }
-    }
-  }
-
   /// One clean rectangle per kind of device; its name is a widget on top.
   void _regions(Canvas canvas) {
     final r = 14 * m.zoom.clamp(0.6, 1.2);
@@ -1225,42 +1263,7 @@ class _MapPainter extends CustomPainter {
     canvas.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(1.2 * z)), Paint()..color = color);
   }
 
-  /// Pulses travelling along a path; [dir] 1 forwards, -1 backwards.
-  void _pulses(Canvas canvas, Path path, Color color, double speed, {int dir = 1, int count = 1, double phase = 0}) {
-    for (final metric in path.computeMetrics()) {
-      for (var k = 0; k < count; k++) {
-        var p = (t * speed + phase + k / count) % 1.0;
-        if (dir < 0) p = 1 - p;
-        final at = metric.getTangentForOffset(metric.length * p)?.position;
-        if (at == null) continue;
-        final fade = math.sin(p * math.pi);
-        canvas.drawCircle(at, 3.6, Paint()..color = color.withValues(alpha: 0.16 * fade)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5));
-        canvas.drawCircle(at, 1.6, Paint()..color = color.withValues(alpha: 0.85 * fade));
-      }
-    }
-  }
-
   Color _layer(Level l, Color base) => l == Level.ok ? base : l == Level.inactive ? base.withValues(alpha: 0.5) : C.of(l);
-
-  /// Pins along a chip's sides: the cards read as components on the board.
-  void _pins(Canvas canvas, Map<String, Rect> rects) {
-    final z = m.zoom.clamp(0.6, 1.4);
-    final pin = Paint()
-      ..strokeWidth = 2.2 * z
-      ..color = const Color(0xFF48515D);
-    for (final n in m.nodes) {
-      final r = rects[n.id];
-      if (r == null || n.thing) continue;
-      final step = 10 * z, len = 5.5 * z;
-      final k = ((r.height - 16 * z) / step).floor();
-      final y0 = r.center.dy - (k - 1) * step / 2;
-      for (var i = 0; i < k; i++) {
-        final y = y0 + i * step;
-        canvas.drawLine(Offset(r.left - len, y), Offset(r.left, y), pin);
-        canvas.drawLine(Offset(r.right, y), Offset(r.right + len, y), pin);
-      }
-    }
-  }
 
   /// The private network and Syncthing: two traces from the hub chip, down
   /// a trunk on the left, a pair of buses over each row, and a pair of
@@ -1290,19 +1293,19 @@ class _MapPainter extends CustomPainter {
       final sync = first
           ? _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, low)], c)
           : _trace([Offset(tSync, ySyncHub), Offset(tSync, low)], c);
-      _copper(canvas, sync, layerSync);
+      if (!m.widget.recorded) _copper(canvas, sync, layerSync);
       _copper(canvas, net, layerNet);
       if (!first) {
         _via(canvas, Offset(tNet, yNetHub), layerNet);
-        _via(canvas, Offset(tSync, ySyncHub), layerSync);
+        if (!m.widget.recorded) _via(canvas, Offset(tSync, ySyncHub), layerSync);
       }
-      _pulses(canvas, net, pulseNet, 0.35, count: 2, phase: i * 0.2);
-      _pulses(canvas, sync, pulseSync, 0.25, count: 2, phase: 0.3 + i * 0.2);
     }
     if (xs.length > 1) {
       // The top run from the hub out to the farthest branch.
       final far = sx(xs.last);
-      _copper(canvas, Path()..moveTo(hub.dx, ySyncHub)..lineTo(far, ySyncHub), layerSync);
+      if (!m.widget.recorded) {
+        _copper(canvas, Path()..moveTo(hub.dx, ySyncHub)..lineTo(far, ySyncHub), layerSync);
+      }
       _copper(canvas, Path()..moveTo(hub.dx, yNetHub)..lineTo(far - gap, yNetHub), layerNet);
     }
     // Buses: Syncthing on the row line, the network a step below it.
@@ -1310,9 +1313,9 @@ class _MapPainter extends CustomPainter {
       final tNet = sx(bx) - gap, tSync = tNet + gap;
       final sy = m._screen(Offset(0, y)).dy, ny = sy + gap;
       final x = sx(x2) + gap;
-      _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
+      if (!m.widget.recorded) _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
       _copper(canvas, Path()..moveTo(tNet, ny)..lineTo(x, ny), layerNet);
-      _via(canvas, Offset(tSync, sy), layerSync);
+      if (!m.widget.recorded) _via(canvas, Offset(tSync, sy), layerSync);
       _via(canvas, Offset(tNet, ny), layerNet);
     }
     for (final n in m.nodes) {
@@ -1326,16 +1329,14 @@ class _MapPainter extends CustomPainter {
       final top = r.top - 1;
       final syncPath = Path()..moveTo(xs, top)..lineTo(xs, sy);
       final netPath = Path()..moveTo(xn, top)..lineTo(xn, ny);
-      _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+      if (!m.widget.recorded) {
+        _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+        _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
+        _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
+      }
       _copper(canvas, netPath, _layer(net, layerNet), dashed: net == Level.fault || net == Level.inactive, width: sel ? 2.4 : 1.6);
-      _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
       _via(canvas, Offset(xn, ny), _layer(net, layerNet));
-      _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
       _pad(canvas, Offset(xn, top), _layer(net, layerNet));
-      final ph = (n.id.hashCode % 97) / 97;
-      // Files arrive down the Syncthing trace; the network carries both ways.
-      if (sync == Level.ok) _pulses(canvas, syncPath, pulseSync, 0.5, dir: -1, phase: ph);
-      if (net == Level.ok || net == Level.warn) _pulses(canvas, netPath, net == Level.ok ? pulseNet : C.of(net), 0.6, dir: (t * 2 + ph).floor().isEven ? 1 : -1, phase: ph);
     }
     // The hub chip.
     final tp = TextPainter(
@@ -1343,11 +1344,6 @@ class _MapPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout();
     final box = Rect.fromCenter(center: hub, width: (tp.width + 40) * z, height: 28 * z);
-    final pin = Paint()..strokeWidth = 2 * z..color = const Color(0xFF39414B);
-    for (var x = box.left + 10 * z; x < box.right - 6 * z; x += 11 * z) {
-      canvas.drawLine(Offset(x, box.top - 4 * z), Offset(x, box.top), pin);
-      canvas.drawLine(Offset(x, box.bottom), Offset(x, box.bottom + 4 * z), pin);
-    }
     final rr = RRect.fromRectAndRadius(box, Radius.circular(6 * z));
     canvas.drawRRect(rr, Paint()..color = const Color(0xFF1C2026));
     canvas.drawRRect(rr, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = const Color(0xFF3A434F));
@@ -1370,8 +1366,8 @@ class _MapPainter extends CustomPainter {
       final appear = math.min(m.bodies[e.a]!.appear, m.bodies[e.b]!.appear);
       if (appear < 1) continue;
       final node = m.nodes.where((n) => n.id == e.a).firstOrNull;
-      final links = [for (final l in node?.s.report.node?.links ?? const <NodeLink>[]) if (l.to == e.b) l];
-      final kinds = links.isEmpty ? ['usb'] : {for (final l in links) l.via}.toList();
+      final links = [for (final l in node?.s.report.node?.links ?? const <NodeLink>[]) if (l.to == node?.s.report.node?.parent) l];
+      final kinds = links.isEmpty ? ['attached'] : {for (final l in links) l.via}.toList();
       final right = thing.center.dx > host.center.dx;
       final x1 = right ? host.right + 1 : host.left - 1, x2 = right ? thing.left - 1 : thing.right + 1;
       final mid = (x1 + x2) / 2;
@@ -1386,14 +1382,6 @@ class _MapPainter extends CustomPainter {
         _copper(canvas, path, dead ? base.withValues(alpha: 0.5) : base, dashed: dead);
         _pad(canvas, a, base, vertical: false);
         _pad(canvas, b, base, vertical: false);
-        if (dead) continue;
-        final dirOut = links.where((l) => l.via == kinds[i]).firstOrNull?.dir;
-        if (power) {
-          _pulses(canvas, path, pulsePower, 0.7, dir: -1); // power flows from the UPS into the device
-        } else {
-          _pulses(canvas, path, pulseNet, 0.8, phase: 0.1);
-          if (dirOut == 'both') _pulses(canvas, path, pulseNet, 0.8, dir: -1, phase: 0.6);
-        }
       }
     }
   }
@@ -1451,53 +1439,101 @@ class _MapPainter extends CustomPainter {
   bool shouldRepaint(_MapPainter o) => true;
 }
 
-/// A device on a busy map: one compact line.
-class _Chip extends StatelessWidget {
-  const _Chip(this.s, {required this.isMe, required this.focused});
-  final DeviceStatus s;
+/// A physical device, with separate detail pages for its OS installs.
+class _DeviceNode extends StatelessWidget {
+  const _DeviceNode(this.status, {
+    required this.isMe,
+    required this.focused,
+    required this.otherSystem,
+    required this.onOpen,
+  });
+
+  final DeviceStatus status;
   final bool isMe, focused;
+  final DeviceStatus? otherSystem;
+  final void Function(String) onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final r = s.report;
-    final problem = s.level != Level.ok;
-    final sub = problem ? s.title : _cardWhat(r) + (isMe ? ' · this device' : '');
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      padding: const EdgeInsets.fromLTRB(7, 6, 8, 6),
+    final report = status.report;
+    final other = otherSystem?.report;
+    final title = other == null
+        ? status.title
+        : status.fresh
+            ? 'Running · ${status.title}'
+            : 'Last reported · ${status.title}';
+    final battery = status.fresh ? report.battery?.pct : null;
+    return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF232830), Color(0xFF1B1F25)]),
-        border: Border.all(
-            color: focused
-                ? C.text.withValues(alpha: 0.5)
-                : problem
-                    ? C.of(s.level).withValues(alpha: 0.55)
-                    : isMe
-                        ? C.flow.withValues(alpha: 0.45)
-                        : const Color(0xFF323944)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 6))],
+        color: C.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: focused ? C.muted : C.line),
       ),
-      child: Row(children: [
-        Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF2C323B))),
-          child: Icon(kindIcon(r.kind, r.name), size: 15, color: s.fresh ? C.text : C.muted),
-        ),
-        const SizedBox(width: 8),
+      child: Column(children: [
         Expanded(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.2)),
-            Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: problem ? C.of(s.level) : C.muted, height: 1.3)),
-          ]),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Row(children: [
+              Icon(kindIcon(report.kind, report.name), size: 18, color: C.muted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(report.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11, color: C.of(status.level))),
+                    Text('${report.os ?? _cardWhat(report)}${isMe ? ' · This device' : ''}',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10, color: C.muted)),
+                  ],
+                ),
+              ),
+              if (battery != null && status.level == Level.ok)
+                Text('${battery.round()}%', semanticsLabel: '${battery.round()} percent battery',
+                    style: const TextStyle(fontSize: 12, color: C.muted)),
+            ]),
+          ),
         ),
-        _Pulse(s.level, live: r.live),
+        if (other != null)
+          SizedBox(
+            height: _otherSystemHeight,
+            child: DecoratedBox(
+              decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line))),
+              child: TextButton(
+                key: ValueKey('os:${other.id}'),
+                onPressed: () => onOpen(other.id),
+                style: TextButton.styleFrom(
+                  foregroundColor: C.muted,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: Row(children: [
+                  Icon(kindIcon(other.kind, other.name), size: 14),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(other.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text('${other.os ?? _cardWhat(other)} · ${status.fresh ? 'Not booted' : 'Other install'}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, size: 14),
+                ]),
+              ),
+            ),
+          ),
       ]),
     );
   }
 }
-
 /// A folded family: a small stack of cards with a count.
 class _FamilyNode extends StatelessWidget {
   const _FamilyNode(this.n);
@@ -1587,179 +1623,6 @@ String _cardWhat(Report r) {
   if (r.kind == 'android') return kindIcon(r.kind, r.name) == Icons.tablet_android ? 'Tablet' : 'Phone';
   if (os.contains('Docker')) return 'Server · Docker';
   return r.kind == 'windows' ? 'Windows' : r.kind == 'linux' ? 'Linux' : r.kind;
-}
-
-/// One device: what it is, whether it is well, and its key gauges.
-class _Card extends StatelessWidget {
-  const _Card(this.s, {required this.isMe, required this.lifted});
-  final DeviceStatus s;
-  final bool isMe;
-  final bool lifted;
-
-  String get _what {
-    final r = s.report;
-    final os = r.os ?? '';
-    if (r.kind == 'android') return kindIcon(r.kind, r.name) == Icons.tablet_android ? 'Tablet' : 'Phone';
-    if (os.contains('Docker')) return 'Server · Docker';
-    return r.kind == 'windows' ? 'Windows' : r.kind == 'linux' ? 'Linux' : r.kind;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final r = s.report;
-    final problem = s.level != Level.ok;
-    final gauges = <(String, double?)>[
-      if (r.cpuPct != null) ('CPU', r.cpuPct),
-      ('MEM', pct(r.memUsed, r.memTotal)),
-      if (r.battery?.pct != null) ('BAT', r.battery!.pct),
-      if (r.battery?.pct == null || r.cpuPct == null) ('DISK', pct(r.diskUsed, r.diskTotal)),
-    ].take(3).toList();
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-      transform: Matrix4.translationValues(0, lifted ? -3 : 0, 0),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF232830), Color(0xFF1B1F25)]),
-        border: Border.all(
-            color: problem ? C.of(s.level).withValues(alpha: 0.55) : isMe ? C.flow.withValues(alpha: 0.45) : const Color(0xFF323944)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: lifted ? 0.55 : 0.4), blurRadius: lifted ? 26 : 18, offset: Offset(0, lifted ? 12 : 8)),
-        ],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(color: const Color(0xFF14171B), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF2C323B))),
-            child: Icon(kindIcon(r.kind, r.name), size: 15, color: s.fresh ? C.text : C.muted),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.2)),
-              Text(problem ? s.title : (isMe ? '$_what · this device' : _what),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 10.5, color: problem ? C.of(s.level) : C.muted, height: 1.3)),
-            ]),
-          ),
-          _Pulse(s.level, live: s.report.live),
-        ]),
-        const Spacer(),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [for (final g in gauges) _Ring(g.$1, g.$2)]),
-      ]),
-    );
-  }
-}
-
-/// A status dot that breathes while the device is reporting live.
-class _Pulse extends StatefulWidget {
-  const _Pulse(this.level, {required this.live});
-  final Level level;
-  final bool live;
-  @override
-  State<_Pulse> createState() => _PulseState();
-}
-
-class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
-  late final AnimationController c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat();
-
-  @override
-  void dispose() {
-    c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = C.of(widget.level);
-    return SizedBox(
-      width: 16,
-      height: 16,
-      child: AnimatedBuilder(
-        animation: c,
-        builder: (_, _) => CustomPaint(
-          painter: _PulsePainter(color, widget.live ? c.value : null),
-        ),
-      ),
-    );
-  }
-}
-
-class _PulsePainter extends CustomPainter {
-  _PulsePainter(this.color, this.t);
-  final Color color;
-  final double? t;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    if (t != null) {
-      canvas.drawCircle(c, 3 + 5 * t!, Paint()..color = color.withValues(alpha: 0.35 * (1 - t!)));
-    }
-    canvas.drawCircle(c, 3.2, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(_PulsePainter o) => o.t != t || o.color != color;
-}
-
-/// A small ring gauge with its value inside and a label under it.
-class _Ring extends StatelessWidget {
-  const _Ring(this.label, this.value);
-  final String label;
-  final double? value;
-
-  /// Full is bad for most gauges, empty is bad for a battery.
-  Level get level {
-    final v = value;
-    if (v == null) return Level.inactive;
-    if (label == 'BAT') return v < 10 ? Level.fault : v < 20 ? Level.warn : Level.ok;
-    return v >= 95 ? Level.fault : v >= 85 ? Level.warn : Level.ok;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final v = value;
-    final l = level;
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      SizedBox(
-        width: 30,
-        height: 30,
-        child: CustomPaint(
-          painter: _RingPainter(v, l == Level.ok ? const Color(0xFFC9D1DC) : C.of(l)),
-          child: Center(
-            child: Text(v == null ? '–' : '${v.round()}',
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()])),
-          ),
-        ),
-      ),
-      const SizedBox(height: 3),
-      Text(label, style: const TextStyle(fontSize: 8.5, color: C.muted, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
-    ]);
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  _RingPainter(this.v, this.color);
-  final double? v;
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2 - 2);
-    final base = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.6
-      ..color = const Color(0xFF2E353F);
-    canvas.drawArc(r, 0, 2 * math.pi, false, base);
-    if (v == null) return;
-    canvas.drawArc(r, -math.pi / 2, 2 * math.pi * (v!.clamp(0, 100) / 100), false, base..color = color..strokeCap = StrokeCap.round);
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter o) => o.v != v || o.color != color;
 }
 
 class _LinkDetail extends StatelessWidget {

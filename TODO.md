@@ -95,3 +95,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions beyond monitoring controls (power, services, scripts), multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.
+
+## Monitor App 2.x UI
+
+- [x] T075: clarify the live map using the `monitor_core` contract. Dual-boot installs share one host, warnings are summarized, and Flutter widget tests exercise the map at phone width.
+- [x] Keep recorded map details read-only and anchored to their selected time.

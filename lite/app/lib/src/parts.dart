@@ -166,7 +166,7 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
         (
           names[e.key] ?? e.key,
           [
-            e.value.pingMs != null ? '${e.value.pingMs} ms' : e.value.reachable ? 'reachable' : e.value.tcp == 'noip' ? 'no address' : 'no answer',
+            peerLatencyLabel(e.value) ?? (e.value.reachable ? 'reachable' : e.value.tcp == 'noip' ? 'no address' : 'no answer'),
             switch (e.value.tcp) { 'open' => 'Syncthing up', 'refused' => 'Syncthing down', _ => null },
             if (e.value.seenAge != null) 'files ${ago(Duration(seconds: e.value.seenAge!))} old',
           ].whereType<String>().join(' · ')

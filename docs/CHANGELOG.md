@@ -257,3 +257,10 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x (unreleased)
+
+- The live map shows a dual-boot machine as one host with a separate link to each install. It labels the latest install as running only while its report is fresh. Device nodes show plain-language status, and the map calls out how many devices and attached things need attention. Fixed network and hardware traces describe connectivity without animated traffic indicators.
+- The map keeps the selected recorded time fixed during live refresh. Historical device details read the latest sample at or before that time. Recorded maps show reachability and omit live-only attachments and controls.
+- The map and Links details label ICMP ping and show the TCP handshake time when a collector cannot measure ping.
+- Fixed the Home network banner border so the main screen can render cleanly at phone width.
