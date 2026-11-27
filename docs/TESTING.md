@@ -389,3 +389,11 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x project planning
+
+From `lite/app`, run `flutter test test/planning_page_test.dart`. The widget
+tests create and reopen a session draft at phone width, check off a task,
+place and move rack equipment, reject an overlap, and exercise entered and
+missing equipment measurements. Verify physical touch and keyboard behavior
+on the installed app separately.

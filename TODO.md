@@ -95,3 +95,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions beyond monitoring controls (power, services, scripts), multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.
+
+## Monitor App 2.x project planning
+
+- [x] T076: add session drafts for named projects, rack layout, equipment, and tasks.
+- [ ] Wire persistence and shared Thing references into the planning UI when `monitor_core` exposes a planning contract.

@@ -754,3 +754,7 @@ This log separates confirmed product constraints from working technical decision
 
 - Context: an app update or reboot closed the foreground service, and nothing restarted it until someone tapped Start monitoring. On 2026-11-25 the tablet sat silent for 11 minutes after an update with its app open; Wilson: "any time I touch anything I have to restart the runtime".
 - Decision (Wilson, decision card): resume if left on. Starting monitoring is still an explicit user action; the choice is remembered (app preferences) and the service resumes on BOOT_COMPLETED, MY_PACKAGE_REPLACED and app open until the user stops it from the app or the notification. specialUse foreground services may start from these broadcasts.
+
+### T076 Monitor App 2.x planning drafts
+
+The Flutter UI can hold disposable session drafts while the shared planning contract is being developed. Drafts own interaction state only and have no service or file boundary. Durable project identity, revisions, placement, and links to Things belong to a future monitor_core contract. The current rack checks use only entered geometry and cannot establish installation compatibility.

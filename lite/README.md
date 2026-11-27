@@ -66,6 +66,11 @@ syncs like everything else.
   for 15 minutes, and clears the notification when it is over. It is checked
   at the end of each normal collection run, so it costs nothing extra.
 
+* **Projects**: open Projects from Home to draft a rack, equipment list, and
+  task checklist. Tap a rack unit to place equipment or leave the position
+  blank to plan it later. Enter any known depth, weight, and power values.
+  Drafts stay in the open app session and clear when it closes.
+
 ## Updates
 
 Setup and updates > Install. The app downloads the release file, checks it

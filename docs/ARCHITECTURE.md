@@ -267,6 +267,8 @@ SQLite WAL remains the personal-scale starting point. Schema migrations, backup,
 
 ## Experience clients
 
+In Monitor App 2.x, Projects in `lite/app` keeps a working draft in Flutter session state. The rack elevation and equipment list are two views of that same draft. This path has no shared-folder writes or operational actions. The production data interface is documented in `lite/FORMAT.md`.
+
 The local experience renders the same domain model available to replication and query. The living schematic summarizes relationships and state. Domain lenses expose power, audio, storage, network infrastructure, thermal, security, and other coherent subsets. Search reaches exact signals. The final scene remains a projection of the domain model, never the source of truth.
 
 The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.

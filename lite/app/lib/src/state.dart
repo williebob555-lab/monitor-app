@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'host.dart';
+import 'planning_draft.dart';
 
 /// Budget for the app itself while it is open.
 /// Android counts the screen's graphics buffers in the app's memory, and a
@@ -20,6 +21,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   final LocalHost host;
   SyncFolder folder;
+
+  /// Work in progress for this app session.
+  final projectDrafts = <ProjectDraft>[];
   /// Reports shown (hidden ones removed).
   Map<String, Report> reports = {};
 
