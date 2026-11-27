@@ -297,6 +297,7 @@ object Collector {
                 results.mkdirs()
                 out.writeText(JSONObject().put("id", rid).put("ok", ok).put("message", msg).put("t", nowS).toString())
                 log(dir, "${if (ok) "control" else "ERROR control"} ${q.optString("key")}=${q.optString("value")} for ${q.optString("target")}, asked by $from: $msg")
+                if (ok) event(ctx, "control.applied", q.optString("target"), "${q.optString("key")}, asked by $from: $msg")
             }
         }
     }
@@ -452,6 +453,19 @@ object Collector {
 
     /** Before the shared folder is usable, log inside the app's own storage. */
     fun internalLog(ctx: Context, line: String) = log(ctx.filesDir, line)
+
+    /** devices/<id>/events/YYYY-MM.jsonl (UTC month), FORMAT.md "Events". */
+    fun event(ctx: Context, type: String, subject: String? = null, detail: String? = null) {
+        runCatching {
+            val dir = File(folder(ctx), "devices/${deviceId(ctx)}/events")
+            if (!canWrite() || !(dir.isDirectory || dir.mkdirs())) return
+            val fmt = SimpleDateFormat("yyyy-MM", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            val j = JSONObject().put("t", System.currentTimeMillis() / 1000).put("type", type)
+            subject?.let { j.put("subject", it) }
+            detail?.let { j.put("detail", it) }
+            File(dir, "${fmt.format(Date())}.jsonl").appendText(j.toString() + "\n")
+        }
+    }
 
     fun logToFolder(ctx: Context, line: String) {
         val dir = File(folder(ctx), "devices/${deviceId(ctx)}")

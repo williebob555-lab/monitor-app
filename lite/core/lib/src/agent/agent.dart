@@ -22,6 +22,7 @@ import 'hid_ups.dart';
 import '../control.dart';
 import '../patterns.dart';
 import '../model.dart';
+import '../events.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -193,6 +194,8 @@ class Agent {
   }
 
   bool _busy = false;
+  EventState? _eventState;
+  DateTime? _prevCycleAt;
 
   /// Automatic update (Windows): first check [autoUpdateFirstDelay] after
   /// start, then every [autoUpdateEvery]. Runs beside the cycles, not in
@@ -298,6 +301,11 @@ class Agent {
         res = done(false, '$e');
       }
       folder.writeResult(cfg.id, res);
+      if (res.ok) {
+        appendEvents(folder.deviceDir(cfg.id), [
+          Event(DateTime.now().toUtc(), 'control.applied', subject: r.target, detail: '${r.key}=${r.value}, asked by ${r.fromName}: ${res.message}')
+        ]);
+      }
       folder.log(cfg.id, '${res.ok ? 'control' : 'ERROR control'} ${r.key}=${r.value} for ${r.target}, asked by ${r.fromName}: ${res.message}');
       if (r.key == 'update' && res.ok && Updater.exitsAfterStart) exit(0);
     }
@@ -423,6 +431,24 @@ class Agent {
       _step('things');
       final parents = _writeThings(folder, cfg.id, things, now);
       _step('thingfiles');
+      try {
+        final statePath = '${LocalConfig.dir}${Platform.pathSeparator}events-state.json';
+        final before = _eventState ??= EventState.load(statePath);
+        final after = EventState.of(app: appVersion, others: others, things: things, now: now);
+        // Just started, or this machine slept: others' files lag behind.
+        final settled = !firstRun && _prevCycleAt != null && now.difference(_prevCycleAt!) < const Duration(minutes: 3) && now.difference(_started) > const Duration(minutes: 5);
+        final ev = diffEvents(before, after, now, peers: settled);
+        appendEvents(folder.deviceDir(cfg.id), ev);
+        for (final e in ev) {
+          folder.log(cfg.id, 'event ${e.type}${e.name != null ? ' ${e.name}' : ''}${e.detail != null ? ': ${e.detail}' : ''}');
+        }
+        if (ev.isNotEmpty || before.values.isEmpty || firstRun) after.save(statePath);
+        _eventState = after;
+        _prevCycleAt = now;
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR events: $e');
+      }
+      _step('events');
 
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
@@ -501,7 +527,9 @@ class Agent {
         _maxRss = 0;
       }
       if (_lastPrune == null || now.difference(_lastPrune!) > const Duration(hours: 6)) {
-        final used = hw.prune(now, Retention.load(cfg.folder));
+        final ret = Retention.load(cfg.folder);
+        final used = hw.prune(now, ret);
+        pruneEvents(folder.deviceDir(cfg.id), now, ret.hourlyDays);
         folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
         _lastPrune = now;
         _writePatterns(folder, cfg.id, others, now);

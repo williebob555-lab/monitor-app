@@ -259,6 +259,27 @@ files they came from. Read it with `readPatternHistory(deviceDir, now)`;
 `seriesOf(lines, "battery.drain.off")` charts one pattern over months.
 
 
+## Events (`devices/<id>/events/YYYY-MM.jsonl`)
+
+What happened, once, on the device that saw it. One line each, UTC months,
+deleted with the hourly history limit (`hourlyDays`).
+
+```json
+{"t": 1795788000, "type": "power.battery", "subject": "usb-0764-0601-port15", "name": "UPS", "detail": "mains power lost"}
+```
+
+| type | written by | when |
+|---|---|---|
+| `peer.offline` / `peer.online` | computers | another device's reports went stale / fresh, as this device sees them (not in the first 5 minutes after start or after this machine slept) |
+| `power.battery` / `power.mains` | the computer reading the UPS | `ups.status` changed |
+| `container.stopped` / `container.started` / `container.unhealthy` | Docker hosts | `ct.state` left or reached `running`; `ct.health` became `unhealthy` |
+| `thing.plugged` / `thing.unplugged` | computers | an attached thing appeared or went |
+| `app.updated` | every device | the collector or app came back on a new version (`detail`: "old -> new") |
+| `control.applied` | every device | a request from another device was applied |
+
+`readEvents(root, from, to, {device})` reads them all, oldest first, each
+with the `device` that wrote it.
+
 ## Model: things you own, plan or observe (`model/`)
 
 Telemetry (`devices/`) says what a device measures; the model says what
