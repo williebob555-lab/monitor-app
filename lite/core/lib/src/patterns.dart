@@ -69,20 +69,23 @@ void recordPatterns(String deviceDir, List<Pattern> list, DateTime now) {
 /// The pattern lines of the last [years] years, oldest first.
 List<Map<String, Object?>> readPatternHistory(String deviceDir, DateTime now, {int years = 5}) {
   final sep = Platform.pathSeparator;
-  final y = now.toLocal().year;
+  final y = now.toUtc().add(const Duration(hours: 14)).year;
   return [
-    for (var i = years - 1; i >= 0; i--) ...readLines(File('$deviceDir${sep}history${sep}patterns$sep${y - i}.jsonl')),
+    for (var i = years; i >= 0; i--) ...readLines(File('$deviceDir${sep}history${sep}patterns$sep${y - i}.jsonl')),
   ];
 }
 
 /// The last [days] of detail lines (one a minute or so), oldest first.
 List<Map<String, Object?>> readDetail(String deviceDir, DateTime now, {int days = 7}) {
   final sep = Platform.pathSeparator;
-  final local = now.toLocal();
+  final from = now.subtract(Duration(days: days));
   final out = <Map<String, Object?>>[];
-  for (var i = days * 24; i >= 0; i--) {
-    out.addAll(readLines(File('$deviceDir${sep}history${sep}detail$sep${detailName(local.subtract(Duration(hours: i)))}')));
+  // Named in the writing device's local time: see historyNames.
+  for (final n in historyNames(from, now, detailName)) {
+    out.addAll(readLines(File('$deviceDir${sep}history${sep}detail$sep$n')));
   }
+  final f = from.millisecondsSinceEpoch ~/ 1000;
+  out.removeWhere((l) => (l['t']! as num) < f);
   out.sort((a, b) => (a['t']! as num).compareTo(b['t']! as num));
   return out;
 }
@@ -93,13 +96,13 @@ Set<int> hoursUp(List<Map<String, Object?>> hourly) => {for (final l in hourly) 
 /// The last [days] of hourly summary lines, oldest first.
 List<Map<String, Object?>> readHourly(String deviceDir, DateTime now, {int days = 30}) {
   final sep = Platform.pathSeparator;
-  final local = now.toLocal();
-  final from = now.millisecondsSinceEpoch ~/ 1000 - days * 86400;
+  final from = now.subtract(Duration(days: days));
   final out = <Map<String, Object?>>[];
-  for (final m in {for (var d = days; d >= 0; d -= 28) hourlyName(local.subtract(Duration(days: d))), hourlyName(local)}) {
+  for (final m in historyNames(from, now, hourlyName, step: const Duration(days: 1))) {
     out.addAll(readLines(File('$deviceDir${sep}history${sep}hourly$sep$m')));
   }
-  out.removeWhere((l) => (l['t']! as num) < from);
+  final f = from.millisecondsSinceEpoch ~/ 1000;
+  out.removeWhere((l) => (l['t']! as num) < f);
   out.sort((a, b) => (a['t']! as num).compareTo(b['t']! as num));
   return out;
 }
@@ -117,6 +120,62 @@ List<Pattern> findPatterns(List<Map<String, Object?>> detail, List<Map<String, O
     ..._usual(hourly, 'temp.cpu', 'Temperature', 'CPU temperature', unit: '°C'),
     ..._traffic(hourly),
     ..._reach(hourly, names, upHours),
+    ..._usual(hourly, 'ups.load', 'Power', 'UPS load'),
+    ..._powerCuts(detail),
+    ..._fullRuntime(detail),
+  ];
+}
+
+/// Power cuts a UPS rode through: from `ups.onBattery` in detail lines (the
+/// last 7 days). A gap over 20 minutes between readings is not counted as
+/// either state.
+List<Pattern> _powerCuts(List<Map<String, Object?>> lines) {
+  var cuts = 0, covered = 0.0, onBattery = 0.0, longest = 0.0, run = 0.0;
+  for (var i = 1; i < lines.length; i++) {
+    final a = _num(lines[i - 1], 'ups.onBattery'), b = _num(lines[i], 'ups.onBattery');
+    final dt = ((lines[i]['t']! as num) - (lines[i - 1]['t']! as num)).toDouble();
+    if (a == null || b == null || dt <= 0 || dt > 1200) {
+      run = 0;
+      continue;
+    }
+    covered += dt;
+    if (a == 0 && b == 1) cuts++;
+    if (a == 1) {
+      onBattery += dt;
+      run += dt;
+      longest = math.max(longest, run);
+    }
+    if (b == 0) run = 0;
+  }
+  final hours = covered / 3600;
+  if (hours < 6) return const [];
+  if (cuts == 0 && onBattery == 0) {
+    return [Pattern(key: 'ups.cuts', group: 'Power', text: 'No power cuts (over ${_h(hours)})', value: 0, unit: 'cuts', hours: hours)];
+  }
+  final n = cuts == 0 ? 1 : cuts;
+  return [
+    Pattern(
+        key: 'ups.cuts',
+        group: 'Power',
+        text: 'On battery ${n == 1 ? 'once' : '$n times'}, ${_f(onBattery / 60)} min in all, longest ${_f(longest / 60)} min (over ${_h(hours)})',
+        value: n.toDouble(),
+        unit: 'cuts',
+        hours: hours),
+  ];
+}
+
+/// The runtime the UPS itself estimates when full and on mains: falling
+/// over months is the battery wearing out (kept in the pattern history).
+List<Pattern> _fullRuntime(List<Map<String, Object?>> lines) {
+  final r = [
+    for (final l in lines)
+      if ((_num(l, 'ups.charge') ?? 0) >= 99 && _num(l, 'ups.onBattery') == 0 && _num(l, 'ups.runtime') != null) _num(l, 'ups.runtime')!.toDouble(),
+  ]..sort();
+  if (r.length < 30) return const [];
+  final usual = r[r.length ~/ 2];
+  final hours = r.length / 60; // about one reading a minute
+  return [
+    Pattern(key: 'ups.runtime.full', group: 'Power', text: 'When full, the UPS expects to last about ${_f(usual)} min at the usual load', value: usual, unit: 'min', hours: hours, estimated: true),
   ];
 }
 
@@ -211,6 +270,8 @@ List<Pattern> _byTimeOfDay(List<Map<String, Object?>> hourly, String k, String g
   final hours = n.fold<int>(0, (a, b) => a + b).toDouble();
   if (parts.length < 2 || hours < 6) return const [];
   double avg(int i) => sum[i] / n[i];
+  // A server in Docker often runs on UTC: say so rather than call 3 AM "afternoon".
+  final zone = DateTime.now().timeZoneOffset == Duration.zero ? ' (UTC)' : '';
   final hi = parts.reduce((a, b) => avg(a) >= avg(b) ? a : b);
   final lo = parts.reduce((a, b) => avg(a) <= avg(b) ? a : b);
   if (avg(hi) - avg(lo) < 2) {
@@ -220,7 +281,7 @@ List<Pattern> _byTimeOfDay(List<Map<String, Object?>> hourly, String k, String g
     Pattern(
         key: '$k.busiest',
         group: group,
-        text: '$label is busiest ${_parts[hi]} (${_f(avg(hi))} %) and quietest ${_parts[lo]} (${_f(avg(lo))} %), over ${_h(hours)}',
+        text: '$label is busiest ${_parts[hi]} (${_f(avg(hi))} %) and quietest ${_parts[lo]} (${_f(avg(lo))} %)$zone, over ${_h(hours)}',
         value: avg(hi),
         unit: '%',
         hours: hours),

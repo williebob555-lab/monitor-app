@@ -91,7 +91,7 @@ Every change must leave the documentation set accurate.
 
 ## Multi-agent collaboration (Claude and ChatGPT)
 
-Two AI agents, Claude and ChatGPT, work on this repository in parallel. Before any change, read [`docs/COLLABORATION.md`](docs/COLLABORATION.md), the shared work board, and follow it:
+Two AI agents, Claude and ChatGPT, work on this repository in parallel. Before any change, read [`docs/COLLABORATION.md`](docs/COLLABORATION.md), the shared work board, and follow it. For Monitor App 2.x (`lite/`), [`docs/ROADMAP.md`](docs/ROADMAP.md) is the ordered backend queue, and its section 3 is the standing order for long working sessions.
 
 - Read the required documents it lists (`docs/VISION.md`, `docs/SCENARIOS.md`, `docs/ARCHITECTURE-MODEL.md`) and follow its core principles.
 - There are no ownership areas. Take the next free task from its single ordered queue, claim it there, and work on your own branch (`claude/...` or `chatgpt/<task-id>-<topic>`) with a pull request. Never push to `main`, and never force-push, rebase, or commit to the other agent's branch.

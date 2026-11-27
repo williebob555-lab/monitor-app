@@ -13,7 +13,6 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
-import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
 import android.provider.Settings
@@ -95,7 +94,11 @@ object Collector {
 
     private fun runLocked(ctx: Context, reason: String): Int {
         val started = SystemClock.elapsedRealtime()
-        val cpu0 = Process.getElapsedCpuTime()
+        // CPU of this collection thread only. The whole-process figure
+        // (Process.getElapsedCpuTime) also counts the app's screen when it is
+        // open in the same process, which logged false "OVER BUDGET: cpu 4 s"
+        // lines on the Pixel while Wilson looked at it (2026-11-26 22:42).
+        val cpu0 = SystemClock.currentThreadTimeMillis()
         val p = prefs(ctx)
         val id = deviceId(ctx)
         val pm = ctx.getSystemService(PowerManager::class.java)
@@ -213,7 +216,7 @@ object Collector {
                 .onFailure { log(dir, "ERROR requests: $it") }
 
             val runMs = SystemClock.elapsedRealtime() - started
-            val cpuMs = Process.getElapsedCpuTime() - cpu0
+            val cpuMs = SystemClock.currentThreadTimeMillis() - cpu0
             val rssMb = rssMb()
             val over = mutableListOf<String>()
             if (runMs > BUDGET_RUN_MS) over += "run $runMs ms > $BUDGET_RUN_MS ms"
@@ -254,6 +257,7 @@ object Collector {
                     "screen=${if (screenOn) "on" else "off"} next=${next}s ts=${ip ?: "none"} " +
                     "st=${j.getJSONObject("st").getBoolean("up")} batteryExempt=${pm.isIgnoringBatteryOptimizations(ctx.packageName)} peers[$peerText]")
                 p.edit().putLong("lastSummary", now).apply()
+                Updater.ensureScheduled(ctx)
             }
             if (now - p.getLong("lastPrune", 0) > 6 * 3600_000L) {
                 val used = history.prune(now, History.Retention.load(root))
@@ -293,6 +297,7 @@ object Collector {
                 results.mkdirs()
                 out.writeText(JSONObject().put("id", rid).put("ok", ok).put("message", msg).put("t", nowS).toString())
                 log(dir, "${if (ok) "control" else "ERROR control"} ${q.optString("key")}=${q.optString("value")} for ${q.optString("target")}, asked by $from: $msg")
+                if (ok) event(ctx, "control.applied", q.optString("target"), "${q.optString("key")}, asked by $from: $msg")
             }
         }
     }
@@ -436,7 +441,7 @@ object Collector {
     fun log(dir: File, line: String) {
         runCatching {
             val f = File(dir, "log.txt")
-            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
+            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date())
             f.appendText("$stamp $line\n")
             if (f.length() > LOG_MAX_BYTES) {
                 val t = f.readText()
@@ -448,6 +453,19 @@ object Collector {
 
     /** Before the shared folder is usable, log inside the app's own storage. */
     fun internalLog(ctx: Context, line: String) = log(ctx.filesDir, line)
+
+    /** devices/<id>/events/YYYY-MM.jsonl (UTC month), FORMAT.md "Events". */
+    fun event(ctx: Context, type: String, subject: String? = null, detail: String? = null) {
+        runCatching {
+            val dir = File(folder(ctx), "devices/${deviceId(ctx)}/events")
+            if (!canWrite() || !(dir.isDirectory || dir.mkdirs())) return
+            val fmt = SimpleDateFormat("yyyy-MM", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            val j = JSONObject().put("t", System.currentTimeMillis() / 1000).put("type", type)
+            subject?.let { j.put("subject", it) }
+            detail?.let { j.put("detail", it) }
+            File(dir, "${fmt.format(Date())}.jsonl").appendText(j.toString() + "\n")
+        }
+    }
 
     fun logToFolder(ctx: Context, line: String) {
         val dir = File(folder(ctx), "devices/${deviceId(ctx)}")

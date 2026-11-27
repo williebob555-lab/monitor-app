@@ -26,6 +26,9 @@ services:
       - ${MONITOR_FOLDER:?set MONITOR_FOLDER in .env to the shared Monitor folder}:/monitor
       - ./data:/data
       - /etc/os-release:/etc/os-release:ro
+      # The host's time zone, so history files and "busiest in the evening"
+      # use your local time instead of UTC.
+      - /etc/localtime:/etc/localtime:ro
       # Optional: readings from a USB audio interface. Docker hides the
       # host's sound card details; this shares them read-only.
       # - /proc/asound:/host/asound:ro

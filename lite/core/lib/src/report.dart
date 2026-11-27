@@ -228,6 +228,10 @@ class Report {
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
         for (final r in readings)
           if (r.value is num) r.key: r.value,
+        // A UPS's mains/battery state as a number, so history and patterns
+        // can count power cuts.
+        for (final r in readings)
+          if (r.key == 'ups.status' && r.value is String) 'ups.onBattery': (r.value as String).startsWith('battery') ? 1 : 0,
       };
 }
 
@@ -307,7 +311,7 @@ class Battery {
 
 /// One device's view of another device.
 class PeerView {
-  PeerView({this.tcp, this.pingMs, this.seenAge});
+  PeerView({this.tcp, this.pingMs, this.tcpMs, this.seenAge});
 
   /// TCP connect to the peer's Syncthing port over Tailscale:
   /// open (Syncthing listening), refused (device up, Syncthing not listening),
@@ -316,6 +320,10 @@ class PeerView {
 
   /// ICMP ping round trip over Tailscale, null when it failed or wasn't tried.
   final int? pingMs;
+
+  /// TCP handshake time to the peer's Syncthing port (open or refused), ms.
+  /// Computers only; works where ICMP is not allowed (Docker).
+  final int? tcpMs;
 
   /// Age in seconds of the peer's now.json as this device last saw it, i.e.
   /// how fresh Syncthing keeps that peer here. Null if never seen.
@@ -329,12 +337,13 @@ class PeerView {
 
   static PeerView? tryParse(Object? j) {
     if (j is! Map) return null;
-    return PeerView(tcp: _str(j['tcp']), pingMs: _int(j['ping']), seenAge: _int(j['seen']));
+    return PeerView(tcp: _str(j['tcp']), pingMs: _int(j['ping']), tcpMs: _int(j['tcpMs']), seenAge: _int(j['seen']));
   }
 
   Map<String, Object?> toJson() => {
         if (tcp != null) 'tcp': tcp,
         if (pingMs != null) 'ping': pingMs,
+        if (tcpMs != null) 'tcpMs': tcpMs,
         if (seenAge != null) 'seen': seenAge,
       };
 }
