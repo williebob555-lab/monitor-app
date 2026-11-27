@@ -107,6 +107,9 @@ ChatGPT's; nothing here is an order.
 | Twins | `node.links` `via: dual-boot`, `Level.inactive` | One machine card, the running system on top, the other as a quiet line ("Fedora, last up 2 h ago") |
 | UPS patterns (2.6.7) | the UPS thing's `patterns.json` (`readPatternHistory(thingDir, now)` for months) | "On battery 2 times, 17 min in all", usual load, runtime when full (estimated); the runtime line over months shows the battery ageing |
 | One-way reachability | `assess()` title "Can't be reached" | A device that reaches others but blocks incoming connections (the Pixel today) is a warning with its own wording, not "offline" |
+| Shared model (2.6.7, row 5) | `ModelStore(root, myId)`: `list()`, `get`, `put`, `retire`, `history`, `asOf`; FORMAT.md "Model" | Real storage for #81's planning workbench and an "Add a thing" / "This is mine" action. Items survive restarts and appear on every device. Show `src` on every prop. Conflicts resolve on their own; `health().conflicts` lists them until then |
+| History gaps (2.6.7, row 4) | `findGaps(times, restSecondsFor(kind), from:, to:)`, `explainGaps(...)`, `Gap.why` (off, asleep, collector, unknown) | A quiet band on history charts where a device wrote nothing; only `collector` is a problem worth colour |
+| Automatic updates (2.6.7) | `settings.json` `update.auto` (default true), each device's log `update:` lines | One switch in Setup ("Install updates on their own"); "Update all" can show each device's version catching up |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)

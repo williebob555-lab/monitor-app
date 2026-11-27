@@ -17,5 +17,6 @@ export 'src/format.dart';
 export 'src/history.dart';
 export 'src/patterns.dart';
 export 'src/gaps.dart';
+export 'src/model.dart';
 export 'src/config.dart';
 export 'src/control.dart';

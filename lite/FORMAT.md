@@ -259,6 +259,46 @@ files they came from. Read it with `readPatternHistory(deviceDir, now)`;
 `seriesOf(lines, "battery.drain.off")` charts one pattern over months.
 
 
+## Model: things you own, plan or observe (`model/`)
+
+Telemetry (`devices/`) says what a device measures; the model says what
+things *are*: the UPS you own, the rack you are planning, the cable you
+still need. Any device may write it, so it has its own rules.
+
+```
+model/items/<id>/item.json              the item now
+model/items/<id>/history/<device>.jsonl every version, appended only by that device
+```
+
+```json
+{"v": 1, "id": "ups-1", "type": "ups", "name": "CyberPower OR500",
+ "state": "owned", "parent": "rack-1",
+ "props": {"height": {"value": 1, "unit": "U", "src": "declared"},
+           "load": {"value": 13, "unit": "%", "src": "measured"}},
+ "ports": [{"id": "out1", "kind": "nema-5-15", "dir": "out"}],
+ "links": [{"to": "desktop-1", "port": "out1", "via": "power"}],
+ "observes": "usb-0764-0601-port15",
+ "rev": 3, "by": "301230114386", "t": 1795788000.123}
+```
+
+* `id`: lowercase letters, digits, `-`, `_`, `.`; at most 64; never starts
+  with a dot. Readers refuse anything else.
+* `state`: `proposed`, `owned`, `installed` or `retired`. Items are never
+  deleted, only retired.
+* `props`: every value carries `src` (`measured`, `declared`, `estimated`,
+  `unknown`) and optionally `unit`.
+* `observes`: the device or thing id in `devices/` whose telemetry this item is.
+* `rev`, `by`, `t`: revision, the device that wrote it, when (Unix seconds).
+* Unknown keys are kept on every edit.
+* Written to `.syncthing.item.json.tmp` and renamed.
+* Two devices writing at once leave `item.sync-conflict-*.json`. Readers take
+  the newest `t` (then `rev`, then `by`) of all copies. Computers'
+  collectors resolve copies every 6 hours: the newest becomes `item.json`,
+  each loser is noted in history (`"conflictLoser": true`) and the copy is
+  deleted. Folder health lists copies until then.
+* `ModelStore(root, deviceId)`: `list()`, `get(id)`, `put(item)`,
+  `retire(id)`, `history(id)`, `asOf(t)`, `conflicts()`, `resolveConflicts()`.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

@@ -21,6 +21,7 @@ import 'updater.dart';
 import 'hid_ups.dart';
 import '../control.dart';
 import '../patterns.dart';
+import '../model.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
 /// to its own log and into now.json so it shows in the app.
@@ -503,6 +504,12 @@ class Agent {
         folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
         _lastPrune = now;
         _writePatterns(folder, cfg.id, others, now);
+        try {
+          final n = ModelStore(cfg.folder, cfg.id).resolveConflicts();
+          if (n > 0) folder.log(cfg.id, 'model: resolved $n conflict copies (newest kept, others in history)');
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR model conflicts: $e');
+        }
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {

@@ -182,8 +182,7 @@ class SyncFolder {
   FolderHealth health() {
     final h = FolderHealth();
     final dir = Directory(devicesPath);
-    if (!dir.existsSync()) return h;
-    for (final d in dir.listSync()) {
+    for (final d in dir.existsSync() ? dir.listSync() : const <FileSystemEntity>[]) {
       if (d is! Directory) continue;
       final name = d.uri.pathSegments.where((x) => x.isNotEmpty).last;
       var hasNow = false;
@@ -198,6 +197,16 @@ class SyncFolder {
       }
       if (!hasNow) h.empty.add(name);
     }
+    // Shared model items (model.dart): conflict copies of item.json.
+    final items = Directory('$root${Platform.pathSeparator}model${Platform.pathSeparator}items');
+    if (items.existsSync()) {
+      for (final d in items.listSync()) {
+        if (d is! Directory) continue;
+        for (final f in d.listSync()) {
+          if (f is File && f.uri.pathSegments.last.startsWith('item.sync-conflict-')) h.conflicts.add(f.path);
+        }
+      }
+    }
     return h;
   }
 
@@ -206,6 +215,9 @@ class SyncFolder {
   int removeConflicts() {
     var n = 0;
     for (final p in health().conflicts) {
+      // Model conflict copies may be the newest version: ModelStore
+      // .resolveConflicts() keeps that one and removes the others.
+      if (!p.startsWith(devicesPath)) continue;
       try {
         File(p).deleteSync();
         n++;
