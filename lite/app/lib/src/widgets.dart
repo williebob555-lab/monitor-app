@@ -84,22 +84,24 @@ class Meter extends StatelessWidget {
 
 /// A small line chart of one series. Drawn once per data change.
 class Spark extends StatelessWidget {
-  const Spark(this.values, {super.key, this.color = C.flow, this.max, this.height = 56});
+  const Spark(this.values, {super.key, this.color = C.flow, this.max, this.height = 56, this.binned = false});
   final List<double?> values;
   final Color color;
   final double? max;
   final double height;
+  final bool binned;
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-        child: SizedBox(height: height, width: double.infinity, child: CustomPaint(painter: _SparkPainter(values, color, max))),
+        child: SizedBox(height: height, width: double.infinity, child: CustomPaint(painter: _SparkPainter(values, color, max, binned))),
       );
 }
 
 class _SparkPainter extends CustomPainter {
-  _SparkPainter(this.v, this.color, this.max);
+  _SparkPainter(this.v, this.color, this.max, this.binned);
   final List<double?> v;
   final Color color;
   final double? max;
+  final bool binned;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -108,7 +110,7 @@ class _SparkPainter extends CustomPainter {
       ..strokeWidth = 1;
     canvas.drawLine(Offset(0, size.height - 0.5), Offset(size.width, size.height - 0.5), grid);
     final pts = v.whereType<double>();
-    if (pts.length < 2) return;
+    if (pts.isEmpty || (!binned && pts.length < 2)) return;
     final top = max ?? math.max(pts.reduce(math.max), 1.0);
     final path = Path();
     var started = false;
@@ -118,11 +120,14 @@ class _SparkPainter extends CustomPainter {
         started = false;
         continue;
       }
-      final x = size.width * i / (v.length - 1);
+      final x = size.width * (binned ? (i + 0.5) / v.length : i / (v.length - 1));
       final yy = size.height - (y / top).clamp(0.0, 1.0) * (size.height - 2) - 1;
       if (!started) {
         path.moveTo(x, yy);
         started = true;
+        if (binned && (i == v.length - 1 || v[i + 1] == null)) {
+          canvas.drawCircle(Offset(x, yy), 1.6, Paint()..color = color);
+        }
       } else {
         path.lineTo(x, yy);
       }
@@ -137,7 +142,7 @@ class _SparkPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_SparkPainter o) => o.v != v || o.color != color;
+  bool shouldRepaint(_SparkPainter o) => o.v != v || o.color != color || o.max != max || o.binned != binned;
 }
 
 class Section extends StatelessWidget {

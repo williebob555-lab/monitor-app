@@ -1,8 +1,11 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
+import 'gap_diagnostics.dart';
+import 'history_coverage.dart';
 import 'parts.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -209,12 +212,15 @@ class PartTile extends StatelessWidget {
 
 /// A chart with its numbers: highest at the top, the time span underneath.
 class Chart extends StatelessWidget {
-  const Chart({super.key, required this.label, required this.values, required this.series, required this.span, this.height = 110});
+  const Chart({super.key, required this.label, required this.values, required this.series, required this.span,
+    this.height = 110, this.archivePlot, this.endLabel = 'now'});
   final String label;
   final List<double?> values;
   final Series series;
   final String span;
   final double height;
+  final List<double?>? archivePlot;
+  final String endLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -229,14 +235,14 @@ class Chart extends StatelessWidget {
       ]),
       const SizedBox(height: 6),
       Stack(children: [
-        Spark(values, max: top, height: height),
+        Spark(archivePlot ?? values, max: top, height: height, binned: archivePlot != null),
         Positioned(right: 0, top: 0, child: Text(series.fmt(top), style: const TextStyle(color: C.muted, fontSize: 10))),
       ]),
       const SizedBox(height: 3),
       Row(children: [
         Text(span, style: const TextStyle(color: C.muted, fontSize: 10.5)),
         const Spacer(),
-        const Text('now', style: TextStyle(color: C.muted, fontSize: 10.5)),
+        Text(endLabel, style: const TextStyle(color: C.muted, fontSize: 10.5)),
       ]),
       if (v.length >= 2) ...[
         const SizedBox(height: 4),
@@ -262,19 +268,23 @@ class _PartPageState extends State<PartPage> {
   HistoryRange range = HistoryRange.day;
   HistoryRange? _loadedRange;
   int _seq = -1;
-  List<Map<String, Object?>> history = const [];
+  HistoryCoverage? coverage;
 
   void _load(Report r) {
     if (r.seq == _seq && range == _loadedRange) return;
     // History files change at most every 15 minutes: no need to re-read on
     // every live update.
-    if (range == _loadedRange && history.isNotEmpty && r.seq - _seq < 30) return;
+    if (range == _loadedRange && coverage?.records.isNotEmpty == true &&
+        r.seq >= _seq && r.seq - _seq < 30) {
+      return;
+    }
     _seq = r.seq;
     _loadedRange = range;
+    final until = DateTime.now();
     try {
-      history = readHistoryRange(widget.state.dirOf(r.id), range, DateTime.now());
+      coverage = HistoryCoverage(range, until, readHistoryRange(widget.state.dirOf(r.id), range, until));
     } catch (_) {
-      history = const [];
+      coverage = null;
     }
   }
 
@@ -291,6 +301,7 @@ class _PartPageState extends State<PartPage> {
         final p = parts.where((x) => x.id == widget.partId).firstOrNull;
         if (p == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This part is no longer reported.')));
         _load(r);
+        final archive = coverage;
         final live = widget.state.live[r.id] ?? const <Report>[];
         final others = parts.where((x) => x.id != p.id && (x.level == Level.warn || x.level == Level.fault)).toList();
         final liveSpan = live.length >= 2 ? 'last ${ago(live.last.time.difference(live.first.time))}' : 'since you opened the app';
@@ -337,7 +348,10 @@ class _PartPageState extends State<PartPage> {
                     const SizedBox(height: 14),
                     Section(
                       'History',
-                      trailing: SegmentedButton<HistoryRange>(
+                      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SegmentedButton<HistoryRange>(
                         showSelectedIcon: false,
                         style: const ButtonStyle(visualDensity: VisualDensity.compact),
                         segments: const [
@@ -347,21 +361,42 @@ class _PartPageState extends State<PartPage> {
                         ],
                         selected: {range},
                         onSelectionChanged: (v) => setState(() => range = v.first),
-                      ),
-                      history.length < 2
-                          ? const Text('Not enough history yet: readings move into history every 15 minutes, hourly and daily summaries after the first full hour and day.',
-                              style: TextStyle(color: C.muted))
-                          : Column(children: [
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (archive == null)
+                          const Text('Archive unavailable.', style: TextStyle(color: C.muted))
+                        else ...[
+                              CoverageBand(archive),
+                              if (!r.isThing && range != HistoryRange.year && archive.records.isNotEmpty)
+                                GapDiagnostics(
+                                  key: ValueKey((r.id, archive.end, range)),
+                                  read: () {
+                                    final root = widget.state.folder.root;
+                                    final kinds = widget.state.reports.map((id, report) => MapEntry(id, report.kind));
+                                    final days = range == HistoryRange.day ? 1 : 7;
+                                    final id = r.id;
+                                    final now = archive.end;
+                                    return Isolate.run(() => folderGaps(root, now, days: days, kinds: kinds)[id] ?? <Gap>[]);
+                                  },
+                                ),
+                              const SizedBox(height: 12),
+                              if (archive.records.isEmpty)
+                                const Text('No readings in this archive window.', style: TextStyle(color: C.muted)),
+                              if (archive.records.isNotEmpty)
                               for (final x in p.series) ...[
                                 Chart(
                                   label: x.label,
-                                  values: [for (final l in history) chartValue(l, x.historyKey)],
+                                  values: archive.values(x.historyKey),
+                                  archivePlot: archive.plot(x.historyKey),
                                   series: x,
                                   span: switch (range) { HistoryRange.day => '24 h ago', HistoryRange.week => '7 days ago', HistoryRange.year => 'a year ago' },
+                                  endLabel: MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(archive.end.toLocal())),
                                 ),
                                 if (x != p.series.last) const SizedBox(height: 14),
                               ],
-                            ]),
+                        ],
+                      ]),
                     ),
                     const SizedBox(height: 14),
                   ],

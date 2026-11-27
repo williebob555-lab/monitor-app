@@ -58,7 +58,7 @@ syncs like everything else.
   (battery, processor, memory, storage, network, links, and any extra readings
   it publishes), each with its value and live line.
 * **A part**: its live chart since the app opened, its history (24 h, 7 days,
-  a year) with low, average and high, its details, and anything else on that
+  a year) with low, average and high, an archive coverage strip, its details, and anything else on that
   device that needs a look.
 * **Notifications (phones and tablets)**: on another device's page, switch on
   "Notify me on this phone". The phone then tells you once if that device
