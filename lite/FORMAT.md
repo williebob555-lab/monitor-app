@@ -316,6 +316,44 @@ deleted with the hourly history limit (`hourlyDays`).
 `readEvents(root, from, to, {device})` reads them all, oldest first, each
 with the `device` that wrote it.
 
+## Rules (`rules/<id>.json`)
+
+One file per rule, so two devices never edit the same file. A rule says
+when something should happen, about which devices or things, and what to do.
+
+```json
+{"v": 1, "id": "laptop-offline", "name": "Laptop offline 10 min",
+ "enabled": true,
+ "when": {"type": "offline", "for": 600},
+ "scope": {"devices": ["301230114386"]},
+ "then": [{"type": "notify"}, {"type": "annotate"}],
+ "cooldown": 3600}
+```
+
+- `id`: lower-case letters, digits, `-`, `_`, `.` (at most 64), and the
+  file name must be `<id>.json`.
+- `when.type`:
+  - `value`: `path` (e.g. `battery.pct`, `readings.ups.charge`), `op`
+    (`<` `<=` `>` `>=` `==` `!=`), `value` (number, text or true/false; the
+    ordering ops need a number), optional `for` (seconds it must hold).
+  - `event`: `event` is an event type (`peer.offline`) or a prefix ending
+    in `*` (`container.*`).
+  - `unusual`: any `unusual.*` reading appears.
+  - `offline`: the device's reports stop for `for` seconds (default 600).
+- `scope` (optional; missing or empty means everything): `devices` (ids),
+  `things` (ids), `types` (`android`, `windows`, `linux`, `thing:<kind>`).
+- `then` (at least one): `notify` (optional `text`), `annotate` (a note on
+  the history at that moment), `control` (`host`, `target`, `key`, `value`:
+  the same request a device could send, still subject to `controls.allow`).
+- `cooldown`: seconds before the same rule fires again for the same subject
+  (default 3600). `enabled`: false keeps the file but stops it.
+- Unknown keys are kept when the file is rewritten.
+
+A file that is not valid never runs. `RuleSet.load(folder)` returns the
+valid rules and, per file name, the problems in plain sentences
+("\"when.op\" < needs a number"), so an editor can show them. Writers use
+`RuleSet.save`, which validates and writes atomically.
+
 ## Model: things you own, plan or observe (`model/`)
 
 Telemetry (`devices/`) says what a device measures; the model says what
