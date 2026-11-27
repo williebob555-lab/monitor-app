@@ -433,6 +433,16 @@ model/items/<id>/history/<device>.jsonl every version, appended only by that dev
 * `props`: every value carries `src` (`measured`, `declared`, `estimated`,
   `unknown`) and optionally `unit`.
 * `observes`: the device or thing id in `devices/` whose telemetry this item is.
+* `match` (items made from what was seen): the object's lasting identity,
+  `usb:<vid:pid>:<serial>` (else `usb:<vid:pid>@<host>:<port>`),
+  `machine:<machine key>`, `device:<id>` or `thing:<id>`. When the
+  telemetry id changes (a UPS without a serial moved to another port), the
+  item is offered a relink, not a duplicate.
+* `alsoObserves`: the other systems of a dual-boot machine.
+* `suggestLinks(reports, things, items, now)` lists devices (one per
+  machine) and things not yet in the model; `acceptLink(store, s)` makes an
+  `owned` item under its host's item, or relinks. `tool/suggest.dart`
+  prints them for a folder.
 * `rev`, `by`, `t`: revision, the device that wrote it, when (Unix seconds).
 * Unknown keys are kept on every edit.
 * Written to `.syncthing.item.json.tmp` and renamed.

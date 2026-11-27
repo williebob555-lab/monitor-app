@@ -26,5 +26,6 @@ export 'src/timeline.dart';
 export 'src/rules.dart';
 export 'src/rule_eval.dart';
 export 'src/notify.dart';
+export 'src/suggest.dart';
 export 'src/config.dart';
 export 'src/control.dart';
