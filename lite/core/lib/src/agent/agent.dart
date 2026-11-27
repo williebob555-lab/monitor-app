@@ -19,6 +19,7 @@ import 'windows.dart';
 import 'updater.dart';
 import 'hid_ups.dart';
 import '../control.dart';
+import '../patterns.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
 /// to its own log and into now.json so it shows in the app.
@@ -182,6 +183,24 @@ class Agent {
     }
   }
 
+  /// devices/<id>/patterns.json: what this device's history shows, kept as
+  /// a small readable file (FORMAT.md "Patterns"). Rewritten every 6 hours.
+  void _writePatterns(SyncFolder folder, String id, Map<String, Report> others, DateTime now) {
+    try {
+      final names = {for (final o in others.values) o.id: o.name};
+      final up = {for (final o in others.values) o.id: hoursUp(readHourly(folder.deviceDir(o.id), now))};
+      final dir = folder.deviceDir(id);
+      final list = findPatterns(readDetail(dir, now), readHourly(dir, now), names: names, upHours: up);
+      final sep = Platform.pathSeparator;
+      final tmp = File('$dir$sep.syncthing.patterns.json.tmp');
+      tmp.writeAsStringSync(const JsonEncoder.withIndent('  ')
+          .convert({'v': 1, 't': now.millisecondsSinceEpoch ~/ 1000, 'patterns': [for (final p in list) p.toJson()]}));
+      tmp.renameSync('$dir${sep}patterns.json');
+    } catch (e) {
+      folder.log(id, 'ERROR patterns: $e');
+    }
+  }
+
   Future<void> cycle({bool firstRun = false}) async {
     if (_busy) return; // never overlap cycles
     _busy = true;
@@ -335,6 +354,7 @@ class Agent {
         final used = hw.prune(now, Retention.load(cfg.folder));
         folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
         _lastPrune = now;
+        _writePatterns(folder, cfg.id, others, now);
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {

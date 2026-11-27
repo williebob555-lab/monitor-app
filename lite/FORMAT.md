@@ -135,11 +135,33 @@ rule; NUT or upower only as a fallback if present), giving just its basic
 status: on mains or battery, charge, load, runtime; audio interfaces from
 `/proc/asound` and `amixer`.
 
-## Planned: patterns instead of raw data
+## Patterns
 
-Long-term, raw numbers matter less than what they show ("battery drains
-4 %/h on the wireless pad", "CPU averages 30 % on weekday evenings"). The
-plan is one readable `devices/<id>/patterns.json` per device, built from the
-hourly and daily summaries, grouped by conditions already recorded in every
-line (charging `c`, screen `s`, hour of day, weekday, network type). Once
-patterns exist, older summaries can be cut back further. Not built yet.
+What a device's history shows, in words, worked out from the history files
+(core `patterns.dart`), so any device can show any other device's patterns:
+
+* Battery: drain per hour with the screen on and off (or on battery), charge
+  per hour, and how long a full charge would last at that rate (estimated).
+  Only readings at most 20 minutes apart under the same condition count; a
+  battery held at 100 % "not charging" is a full one on mains, not drain.
+* CPU: the busiest and quietest part of the day (night, morning, afternoon,
+  evening, local time), or "about N % all day".
+* Memory and CPU temperature: the usual level (median of hourly averages)
+  and the highest seen.
+* Network: data down and up per day.
+* Connections: how often it reached each other device, counting only hours
+  that device was itself reporting (one switched off is not a connection
+  problem).
+
+Each pattern says how many hours of history it rests on, and nothing resting
+on under an hour (six for daily shapes) is shown. Computers also keep the
+result in `devices/<id>/patterns.json` (rewritten every 6 hours):
+
+```json
+{"v": 1, "t": 1795740000, "patterns": [
+  {"key": "battery.drain.off", "group": "Battery", "text": "Drains 4.1 %/h with the screen off (over 4.9 h)",
+   "value": 4.1, "unit": "%/h", "hours": 4.9}]}
+```
+
+Next: phones write it too, and older summaries are cut back once patterns
+cover them.

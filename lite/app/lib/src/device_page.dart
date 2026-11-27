@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -23,6 +25,21 @@ class _DevicePageState extends State<DevicePage> {
   bool showLog = false;
   bool showFields = false;
   String filter = '';
+  Future<List<Pattern>>? patterns;
+
+  /// Worked out once per opening, off the UI thread: it reads up to a week
+  /// of this device's history and a month of every device's summaries.
+  Future<List<Pattern>> _findPatterns() {
+    final st = widget.state;
+    final names = st.names;
+    final dir = st.dirOf(widget.id);
+    final others = {for (final id in st.reports.keys) if (id != widget.id) id: st.folder.deviceDir(id)};
+    return Isolate.run(() {
+      final now = DateTime.now();
+      final up = {for (final e in others.entries) e.key: hoursUp(readHourly(e.value, now))};
+      return findPatterns(readDetail(dir, now), readHourly(dir, now), names: names, upHours: up);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +77,7 @@ class _DevicePageState extends State<DevicePage> {
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
+              if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
             ];
             final right = <Widget>[
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
@@ -160,6 +178,43 @@ class _DevicePageState extends State<DevicePage> {
         ].join('\n'),
         style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.6),
       ),
+    );
+  }
+
+  /// What its history shows, in words (core patterns.dart).
+  Widget _patterns() {
+    patterns ??= _findPatterns();
+    return FutureBuilder<List<Pattern>>(
+      future: patterns,
+      builder: (context, snap) {
+        final list = snap.data;
+        final Widget body;
+        if (snap.hasError) {
+          body = Text('Could not read its history: ${snap.error}', style: const TextStyle(color: C.muted, fontSize: 12.5));
+        } else if (list == null) {
+          body = const Text('Reading its history...', style: TextStyle(color: C.muted, fontSize: 12.5));
+        } else if (list.isEmpty) {
+          body = const Text('Not enough history yet. Patterns appear after a few hours of readings.',
+              style: TextStyle(color: C.muted, fontSize: 12.5));
+        } else {
+          final groups = <String, List<Pattern>>{};
+          for (final p in list) {
+            groups.putIfAbsent(p.group, () => []).add(p);
+          }
+          body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final g in groups.entries) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 2),
+                child: Text(g.key, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              ),
+              for (final p in g.value)
+                Text('${p.text}${p.estimated ? ' (estimated)' : ''}',
+                    style: TextStyle(color: p.estimated ? C.muted : C.text, fontSize: 12.5, height: 1.5)),
+            ],
+          ]);
+        }
+        return Section('Patterns', body);
+      },
     );
   }
 
