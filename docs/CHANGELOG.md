@@ -257,3 +257,7 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x connections (unreleased)
+
+- Setup opens a searchable connector library and a connection check for selected ports, cables, and adapters. The check shows physical fit, protocols, electrical compatibility, and audio level separately, with the evidence and reasons for each.

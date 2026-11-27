@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x connections
+
+From `lite/app`, run `flutter test test/connections_page_test.dart`. It selects two connectors from the production library at phone width and checks the verdict and reason from the core compatibility engine.
