@@ -183,6 +183,9 @@ class WindowsHost implements Host {
   }
 
   @override
+  String? get pingProblem => null;
+
+  @override
   Future<int?> ping(String ip) async {
     final parts = ip.split('.').map(int.tryParse).toList();
     if (parts.length != 4 || parts.any((x) => x == null)) return null;
