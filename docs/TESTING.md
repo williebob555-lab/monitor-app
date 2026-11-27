@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x rules
+
+From `lite/app`, run `flutter test test/rules_page_test.dart`. The Flutter tests save a rule through `RuleSet` at phone width and open the activity view for a real firing produced by `RuleEngine` in a temporary folder. Device notifications require a separate installed-device check.
