@@ -490,7 +490,7 @@ Same versioning, history, conflict and time-travel rules as items
 ## Library: connectors and signals (`model/library/*.json`)
 
 The built-in library is in the code (`Library.builtIn`), so the phone
-loads it instantly: about 90 connector shapes and 120 signals in the families
+loads it instantly: 86 connector shapes and 110 signals in the families
 usb, display, network, power, audio, eurorack, storage, rf and control. It
 comes from the old app's planning catalogue, with pinouts and limits added.
 It keeps four things apart:
