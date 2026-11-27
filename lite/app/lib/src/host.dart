@@ -76,6 +76,16 @@ class LocalHost {
   Future<Map<String, Object?>> androidPermissions() async =>
       isAndroid ? (await _ch.invokeMapMethod<String, Object?>('permissions')) ?? {} : const {};
 
+  Future<({bool on, bool granted})> locationSharing() async {
+    if (!isAndroid) return (on: false, granted: false);
+    final reply = await _ch.invokeMapMethod<String, Object?>('location');
+    return (on: reply?['on'] == true, granted: reply?['granted'] == true);
+  }
+
+  Future<void> setLocationSharing(bool on) async {
+    if (isAndroid) await _ch.invokeMethod<void>('setLocation', {'on': on});
+  }
+
   /// Android: the devices this phone notifies about, and whether the app may
   /// show notifications at all.
   Future<(Set<String>, bool)> notifyState() async {

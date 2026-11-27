@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x approximate location
+
+Run `flutter test test/phone_location_test.dart` from `lite/app`. It checks the confirmation flow and the reported location format. Verify permission and sharing on an installed Android device separately.
