@@ -516,6 +516,30 @@ Your own additions go in `model/library/<name>.json`:
 Ids follow the model id rule. A file may not replace a built-in id; a bad
 file is listed in `Library.load(root).problems` and skipped.
 
+### Checking a connection (`checkChain`)
+
+`checkChain(from, links, to, {want})` checks a whole path, port to cable or
+adapter to port, and returns a verdict for each layer:
+
+- `physical`: every joint mates, by shape and gender;
+- `protocol`: a data, video or control signal gets through every part, or
+  the one asked for with `want`;
+- `electrical`: the source's voltage, polarity and current suit the sink
+  and the cable;
+- `level`: audio leaving one end is a level the other end takes.
+
+Each layer says `ok`, `fail` or `unknown`, and how sure it is:
+
+- `verified`: both ends declare their signals;
+- `estimated`: from what the shapes may carry;
+- `unknown`.
+
+Every verdict comes with its reasons in words. A `Port` declares its
+connector, `dir` (`out`, `in` or `both`), `signals` and `power` (`v`,
+`vMin`, `a`, `polarity`). A `Link` (a cable or adapter) declares the
+connectors at its ends, `passes` (the signals it carries unchanged) or
+`converts` (for an active adapter), and `maxA` / `maxGbps`.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

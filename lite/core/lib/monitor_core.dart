@@ -28,5 +28,6 @@ export 'src/rule_eval.dart';
 export 'src/notify.dart';
 export 'src/suggest.dart';
 export 'src/library.dart';
+export 'src/compat.dart';
 export 'src/config.dart';
 export 'src/control.dart';
