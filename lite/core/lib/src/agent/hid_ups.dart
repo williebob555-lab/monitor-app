@@ -166,8 +166,8 @@ class HidUps {
         // HIDIOCGFEATURE(len) = _IOC(read|write, 'H', 0x07, len)
         final req = (3 << 30) | (len << 16) | (0x48 << 8) | 0x07;
         final n = ioctl(fd, req, buf);
-        if (n < 0) continue;
-        final bytes = buf.asTypedList(len);
+        if (n <= 0 || n > len) continue;
+        final bytes = buf.asTypedList(n);
         // The kernel puts the report id in byte 0 when the device uses ids.
         final data = e.key == 0 ? bytes : bytes.sublist(1);
         for (final f in e.value) {
@@ -184,6 +184,19 @@ class HidUps {
   }
 }
 
+// Some UPS firmware marks actual read-only telemetry as Constant. Only
+// accept named, known feature usages; keep padding and other constants out.
+const _constantUpsTelemetryUsages = <int>{
+  0x850066, // Remaining capacity
+  0x850068, // Runtime to empty
+  0x8500d0, // AC present
+  0x850044, // Charging
+  0x850045, // Discharging
+  0x850042, // Below remaining capacity limit
+  0x840069, // Shutdown imminent
+  0x840035, // Percent load
+};
+
 /// One value in a HID report.
 class HidField {
   HidField(this.feature, this.reportId, this.bitOffset, this.size, this.usage, this.context, this.logicalMin, this.logicalMax, this.constant);
@@ -198,7 +211,12 @@ class HidField {
   String get key => '$context/${usage.toRadixString(16)}';
 
   double? decode(List<int> data) {
-    if (constant || size == 0 || size > 32) return null;
+    final readableConstant =
+        feature && _constantUpsTelemetryUsages.contains(usage);
+    if (size == 0 || size > 32 || usage == 0 ||
+        (constant && !readableConstant)) {
+      return null;
+    }
     var v = 0;
     for (var i = 0; i < size; i++) {
       final bit = bitOffset + i;
