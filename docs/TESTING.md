@@ -399,3 +399,4 @@ It reads real history files written through core and verifies that a selected
 instant stays fixed during live refresh, future samples and live attachments
 stay out of that view, and recorded nodes open read-only details.
 The map widget suite also checks which latency label comes from each probe and verifies the TCP fallback on the device Links page.
+Run `flutter test test/home_map_test.dart` to check that Home paints the network banner and reaches its map through the normal navigation.

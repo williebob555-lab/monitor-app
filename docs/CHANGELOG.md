@@ -263,3 +263,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - The live map shows a dual-boot machine as one host with a separate link to each install. It labels the latest install as running only while its report is fresh. Device nodes show plain-language status, and the map calls out how many devices and attached things need attention. Fixed network and hardware traces describe connectivity without animated traffic indicators.
 - The map keeps the selected recorded time fixed during live refresh. Historical device details read the latest sample at or before that time. Recorded maps show reachability and omit live-only attachments and controls.
 - The map and Links details label ICMP ping and show the TCP handshake time when a collector cannot measure ping.
+- Fixed the Home network banner border so the main screen can render cleanly at phone width.
