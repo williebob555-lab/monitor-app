@@ -30,6 +30,7 @@ import '../rule_eval.dart';
 import '../notify.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
+import '../products.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
 /// to its own log and into now.json so it shows in the app.
@@ -623,7 +624,7 @@ class Agent {
         _lastPrune = now;
         _writePatterns(folder, cfg.id, others, now);
         try {
-          final n = ModelStore(cfg.folder, cfg.id).resolveConflicts() + ProjectStore(cfg.folder, cfg.id).resolveConflicts();
+          final n = ModelStore(cfg.folder, cfg.id).resolveConflicts() + ProjectStore(cfg.folder, cfg.id).resolveConflicts() + ProductStore(cfg.folder, cfg.id).resolveConflicts();
           if (n > 0) folder.log(cfg.id, 'model: resolved $n conflict copies (newest kept, others in history)');
         } catch (e) {
           folder.log(cfg.id, 'ERROR model conflicts: $e');

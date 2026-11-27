@@ -32,5 +32,6 @@ export 'src/compat.dart';
 export 'src/constraints.dart';
 export 'src/bom.dart';
 export 'src/past.dart';
+export 'src/products.dart';
 export 'src/config.dart';
 export 'src/control.dart';

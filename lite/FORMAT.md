@@ -621,6 +621,28 @@ Android already has, rounded to two decimals (about 1 km). The note gives
 its age and accuracy. Switched off, which is the default, there is no
 reading.
 
+## Products (`model/products/<id>/product.json`)
+
+A product is what can be bought. An item is the one you own or plan, and it
+points at its product with `"product": "<id>"`. Products are versioned like
+items: per-device history, and the newest version wins over a conflict
+copy.
+
+```json
+{"v": 1, "id": "cps-or500", "name": "CyberPower OR500LCDRM1U", "maker": "CyberPower",
+ "model": "OR500LCDRM1U", "state": "active",
+ "specs": {"outputW": {"value": 300, "unit": "W", "src": "declared"}},
+ "images": ["https://..."], "docs": [{"title": "User manual", "url": "https://..."}],
+ "offers": [{"seller": "B", "price": 214.5, "currency": "USD", "inStock": true, "url": "https://...", "seen": 1764266400}]}
+```
+
+- `ProductStore(root, me)` provides `put`, `get`, `asOf`, `of(item)`,
+  `link(items, item, productId)` and `resolveConflicts`. Computers resolve
+  conflict copies every 6 h.
+- `bestOffer()` returns the cheapest offer that is in stock or whose stock
+  is unknown.
+- A BOM line reaches its product through its item.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.
