@@ -388,6 +388,15 @@ Android as a notification. A firing that reaches a device over an hour
 late is skipped; at most three show at once, then a count. Servers
 without a desktop show nothing.
 
+**Default rules (2.6.9+).** The computer that judges rules for others
+writes these once per folder, all with `enabled: false`: `device-offline`
+(30 min), `ups-on-battery` (`power.battery` event), `disk-over-90`
+(`disk.pct`, 10 min), `container-unhealthy`, `dns-failing`
+(`readings.net.dns` is "no answer" for 5 min) and `syncthing-stuck`. Which
+ones were written is kept in `rules/.defaults-written.json`, so a default
+someone changed or deleted is never put back. `disk.pct` and `mem.pct` are
+worked out from `used` and `total` for any rule.
+
 **Phone switches.** A phone's "Notify me on this phone" switch for a device
 is kept as two rules notifying only that phone:
 `phone-<phone>-offline-<device>.json` (no report for 30 min) and

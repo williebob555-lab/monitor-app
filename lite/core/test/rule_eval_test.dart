@@ -114,4 +114,11 @@ void main() {
     expect(f.single.did.single, startsWith('control ups.alarm=off sent to pc'));
     expect(SyncFolder(root).requestsFor('pc', t0).single.key, 'ups.alarm');
   });
+
+  test('disk.pct is worked out from used and total', () {
+    final r = rep('pc', 'linux', t0, extra: {'disk': {'used': 95, 'total': 100}});
+    expect(ruleValue(r, 'disk.pct'), 95.0);
+    final f = RuleEngine('${dir.path}/d.json').evaluate(root: root, me: 'pc', rules: set(Rule.parse({...defaultRules[2], 'enabled': true, 'when': {'type': 'value', 'path': 'disk.pct', 'op': '>', 'value': 90}}).$1!), reports: {'pc': r}, now: t0);
+    expect(f.single.why, 'pc: disk.pct is 95 (> 90)');
+  });
 }

@@ -152,8 +152,7 @@ class RuleEngine {
           for (final s in [...mine, ...others]) {
             if (!rule.covers(s.id, _typeOf(s), isThing: s.isThing)) continue;
             if (s.id != me && now.difference(s.time) > freshLimit(s)) continue;
-            // A report built in this process has no raw file yet.
-            final v = fieldAt(s.raw.isNotEmpty ? s.raw : s.toJson(), '${w['path']}');
+            final v = ruleValue(s, '${w['path']}');
             final ok = _compare(v, '${w['op']}', w['value']);
             consider(rule, s, ok, null, '${s.name}: ${w['path']} is ${_show(v)} (${w['op']} ${w['value']})');
           }
@@ -242,6 +241,18 @@ class RuleEngine {
     _appendFired(folder.root, rule.id, me, f.toJson(me));
     return f;
   }
+}
+
+/// A value by path for rules: any [fieldAt] path, plus `disk.pct` and
+/// `mem.pct`, worked out from used and total.
+Object? ruleValue(Report s, String path) {
+  // A report built in this process has no raw file yet.
+  final j = s.raw.isNotEmpty ? s.raw : s.toJson();
+  if (path == 'disk.pct' || path == 'mem.pct') {
+    final u = fieldAt(j, '${path.substring(0, path.indexOf('.'))}.used'), t = fieldAt(j, '${path.substring(0, path.indexOf('.'))}.total');
+    if (u is num && t is num && t > 0) return (1000 * u / t).round() / 10;
+  }
+  return fieldAt(j, path);
 }
 
 String _show(Object? v) => v == null ? 'unknown' : (v is double ? v.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '') : '$v');

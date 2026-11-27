@@ -226,3 +226,44 @@ class RuleSet {
     tmp.renameSync('${d.path}$sep${r.id}.json');
   }
 }
+
+/// Rules every folder starts with (roadmap row 21), all switched off: each
+/// is one tap in a rule editor. The phone's own switches are separate
+/// rules (FORMAT.md "Phone switches").
+final List<Map<String, Object?>> defaultRules = [
+  {'id': 'device-offline', 'name': 'A device stopped reporting', 'enabled': false, 'when': {'type': 'offline', 'for': 1800}, 'then': [{'type': 'notify'}], 'cooldown': 0},
+  {'id': 'ups-on-battery', 'name': 'UPS on battery', 'enabled': false, 'when': {'type': 'event', 'event': 'power.battery'}, 'then': [{'type': 'notify'}, {'type': 'annotate'}], 'cooldown': 600},
+  {'id': 'disk-over-90', 'name': 'Disk over 90 %', 'enabled': false, 'when': {'type': 'value', 'path': 'disk.pct', 'op': '>', 'value': 90, 'for': 600}, 'then': [{'type': 'notify'}], 'cooldown': 86400},
+  {'id': 'container-unhealthy', 'name': 'Container unhealthy', 'enabled': false, 'when': {'type': 'event', 'event': 'container.unhealthy'}, 'then': [{'type': 'notify'}, {'type': 'annotate'}], 'cooldown': 3600},
+  {'id': 'dns-failing', 'name': 'DNS not answering', 'enabled': false, 'when': {'type': 'value', 'path': 'readings.net.dns', 'op': '==', 'value': 'no answer', 'for': 300}, 'then': [{'type': 'notify'}], 'cooldown': 3600},
+  {'id': 'syncthing-stuck', 'name': 'Syncthing folder stuck', 'enabled': false, 'when': {'type': 'value', 'path': 'readings.st.problems', 'op': '!=', 'value': '', 'for': 900}, 'then': [{'type': 'notify'}], 'cooldown': 0},
+];
+
+/// Writes each default rule once per folder: a default someone changed or
+/// deleted is never put back. Remembered in `rules/.defaults-written.json`.
+/// Returns the ids written now.
+List<String> ensureDefaultRules(String folder) {
+  final sep = Platform.pathSeparator;
+  final marker = File('${RuleSet.dir(folder)}$sep.defaults-written.json');
+  var done = <String>{};
+  try {
+    done = {for (final x in (jsonDecode(marker.readAsStringSync()) as Map)['written'] as List) '$x'};
+  } catch (_) {}
+  final wrote = <String>[];
+  for (final j in defaultRules) {
+    final id = j['id'] as String;
+    if (done.contains(id)) continue;
+    if (!File('${RuleSet.dir(folder)}$sep$id.json').existsSync()) {
+      RuleSet.save(folder, Rule.parse(j).$1!);
+      wrote.add(id);
+    }
+    done.add(id);
+  }
+  if (wrote.isNotEmpty || !marker.existsSync()) {
+    Directory(RuleSet.dir(folder)).createSync(recursive: true);
+    final tmp = File('${RuleSet.dir(folder)}$sep.syncthing.defaults-written.json.tmp');
+    tmp.writeAsStringSync(jsonEncode({'v': 1, 'written': done.toList()..sort()}), flush: true);
+    tmp.renameSync(marker.path);
+  }
+  return wrote;
+}

@@ -74,4 +74,23 @@ void main() {
     expect(s.problems['broken.json'], ['not valid JSON']);
     expect(s.problems.length, 2);
   });
+
+  test('defaults: valid, written once, a changed or deleted one stays as the user left it', () {
+    for (final j in defaultRules) {
+      expect(validateRule(j), isEmpty, reason: '${j['id']}');
+    }
+    final dir = Directory.systemTemp.createTempSync('defaults');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    expect(ensureDefaultRules(dir.path), hasLength(defaultRules.length));
+    final s = RuleSet.load(dir.path);
+    expect(s.problems, isEmpty);
+    expect(s.rules.every((r) => !r.enabled), isTrue);
+    File('${RuleSet.dir(dir.path)}/disk-over-90.json').deleteSync();
+    final (on, _) = Rule.parse({...defaultRules.first, 'enabled': true});
+    RuleSet.save(dir.path, on!);
+    expect(ensureDefaultRules(dir.path), isEmpty);
+    final again = RuleSet.load(dir.path);
+    expect(again.rules.map((r) => r.id), isNot(contains('disk-over-90')));
+    expect(again.rules.firstWhere((r) => r.id == defaultRules.first['id']).enabled, isTrue);
+  });
 }

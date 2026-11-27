@@ -207,6 +207,7 @@ class Agent {
   bool _settled = false;
   RuleEngine? _rules;
   NotifyInbox? _inbox;
+  bool _defaultsChecked = false;
   String _ruleProblems = '';
   DateTime? _prevCycleAt;
 
@@ -552,6 +553,13 @@ class Agent {
       // or a sleep, so nothing looks offline that isn't.
       if (_settled) {
         try {
+          // Default rules (row 21), written once per folder by the one
+          // computer that judges rules for others.
+          if (!_defaultsChecked && ruleEvaluator({...others, cfg.id: r}, now) == cfg.id) {
+            _defaultsChecked = true;
+            final wrote = ensureDefaultRules(cfg.folder);
+            if (wrote.isNotEmpty) folder.log(cfg.id, 'rules: added default rules (switched off): ${wrote.join(', ')}');
+          }
           final set = RuleSet.load(cfg.folder);
           final probs = set.problems.entries.map((e) => '${e.key}: ${e.value.join('; ')}').join(' | ');
           if (probs != _ruleProblems) {
