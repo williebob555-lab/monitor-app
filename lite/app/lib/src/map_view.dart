@@ -25,19 +25,25 @@ class Link {
     return Level.fault;
   }
 
-  int? get pingMs {
-    final p = [ab?.pingMs, ba?.pingMs].whereType<int>();
-    return p.isEmpty ? null : p.reduce(math.min);
+  String? get latency {
+    final ping = [ab?.pingMs, ba?.pingMs].whereType<int>();
+    if (ping.isNotEmpty) return 'Ping ${ping.reduce(math.min)} ms';
+    final tcp = [ab?.tcpMs, ba?.tcpMs].whereType<int>();
+    return tcp.isEmpty ? null : 'TCP ${tcp.reduce(math.min)} ms';
   }
 
   String describe(String na, String nb) {
-    String one(String from, String to, PeerView? v) => v == null
-        ? '$from has not checked $to'
-        : v.reachable
-            ? '$from reaches $to${v.pingMs != null ? ' (${v.pingMs} ms)' : ''}${v.tcp == 'refused' ? ', Syncthing there is down' : ''}'
-            : v.tcp == 'noip'
-                ? '$from has no Tailscale address for $to'
-                : '$from gets no answer from $to';
+    String one(String from, String to, PeerView? view) {
+      if (view == null) return '$from has not checked $to';
+      if (view.reachable) {
+        final latency = peerLatencyLabel(view);
+        return '$from reaches $to${latency == null ? '' : ' ($latency)'}'
+            '${view.tcp == 'refused' ? ', Syncthing there is down' : ''}';
+      }
+      return view.tcp == 'noip'
+          ? '$from has no Tailscale address for $to'
+          : '$from gets no answer from $to';
+    }
     return '${one(na, nb, ab)}. ${one(nb, na, ba)}.';
   }
 }
@@ -107,11 +113,11 @@ class _Node {
 
 /// A cable between two nodes.
 class _Edge {
-  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.ping, this.link, this.count, {this.via, this.detail});
+  _Edge(this.a, this.b, this.level, this.fwd, this.back, this.latency, this.link, this.count, {this.via, this.detail});
   final String a, b;
   final Level level;
   final bool fwd, back;
-  final int? ping;
+  final String? latency;
   final Link? link; // null when it stands for several links
   final int count;
   final String? via; // attached hardware: "usb", "power"...
@@ -265,7 +271,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       for (final e in merged.entries)
         if (e.value.length == 1)
           _Edge(owner[e.value.first.a]!, owner[e.value.first.b]!, e.value.first.level, e.value.first.ab?.reachable == true,
-              e.value.first.ba?.reachable == true, e.value.first.pingMs, e.value.first, 1)
+              e.value.first.ba?.reachable == true, e.value.first.latency, e.value.first, 1)
         else
           _Edge(e.key.split('\n')[0], e.key.split('\n')[1], e.value.map((l) => l.level).reduce((a, b) => a.index >= b.index ? a : b),
               e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true), e.value.any((l) => l.ab?.reachable == true || l.ba?.reachable == true),
@@ -1044,7 +1050,7 @@ class _MapPainter extends CustomPainter {
       if (e.fwd) travel(true);
       if (e.back) travel(false);
 
-      final label = e.via != null ? e.via! : e.count > 1 ? '${e.count} links' : e.ping != null ? '${e.ping} ms' : (e.level == Level.fault ? 'no answer' : null);
+      final label = e.via ?? (e.count > 1 ? '${e.count} links' : e.latency ?? (e.level == Level.fault ? 'no answer' : null));
       if (label != null && metric.length > 70) {
         final tp = TextPainter(
           text: TextSpan(

@@ -65,4 +65,10 @@ String fmtBytes(num? b) {
 
 String fmtRate(num? bps) => bps == null ? '-' : '${fmtBytes(bps)}/s';
 
+String? peerLatencyLabel(PeerView view) => switch (view) {
+  PeerView(pingMs: final int ping) => 'Ping $ping ms',
+  PeerView(tcpMs: final int handshake) => 'TCP $handshake ms',
+  _ => null,
+};
+
 double? pct(int? used, int? total) => used == null || total == null || total == 0 ? null : 100 * used / total;

@@ -2,9 +2,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 import 'package:monitor_lite/src/map_view.dart';
+import 'package:monitor_lite/src/parts.dart';
 
 void main() {
   final now = DateTime.utc(2026, 11, 27);
+
+  test('map and device links distinguish ping from TCP handshake time', () {
+    final tcp = PeerView.tryParse({'tcp': 'open', 'tcpMs': 8})!;
+    final ping = PeerView.tryParse({'tcp': 'open', 'ping': 14, 'tcpMs': 5})!;
+    final fallback = Link('alpha', 'server', tcp, null);
+    final mixed = Link('alpha', 'server', tcp, ping);
+    expect(fallback.latency, 'TCP 8 ms');
+    expect(mixed.latency, 'Ping 14 ms');
+    expect(mixed.describe('Alpha', 'Server'), contains('Alpha reaches Server (TCP 8 ms)'));
+    expect(mixed.describe('Alpha', 'Server'), contains('Server reaches Alpha (Ping 14 ms)'));
+
+    final report = Report(
+      id: 'alpha', name: 'Alpha', kind: 'linux', time: now, peers: {'server': tcp},
+      tailscaleIp: '100.64.0.1',
+    );
+    final links = partsOf(report, {'server': 'Server'}).firstWhere((part) => part.id == 'links');
+    expect(links.facts, contains(('Server', 'TCP 8 ms · Syncthing up')));
+  });
 
   List<DeviceStatus> twins(DateTime linuxTime, DateTime windowsTime) {
     final reports = {
