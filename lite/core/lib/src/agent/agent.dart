@@ -24,6 +24,7 @@ import '../patterns.dart';
 import '../model.dart';
 import '../events.dart';
 import '../integrity.dart';
+import '../unusual.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -153,6 +154,9 @@ class Agent {
   DateTime? _lastCycle;
   DateTime? _lastHistory;
   List<String> _watchers = const [];
+  DateTime? _unusualAt;
+  List<Reading> _unusual = const [];
+  final _unusualLimit = UnusualLimiter();
   final _extras = Extras();
   final _things = Things();
   final _containers = Containers();
@@ -416,6 +420,23 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      // Unusual for this device (row 16): every 5 minutes, from its history.
+      if (_unusualAt == null || now.difference(_unusualAt!) >= const Duration(minutes: 5)) {
+        _unusualAt = now;
+        try {
+          final dir = folder.deviceDir(cfg.id);
+          final from = now.millisecondsSinceEpoch ~/ 1000 - 3600;
+          final recent = readDetail(dir, now, days: 1).where((l) => (l['t']! as num) >= from).toList();
+          final found = _unusualLimit.apply(findUnusual(readHourly(dir, now), recent, now), now);
+          for (final r in found) {
+            if (!_unusual.any((o) => o.key == r.key)) folder.log(cfg.id, 'unusual: ${r.value}');
+          }
+          _unusual = found;
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR unusual: $e');
+        }
+      }
+      extra = [...extra, ..._unusual];
       _step('extras');
 
       // Things plugged into this machine (UPS, audio interface), Linux only.
