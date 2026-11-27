@@ -21,7 +21,9 @@
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
                                   "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50},
                                   "update": {"auto": true}} (auto: Windows and
-                                  Android install new releases on their own; default true)
+                                  Android install new releases on their own; default true),
+                                  "controls": {"allow": ["<device id>", ...]} (who may change
+                                  settings; missing = every device, [] = none; lite/SECURITY.md)
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees
@@ -56,7 +58,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
 | `watch` | names of the devices that have the app open, when written at the live rate |
-| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable) |
+| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
 
 Missing keys mean "not available"; readers never guess.
 
@@ -84,7 +86,7 @@ A report written at the live rate has `"next": 10` (or 15 on Android) and
 
 ## History
 
-Detail line: `{"t":…, "b":battery%, "c":charging 0/1, "s":screen on 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, <numeric readings by key>}`
+Detail line: `{"t":…, "b":battery%, "c":charging 0/1, "s":screen on 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, "w": 1 while the app is open on some device, "nt": network type (1 Wi-Fi, 2 mobile, 3 wired, 0 none), <numeric readings by key>}`
 
 Summary line (hourly and daily): `{"t": start, "n": readings, "<path>": [min, avg, max], ...}`
 for every numeric value, nested ones flattened (`"p.<peer id>"`).
@@ -139,6 +141,20 @@ Every reading may carry `src` (measured, declared, estimated or unknown) and a
 `note`. `value` may be null only when `src` is unknown, and the note then says
 why (for example "USB ports do not measure current").
 
+**Unavailable is never zero.** A reading that can't be had is written as
+`value: null, src: "unknown"` with a `note`; a `0` is always a real zero
+that was measured or declared. Readers must not turn null into 0 (or a bar at
+0 %), and history lines simply leave unknown keys out. Sources that use 0 to
+mean "don't know" are translated at the collector: UPower's 0 time to empty
+and its 0 % while the state is unknown become unknown.
+
+A reading may also carry `from`, the path it came through, where a part can
+be read more than one way (today a UPS): `upower` (UPower on this machine),
+`upower-export` (the host's UPower, through its exported file, in Docker),
+`hid` (the device itself over USB HID), `nut`, or `sysfs`. Missing means the
+device's usual path. Readings from different paths can sit side by side in
+one thing (UPower's charge next to HID's load).
+
 Software that controls a thing may write `params.json` next to its
 `now.json` (any flat JSON object under 1 MB). The app shows it under "Its
 settings". The CueMix rebuild is meant to use this.
@@ -149,10 +165,15 @@ exist, a parent that does not list its child, a link to a missing id, or an
 unknown via or dir.
 
 Linux reads, with no vendor software: USB from `/sys/bus/usb/devices`; a UPS
-directly as a USB HID power device (`/dev/hidrawN`, made readable by one udev
-rule; NUT or upower only as a fallback if present), giving just its basic
-status: on mains or battery, charge, load, runtime; audio interfaces from
-`/proc/asound` and `amixer`.
+through UPower first (`upower -d` natively, or in Docker the file the host's
+`packaging/linux/upower-export.sh` writes, mounted read-only at
+`/host/upower`), with USB HID (`/dev/hidrawN`, made readable by one udev rule)
+adding load and the beeper and standing in when UPower can't be reached, and a
+NUT server only if one happens to run; audio interfaces from `/proc/asound`
+and `amixer`. Only UPower devices of kind `ups` are used: never a laptop's
+own battery, a mouse, keyboard or the combined DisplayDevice. Each is matched
+to its USB device by serial, then by USB port (following UPower's `hiddevN`
+in sysfs), then by maker and model, then as the only UPS on both sides.
 
 ## Dual-boot twins
 
@@ -169,13 +190,28 @@ as one machine with the running system on top.
 
 | `node.type` | Written by | Parent | Readings (all `src`-marked) |
 |---|---|---|---|
-| `ups` | Linux collector: USB HID, else NUT, else UPower (`upower` or the host's exported file, packaging/linux/upower-export.sh) | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
+| `ups` | Linux collector: UPower (natively, or the host's exported file), plus USB HID for what UPower lacks; USB HID alone, else NUT, when UPower can't be reached | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.hostAction` (declared, e.g. `host powers off at 20 %`), `ups.maker`, `ups.model`, `ups.serial` (only when it has one), `ups.identity`, `ups.source`, plus the USB set; UPS readings carry `from` |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
-| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP), `ct.http` (HTTP status of one HEAD to that page each minute, or `no answer`; `warn` at 5xx or no answer) and `ct.httpMs` (its answer time). A stopped container that served a page earlier gets `ct.state` `warn` with note `was serving <url>`. A Pi-hole container also gets group Pi-hole: `ph.queries`, `ph.blocked` (today), `ph.blockedPct` %, `ph.domains`, `ph.gravityAge` (days since blocklists updated, `warn` over 14), or `ph.api` saying why there are no numbers (`needs its password`: give the collector `MONITOR_PIHOLE_PASSWORD` or `MONITOR_PIHOLE_PASSWORD_FILE`, an app password from Pi-hole's settings) |
 
-`ups.source` says which path was used. Through UPower, `ups.load` is unknown
-and no `ups.alarm` (or control) is written.
+`ups.source` says in words which paths were used ("UPower 1.91.5 on the host
+(exported file), plus USB HID for load and alarm"); each UPS reading's `from`
+says the same per value. UPower doesn't report the load or the beeper, so
+without USB HID `ups.load` is unknown (the note says why) and no `ups.alarm`
+or alarm control is written. `ups.hostAction` is what the HOST does when the
+battery runs low (`host powers off at 20 % (low at 35 %, critical at 25 %)`),
+read from UPower's critical action and its effective policy: `UPower.conf`,
+then `UPower.conf.d/*.conf` in name order, the last file to set a key winning,
+only keys in the `[UPower]` group; its note names the file that set it.
+Monitor App only shows it and never changes it; shutdown stays the host's.
+In Docker, an export that says UPower did not answer, or is over 3 minutes
+old, makes the UPS readings unknown with that reason, never old numbers. `ups.identity` says what the thing id rests on
+(`USB 0764:0601 on port 1-5 (it has no serial number)`) and how UPower's
+device was matched. With no serial the id rests on the USB port, which both
+systems of a dual-boot machine see alike (verified on wc-alpha / wc-desktop:
+both write `usb-0764-0601-port15`); moving the UPS to another port gives it a
+new id.
 
 USB set: `usb.speed` Mbit/s, `usb.version`, `usb.port`, `usb.maxPower` mA
 (declared), `usb.current` and `usb.errors` (always unknown, with a note),
@@ -341,7 +377,9 @@ Same versioning, history, conflict and time-travel rules as items
 * `state`: `draft`, `active`, `done`, `archived` (never deleted).
 * A placement points at a model `item`, a live `thing`/device id, or neither
   (a planned part with only a name). `u`: `[bottom, top]` rack units, or
-  `null` while not placed. `face`: `front` or `rear`; `fullDepth: true`
+  `null` while not placed. `height`: rack units it takes, kept while it is
+  not placed (a 2U amplifier with no position yet); `check()` flags a
+  placement whose `u` range doesn't match it. `face`: `front` or `rear`; `fullDepth: true`
   blocks both faces.
 * Quantities are `{"value", "unit", "src"}`. Units understood: mm, cm, m,
   in, ft; g, kg, lb, oz; mW, W, kW. Others are kept but not added up.

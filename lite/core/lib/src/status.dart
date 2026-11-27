@@ -228,6 +228,9 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
         'No readings have arrived. Open Setup to share the Monitor folder in Syncthing on each device.');
   }
 
+  final layer = networkLayer(fresh.where((r) => devices.any((d) => d.report.id == r.id && d.level != Level.inactive)).toList(), myId);
+  if (layer != null && layer.level == Level.fault) return layer;
+
   // Tailscale reachability graph among devices that are alive (fresh, or
   // reachable by someone) and that someone has actually probed.
   final alive = <String>{};
@@ -280,6 +283,8 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
         groups: named);
   }
 
+  if (layer != null) return layer;
+
   final away = devices.length - active.length;
   final awayText = away == 0 ? '' : ' $away more ${away == 1 ? 'is' : 'are'} away or old copies.';
   final ok = active.where((d) => d.level == Level.ok).length;
@@ -290,4 +295,53 @@ NetworkStatus _network(List<DeviceStatus> devices, List<Report> fresh, String? m
   }
   final bad = active.where((d) => d.level != Level.ok).map((d) => '${d.report.name}: ${d.title}');
   return NetworkStatus(worst, '$ok of ${active.length} devices online', '${bad.join('. ')}.$awayText');
+}
+
+String? _reading(Report r, String key) => r.readings.where((x) => x.key == key).firstOrNull?.value?.toString();
+
+/// Which layer failed, from the devices' own network checks (`net.*`
+/// readings, written each cycle). Null when nothing layer-wide is wrong.
+/// Order: the internet for everyone, then DNS, then one device's own
+/// connection. A device that is not checking (older version) is left out.
+NetworkStatus? networkLayer(List<Report> fresh, String? myId) {
+  final checking = fresh.where((r) => _reading(r, 'net.internet') != null).toList();
+  final noNet = checking.where((r) => _reading(r, 'net.internet') == 'no').toList();
+  final withNet = checking.where((r) => _reading(r, 'net.internet') == 'reachable').toList();
+  final pihole = fresh.where((r) => _reading(r, 'net.pihole') != null).toList();
+  final piholeDown = pihole.where((r) => _reading(r, 'net.pihole') != 'answers').toList();
+
+  if (noNet.length >= 2 && withNet.isEmpty) {
+    final routerOk = noNet.where((r) => _reading(r, 'net.gateway') == 'answers').toList();
+    return NetworkStatus(Level.fault, 'Internet down for everyone',
+        'None of ${_names(noNet)} can reach the internet. '
+        '${routerOk.isNotEmpty ? 'The router still answers ${_names(routerOk)}, so the home network is fine and the line to the internet is down.' : 'Check the router and the line to the internet.'}');
+  }
+
+  final dnsBad = checking.where((r) => _reading(r, 'net.dns') == 'no answer' && _reading(r, 'net.internet') == 'reachable').toList();
+  if (dnsBad.isNotEmpty || piholeDown.isNotEmpty) {
+    final directOk = dnsBad.where((r) => _reading(r, 'net.dnsDirect') == 'answers').isNotEmpty;
+    final ph = piholeDown.isNotEmpty;
+    final how = ph
+        ? 'Pi-hole on ${_names(piholeDown)} is ${piholeDown.every((r) => _reading(r, 'net.pihole') == 'stopped') ? 'stopped' : 'not answering'}'
+        : null;
+    if (dnsBad.isEmpty) {
+      // Pi-hole is down but every device still resolves (they use another
+      // resolver too): worth knowing, not an outage.
+      return NetworkStatus(Level.warn, 'Pi-hole not answering', '$how. Devices still look names up through another resolver, so nothing is blocked from working.');
+    }
+    return NetworkStatus(dnsBad.length >= 2 || dnsBad.length == checking.length ? Level.fault : Level.warn, ph ? 'DNS failing (Pi-hole)' : 'DNS failing',
+        '${_names(dnsBad)} ${dnsBad.length == 1 ? 'has' : 'have'} internet but can\'t look up names, so websites and apps won\'t load. '
+        '${how != null ? '$how. ' : ''}'
+        '${directOk ? 'Public DNS still answers, so the internet is fine and the problem is the local DNS.' : ''}'.trim());
+  }
+
+  if (noNet.isNotEmpty && withNet.isNotEmpty) {
+    final mine = myId != null && noNet.any((r) => r.id == myId);
+    final routerBad = noNet.where((r) => _reading(r, 'net.gateway') == 'no answer').toList();
+    return NetworkStatus(Level.warn, noNet.length == 1 ? 'No internet on ${noNet.single.name}' : 'No internet on ${noNet.length} devices',
+        '${_names(noNet)} can\'t reach the internet, but ${_names(withNet)} can, so it is ${noNet.length == 1 ? 'that device\'s' : 'those devices\''} own connection'
+        '${routerBad.isNotEmpty ? ' (${_names(routerBad)} can\'t reach the router either: Wi-Fi or cable)' : ''}.'
+        '${mine ? ' That includes this device.' : ''}');
+  }
+  return null;
 }

@@ -267,3 +267,144 @@ List<(String, int, int)> windowsDrives() {
   }
   return out;
 }
+
+final _createFileW = _k32.lookupFunction<IntPtr Function(Pointer<Utf16>, Uint32, Uint32, Pointer<Void>, Uint32, Uint32, IntPtr),
+    int Function(Pointer<Utf16>, int, int, Pointer<Void>, int, int, int)>('CreateFileW');
+final _writeFile = _k32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Void>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Void>)>('WriteFile');
+final _readFile = _k32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Void>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Void>)>('ReadFile');
+final _closeHandle = _k32.lookupFunction<Int32 Function(IntPtr), int Function(int)>('CloseHandle');
+final _getLastError = _k32.lookupFunction<Uint32 Function(), int Function()>('GetLastError');
+
+/// Sends [request] down a named pipe and reads until the other side closes
+/// it (blocking: call it on a side isolate). Throws with the Win32 error.
+List<int> windowsPipeRequest(String path, List<int> request, {int maxBytes = 4 * 1024 * 1024}) {
+  const genericRw = 0xC0000000, openExisting = 3, invalid = -1;
+  final p = path.toNativeUtf16();
+  final h = _createFileW(p, genericRw, 0, nullptr, openExisting, 0, 0);
+  calloc.free(p);
+  if (h == invalid || h == 0) throw OSError('cannot open $path', _getLastError());
+  final buf = calloc<Uint8>(64 * 1024);
+  final n = calloc<Uint32>();
+  try {
+    final req = calloc<Uint8>(request.length);
+    req.asTypedList(request.length).setAll(0, request);
+    final ok = _writeFile(h, req, request.length, n, nullptr);
+    calloc.free(req);
+    if (ok == 0) throw OSError('cannot write to $path', _getLastError());
+    final out = <int>[];
+    while (out.length < maxBytes) {
+      if (_readFile(h, buf, 64 * 1024, n, nullptr) == 0 || n.value == 0) break; // closed: done
+      out.addAll(buf.asTypedList(n.value));
+    }
+    return out;
+  } finally {
+    calloc.free(buf);
+    calloc.free(n);
+    _closeHandle(h);
+  }
+}
+
+final _getNetworkParams = _iph.lookupFunction<Uint32 Function(Pointer<Uint8>, Pointer<Uint32>), int Function(Pointer<Uint8>, Pointer<Uint32>)>('GetNetworkParams');
+
+/// The DNS servers Windows uses (GetNetworkParams, FIXED_INFO). Layout on
+/// x64: HostName[132], DomainName[132], CurrentDnsServer pointer at 264,
+/// DnsServerList (IP_ADDR_STRING: Next pointer, IpAddress[16]) at 272.
+List<String> windowsDnsServers() {
+  final size = calloc<Uint32>();
+  Pointer<Uint8> buf = nullptr;
+  try {
+    _getNetworkParams(nullptr, size);
+    if (size.value < 296 || size.value > 1 << 20) return const [];
+    buf = calloc<Uint8>(size.value);
+    if (_getNetworkParams(buf, size) != 0) return const [];
+    String ip(Pointer<Uint8> p) {
+      final b = <int>[];
+      for (var i = 0; i < 16 && p[i] != 0; i++) {
+        b.add(p[i]);
+      }
+      return String.fromCharCodes(b);
+    }
+
+    final out = <String>[];
+    var entry = buf + 272;
+    for (var n = 0; n < 4 && entry != nullptr; n++) {
+      final a = ip(entry + 8);
+      if (InternetAddress.tryParse(a)?.type == InternetAddressType.IPv4 && a != '0.0.0.0') out.add(a);
+      entry = Pointer<Uint8>.fromAddress(entry.cast<IntPtr>().value);
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  } finally {
+    calloc.free(size);
+    if (buf != nullptr) calloc.free(buf);
+  }
+}
+
+final _setupapi = DynamicLibrary.open('setupapi.dll');
+final _getClassDevs = _setupapi.lookupFunction<IntPtr Function(Pointer<Void>, Pointer<Utf16>, IntPtr, Uint32), int Function(Pointer<Void>, Pointer<Utf16>, int, int)>('SetupDiGetClassDevsW');
+final _enumDeviceInfo = _setupapi.lookupFunction<Int32 Function(IntPtr, Uint32, Pointer<Uint8>), int Function(int, int, Pointer<Uint8>)>('SetupDiEnumDeviceInfo');
+final _getInstanceId = _setupapi.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Pointer<Utf16>, Uint32, Pointer<Uint32>),
+    int Function(int, Pointer<Uint8>, Pointer<Utf16>, int, Pointer<Uint32>)>('SetupDiGetDeviceInstanceIdW');
+final _getRegistryProperty = _setupapi.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Uint8>, Uint32, Pointer<Uint32>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Uint8>, int, Pointer<Uint32>)>('SetupDiGetDeviceRegistryPropertyW');
+final _destroyInfoList = _setupapi.lookupFunction<Int32 Function(IntPtr), int Function(int)>('SetupDiDestroyDeviceInfoList');
+
+/// One USB device Windows has present: (vid, pid, serial or null, name,
+/// location such as "Port_#0005.Hub_#0001").
+typedef WinUsb = ({String vid, String pid, String? serial, String name, String? location});
+
+/// Present USB devices from SetupAPI (no child process). Interfaces of
+/// composite devices (MI_xx) and root hubs are left out. SP_DEVINFO_DATA on
+/// x64 is 32 bytes: cbSize, GUID, DevInst, Reserved pointer.
+List<WinUsb> windowsUsbDevices() {
+  const digcfPresent = 0x2, digcfAllClasses = 0x4, spdrpDeviceDesc = 0x0, spdrpFriendlyName = 0xC, spdrpLocation = 0xD;
+  final out = <WinUsb>[];
+  final enumerator = 'USB'.toNativeUtf16();
+  final info = calloc<Uint8>(32);
+  final idBuf = calloc<Uint16>(512);
+  final prop = calloc<Uint8>(1024);
+  final need = calloc<Uint32>();
+  final type = calloc<Uint32>();
+  final set = _getClassDevs(nullptr, enumerator, 0, digcfPresent | digcfAllClasses);
+  try {
+    if (set == -1 || set == 0) return out;
+    String? property(int which) {
+      for (var i = 0; i < 1024; i++) {
+        prop[i] = 0;
+      }
+      if (_getRegistryProperty(set, info, which, type, prop, 1022, need) == 0) return null;
+      final s = prop.cast<Utf16>().toDartString().trim();
+      return s.isEmpty ? null : s;
+    }
+
+    for (var i = 0; i < 256; i++) {
+      info.cast<Uint32>().value = 32;
+      if (_enumDeviceInfo(set, i, info) == 0) break;
+      if (_getInstanceId(set, info, idBuf.cast<Utf16>(), 511, need) == 0) continue;
+      final id = idBuf.cast<Utf16>().toDartString();
+      final m = RegExp(r'^USB\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})\\(.+)$').firstMatch(id);
+      if (m == null) continue; // root hubs, composite interfaces (…&MI_00)
+      final tail = m.group(3)!;
+      out.add((
+        vid: m.group(1)!.toLowerCase(),
+        pid: m.group(2)!.toLowerCase(),
+        // Windows makes up an instance id with '&' when there is no serial.
+        serial: tail.contains('&') ? null : tail,
+        name: property(spdrpFriendlyName) ?? property(spdrpDeviceDesc) ?? 'USB device',
+        location: property(spdrpLocation),
+      ));
+    }
+  } finally {
+    if (set != -1 && set != 0) _destroyInfoList(set);
+    calloc.free(enumerator);
+    calloc.free(info);
+    calloc.free(idBuf);
+    calloc.free(prop);
+    calloc.free(need);
+    calloc.free(type);
+  }
+  return out;
+}
