@@ -1,5 +1,7 @@
 # Bill of work
 
+> **History.** This is the old 1.x (.NET) app's plan. Monitor App 2.x follows [`docs/ROADMAP.md`](ROADMAP.md).
+
 Plain-English plan for Monitor App: where it stands, where it is going, and the work in between, in order. Each item says how big it is and what you will see when it lands. Kept current by whichever agent is working; the task queue in `docs/COLLABORATION.md` points here.
 
 Sizes are agent working time: **S** is under an hour, **M** is one to three hours, **L** is a night or more.

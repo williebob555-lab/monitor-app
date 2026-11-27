@@ -9,7 +9,7 @@ owner, Wilson:
   the UI**.
 
 `AGENTS.md` still applies. This file adds who owns what and the contract
-between the two halves.
+between the two halves. The ordered plan for both is `docs/ROADMAP.md`.
 
 ## 1. Who owns what (from 2026-11-27)
 
