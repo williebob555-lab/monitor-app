@@ -95,4 +95,31 @@ void main() {
     final r = Report(id: 'u', name: 'UPS', kind: 'thing', time: DateTime.utc(2026), readings: [Reading(key: 'ups.status', value: 'battery, low')]);
     expect(r.historyLine()['ups.onBattery'], 1);
   });
+
+  test('conditional patterns: drain with the app open, data by network type, temperature by load, UPS runtime by load', () {
+    final t0 = DateTime.utc(2026, 11, 20).millisecondsSinceEpoch ~/ 1000;
+    final lines = <Map<String, Object?>>[];
+    var b = 90.0;
+    for (var i = 0; i < 320; i++) {
+      final w = i < 120 ? 1 : 0;
+      b -= w == 1 ? 0.05 : 0.01; // 3 %/h watched, 0.6 %/h quiet
+      lines.add({'t': t0 + i * 60, 'b': b, 'c': 0, 'w': w, 'nt': i < 180 ? 1 : 2, 'rx': 1000, 'tx': 0,
+        'cpu': i.isEven ? 5 : 80, 'temp.cpu': i.isEven ? 40 : 70,
+        'ups.load': i < 120 ? 15 : 35, 'ups.runtime': i < 120 ? 70 : 30, 'ups.charge': 100});
+    }
+    final p = {for (final x in findPatterns(lines, const [])) x.key: x};
+    expect(p['battery.drain.watched']!.value, closeTo(3, 0.1));
+    expect(p['battery.drain.quiet']!.value, closeTo(0.6, 0.05));
+    expect(p['net.perDay.wifi'], isNotNull);
+    expect(p['net.perDay.mobile'], isNotNull);
+    expect(p['temp.cpu.byLoad']!.text, contains('40 °C when idle and 70 °C when busy'));
+    expect(p['ups.runtime.byLoad']!.text, contains('70 min at 10-20 % load, 30 min at 30-40 % load'));
+  });
+
+  test('container restarts come from the host events', () {
+    final now = DateTime.utc(2026, 11, 27);
+    final ev = [for (var i = 0; i < 3; i++) Event(now.subtract(Duration(days: i)), 'container.started', subject: 'ctr-x-pihole')];
+    expect(restartsPattern(ev, 'ctr-x-pihole', now).single.text, startsWith('Started 3 times in 7 days'));
+    expect(restartsPattern(ev, 'ctr-x-caddy', now).single.text, 'Not restarted in 7 days');
+  });
 }

@@ -20,5 +20,6 @@ export 'src/gaps.dart';
 export 'src/model.dart';
 export 'src/project.dart';
 export 'src/events.dart';
+export 'src/integrity.dart';
 export 'src/config.dart';
 export 'src/control.dart';
