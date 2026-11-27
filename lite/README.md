@@ -68,6 +68,10 @@ syncs like everything else.
 
 ## Updates
 
+Open **Settings requests** from Setup and updates to see which requests from
+this device are waiting, answered, failed, or expired. The host's response
+tells you what it actually did.
+
 Setup and updates > Install. The app downloads the release file, checks it
 against the release's SHA256SUMS and hands it to the system installer.
 Nothing installs without that tap. Servers in Docker:

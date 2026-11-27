@@ -91,9 +91,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final r = asked.values.where((r) => r.target == target && r.key == key).fold<ControlRequest?>(
         null, (a, b) => a == null || b.time.isAfter(a.time) ? b : a);
     if (r == null) return null;
+    return (r, answerFor(r));
+  }
+
+  ControlResult? answerFor(ControlRequest r) {
     final a = _answers[r.id] ?? folder.resultOf(r.host, r.id);
     if (a != null) _answers[r.id] = a;
-    return (r, a);
+    return a;
   }
 
   /// Picks up answers that arrived; true when one did.
