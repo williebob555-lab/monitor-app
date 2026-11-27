@@ -9,6 +9,7 @@ import 'report.dart' show fieldAt;
 ///   devices/<id>/history/detail/YYYY-MM-DD-HH.jsonl  every reading, one file per hour
 ///   devices/<id>/history/hourly/YYYY-MM.jsonl        one summary line per hour
 ///   devices/<id>/history/daily/YYYY.jsonl            one summary line per day
+///   devices/<id>/history/patterns/YYYY.jsonl         one line of pattern values per day
 ///
 /// Why this shape:
 /// * Readings first go to a local spool file that is NOT synced. Every
@@ -236,13 +237,13 @@ class HistoryWriter {
       final DateTime end = switch (kind) {
         'detail' when p.length == 4 => DateTime(p[0]!, p[1]!, p[2]!, p[3]! + 1),
         'hourly' when p.length == 2 => DateTime(p[0]!, p[1]! + 1),
-        'daily' when p.length == 1 => DateTime(p[0]! + 1),
+        'daily' || 'patterns' when p.length == 1 => DateTime(p[0]! + 1),
         _ => local,
       };
       return end.isBefore(limit);
     }
 
-    for (final (kind, days) in [('detail', r.detailDays), ('hourly', r.hourlyDays), ('daily', r.dailyDays)]) {
+    for (final (kind, days) in [('detail', r.detailDays), ('hourly', r.hourlyDays), ('daily', r.dailyDays), ('patterns', r.dailyDays)]) {
       final dir = Directory('$historyDir$_sep$kind');
       if (!dir.existsSync()) continue;
       for (final e in dir.listSync().whereType<File>()) {

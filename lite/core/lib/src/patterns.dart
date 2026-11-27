@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -36,6 +37,44 @@ class Pattern {
 
 const minHours = 1.0;
 
+/// history/patterns/YYYY.jsonl: one line per local day with every pattern's
+/// value, `{"t": day start, "<pattern key>": value, ...}`. Patterns thus
+/// outlast the detail and hourly files they were worked out from, and
+/// `seriesOf(lines, key)` charts how one changes over months.
+String patternsYearName(DateTime d) => '${d.year}.jsonl';
+
+/// Writes today's line (replacing an earlier one from today).
+void recordPatterns(String deviceDir, List<Pattern> list, DateTime now) {
+  final sep = Platform.pathSeparator;
+  final local = now.toLocal();
+  final t = DateTime(local.year, local.month, local.day).millisecondsSinceEpoch ~/ 1000;
+  final line = <String, Object?>{
+    't': t,
+    for (final p in list)
+      if (p.value != null) p.key: (p.value! * 100).roundToDouble() / 100,
+  };
+  if (line.length == 1) return;
+  final dir = Directory('$deviceDir${sep}history${sep}patterns')..createSync(recursive: true);
+  final name = patternsYearName(local);
+  final f = File('${dir.path}$sep$name');
+  final lines = [...readLines(f)]
+    ..removeWhere((l) => l['t'] == t)
+    ..add(line)
+    ..sort((a, b) => (a['t']! as num).compareTo(b['t']! as num));
+  final tmp = File('${dir.path}$sep.syncthing.$name.tmp');
+  tmp.writeAsStringSync('${lines.map(jsonEncode).join('\n')}\n', flush: true);
+  tmp.renameSync(f.path);
+}
+
+/// The pattern lines of the last [years] years, oldest first.
+List<Map<String, Object?>> readPatternHistory(String deviceDir, DateTime now, {int years = 5}) {
+  final sep = Platform.pathSeparator;
+  final y = now.toLocal().year;
+  return [
+    for (var i = years - 1; i >= 0; i--) ...readLines(File('$deviceDir${sep}history${sep}patterns$sep${y - i}.jsonl')),
+  ];
+}
+
 /// The last [days] of detail lines (one a minute or so), oldest first.
 List<Map<String, Object?>> readDetail(String deviceDir, DateTime now, {int days = 7}) {
   final sep = Platform.pathSeparator;
@@ -70,8 +109,7 @@ List<Map<String, Object?>> readHourly(String deviceDir, DateTime now, {int days 
 /// [upHours] (peer id -> the hour starts it reported in, from its own hourly
 /// file) leaves out hours a peer was off: not reaching a device that was
 /// switched off is not a connection problem.
-List<Pattern> findPatterns(List<Map<String, Object?>> detail, List<Map<String, Object?>> hourly,
-    {Map<String, String> names = const {}, Map<String, Set<int>>? upHours}) {
+List<Pattern> findPatterns(List<Map<String, Object?>> detail, List<Map<String, Object?>> hourly, {Map<String, String> names = const {}, Map<String, Set<int>>? upHours}) {
   return [
     ..._battery(detail),
     ..._byTimeOfDay(hourly, 'cpu', 'Processor', 'CPU'),
@@ -148,14 +186,7 @@ List<Pattern> _battery(List<Map<String, Object?>> lines) {
           continue;
         }
         out.add(Pattern(key: 'battery.${e.key}', group: 'Battery', text: 'Drains ${_f(drain)} %/h$when $over', value: drain, unit: '%/h', hours: hours));
-        out.add(Pattern(
-            key: 'battery.${e.key}.lasts',
-            group: 'Battery',
-            text: 'A full charge would last about ${_h(100 / drain)}$when',
-            value: 100 / drain,
-            unit: 'h',
-            hours: hours,
-            estimated: true));
+        out.add(Pattern(key: 'battery.${e.key}.lasts', group: 'Battery', text: 'A full charge would last about ${_h(100 / drain)}$when', value: 100 / drain, unit: 'h', hours: hours, estimated: true));
     }
   }
   return out;
@@ -173,7 +204,10 @@ List<Pattern> _byTimeOfDay(List<Map<String, Object?>> hourly, String k, String g
     sum[part] += v;
     n[part]++;
   }
-  final parts = [for (var i = 0; i < 4; i++) if (n[i] >= 2) i];
+  final parts = [
+    for (var i = 0; i < 4; i++)
+      if (n[i] >= 2) i
+  ];
   final hours = n.fold<int>(0, (a, b) => a + b).toDouble();
   if (parts.length < 2 || hours < 6) return const [];
   double avg(int i) => sum[i] / n[i];
@@ -215,8 +249,11 @@ List<Pattern> _traffic(List<Map<String, Object?>> hourly) {
     hours++;
   }
   if (hours < 6) return const [];
-  String size(double bytesPerDay) =>
-      bytesPerDay >= 1e9 ? '${_f(bytesPerDay / 1e9)} GB' : bytesPerDay >= 1e6 ? '${_f(bytesPerDay / 1e6)} MB' : '${_f(bytesPerDay / 1e3)} KB';
+  String size(double bytesPerDay) => bytesPerDay >= 1e9
+      ? '${_f(bytesPerDay / 1e9)} GB'
+      : bytesPerDay >= 1e6
+          ? '${_f(bytesPerDay / 1e6)} MB'
+          : '${_f(bytesPerDay / 1e3)} KB';
   final perDay = 24 / hours;
   return [
     Pattern(

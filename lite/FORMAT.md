@@ -8,8 +8,9 @@
     history/detail/YYYY-MM-DD-HH.jsonl   every reading, one file per hour
     history/hourly/YYYY-MM.jsonl         one summary line per hour
     history/daily/YYYY.jsonl             one summary line per day
+    history/patterns/YYYY.jsonl          one line of pattern values per day
     log.txt                       the app's own log, kept under 256 KB
-    patterns.json                 what its history shows, in words (computers, every 6 h)
+    patterns.json                 what its history shows, in words (every 6 h)
     things/<thing id>/            things it hosts: USB UPS, audio interface, Docker
       now.json                    projects and containers (same shape as a device's)
       history/ , params.json      its own history; optional settings from its software
@@ -222,14 +223,22 @@ What a device's history shows, in words, worked out from the history files
   problem).
 
 Each pattern says how many hours of history it rests on, and nothing resting
-on under an hour (six for daily shapes) is shown. Computers also keep the
-result in `devices/<id>/patterns.json` (rewritten every 6 hours):
+on under an hour (six for daily shapes) is shown. Every device (computers in
+core `patterns.dart`, phones and tablets in `Patterns.kt`, same rules) keeps
+the result in `devices/<id>/patterns.json` (rewritten every 6 hours):
 
 ```json
 {"v": 1, "t": 1795740000, "patterns": [
   {"key": "battery.drain.off", "group": "Battery", "text": "Drains 4.1 %/h with the screen off (over 4.9 h)",
    "value": 4.1, "unit": "%/h", "hours": 4.9}]}
 ```
+
+At the same time it writes today's line of `history/patterns/YYYY.jsonl`:
+`{"t": local day start, "<pattern key>": value, ...}` (one line per day, the
+day's last run wins). It is pruned with the daily summaries (`dailyDays`) and
+goes last under the size cap, so patterns outlast the detail and hourly
+files they came from. Read it with `readPatternHistory(deviceDir, now)`;
+`seriesOf(lines, "battery.drain.off")` charts one pattern over months.
 
 
 ## Reading the folder from Dart (`package:monitor_core`)

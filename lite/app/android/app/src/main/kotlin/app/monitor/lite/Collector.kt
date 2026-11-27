@@ -258,6 +258,7 @@ object Collector {
             if (now - p.getLong("lastPrune", 0) > 6 * 3600_000L) {
                 val used = history.prune(now, History.Retention.load(root))
                 log(dir, "history ${used / 1024} KB")
+                runCatching { Patterns.write(dir, others, now) }.onFailure { log(dir, "ERROR patterns: $it") }
                 p.edit().putLong("lastPrune", now).apply()
             }
         } catch (e: Throwable) {

@@ -9,7 +9,8 @@ import java.util.Calendar
  * Same rules as lite/core/lib/src/history.dart (read that file's comment):
  * readings wait in a local spool, move into history/detail/YYYY-MM-DD-HH.jsonl
  * every 15 minutes, ended hours become one line in history/hourly/YYYY-MM.jsonl,
- * ended days one line in history/daily/YYYY.jsonl, and old files are pruned by
+ * ended days one line in history/daily/YYYY.jsonl (and Patterns.kt one line of
+ * pattern values a day in history/patterns/YYYY.jsonl); old files are pruned by
  * the shared limits in <folder>/settings.json plus a size cap per device.
  */
 class History(private val deviceDir: File, private val spoolDir: File) {
@@ -84,7 +85,7 @@ class History(private val deviceDir: File, private val spoolDir: File) {
     /** Delete by age, then oldest-first above the size cap. Returns bytes used. */
     fun prune(nowMs: Long, r: Retention): Long {
         val keep = mutableListOf<File>()
-        for ((kind, days) in listOf("detail" to r.detailDays, "hourly" to r.hourlyDays, "daily" to r.dailyDays)) {
+        for ((kind, days) in listOf("detail" to r.detailDays, "hourly" to r.hourlyDays, "daily" to r.dailyDays, "patterns" to r.dailyDays)) {
             val limit = nowMs - days * 86400_000L
             File(historyDir, kind).listFiles()?.filter { it.isFile }?.forEach { f ->
                 val end = endOf(f.name.removeSuffix(".jsonl"), kind)
@@ -110,7 +111,7 @@ class History(private val deviceDir: File, private val spoolDir: File) {
         when {
             kind == "detail" && p.size == 4 -> { c.set(p[0], p[1] - 1, p[2], p[3], 0); c.add(Calendar.HOUR_OF_DAY, 1) }
             kind == "hourly" && p.size == 2 -> { c.set(p[0], p[1] - 1, 1, 0, 0); c.add(Calendar.MONTH, 1) }
-            kind == "daily" && p.size == 1 -> { c.set(p[0], 0, 1, 0, 0); c.add(Calendar.YEAR, 1) }
+            (kind == "daily" || kind == "patterns") && p.size == 1 -> { c.set(p[0], 0, 1, 0, 0); c.add(Calendar.YEAR, 1) }
             else -> return null
         }
         return c.timeInMillis
