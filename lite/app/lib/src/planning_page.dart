@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'planning_draft.dart';
@@ -163,6 +164,47 @@ class _ProjectPageState extends State<_ProjectPage> {
     setState(() => draft.tasks.add(ProjectTaskDraft(title)));
   }
 
+  Future<void> _copyPlan() async {
+    final afterRack = (draft.rackUnits ?? 0) + 1;
+    final equipment = [...draft.equipment]
+      ..sort(
+        (a, b) =>
+            (a.bottomUnit ?? afterRack).compareTo(b.bottomUnit ?? afterRack),
+      );
+    final lines = [
+      draft.name,
+      'Project draft',
+      if (draft.goal.isNotEmpty) draft.goal,
+      if (draft.rackUnits case final int units)
+        'Rack · ${units}U · ${draft.rackDepthMm == null ? 'depth unknown' : '${_number(draft.rackDepthMm!)} mm entered depth'}',
+      if (equipment.isNotEmpty) ...[
+        '',
+        'Equipment',
+        for (final item in equipment)
+          '- ${item.placement} · ${item.name} · ${item.heightUnits == null ? 'height unknown' : '${item.heightUnits}U'}'
+              '${item.depthMm == null ? '' : ' · ${_number(item.depthMm!)} mm entered depth'}'
+              '${item.weightKg == null ? '' : ' · ${_number(item.weightKg!)} kg entered weight'}'
+              '${item.powerW == null ? '' : ' · ${_number(item.powerW!)} W entered power'}',
+      ],
+      if (draft.tasks.isNotEmpty) ...[
+        '',
+        'Tasks',
+        for (final task in draft.tasks)
+          '- [${task.done ? 'x' : ' '}] ${task.title}',
+      ],
+    ];
+    var message = 'Project draft copied';
+    try {
+      await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+    } on PlatformException {
+      message = 'Could not copy the project draft';
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
   Future<void> _removeEquipment(EquipmentDraft item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -193,6 +235,11 @@ class _ProjectPageState extends State<_ProjectPage> {
       appBar: AppBar(
         title: Text(draft.name),
         actions: [
+          IconButton(
+            tooltip: 'Copy plan',
+            onPressed: _copyPlan,
+            icon: const Icon(Icons.copy_outlined),
+          ),
           IconButton(
             tooltip: 'Edit project',
             onPressed: _editProject,

@@ -71,7 +71,8 @@ syncs like everything else.
   unit to place equipment or leave the position blank to plan it later. Enter
   any known depth, weight, and power values. **Add from Monitor** links back
   to a device, UPS, or audio-interface report from the draft.
-  Drafts stay in the open app session and clear when it closes.
+  Drafts stay in the open app session and clear when it closes. Use
+  **Copy plan** to keep a text copy of the layout, equipment, and checklist.
 
 ## Updates
 

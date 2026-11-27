@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_lite/src/planning_draft.dart';
@@ -37,6 +38,17 @@ void main() {
     tester,
   ) async {
     final drafts = <ProjectDraft>[];
+    String? copied;
+    final messages = tester.binding.defaultBinaryMessenger;
+    messages.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => messages.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
     await openWorkspace(tester, drafts);
     expect(find.textContaining('clear when the app closes'), findsOneWidget);
     await tap(tester, 'New project');
@@ -56,6 +68,10 @@ void main() {
     await tester.enterText(field('Task'), 'Measure rear clearance');
     await tap(tester, 'Add task');
     await tap(tester, 'Measure rear clearance');
+    await tester.tap(find.byTooltip('Copy plan'));
+    await tester.pump();
+    expect(copied, contains('Rack · 4U · depth unknown'));
+    expect(copied, contains('- [x] Measure rear clearance'));
 
     await tester.pageBack();
     await tester.pumpAndSettle();
