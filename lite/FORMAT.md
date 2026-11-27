@@ -579,6 +579,30 @@ All the fields below are optional, and older files stay valid.
 | `outlet`, `v`, `polarity`, `ma` | Which outlet it uses and what it needs |
 | `hp`, `row`, `ma` | Eurorack; here `ma` is `{"+12": ...}` |
 
+### What's missing (`projectNeeds`)
+
+A project can list `connections`:
+
+```json
+{"id": "net", "from": {"placement": "p-sw", "port": "p1"},
+ "to": {"placement": "p-srv", "port": "eth0"}, "required": true,
+ "want": "eth-1g", "via": [{"item": "<cable item id>"} | {"name": "USB-A cable", "a": "usb-a", "b": "usb-c", "passes": ["usb-2"]}]}
+```
+
+Each port is looked up in the placed item's `ports` (`id`, `kind` = a
+library connector id, `dir`, `signals`, `power`, `gender`, `required`).
+`projectNeeds(project, items)` returns:
+
+- `lines`: the bill of materials. Each part is `owned` (an owned or
+  installed item, or a live thing), `to-buy` (planned, or only proposed) or
+  `missing`. A connection with no `via` needs a cable, named after the two
+  shapes. A chain that doesn't physically mate needs an adapter.
+- `connectionProblems`: the failing layers' reasons, from `checkChain`.
+- `unconnected`: ports marked `required` that no connection uses.
+- `physical`: failing or unknown findings from the assembly's own check and
+  from `checkPhysical`, such as a power shortfall.
+- `openTasks`: tasks that aren't done.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.
