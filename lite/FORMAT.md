@@ -170,7 +170,7 @@ as one machine with the running system on top.
 | `ups` | Linux collector: USB HID, else NUT, else UPower (`upower` or the host's exported file, packaging/linux/upower-export.sh) | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
-| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP) |
 
 `ups.source` says which path was used. Through UPower, `ups.load` is unknown
 and no `ups.alarm` (or control) is written.

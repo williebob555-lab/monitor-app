@@ -134,23 +134,46 @@ class Containers {
   static Future<(String, String, String?)?> _url(Map<String, Object?> labels, List? ports, String? hostIp) async {
     final own = labels['monitor.url'];
     if (own is String && own.startsWith(RegExp('https?://'))) return (own, 'declared', 'from its monitor.url label');
-    for (final p in ports ?? const []) {
-      if (p is! Map || p['Type'] != 'tcp' || p['PublicPort'] == null) continue;
+    final candidates = [
+      for (final p in ports ?? const [])
+        if (p is Map && p['Type'] == 'tcp' && p['PublicPort'] is int && !_notWeb.contains(p['PrivatePort']) && !('${p['IP'] ?? ''}'.contains(':') && p['IP'] != '::')) p,
+    ]..sort((a, b) => _webRank(a['PrivatePort']).compareTo(_webRank(b['PrivatePort'])));
+    final tried = <int>{};
+    for (final p in candidates) {
       final ip = '${p['IP'] ?? ''}';
-      if (ip.contains(':') && ip != '::') continue; // other IPv6 binds
       final port = p['PublicPort'] as int;
+      if (!tried.add(port)) continue;
       final local = ip == '0.0.0.0' || ip == '::' || ip.isEmpty ? '127.0.0.1' : ip;
-      try {
-        final s = await Socket.connect(local, port, timeout: const Duration(milliseconds: 600));
-        s.destroy();
-      } catch (_) {
-        continue;
-      }
-      final where = ip == '0.0.0.0' || ip == '::' || ip.isEmpty ? (hostIp ?? local) : ip;
       final tls = const {443, 8443, 9443}.contains(p['PrivatePort']);
-      return ('${tls ? 'https' : 'http'}://$where:$port', 'measured', 'port $port answers on this host');
+      // Only a port that answers HTTP is a page to open (Pi-hole also
+      // publishes DNS on 53, which answers TCP but is no web page).
+      if (!await speaksHttp(local, port, tls: tls)) continue;
+      final where = ip == '0.0.0.0' || ip == '::' || ip.isEmpty ? (hostIp ?? local) : ip;
+      return ('${tls ? 'https' : 'http'}://$where:$port', 'measured', 'port $port answers HTTP on this host');
     }
     return null;
+  }
+
+  /// Ports that are never a web page.
+  static const _notWeb = {22, 25, 53, 110, 143, 993, 995, 1883, 2375, 3306, 5432, 6379, 22000, 21027, 27017};
+
+  static int _webRank(Object? port) => switch (port) { 80 || 443 => 0, 8080 || 8443 || 3000 || 8000 || 8384 || 9443 => 1, _ => 2 };
+
+  /// True when [host]:[port] answers an HTTP request with an HTTP response.
+  static Future<bool> speaksHttp(String host, int port, {bool tls = false, Duration timeout = const Duration(milliseconds: 800)}) async {
+    Socket? s;
+    try {
+      s = tls
+          ? await SecureSocket.connect(host, port, timeout: timeout, onBadCertificate: (_) => true)
+          : await Socket.connect(host, port, timeout: timeout);
+      s.write('HEAD / HTTP/1.0\r\nHost: $host\r\n\r\n');
+      final first = await s.first.timeout(timeout);
+      return ascii.decode(first.take(5).toList(), allowInvalid: true) == 'HTTP/';
+    } catch (_) {
+      return false;
+    } finally {
+      s?.destroy();
+    }
   }
 
   /// One GET against the Docker API: proxy over TCP, or the socket.
