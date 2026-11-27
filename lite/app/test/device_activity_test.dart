@@ -5,8 +5,54 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 import 'package:monitor_lite/src/device_activity.dart';
 import 'package:monitor_lite/src/theme.dart';
+import 'package:monitor_lite/src/timeline_activity.dart';
 
 void main() {
+  testWidgets(
+    'map activity uses the 24-hour archive and selects the event time',
+    (tester) async {
+      final temp = Directory.systemTemp.createTempSync('monitor-timeline-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await tester.binding.setSurfaceSize(const Size(390, 780));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final now = DateTime.utc(2026, 11, 27, 16);
+      final eventTime = now.subtract(const Duration(hours: 4, minutes: 3));
+      appendEvents(SyncFolder(temp.path).deviceDir('laptop'), [
+        Event(eventTime, 'power.battery', name: 'Rack UPS'),
+        Event(now.subtract(const Duration(hours: 25)), 'power.mains'),
+      ]);
+      DateTime? selected;
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(),
+            home: Scaffold(
+              body: TimelineActivity(
+                temp.path,
+                now: now,
+                names: const {'laptop': 'Laptop'},
+                onSelect: (time) => selected = time,
+              ),
+            ),
+          ),
+        );
+        for (
+          var i = 0;
+          i < 100 && find.text('Recorded events (1)').evaluate().isEmpty;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await tester.pump();
+        }
+      });
+      await tester.tap(find.text('Recorded events (1)'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mains power returned'), findsNothing);
+      await tester.tap(find.text('Switched to battery · Rack UPS'));
+      await tester.pumpAndSettle();
+      expect(selected, eventTime);
+    },
+  );
   testWidgets('activity keeps event subjects and observers distinct', (
     tester,
   ) async {

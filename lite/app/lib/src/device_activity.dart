@@ -11,11 +11,20 @@ List<Event> readDeviceActivity(String root, String id, DateTime now) =>
     ).reversed.where((e) => e.device == id || e.subject == id).toList();
 
 class DeviceActivity extends StatelessWidget {
-  const DeviceActivity(this.name, this.events, this.names, {super.key});
+  const DeviceActivity(
+    this.name,
+    this.events,
+    this.names, {
+    super.key,
+    this.emptyMessage = 'No events recorded in the last 7 days.',
+    this.onSelect,
+  });
 
   final String name;
   final Future<List<Event>> events;
   final Map<String, String> names;
+  final String emptyMessage;
+  final void Function(Event)? onSelect;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -33,9 +42,7 @@ class DeviceActivity extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (list.isEmpty) {
-          return const Center(
-            child: Text('No events recorded in the last 7 days.'),
-          );
+          return Center(child: Text(emptyMessage));
         }
         final locale = MaterialLocalizations.of(context);
         return Center(
@@ -50,29 +57,35 @@ class DeviceActivity extends StatelessWidget {
                 final local = event.time.toLocal();
                 final observer = event.device;
                 final subject = event.name ?? names[event.subject];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${locale.formatShortDate(local)} · ${locale.formatTimeOfDay(TimeOfDay.fromDateTime(local))}',
-                        style: const TextStyle(color: C.muted, fontSize: 12),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_label(event.type)}${subject == null ? '' : ' · $subject'}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      if (event.detail case final String detail
-                          when detail.isNotEmpty)
-                        Text(detail, style: const TextStyle(color: C.muted)),
-                      if (observer != null)
+                return InkWell(
+                  onTap: onSelect == null ? null : () => onSelect!(event),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          'Recorded by ${names[observer] ?? observer}',
+                          '${locale.formatShortDate(local)} · ${locale.formatTimeOfDay(TimeOfDay.fromDateTime(local))}',
                           style: const TextStyle(color: C.muted, fontSize: 12),
                         ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_label(event.type)}${subject == null ? '' : ' · $subject'}',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        if (event.detail case final String detail
+                            when detail.isNotEmpty)
+                          Text(detail, style: const TextStyle(color: C.muted)),
+                        if (observer != null)
+                          Text(
+                            'Recorded by ${names[observer] ?? observer}',
+                            style: const TextStyle(
+                              color: C.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 );
               },

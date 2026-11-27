@@ -393,3 +393,5 @@ A handoff must report the literal commands run, whether each succeeded, the envi
 ## Monitor App 2.x device activity
 
 Run `flutter test test/device_activity_test.dart` from `lite/app`. The widget test uses the real core event writer and reader and verifies ordering, subject filtering, and observer labels.
+
+The timeline test writes real core event records, filters them to the last 24 hours, and selects a displayed event at phone width.

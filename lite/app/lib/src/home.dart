@@ -8,6 +8,7 @@ import 'dive.dart';
 import 'map_view.dart';
 import 'parts.dart';
 import 'timeline.dart';
+import 'timeline_activity.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -310,6 +311,7 @@ class _MapPanelState extends State<_MapPanel> {
 
   /// Minutes back from now; 0 is live.
   double back = 0;
+  DateTime? selectedEventTime;
 
   @override
   Widget build(BuildContext context) {
@@ -318,8 +320,13 @@ class _MapPanelState extends State<_MapPanel> {
     final now = DateTime.now().toUtc();
     var devices = a.devices;
     DateTime? at;
-    if (back > 0) {
-      at = now.subtract(Duration(minutes: back.round()));
+    final selected = selectedEventTime;
+    final eventBack = selected == null ? null : now.difference(selected).inMilliseconds / 60000;
+    final minutesBack = eventBack?.clamp(0, 1440).toDouble() ?? back;
+    if (minutesBack > 0) {
+      at = selected != null && eventBack! <= 1440
+          ? selected
+          : now.subtract(Duration(minutes: minutesBack.round()));
       timeline.load(a.devices.map((d) => d.report.id), now);
       devices = timeline.at([for (final d in a.devices) d.report], at);
     }
@@ -348,18 +355,25 @@ class _MapPanelState extends State<_MapPanel> {
             ),
             child: Slider(
               // Left is 24 h ago, right is now.
-              value: 24 * 60 - back,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              value: 24 * 60 - minutesBack,
               min: 0,
               max: 24 * 60,
               divisions: 24 * 4,
-              onChanged: (v) => setState(() => back = 24 * 60 - v),
+              onChanged: (v) => setState(() {
+                selectedEventTime = null;
+                back = 24 * 60 - v;
+              }),
             ),
           ),
         ),
         SizedBox(
           width: 64,
           child: GestureDetector(
-            onTap: () => setState(() => back = 0),
+            onTap: () => setState(() {
+              selectedEventTime = null;
+              back = 0;
+            }),
             child: Text(local == null ? 'Live' : hm(local),
                 textAlign: TextAlign.right,
                 style: TextStyle(
@@ -370,6 +384,17 @@ class _MapPanelState extends State<_MapPanel> {
           ),
         ),
       ]),
+      if (state.folder.exists)
+        TimelineActivity(
+          state.folder.root,
+          key: ValueKey(state.folder.root),
+          now: now,
+          names: {
+            for (final report in state.reports.values) report.id: report.name,
+            for (final thing in state.things.values) thing.id: thing.report.name,
+          },
+          onSelect: (time) => setState(() => selectedEventTime = time),
+        ),
     ]);
   }
 }
