@@ -97,6 +97,13 @@ folder:
 - **Shop API keys** (offers, 2.7.1): only in the fetching computer's own
   `keys.json` or its environment. The shared folder holds only the offers.
 
+## Local AI
+
+A request file only picks one of two fixed prompt kinds and supplies text to
+explain (cut at 4000 characters). Its id must be letters, digits, `_` or `-`.
+Prompts go only to Ollama on 127.0.0.1 and never to the internet. The
+answer is text, shown as text and never run.
+
 ## Docker collector
 
 - Read-only access to Docker through a socket proxy that allows only `GET`

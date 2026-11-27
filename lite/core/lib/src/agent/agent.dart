@@ -30,6 +30,7 @@ import '../rules.dart';
 import '../rule_eval.dart';
 import '../notify.dart';
 import '../fetch.dart';
+import '../ai.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
 import '../products.dart';
@@ -183,6 +184,9 @@ class Agent {
   final _smart = Smart();
   DateTime? _fetchAt;
   bool _fetching = false;
+  DateTime? _aiAt;
+  List<String> _aiModels = const [];
+  bool _aiBusy = false;
   DateTime? _lastThingHistory;
 
   /// Runs forever. Resting rate is one cycle a minute. While someone has the
@@ -448,6 +452,16 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      // A local Ollama (row 37), asked every 10 minutes; nothing when absent.
+      if (_aiAt == null || now.difference(_aiAt!) >= const Duration(minutes: 10)) {
+        _aiAt = now;
+        final had = _aiModels.isNotEmpty;
+        _aiModels = await localModels() ?? const [];
+        if (_aiModels.isNotEmpty != had) folder.log(cfg.id, _aiModels.isEmpty ? 'ai: local models gone' : 'ai: local models ${_aiModels.join(', ')}');
+      }
+      if (_aiModels.isNotEmpty) {
+        extra = [...extra, Reading(key: 'ai.models', label: 'Local AI models', value: _aiModels.join(', '), group: 'AI', src: 'measured')];
+      }
       final ctWhy = extra.where((r) => r.key == 'ct.access').firstOrNull?.note;
       if (ctWhy != _ctWhyLogged) {
         if (ctWhy != null) folder.log(cfg.id, 'containers: $ctWhy');
@@ -606,6 +620,19 @@ class Agent {
           folder.log(cfg.id, 'ERROR rules: $e');
         }
         _step('rules');
+        // Optional AI (row 37): answer requests meant for this computer, off
+        // the cycle.
+        if (_aiModels.isNotEmpty && !_aiBusy) {
+          _aiBusy = true;
+          final f = folder, id = cfg.id;
+          unawaited(answerAiRequests(cfg.folder, cfg.id, {...others, cfg.id: r}, _aiModels, now).then((lines) {
+            for (final l in lines) {
+              f.log(id, l);
+            }
+          }).catchError((Object e) {
+            f.log(id, 'ERROR ai: $e');
+          }).whenComplete(() => _aiBusy = false));
+        }
       }
       // Notifications from rules, wherever they fired (row 20). Shown off
       // the cycle; a burst shows three and a count.

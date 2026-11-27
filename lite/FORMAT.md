@@ -662,6 +662,27 @@ Search words are the product's maker and model, or else its name. Shops
 
 The file stops growing at 2 MB; price history and pruning are row 32.
 
+## Optional AI (`ai/`, 2.7.1, roadmap row 37)
+
+Never required. Any computer that has a local Ollama (127.0.0.1:11434)
+publishes reading `ai.models` (group AI, model names, checked every 10
+minutes). A request is `ai/requests/<id>.json`:
+`{"id", "kind", "from", "t", "text"?, "small"?}`. There are two kinds:
+`week-summary` (the last 7 days of events in plain words) and `explain`
+(`text` = a finding to explain). Who answers:
+
+- With `small`, the device in use (`from`) answers itself, using its
+  smallest model, if it has one.
+- Otherwise the first fresh computer with models answers, in the order of
+  `model/ai.json` `hosts` (default wc-alpha, then wc-beta), else any
+  computer with models. It uses its biggest model.
+
+The answer is `ai/answers/<id>.json`:
+`{"id", "by", "model", "t", "text"}`, or `"error"` in place of `"text"`.
+Requests older than 2 days are left unanswered. Core: `requestAi(root, me,
+kind, text:, small:)`, `aiAnswer(root, id)`, `aiHost(root, reports, now)`.
+Nothing goes to the internet: prompts go only to 127.0.0.1.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

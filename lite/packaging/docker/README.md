@@ -165,6 +165,21 @@ and run `docker compose up -d`. A collector installed from the .rpm/.deb
 reads `/var/lib/monitor-app/smart` directly. To remove:
 `sudo sh lite/packaging/linux/smart-export.sh --remove`.
 
+## Local AI (optional)
+
+Weekly summaries and plain-words explanations, computed on this server and
+never sent anywhere. Install Ollama on the host (not in this compose
+project), then pull a model that fits the machine's memory:
+
+```sh
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.1:8b     # wc-alpha (16 GB); on wc-beta (8 GB): ollama pull qwen2.5:3b
+```
+
+Ollama listens on 127.0.0.1:11434 only, which the collector (host network)
+reaches with no change here. Within 10 minutes this server shows
+"Local AI models" and starts answering requests from the app.
+
 ## Update
 
 Automatic (recommended), once per deployment. `--dir` is the folder holding
