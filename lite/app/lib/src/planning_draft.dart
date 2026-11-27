@@ -50,6 +50,19 @@ class ProjectDraft {
       }
     }
 
+    final saved = store.put(toProject());
+    source = saved;
+    _rack = saved.assemblies.where((a) => a.type == 'rack').firstOrNull;
+    if (_rack case final rack?) {
+      for (var i = 0; i < equipment.length; i++) {
+        equipment[i] = EquipmentDraft.fromPlacement(rack.placements[i]);
+      }
+    }
+    dirty = false;
+  }
+
+  Project toProject() {
+    final previous = source;
     final rack = _rack;
     final updatedRack =
         rack != null || rackUnits != null || equipment.isNotEmpty
@@ -64,30 +77,20 @@ class ProjectDraft {
             placements: equipment.map((e) => e.toPlacement()).toList(),
           )
         : null;
-    final saved = store.put(
-      Project(
-        id: previous?.id ?? newModelId(),
-        name: name,
-        goal: goal,
-        state: previous?.state ?? 'draft',
-        items: previous?.items,
-        extra: previous?.extra,
-        tasks: [for (final t in tasks) Task(t.id, t.title, done: t.done)],
-        assemblies: [
-          for (final other in previous?.assemblies ?? <Assembly>[])
-            if (identical(other, rack)) updatedRack! else other,
-          if (rack == null && updatedRack != null) updatedRack,
-        ],
-      ),
+    return Project(
+      id: previous?.id ?? newModelId(),
+      name: name,
+      goal: goal,
+      state: previous?.state ?? 'draft',
+      items: previous?.items,
+      extra: previous?.extra,
+      tasks: [for (final t in tasks) Task(t.id, t.title, done: t.done)],
+      assemblies: [
+        for (final other in previous?.assemblies ?? <Assembly>[])
+          if (identical(other, rack)) updatedRack! else other,
+        if (rack == null && updatedRack != null) updatedRack,
+      ],
     );
-    source = saved;
-    _rack = saved.assemblies.where((a) => a.type == 'rack').firstOrNull;
-    if (updatedRack != null) {
-      for (var i = 0; i < equipment.length; i++) {
-        equipment[i] = EquipmentDraft.fromPlacement(updatedRack.placements[i]);
-      }
-    }
-    dirty = false;
   }
 
   String? placementError(EquipmentDraft item, {EquipmentDraft? replacing}) {

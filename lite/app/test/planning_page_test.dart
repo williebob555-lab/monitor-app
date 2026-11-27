@@ -5,10 +5,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_lite/src/planning_draft.dart';
 import 'package:monitor_lite/src/planning_page.dart';
+import 'package:monitor_lite/src/project_needs_page.dart';
 import 'package:monitor_lite/src/theme.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 void main() {
+  testWidgets('project needs shows owned items and what is still to buy', (
+    tester,
+  ) async {
+    final folder = Directory.systemTemp.createTempSync('monitor-project-needs');
+    addTearDown(() => folder.deleteSync(recursive: true));
+    final store = ProjectStore(folder.path, 'laptop');
+    ModelStore(
+      folder.path,
+      'laptop',
+    ).put(Item(id: 'ups', type: 'ups', name: 'Rack UPS', state: 'owned'));
+    final project = Project(
+      id: 'studio',
+      name: 'Studio rack',
+      assemblies: [
+        Assembly(
+          id: 'rack',
+          name: 'Rack',
+          units: 4,
+          placements: [
+            Placement(id: 'planned', name: 'Spare amplifier'),
+            Placement(id: 'owned', name: 'UPS', item: 'ups'),
+          ],
+        ),
+      ],
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(),
+          home: ProjectNeedsPage(project, store),
+        ),
+      );
+      for (var i = 0; i < 100 && find.text('TO BUY').evaluate().isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump();
+      }
+    });
+    expect(find.text('TO BUY'), findsOneWidget);
+    expect(find.text('1 × Spare amplifier'), findsOneWidget);
+    expect(find.text('ON HAND'), findsOneWidget);
+    expect(find.text('1 × Rack UPS'), findsOneWidget);
+  });
+
   Finder field(String name) => find.byKey(ValueKey(name));
 
   Future<void> openWorkspace(

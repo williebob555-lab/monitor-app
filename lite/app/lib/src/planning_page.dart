@@ -4,6 +4,7 @@ import 'package:monitor_core/monitor_core.dart';
 
 import 'planning_draft.dart';
 import 'planning_forms.dart';
+import 'project_needs_page.dart';
 import 'theme.dart';
 
 const _design = Color(0xFFBCA6FF);
@@ -385,6 +386,18 @@ class _ProjectPageState extends State<_ProjectPage> {
   Widget _rack() => _workspaceList([
     if (draft.goal.isNotEmpty)
       Text(draft.goal, style: const TextStyle(fontSize: 17)),
+    Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: () => Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => ProjectNeedsPage(draft.toProject(), widget.store),
+          ),
+        ),
+        icon: const Icon(Icons.checklist_outlined),
+        label: const Text('Review what’s needed'),
+      ),
+    ),
     if (draft.rackUnits == null)
       Align(
         alignment: Alignment.centerLeft,

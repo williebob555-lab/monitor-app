@@ -266,3 +266,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - The rack front uses a numbered ruler, mounting rails, faceplates sized in rack units, and a depth warning beside the affected faceplate.
 - Save project goals, rack layouts, equipment, and tasks to the Monitor folder and reopen them later. Saved rack layouts with rear equipment have a separate rear view.
 - Record an equipment height while the equipment is still unplaced.
+- Review a project's missing materials, purchases, owned equipment, physical findings, connection problems, and open tasks.
