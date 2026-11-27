@@ -254,6 +254,21 @@ class Agent {
       }));
       tmp.renameSync('$dir${sep}patterns.json');
       recordPatterns(dir, list, now);
+      // Attached things with history of their own (a UPS: load, power cuts,
+      // runtime when full) get theirs next to their now.json.
+      for (final t in folder.thingIds(id)) {
+        final tdir = folder.thingDir(id, t);
+        final tl = findPatterns(readDetail(tdir, now), readHourly(tdir, now));
+        if (tl.isEmpty) continue;
+        final ttmp = File('$tdir$sep.syncthing.patterns.json.tmp');
+        ttmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert({
+          'v': 1,
+          't': now.millisecondsSinceEpoch ~/ 1000,
+          'patterns': [for (final p in tl) p.toJson()]
+        }));
+        ttmp.renameSync('$tdir${sep}patterns.json');
+        recordPatterns(tdir, tl, now);
+      }
     } catch (e) {
       folder.log(id, 'ERROR patterns: $e');
     }
