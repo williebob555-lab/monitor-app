@@ -6,7 +6,7 @@ Future<ProjectDraft?> editProject(BuildContext context, [ProjectDraft? draft]) {
   final form = GlobalKey<FormState>();
   var name = draft?.name ?? '';
   var goal = draft?.goal ?? '';
-  var units = draft?.rackUnits.toString() ?? '12';
+  var units = draft?.rackUnits?.toString() ?? '';
   var depth = draft?.rackDepthMm?.toString() ?? '';
   return showDialog<ProjectDraft>(
     context: context,
@@ -26,16 +26,23 @@ Future<ProjectDraft?> editProject(BuildContext context, [ProjectDraft? draft]) {
             ),
             _field('Goal', goal, (value) => goal = value, lines: 2),
             _field(
-              'Rack height (U)',
+              'Rack height (U), optional',
               units,
               (value) => units = value,
               numeric: true,
               validator: (value) {
-                final height = int.tryParse(value?.trim() ?? '');
+                final text = value?.trim() ?? '';
+                final used = draft?.highestOccupiedUnit ?? 0;
+                if (text.isEmpty) {
+                  if (used > 0) return 'Unplace the rack equipment first.';
+                  return depth.trim().isEmpty
+                      ? null
+                      : 'Enter the height for this rack.';
+                }
+                final height = int.tryParse(text);
                 if (height == null || height < 1 || height > 60) {
                   return 'Enter a whole number from 1 to 60.';
                 }
-                final used = draft?.highestOccupiedUnit ?? 0;
                 return height < used ? 'Equipment reaches U$used.' : null;
               },
             ),
@@ -61,7 +68,7 @@ Future<ProjectDraft?> editProject(BuildContext context, [ProjectDraft? draft]) {
               context,
               ProjectDraft(
                 name.trim(),
-                int.parse(units.trim()),
+                rackUnits: int.tryParse(units.trim()),
                 rackDepthMm: double.tryParse(depth.trim()),
                 goal: goal.trim(),
               ),
@@ -79,22 +86,24 @@ Future<EquipmentDraft?> editEquipment(
   ProjectDraft project, {
   EquipmentDraft? draft,
   int? unit,
+  (String id, String name)? monitored,
 }) {
   final form = GlobalKey<FormState>();
-  var name = draft?.name ?? '';
-  var height = draft?.heightUnits.toString() ?? '1';
+  var name = draft?.name ?? monitored?.$2 ?? '';
+  var height = draft?.heightUnits?.toString() ?? (unit == null ? '' : '1');
   var position = (draft?.bottomUnit ?? unit)?.toString() ?? '';
   var depth = draft?.depthMm?.toString() ?? '';
   var weight = draft?.weightKg?.toString() ?? '';
   var power = draft?.powerW?.toString() ?? '';
 
-  EquipmentDraft equipment(int heightUnits, int? bottomUnit) => EquipmentDraft(
+  EquipmentDraft equipment(int? heightUnits, int? bottomUnit) => EquipmentDraft(
     name: name.trim(),
     heightUnits: heightUnits,
     bottomUnit: bottomUnit,
     depthMm: double.tryParse(depth.trim()),
     weightKg: double.tryParse(weight.trim()),
     powerW: double.tryParse(power.trim()),
+    monitorId: draft?.monitorId ?? monitored?.$1,
   );
 
   return showDialog<EquipmentDraft>(
@@ -115,12 +124,14 @@ Future<EquipmentDraft?> editEquipment(
                   _required(value, 'Enter an equipment name.'),
             ),
             _field(
-              'Height (U)',
+              'Height (U), optional',
               height,
               (value) => height = value,
               numeric: true,
               validator: (value) {
-                final size = int.tryParse(value?.trim() ?? '');
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) return null;
+                final size = int.tryParse(text);
                 return size == null || size < 1 || size > 60
                     ? 'Enter a whole number from 1 to 60.'
                     : null;
@@ -137,7 +148,10 @@ Future<EquipmentDraft?> editEquipment(
                 final bottom = int.tryParse(text);
                 if (bottom == null) return 'Enter a whole unit number.';
                 final size = int.tryParse(height.trim());
-                if (size == null || size < 1 || size > 60) return null;
+                if (height.trim().isNotEmpty &&
+                    (size == null || size < 1 || size > 60)) {
+                  return null;
+                }
                 return project.placementError(
                   equipment(size, bottom),
                   replacing: draft,
@@ -179,7 +193,7 @@ Future<EquipmentDraft?> editEquipment(
             Navigator.pop(
               context,
               equipment(
-                int.parse(height.trim()),
+                int.tryParse(height.trim()),
                 int.tryParse(position.trim()),
               ),
             );

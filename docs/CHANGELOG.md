@@ -261,3 +261,4 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Monitor App 2.x project planning (unreleased)
 
 - Projects on Home opens a session draft with a numbered rack elevation, editable equipment dimensions and positions, and a task checklist. The draft rejects overlapping or out-of-range positions and shows depth, weight, and power only where values were entered.
+- Start a project with just a name and add rack details later. Equipment can link back to its existing Monitor report while plan changes remain in the draft.

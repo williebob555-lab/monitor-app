@@ -9,12 +9,22 @@ void main() {
 
   Future<void> openWorkspace(
     WidgetTester tester,
-    List<ProjectDraft> drafts,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(390, 780));
+    List<ProjectDraft> drafts, {
+    Size size = const Size(390, 780),
+    Map<String, String> Function()? monitoredEquipment,
+    void Function(BuildContext, String)? openMonitorReport,
+  }) async {
+    await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MaterialApp(theme: buildTheme(), home: PlanningPage(drafts)),
+      MaterialApp(
+        theme: buildTheme(),
+        home: PlanningPage(
+          drafts,
+          monitoredEquipment: monitoredEquipment,
+          openMonitorReport: openMonitorReport,
+        ),
+      ),
     );
   }
 
@@ -35,7 +45,7 @@ void main() {
       field('Goal'),
       'Move the recording gear off the desk',
     );
-    await tester.enterText(field('Rack height (U)'), '4');
+    await tester.enterText(field('Rack height (U), optional'), '4');
     await tap(tester, 'Create project');
 
     expect(find.text('Move the recording gear off the desk'), findsOneWidget);
@@ -57,15 +67,38 @@ void main() {
     );
   });
 
+  testWidgets('capture equipment before a rack or measurements are known', (
+    tester,
+  ) async {
+    await openWorkspace(tester, []);
+    await tap(tester, 'New project');
+    await tester.enterText(field('Project name'), 'Portable recording');
+    await tap(tester, 'Create project');
+    expect(find.text('Add a rack'), findsOneWidget);
+
+    await tap(tester, 'Equipment');
+    await tap(tester, 'Add equipment');
+    await tester.enterText(field('Equipment name'), 'Field recorder');
+    await tap(tester, 'Add to project');
+    expect(find.text('Field recorder'), findsOneWidget);
+    expect(find.textContaining('Height unknown · Unplaced'), findsOneWidget);
+
+    await tap(tester, 'Rack');
+    await tap(tester, 'Add a rack');
+    await tester.enterText(field('Rack height (U), optional'), '4');
+    await tap(tester, 'Apply changes');
+    expect(find.textContaining('0 of 4U occupied'), findsOneWidget);
+  });
+
   testWidgets('place and move equipment while rejecting an overlap', (
     tester,
   ) async {
-    final draft = ProjectDraft('Studio rack', 4, rackDepthMm: 400);
+    final draft = ProjectDraft('Studio rack', rackUnits: 4, rackDepthMm: 400);
     await openWorkspace(tester, [draft]);
     await tap(tester, draft.name);
     await tap(tester, 'Add at U1');
     await tester.enterText(field('Equipment name'), 'Power amp');
-    await tester.enterText(field('Height (U)'), '2');
+    await tester.enterText(field('Height (U), optional'), '2');
     await tester.enterText(field('Depth (mm), optional'), '430');
     await tester.enterText(field('Weight (kg), optional'), '9.5');
     await tap(tester, 'Add to project');
@@ -84,6 +117,7 @@ void main() {
     );
     await tap(tester, 'Add equipment');
     await tester.enterText(field('Equipment name'), 'Patch panel');
+    await tester.enterText(field('Height (U), optional'), '1');
     await tester.enterText(field('Bottom unit, optional'), '2');
     await tap(tester, 'Add to project');
     expect(find.text('This position overlaps Power amp.'), findsOneWidget);
@@ -99,5 +133,27 @@ void main() {
     expect(find.textContaining('1 of 4U occupied'), findsOneWidget);
     expect(find.text('Patch panel'), findsOneWidget);
     expect(find.text('Power amp'), findsNothing);
+  });
+
+  testWidgets('renaming a draft item keeps its link to the monitor report', (
+    tester,
+  ) async {
+    final opened = <String>[];
+    await openWorkspace(
+      tester,
+      [ProjectDraft('Power upgrade')],
+      size: const Size(1200, 800),
+      monitoredEquipment: () => {'ups-a': 'Rack UPS'},
+      openMonitorReport: (_, id) => opened.add(id),
+    );
+    await tap(tester, 'Power upgrade');
+    await tap(tester, 'Equipment');
+    await tap(tester, 'Add from Monitor');
+    await tap(tester, 'Rack UPS');
+    await tester.enterText(field('Equipment name'), 'Bottom rack UPS');
+    await tap(tester, 'Add to project');
+    expect(find.text('Bottom rack UPS'), findsOneWidget);
+    await tap(tester, 'Open monitor report');
+    expect(opened, ['ups-a']);
   });
 }

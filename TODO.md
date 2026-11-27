@@ -98,5 +98,5 @@ This file contains active and near-term tasks only. Read it with the required do
 
 ## Monitor App 2.x project planning
 
-- [x] T076: add session drafts for named projects, rack layout, equipment, and tasks.
-- [ ] Wire persistence and shared Thing references into the planning UI when `monitor_core` exposes a planning contract.
+- [x] T076: add session drafts for named projects, rack layout, equipment, tasks, and references back to monitor reports.
+- [ ] Wire shared project persistence and durable Thing references into the planning UI when `monitor_core` exposes a planning contract.

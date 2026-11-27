@@ -47,7 +47,18 @@ class HomePage extends StatelessWidget {
               IconButton(
                 tooltip: 'Projects',
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => PlanningPage(state.projectDrafts)),
+                  MaterialPageRoute<void>(builder: (_) => PlanningPage(
+                    state.projectDrafts,
+                    monitoredEquipment: () => {
+                      for (final report in state.reports.values) report.id: report.name,
+                      for (final thing in state.things.values)
+                        if (const {'ups', 'audio-interface'}.contains(thing.report.node?.type))
+                          thing.id: thing.report.name,
+                    },
+                    openMonitorReport: (context, id) => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)),
+                    ),
+                  )),
                 ),
                 icon: const Icon(Icons.architecture_outlined),
               ),

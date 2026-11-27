@@ -1,11 +1,11 @@
 /// Editable UI drafts for the current app session. Planning storage belongs
 /// to monitor_core once the shared planning contract is available.
 class ProjectDraft {
-  ProjectDraft(this.name, this.rackUnits, {this.rackDepthMm, this.goal = ''});
+  ProjectDraft(this.name, {this.rackUnits, this.rackDepthMm, this.goal = ''});
 
   String name;
   String goal;
-  int rackUnits;
+  int? rackUnits;
   double? rackDepthMm;
   final equipment = <EquipmentDraft>[];
   final tasks = <ProjectTaskDraft>[];
@@ -13,13 +13,22 @@ class ProjectDraft {
   String? placementError(EquipmentDraft item, {EquipmentDraft? replacing}) {
     final bottom = item.bottomUnit;
     if (bottom == null) return null;
-    if (bottom < 1 || item.topUnit! > rackUnits) {
+    final height = rackUnits;
+    if (height == null) return 'Add a rack to the project first.';
+    final top = item.topUnit;
+    if (top == null) return 'Enter the equipment height to place it.';
+    if (bottom < 1 || top > height) {
       return 'Choose a position within U1–U$rackUnits.';
     }
     for (final other in equipment) {
       final otherBottom = other.bottomUnit;
-      if (identical(other, replacing) || otherBottom == null) continue;
-      if (bottom <= other.topUnit! && otherBottom <= item.topUnit!) {
+      final otherTop = other.topUnit;
+      if (identical(other, replacing) ||
+          otherBottom == null ||
+          otherTop == null) {
+        continue;
+      }
+      if (bottom <= otherTop && otherBottom <= top) {
         return 'This position overlaps ${other.name}.';
       }
     }
@@ -33,31 +42,35 @@ class ProjectDraft {
 
   int get occupiedUnits => equipment
       .where((item) => item.bottomUnit != null)
-      .fold(0, (total, item) => total + item.heightUnits);
+      .fold(0, (total, item) => total + (item.heightUnits ?? 0));
 }
 
 class EquipmentDraft {
   EquipmentDraft({
     required this.name,
-    required this.heightUnits,
+    this.heightUnits,
     this.bottomUnit,
     this.depthMm,
     this.weightKg,
     this.powerW,
+    this.monitorId,
   });
 
   final String name;
-  final int heightUnits;
+  final int? heightUnits;
   final int? bottomUnit;
   final double? depthMm;
   final double? weightKg;
   final double? powerW;
+  final String? monitorId;
 
-  int? get topUnit => bottomUnit == null ? null : bottomUnit! + heightUnits - 1;
+  int? get topUnit => bottomUnit == null || heightUnits == null
+      ? null
+      : bottomUnit! + heightUnits! - 1;
 
   String get placement {
     final bottom = bottomUnit;
-    if (bottom == null) return 'Unplaced';
+    if (bottom == null || heightUnits == null) return 'Unplaced';
     return heightUnits == 1 ? 'U$bottom' : 'U$bottom–U$topUnit';
   }
 }

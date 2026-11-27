@@ -393,7 +393,9 @@ A handoff must report the literal commands run, whether each succeeded, the envi
 ## Monitor App 2.x project planning
 
 From `lite/app`, run `flutter test test/planning_page_test.dart`. The widget
-tests create and reopen a session draft at phone width, check off a task,
-place and move rack equipment, reject an overlap, and exercise entered and
-missing equipment measurements. Verify physical touch and keyboard behavior
-on the installed app separately.
+tests create and reopen session drafts at phone width, check off a task,
+capture equipment without measurements, place and move rack equipment,
+reject an overlap, and exercise entered and missing measurements. A
+desktop-width test verifies that editing a draft name preserves the link
+to its original monitoring report. Verify physical touch and keyboard
+behavior on the installed app separately.

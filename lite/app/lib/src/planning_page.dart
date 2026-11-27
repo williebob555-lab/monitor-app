@@ -7,9 +7,16 @@ import 'theme.dart';
 const _design = Color(0xFFBCA6FF);
 
 class PlanningPage extends StatefulWidget {
-  const PlanningPage(this.drafts, {super.key});
+  const PlanningPage(
+    this.drafts, {
+    super.key,
+    this.monitoredEquipment,
+    this.openMonitorReport,
+  });
 
   final List<ProjectDraft> drafts;
+  final Map<String, String> Function()? monitoredEquipment;
+  final void Function(BuildContext, String)? openMonitorReport;
 
   @override
   State<PlanningPage> createState() => _PlanningPageState();
@@ -24,8 +31,15 @@ class _PlanningPageState extends State<PlanningPage> {
   }
 
   Future<void> _open(ProjectDraft draft) async {
-    await Navigator.of(context)
-        .push<void>(MaterialPageRoute(builder: (_) => _ProjectPage(draft)));
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => _ProjectPage(
+          draft,
+          monitoredEquipment: widget.monitoredEquipment,
+          openMonitorReport: widget.openMonitorReport,
+        ),
+      ),
+    );
     if (mounted) setState(() {});
   }
 
@@ -52,7 +66,7 @@ class _PlanningPageState extends State<PlanningPage> {
             leading: const Icon(Icons.architecture, color: _design),
             title: Text(draft.name),
             subtitle: Text(
-              '${draft.rackUnits}U rack · ${draft.equipment.length} equipment entries · '
+              '${draft.rackUnits == null ? '' : '${draft.rackUnits}U rack · '}${draft.equipment.length} equipment entries · '
               '${draft.tasks.where((t) => !t.done).length} open tasks',
             ),
             trailing: const Icon(Icons.chevron_right),
@@ -63,9 +77,15 @@ class _PlanningPageState extends State<PlanningPage> {
 }
 
 class _ProjectPage extends StatefulWidget {
-  const _ProjectPage(this.draft);
+  const _ProjectPage(
+    this.draft, {
+    this.monitoredEquipment,
+    this.openMonitorReport,
+  });
 
   final ProjectDraft draft;
+  final Map<String, String> Function()? monitoredEquipment;
+  final void Function(BuildContext, String)? openMonitorReport;
 
   @override
   State<_ProjectPage> createState() => _ProjectPageState();
@@ -85,8 +105,18 @@ class _ProjectPageState extends State<_ProjectPage> {
     });
   }
 
-  Future<void> _editEquipment({EquipmentDraft? item, int? unit}) async {
-    final edited = await editEquipment(context, draft, draft: item, unit: unit);
+  Future<void> _editEquipment({
+    EquipmentDraft? item,
+    int? unit,
+    (String, String)? monitored,
+  }) async {
+    final edited = await editEquipment(
+      context,
+      draft,
+      draft: item,
+      unit: unit,
+      monitored: monitored,
+    );
     if (edited == null || !mounted) return;
     setState(() {
       if (item == null) {
@@ -95,6 +125,36 @@ class _ProjectPageState extends State<_ProjectPage> {
         draft.equipment[draft.equipment.indexOf(item)] = edited;
       }
     });
+  }
+
+  Future<void> _addMonitoredEquipment() async {
+    final reports = widget.monitoredEquipment!().entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    final chosen = await showDialog<MapEntry<String, String>>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Choose monitored equipment'),
+        children: [
+          if (reports.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+              child: Text('No reports are available on this device.'),
+            ),
+          for (final device in reports)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, device),
+              child: Text(device.value),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      await _editEquipment(monitored: (chosen.key, chosen.value));
+    }
   }
 
   Future<void> _addTask() async {
@@ -167,26 +227,47 @@ class _ProjectPageState extends State<_ProjectPage> {
   Widget _rack() => _workspaceList([
     if (draft.goal.isNotEmpty)
       Text(draft.goal, style: const TextStyle(fontSize: 17)),
-    Text(
-      '${draft.occupiedUnits} of ${draft.rackUnits}U occupied · '
-      '${draft.rackDepthMm == null ? 'Depth unknown' : '${_number(draft.rackDepthMm!)} mm entered depth'}',
-      style: const TextStyle(color: C.muted),
-    ),
-    _RackElevation(
-      draft,
-      onOpen: (item) => _editEquipment(item: item),
-      onEmpty: (unit) => _editEquipment(unit: unit),
-    ),
+    if (draft.rackUnits == null)
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.tonalIcon(
+          onPressed: _editProject,
+          icon: const Icon(Icons.add),
+          label: const Text('Add a rack'),
+        ),
+      )
+    else ...[
+      Text(
+        '${draft.occupiedUnits} of ${draft.rackUnits}U occupied · '
+        '${draft.rackDepthMm == null ? 'Depth unknown' : '${_number(draft.rackDepthMm!)} mm entered depth'}',
+        style: const TextStyle(color: C.muted),
+      ),
+      _RackElevation(
+        draft.rackUnits!,
+        draft.equipment,
+        onOpen: (item) => _editEquipment(item: item),
+        onEmpty: (unit) => _editEquipment(unit: unit),
+      ),
+    ],
   ], page: 'rack');
 
   Widget _equipment() => _workspaceList([
-    Align(
-      alignment: Alignment.centerLeft,
-      child: FilledButton.tonalIcon(
-        onPressed: _editEquipment,
-        icon: const Icon(Icons.add),
-        label: const Text('Add equipment'),
-      ),
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: _editEquipment,
+          icon: const Icon(Icons.add),
+          label: const Text('Add equipment'),
+        ),
+        if (widget.monitoredEquipment != null)
+          OutlinedButton.icon(
+            onPressed: _addMonitoredEquipment,
+            icon: const Icon(Icons.link),
+            label: const Text('Add from Monitor'),
+          ),
+      ],
     ),
     if (draft.equipment.isNotEmpty) ...[
       Text(_intakeTotal('Weight', 'kg', (item) => item.weightKg)),
@@ -194,15 +275,30 @@ class _ProjectPageState extends State<_ProjectPage> {
     ],
     for (final item in draft.equipment)
       Card(
-        child: ListTile(
-          onTap: () => _editEquipment(item: item),
-          title: Text(item.name),
-          subtitle: Text(_equipmentDetails(item)),
-          trailing: IconButton(
-            onPressed: () => _removeEquipment(item),
-            tooltip: 'Remove ${item.name}',
-            icon: const Icon(Icons.delete_outline),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(
+              onTap: () => _editEquipment(item: item),
+              title: Text(item.name),
+              subtitle: Text(_equipmentDetails(item)),
+              trailing: IconButton(
+                onPressed: () => _removeEquipment(item),
+                tooltip: 'Remove ${item.name}',
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ),
+            if (item.monitorId case final String id)
+              if (widget.openMonitorReport case final open?)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, bottom: 6),
+                  child: TextButton.icon(
+                    onPressed: () => open(context, id),
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text('Open monitor report'),
+                  ),
+                ),
+          ],
         ),
       ),
   ], page: 'equipment');
@@ -242,7 +338,7 @@ class _ProjectPageState extends State<_ProjectPage> {
     final depth = item.depthMm;
     final rackDepth = draft.rackDepthMm;
     return [
-      '${item.heightUnits}U · ${item.placement}',
+      '${item.heightUnits == null ? 'Height unknown' : '${item.heightUnits}U'} · ${item.placement}',
       if (depth != null && rackDepth != null && depth > rackDepth)
         'Depth exceeds entered rack depth'
       else if (depth == null || rackDepth == null)
@@ -255,12 +351,14 @@ class _ProjectPageState extends State<_ProjectPage> {
 
 class _RackElevation extends StatelessWidget {
   const _RackElevation(
-    this.draft, {
+    this.units,
+    this.equipment, {
     required this.onOpen,
     required this.onEmpty,
   });
 
-  final ProjectDraft draft;
+  final int units;
+  final List<EquipmentDraft> equipment;
   final ValueChanged<EquipmentDraft> onOpen;
   final ValueChanged<int> onEmpty;
   static const _unitHeight = 44.0;
@@ -268,11 +366,11 @@ class _RackElevation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final byTopUnit = {
-      for (final item in draft.equipment)
+      for (final item in equipment)
         if (item.topUnit != null) item.topUnit!: item,
     };
     final rows = <Widget>[];
-    for (var unit = draft.rackUnits; unit >= 1;) {
+    for (var unit = units; unit >= 1;) {
       final item = byTopUnit[unit];
       final count = item?.heightUnits ?? 1;
       final top = unit;
