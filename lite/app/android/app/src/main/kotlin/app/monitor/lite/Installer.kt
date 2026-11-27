@@ -58,19 +58,38 @@ class InstallReceiver : BroadcastReceiver() {
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
-                Collector.logToFolder(ctx, "install waiting for your confirmation")
-                if (intent.getBooleanExtra(Installer.EXTRA_AUTO, false)) {
-                    // In the background Android won't show its dialog; one tap
-                    // now lets every later update go through on its own.
-                    Alerts.post(ctx, "update", 9, Collector.deviceName(ctx), "Monitor App update ready",
-                        "Open Monitor App and tap Update at the top. After this one, updates install on their own.")
+                if (confirm == null) {
+                    Collector.logToFolder(ctx, "ERROR install wants a confirmation but Android gave none")
                     return
                 }
-                runCatching { ctx.startActivity(confirm!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                    .onFailure { Collector.logToFolder(ctx, "ERROR could not show the install confirmation: $it") }
+                Collector.logToFolder(ctx, "install waiting for your confirmation")
+                // Opened from the app's own screen when it is showing. From
+                // here (a broadcast) Android 14+ silently blocks it: the Pixel
+                // sat at "waiting for your confirmation" with a full bar on
+                // 2026-11-27. Otherwise a notification opens it on a tap.
+                val act = if (intent.getBooleanExtra(Installer.EXTRA_AUTO, false)) null else MainActivity.resumed?.get()
+                if (act != null) {
+                    act.runOnUiThread {
+                        runCatching { act.startActivity(confirm) }
+                            .onSuccess { Collector.logToFolder(ctx, "install confirmation opened") }
+                            .onFailure {
+                                Collector.logToFolder(ctx, "ERROR could not open the install confirmation: $it")
+                                notifyConfirm(ctx, confirm)
+                            }
+                    }
+                } else {
+                    notifyConfirm(ctx, confirm)
+                }
             }
             PackageInstaller.STATUS_SUCCESS -> Collector.logToFolder(ctx, "install succeeded")
             else -> Collector.logToFolder(ctx, "ERROR install failed: status=$status ${msg ?: ""}")
         }
+    }
+
+    private fun notifyConfirm(ctx: Context, confirm: Intent) {
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val tap = PendingIntent.getActivity(ctx, 9, confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), flags)
+        Alerts.post(ctx, "update", 9, Collector.deviceName(ctx), "Monitor App update ready",
+            "Tap to install it. After this one, updates install on their own.", tap)
     }
 }

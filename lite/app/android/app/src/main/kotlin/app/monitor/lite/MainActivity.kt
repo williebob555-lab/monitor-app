@@ -17,6 +17,23 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val main = Handler(Looper.getMainLooper())
 
+    companion object {
+        /** The activity while it is on screen: Android's install
+         *  confirmation is started from here, where a foreground app may
+         *  open it (from the install broadcast it was silently blocked). */
+        @Volatile var resumed: java.lang.ref.WeakReference<MainActivity>? = null
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumed = java.lang.ref.WeakReference(this)
+    }
+
+    override fun onPause() {
+        if (resumed?.get() === this) resumed = null
+        super.onPause()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         Migration.run(applicationContext)
