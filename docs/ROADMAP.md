@@ -220,7 +220,7 @@ says otherwise; tests alone are never enough.
 
 | # | Item | Size | Depends | Done when | Status |
 |---|---|---|---|---|---|
-| 34 | **Docs truth.** After each phase: README, FORMAT, SECURITY, COLLABORATION section 6 match the code; nothing planned is described as built. | S each | | a read-through finds no claim the code does not back | Todo |
+| 34 | **Docs truth.** After each phase: README, FORMAT, SECURITY, COLLABORATION section 6 match the code; nothing planned is described as built. | S each | | a read-through finds no claim the code does not back | Phase C/D pass done 2026-11-27: README gains rules, notifications and location; FORMAT, SECURITY and COLLABORATION updated with each row. Repeat after each phase |
 | 35 | **Release hygiene.** Each release: APK certificate check, all five deliverables present, install steps per device in the notes. | S each | | release page complete | ongoing |
 | 36 | **Retire the old .NET app's code.** | M | | repo builds and CI only covers `lite/` | Gate: significant deletion |
 | 37 | **Optional intelligence.** Local, optional, never required: summaries of a week's events, compatibility explanations. | L | 19, 24 | runs on one server with the network off | Gate: whether and where |
