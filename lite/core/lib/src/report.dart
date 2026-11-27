@@ -226,6 +226,10 @@ class Report {
         if (netRxBps != null) 'rx': netRxBps!.round(),
         if (netTxBps != null) 'tx': netTxBps!.round(),
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
+        // Conditions for patterns (FORMAT.md "History"): someone has the app
+        // open, and the network type (1 Wi-Fi, 2 mobile, 3 wired, 0 none).
+        if (watchedBy.isNotEmpty) 'w': 1,
+        if (netTypeCode(netType) case final nt?) 'nt': nt,
         for (final r in readings)
           if (r.value is num) r.key: r.value,
         // A UPS's mains/battery state as a number, so history and patterns
@@ -239,7 +243,7 @@ class Report {
 /// value: 54.2, unit: "°C", group: "Sensors"}. Value may be a number, text
 /// or true/false.
 class Reading {
-  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level, this.src, this.note});
+  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level, this.src, this.note, this.from});
   final String key;
 
   /// A number, text or yes/no; null only when [src] is "unknown".
@@ -253,9 +257,20 @@ class Reading {
   final String? src;
   final String? note;
 
+  /// Which path the value came through, where a part can be read more than
+  /// one way (a UPS today): "upower" (UPower on this machine),
+  /// "upower-export" (the host's UPower, through its exported file), "hid"
+  /// (the device directly over USB HID), "nut" or "sysfs". Missing means
+  /// the device's usual path.
+  final String? from;
+
   /// Optional judgement by the device itself: "warn" or "fault". The app
   /// marks the reading's part with it.
   final String? level;
+
+  /// The same reading, marked as having come through [path].
+  Reading withFrom(String path, {String? note}) =>
+      Reading(key: key, value: value, label: label, unit: unit, group: group, level: level, src: src, note: note ?? this.note, from: path);
 
   static Reading? tryParse(Object? j) {
     if (j is! Map) return null;
@@ -270,7 +285,8 @@ class Reading {
         group: _str(j['group']),
         level: _str(j['level']),
         src: src,
-        note: _str(j['note']));
+        note: _str(j['note']),
+        from: _str(j['from']));
   }
 
   Map<String, Object?> toJson() => {
@@ -282,6 +298,7 @@ class Reading {
         if (level != null) 'level': level,
         if (src != null) 'src': src,
         if (note != null) 'note': note,
+        if (from != null) 'from': from,
       };
 }
 
@@ -440,3 +457,12 @@ Map<String, Object?> flattenJson(Object? json, [String prefix = '']) {
 /// One series out of history lines by path, e.g. "cpu" or "p.<peer id>".
 List<double?> seriesOf(List<Map<String, Object?>> lines, String path) =>
     [for (final l in lines) switch (fieldAt(l, path)) { num n => n.toDouble(), _ => null }];
+
+/// History code for a network type: 1 Wi-Fi, 2 mobile data, 3 wired, 0 none.
+int? netTypeCode(String? type) => switch (type?.toLowerCase()) {
+      'wifi' || 'wi-fi' => 1,
+      'cellular' || 'mobile' => 2,
+      'ethernet' || 'wired' => 3,
+      'none' => 0,
+      _ => null,
+    };

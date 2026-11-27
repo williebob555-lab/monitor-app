@@ -1,5 +1,7 @@
 # Security and Privacy Model
 
+> This is the 1.x model. Monitor App 2.x (`lite/`), the app on your devices now, is described in [lite/SECURITY.md](../lite/SECURITY.md).
+
 ## Scope and trust model
 
 Monitor App is a decentralized personal monitoring mesh. There is no trusted Monitor App controller. Each peer protects its own identity key, local history, trust records, adapter credentials, and UI/API boundary.

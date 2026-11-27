@@ -68,4 +68,36 @@ void main() {
     expect(back.confirm, 'sure?');
     expect(Control.tryParse({'key': 'x'}), isNull);
   });
+
+  test('security: ids that could leave the folder, posing as another device, the allow list, size', () {
+    final f = SyncFolder(tmp.path)..prepare('phone')..prepare('desk')..prepare('evil');
+    final now = DateTime.utc(2026, 11, 27, 12);
+    void raw(String dev, String name, String body) =>
+        (File('${f.deviceDir(dev)}/requests/$name')..createSync(recursive: true)).writeAsStringSync(body);
+    final t = now.millisecondsSinceEpoch ~/ 1000;
+    raw('evil', 'a.json', '{"id":"../../../x","from":"evil","host":"desk","target":"desk","key":"update","value":"now","t":$t}');
+    raw('evil', 'b.json', '{"id":"abcdef0123456789","from":"phone","host":"desk","target":"desk","key":"update","value":"now","t":$t}');
+    raw('evil', 'c.json', '{"id":"abcdef0123456780","from":"evil","host":"desk","target":"../x","key":"update","value":"now","t":$t}');
+    raw('evil', 'd.json', '{"id":"abcdef0123456781","from":"evil","host":"desk","target":"desk","key":"update","value":"${'x' * 20000}","t":$t}');
+    expect(f.requestsFor('desk', now), isEmpty);
+    expect(() => f.writeResult('desk', ControlResult(id: '../x', ok: true, message: '', time: now)), throwsArgumentError);
+    expect(f.handled('desk', '../x'), isTrue, reason: 'never acted on');
+
+    final ok = req('phone', 'desk', now);
+    f.sendRequest(ok);
+    expect(f.requestsFor('desk', now).single.id, ok.id);
+    File('${tmp.path}/settings.json').writeAsStringSync('{"controls":{"allow":["laptop"]}}');
+    expect(f.requestsFor('desk', now), isEmpty);
+    File('${tmp.path}/settings.json').writeAsStringSync('{"controls":{"allow":["phone"]}}');
+    expect(f.requestsFor('desk', now).single.id, ok.id);
+  });
+
+  test('a report that names another device than its folder is ignored', () {
+    final f = SyncFolder(tmp.path)..prepare('evil');
+    File('${f.deviceDir('evil')}/now.json').writeAsStringSync('{"id":"desk","name":"desk","kind":"linux","t":1795000000,"next":60}');
+    expect(f.readReports(), isEmpty);
+    f.prepare('desk');
+    File('${f.deviceDir('desk')}/now.json').writeAsStringSync('{"id":"desk","name":"desk","kind":"linux","t":1795000000,"next":60}');
+    expect(f.readReports().keys, ['desk']);
+  });
 }
