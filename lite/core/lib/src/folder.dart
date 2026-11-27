@@ -50,7 +50,12 @@ class SyncFolder {
   void log(String id, String line) {
     try {
       final f = File(_p(id, logFileName));
-      final stamp = DateTime.now().toIso8601String().substring(0, 19);
+      // Local time with its UTC offset, so readers can line logs up with
+      // history (gaps.dart); older lines have no offset.
+      final n = DateTime.now();
+      final o = n.timeZoneOffset;
+      final stamp = '${n.toIso8601String().substring(0, 19)}${o.isNegative ? '-' : '+'}'
+          '${o.inHours.abs().toString().padLeft(2, '0')}:${(o.inMinutes.abs() % 60).toString().padLeft(2, '0')}';
       f.writeAsStringSync('$stamp $line\n', mode: FileMode.append, flush: true);
       if (f.lengthSync() > logMaxBytes) {
         final text = f.readAsStringSync();

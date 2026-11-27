@@ -120,6 +120,29 @@ class Agent {
   DateTime? _lastPrune;
   DateTime? _lastSummary;
   int _cycles = 0, _maxCycleMs = 0;
+
+  /// Where cycles spend their time and memory (row 2 of docs/ROADMAP.md):
+  /// per step, the slowest time this hour and the total memory it added.
+  /// Written in the hourly "ok" line as steps[name=maxMs/+MB ...].
+  final Map<String, (int, double)> _steps = {};
+  Stopwatch? _stepSw;
+  double _stepRss = 0;
+  void _stepStart() {
+    _stepSw = Stopwatch()..start();
+    _stepRss = ProcessInfo.currentRss / (1024 * 1024);
+  }
+
+  void _step(String name) {
+    final ms = _stepSw?.elapsedMilliseconds ?? 0;
+    final rss = ProcessInfo.currentRss / (1024 * 1024);
+    final grew = rss - _stepRss;
+    final old = _steps[name] ?? (0, 0.0);
+    _steps[name] = (ms > old.$1 ? ms : old.$1, old.$2 + (grew > 0 ? grew : 0));
+    _stepSw = Stopwatch()..start();
+    _stepRss = rss;
+  }
+
+  String _stepsText() => _steps.entries.map((e) => '${e.key}=${e.value.$1}ms/+${e.value.$2.toStringAsFixed(1)}MB').join(' ');
   double _maxRss = 0;
 
   static const fast = Duration(seconds: watchIntervalSeconds);
@@ -343,11 +366,15 @@ class Agent {
         folder.log(cfg.id, 'update: a new version was installed; restarting the collector');
         exit(0);
       }
+      _stepStart();
       await _applyRequests(folder, cfg, DateTime.now().toUtc());
+      _step('requests');
       final s = host.sample();
+      _step('sample');
       final ip = await tailscaleIp();
       final stLocal = await tcpProbe('127.0.0.1', timeout: const Duration(seconds: 1));
       final others = folder.readReports()..remove(cfg.id);
+      _step('read');
       final now = DateTime.now().toUtc();
       final peers = <String, PeerView>{};
       await Future.wait(others.values.where((o) => _machine == null || o.machine != _machine).map((o) async {
@@ -366,6 +393,7 @@ class Agent {
         final (t, ms) = await (tcpProbeTimed(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
         peers[o.id] = PeerView(tcp: t.$1, pingMs: ms, tcpMs: t.$2, seenAge: seen);
       }));
+      _step('peers');
 
       List<Reading> extra;
       try {
@@ -373,6 +401,7 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      _step('extras');
 
       // Things plugged into this machine (UPS, audio interface), Linux only.
       var things = <Report>[];
@@ -389,7 +418,9 @@ class Agent {
         }
       }
 
+      _step('things');
       final parents = _writeThings(folder, cfg.id, things, now);
+      _step('thingfiles');
 
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
@@ -449,6 +480,7 @@ class Agent {
         hw.add(r.historyLine(), now);
         _lastHistory = now;
       }
+      _step('write');
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;
@@ -459,10 +491,11 @@ class Agent {
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;
+        _steps.clear();
         _maxRss = 0;
       }
       if (_lastPrune == null || now.difference(_lastPrune!) > const Duration(hours: 6)) {

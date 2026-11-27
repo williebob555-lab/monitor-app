@@ -440,7 +440,7 @@ object Collector {
     fun log(dir: File, line: String) {
         runCatching {
             val f = File(dir, "log.txt")
-            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
+            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date())
             f.appendText("$stamp $line\n")
             if (f.length() > LOG_MAX_BYTES) {
                 val t = f.readText()
