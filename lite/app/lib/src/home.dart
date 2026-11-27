@@ -10,6 +10,7 @@ import 'parts.dart';
 import 'timeline.dart';
 import 'setup_page.dart';
 import 'state.dart';
+import 'summary_page.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -67,6 +68,22 @@ class HomePage extends StatelessWidget {
                     }),
                   ),
                 ),
+                if (state.folder.exists && canSummarize(state.reports.values, DateTime.now()))
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
+                    sliver: SliverToBoxAdapter(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(builder: (_) => SummaryPage(state)),
+                          ),
+                          icon: const Icon(Icons.summarize_outlined),
+                          label: const Text('Summarize my week'),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (state.showMap)
                   // The map takes the whole width and the rest of the screen
                   // below the banner (at least enough to read on a phone).

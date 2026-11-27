@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x local summaries
+
+Run `flutter test test/summary_page_test.dart` from `lite/app`. It tests discovery and rendering from the real request and response stores with a controlled loopback-model response. An installed Ollama model remains a separate verification.

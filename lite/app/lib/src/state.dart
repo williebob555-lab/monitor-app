@@ -19,6 +19,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState(this.host) : folder = SyncFolder(host.folder);
 
   final LocalHost host;
+  final summaryRequests = <String, (String, DateTime)>{};
   SyncFolder folder;
   /// Reports shown (hidden ones removed).
   Map<String, Report> reports = {};
