@@ -8,8 +8,9 @@
     history/detail/YYYY-MM-DD-HH.jsonl   every reading, one file per hour
     history/hourly/YYYY-MM.jsonl         one summary line per hour
     history/daily/YYYY.jsonl             one summary line per day
+    history/patterns/YYYY.jsonl          one line of pattern values per day
     log.txt                       the app's own log, kept under 256 KB
-    patterns.json                 what its history shows, in words (computers, every 6 h)
+    patterns.json                 what its history shows, in words (every 6 h)
     things/<thing id>/            things it hosts: USB UPS, audio interface, Docker
       now.json                    projects and containers (same shape as a device's)
       history/ , params.json      its own history; optional settings from its software
@@ -47,8 +48,8 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `ts.ip` | Tailscale address or null |
 | `st.up` | Syncthing listening on this device (port 22000) |
 | `screen` | `on`/`off` (Android) |
-| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms, `seen` = age in seconds of that device's now.json here |
-| `self` | collector cost: `runMs`, `cpuMs`, `rssMb`, `over` (broken budgets) |
+| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms (ICMP), `tcpMs` (computers: TCP handshake time to its port 22000, open or refused; present where ICMP is not allowed, e.g. Docker), `seen` = age in seconds of that device's now.json here |
+| `self` | collector cost: `runMs`, `cpuMs` (the collector's own CPU; on Android its collection thread, not the app screen sharing the process), `rssMb`, `over` (broken budgets) |
 | `node` | its place in the hierarchy (see "Hierarchy") |
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
@@ -94,8 +95,13 @@ How it stays small:
 * Each device deletes its own old files by the limits in `settings.json`
   (shown and editable under Setup > History), then enforces the size cap
   oldest-detail-first. Defaults: every reading 7 days, hourly 1 year, daily 5 years, 50 MB.
-* Readers open at most 25 hour files (24 h view), the hourly file(s) (7 days)
-  or the daily file(s) (year), so reading cost doesn't grow with history.
+* File names use the **writing device's local time** (a server in Docker is
+  UTC unless it mounts the host's `/etc/localtime`). Readers therefore look at
+  every name the period could have on any clock (UTC-12 to UTC+14) and keep
+  lines by `t`: at most about 53 hour names for the 24 h view (most don't
+  exist), the hourly file(s) for 7 days, the daily file(s) for a year, so
+  reading cost doesn't grow with history. Use `readHistoryRange`,
+  `readDetail`, `readHourly`; never build the names from your own clock.
 
 ## Hierarchy: `node`, attached things and `params.json`
 
@@ -161,10 +167,13 @@ as one machine with the running system on top.
 
 | `node.type` | Written by | Parent | Readings (all `src`-marked) |
 |---|---|---|---|
-| `ups` | Linux collector, from USB HID | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
+| `ups` | Linux collector: USB HID, else NUT, else UPower (`upower` or the host's exported file, packaging/linux/upower-export.sh) | host device | `ups.status` (`mains`/`battery`/`battery, low`), `ups.charge` %, `ups.runtime` min (estimated), `ups.load` %, `ups.alarm` (`on`/`off`/`quiet until the next event`), `ups.maker`, `ups.model`, `ups.source`, plus the USB set |
 | `audio-interface` | Linux collector | host device | `audio.card`, `audio.<stream>.state/rate/channels/format/buffer/period`, `audio.xruns` (unknown), `mixer.<name>` %, plus the USB set |
 | `compose-project` | Linux collector with the Docker proxy | host device; `children` = its containers; link `via: docker` | `cp.running` ("3 of 4"), `cp.problems` (only when something needs a look) |
-| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open) |
+| `container` | same | its compose-project | `ct.state`, `ct.status`, `ct.health`, `ct.cpu` %, `ct.mem` MB, `ct.image`, `ct.name`, `ct.url` (group Interface, the link to open: a `monitor.url` label, else the first published port that answers HTTP) |
+
+`ups.source` says which path was used. Through UPower, `ups.load` is unknown
+and no `ups.alarm` (or control) is written.
 
 USB set: `usb.speed` Mbit/s, `usb.version`, `usb.port`, `usb.maxPower` mA
 (declared), `usb.current` and `usb.errors` (always unknown, with a note),
@@ -222,14 +231,22 @@ What a device's history shows, in words, worked out from the history files
   problem).
 
 Each pattern says how many hours of history it rests on, and nothing resting
-on under an hour (six for daily shapes) is shown. Computers also keep the
-result in `devices/<id>/patterns.json` (rewritten every 6 hours):
+on under an hour (six for daily shapes) is shown. Every device (computers in
+core `patterns.dart`, phones and tablets in `Patterns.kt`, same rules) keeps
+the result in `devices/<id>/patterns.json` (rewritten every 6 hours):
 
 ```json
 {"v": 1, "t": 1795740000, "patterns": [
   {"key": "battery.drain.off", "group": "Battery", "text": "Drains 4.1 %/h with the screen off (over 4.9 h)",
    "value": 4.1, "unit": "%/h", "hours": 4.9}]}
 ```
+
+At the same time it writes today's line of `history/patterns/YYYY.jsonl`:
+`{"t": local day start, "<pattern key>": value, ...}` (one line per day, the
+day's last run wins). It is pruned with the daily summaries (`dailyDays`) and
+goes last under the size cap, so patterns outlast the detail and hourly
+files they came from. Read it with `readPatternHistory(deviceDir, now)`;
+`seriesOf(lines, "battery.drain.off")` charts one pattern over months.
 
 
 ## Reading the folder from Dart (`package:monitor_core`)

@@ -24,4 +24,7 @@ abstract class Host {
 
   /// ICMP echo over Tailscale. Null when it got no answer.
   Future<int?> ping(String ip);
+
+  /// Why the last ping could not run at all (not "no answer"), for the log.
+  String? get pingProblem => null;
 }

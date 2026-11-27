@@ -49,25 +49,67 @@ Future<String?> tailscaleIp() async {
   return null;
 }
 
-Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async {
+Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async => (await tcpProbeTimed(host, timeout: timeout)).$1;
+
+/// [tcpProbe] plus how long the TCP handshake took (ms): the time to the
+/// peer's answer, accepted or refused. A second measure of latency that
+/// needs no ICMP, so it works where ping can't (containers).
+Future<(String, int?)> tcpProbeTimed(String host, {Duration timeout = const Duration(seconds: 3)}) async {
+  final sw = Stopwatch()..start();
   try {
     final s = await Socket.connect(host, syncthingPort, timeout: timeout);
+    final ms = sw.elapsedMilliseconds;
     s.destroy();
-    return 'open';
+    return ('open', ms);
   } on SocketException catch (e) {
     final code = e.osError?.errorCode;
     // ECONNREFUSED: Linux 111, Windows 10061, macOS 61.
-    if (code == 111 || code == 10061 || code == 61) return 'refused';
-    if (e.message.contains('timed out') || code == 110 || code == 10060) return 'timeout';
-    return 'timeout';
+    if (code == 111 || code == 10061 || code == 61) return ('refused', sw.elapsedMilliseconds);
+    return ('timeout', null);
   } catch (_) {
-    return 'error';
+    return ('error', null);
+  }
+}
+
+/// Which running copy of the collector is the one: the newest to start.
+///
+/// The lock in bin/monitor_agent.dart should already keep it to one copy,
+/// but on 2026-11-26 Wilson's Windows laptop ran several at once for two
+/// hours (interleaved hourly summaries, budget lines several per second, and
+/// 315 failed now.json writes as the copies collided). So each copy also
+/// writes its own token here at start and stops as soon as a newer copy has
+/// replaced it. It costs one small read a tick.
+class InstanceClaim {
+  InstanceClaim(this.path, {int? pid, DateTime? started}) : token = '${pid ?? 0} ${(started ?? DateTime.now()).microsecondsSinceEpoch}';
+  final String path;
+  final String token;
+
+  void take() {
+    final tmp = File('$path.tmp');
+    tmp.writeAsStringSync(token, flush: true);
+    tmp.renameSync(path);
+  }
+
+  /// False only when another copy's token is there. A missing or unreadable
+  /// file never stops this copy.
+  bool held() {
+    try {
+      final f = File(path);
+      if (!f.existsSync()) return true;
+      final t = f.readAsStringSync().trim();
+      return t.isEmpty || t == token;
+    } catch (_) {
+      return true;
+    }
   }
 }
 
 class Agent {
-  Agent({Host? host}) : host = host ?? (Platform.isWindows ? WindowsHost() : LinuxHost());
+  Agent({Host? host, this.claim}) : host = host ?? (Platform.isWindows ? WindowsHost() : LinuxHost());
   final Host host;
+
+  /// When set, this copy stops once a newer copy has taken over.
+  final InstanceClaim? claim;
   final interval = const Duration(seconds: 60);
 
   int _seq = 0;
@@ -100,6 +142,13 @@ class Agent {
   }
 
   void tick() {
+    if (claim != null && !claim!.held()) {
+      try {
+        final cfg = LocalConfig.load();
+        SyncFolder(cfg.folder).log(cfg.id, 'stop agent pid $pid: a newer copy of the collector took over');
+      } catch (_) {}
+      exit(0);
+    }
     try {
       final now = DateTime.now().toUtc();
       final folder = SyncFolder(LocalConfig.load().folder);
@@ -136,17 +185,24 @@ class Agent {
       if (old == null) continue;
       parents[id] = old.node?.parent;
       if (old.connected == false) continue;
-      folder.writeThing(host, Report(
-        id: old.id, name: old.name, kind: old.kind, time: now, machine: old.machine,
-        nextSeconds: old.nextSeconds, connected: false, node: old.node,
-      ));
+      folder.writeThing(
+          host,
+          Report(
+            id: old.id,
+            name: old.name,
+            kind: old.kind,
+            time: now,
+            machine: old.machine,
+            nextSeconds: old.nextSeconds,
+            connected: false,
+            node: old.node,
+          ));
       folder.log(host, 'thing ${old.name} ($id) ${old.node?.type == 'container' || old.node?.type == 'compose-project' ? 'gone' : 'unplugged'}');
     }
     // UPS charge, load and so on: one history line a minute per thing.
     if (_lastThingHistory == null || now.difference(_lastThingHistory!) >= const Duration(seconds: 55)) {
       for (final t in things) {
-        HistoryWriter(folder.thingDir(host, t.id), '${LocalConfig.dir}${Platform.pathSeparator}things${Platform.pathSeparator}${t.id}')
-            .add(t.historyLine(), now);
+        HistoryWriter(folder.thingDir(host, t.id), '${LocalConfig.dir}${Platform.pathSeparator}things${Platform.pathSeparator}${t.id}').add(t.historyLine(), now);
       }
       _lastThingHistory = now;
     }
@@ -166,9 +222,7 @@ class Agent {
           final v = {'off': 1, 'on': 2, 'quiet': 3}[r.value];
           var why = '';
           final now = v == null ? null : HidUps.setAlarm(v, (w) => why = w);
-          res = now == null
-              ? done(false, v == null ? 'unknown value ${r.value}' : why)
-              : done(true, 'alarm ${{1: 'off', 2: 'on', 3: 'quiet'}[now]}', {1: 'off', 2: 'on', 3: 'quiet'}[now]);
+          res = now == null ? done(false, v == null ? 'unknown value ${r.value}' : why) : done(true, 'alarm ${{1: 'off', 2: 'on', 3: 'quiet'}[now]}', {1: 'off', 2: 'on', 3: 'quiet'}[now]);
         } else if (r.key == 'update' && r.target == cfg.id && Updater.canUpdate) {
           res = done(true, await Updater.start(folder, cfg));
         } else {
@@ -193,9 +247,13 @@ class Agent {
       final list = findPatterns(readDetail(dir, now), readHourly(dir, now), names: names, upHours: up);
       final sep = Platform.pathSeparator;
       final tmp = File('$dir$sep.syncthing.patterns.json.tmp');
-      tmp.writeAsStringSync(const JsonEncoder.withIndent('  ')
-          .convert({'v': 1, 't': now.millisecondsSinceEpoch ~/ 1000, 'patterns': [for (final p in list) p.toJson()]}));
+      tmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert({
+        'v': 1,
+        't': now.millisecondsSinceEpoch ~/ 1000,
+        'patterns': [for (final p in list) p.toJson()]
+      }));
       tmp.renameSync('$dir${sep}patterns.json');
+      recordPatterns(dir, list, now);
     } catch (e) {
       folder.log(id, 'ERROR patterns: $e');
     }
@@ -246,13 +304,11 @@ class Agent {
         if (seen > 86400) return;
         // The other system of a dual-boot machine that is running its twin:
         // it is not booted, so there is nothing to reach. Not a problem.
-        final twinUp = o.machine != null &&
-            others.values.any((x) => x.id != o.id && x.machine == o.machine && x.time.isAfter(o.time)) &&
-            seen > o.nextSeconds * 3 + 120;
+        final twinUp = o.machine != null && others.values.any((x) => x.id != o.id && x.machine == o.machine && x.time.isAfter(o.time)) && seen > o.nextSeconds * 3 + 120;
         if (twinUp || (o.machine != null && o.machine == _machine)) return;
         // Both at once: an unreachable device costs one timeout, not two.
-        final (tcp, ms) = await (tcpProbe(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
-        peers[o.id] = PeerView(tcp: tcp, pingMs: ms, seenAge: seen);
+        final (t, ms) = await (tcpProbeTimed(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
+        peers[o.id] = PeerView(tcp: t.$1, pingMs: ms, tcpMs: t.$2, seenAge: seen);
       }));
 
       List<Reading> extra;
@@ -317,7 +373,10 @@ class Agent {
         node: NodeDecl(
           id: cfg.id,
           type: 'device',
-          children: [for (final e in parents.entries) if (e.value == cfg.id) e.key]..sort(),
+          children: [
+            for (final e in parents.entries)
+              if (e.value == cfg.id) e.key
+          ]..sort(),
           links: [
             ...Things.hostLinks(things),
             // Other systems of this same machine (dual boot), from their files.
@@ -340,11 +399,11 @@ class Agent {
       _maxRss = rss > _maxRss ? rss : _maxRss;
       if (_lastSummary == null || now.difference(_lastSummary!) > const Duration(hours: 1)) {
         final seen = others.values
-            .map((o) => '${o.name}:${peers[o.id]?.tcp ?? '-'}/${peers[o.id]?.pingMs ?? '-'}ms/'
+            .map((o) => '${o.name}:${peers[o.id]?.tcp ?? '-'}/${peers[o.id]?.pingMs ?? '-'}ms/tcp${peers[o.id]?.tcpMs ?? '-'}ms/'
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;

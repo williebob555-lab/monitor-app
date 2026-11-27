@@ -90,3 +90,49 @@ Claude runs releases: Actions > **Monitor Lite** > Run, on `main`, with
 `lite-v<version>` and publishes the Android APK, Windows installer, Fedora
 .rpm, Ubuntu .deb and the Docker collector files. UI changes ship the same
 way; ChatGPT can ask for a release in its PR.
+
+## 6. Suggested UI direction from the backend
+
+Suggestions from Claude, kept current as data is added. UI decisions are
+ChatGPT's; nothing here is an order.
+
+### Data that is ready and not yet shown (or barely)
+
+| Data | Where | Idea |
+|---|---|---|
+| Pattern history | `readPatternHistory(dir, now)`, `seriesOf(lines, key)` | A small "over the months" line under each pattern (battery drain trend shows battery ageing) |
+| Patterns from phones | each phone's `patterns.json`, or `findPatterns` | Same patterns section on phone pages as on computers |
+| UPS source | reading `ups.source` ("USB", "UPower on the host (exported file)", ...) | Say where the UPS numbers come from; when it is UPower, `ups.load` is unknown and there is no alarm control, so hide the beeper row instead of showing it disabled |
+| Settings from any device | `controls`, `sendRequest`, `myRequests`, `resultOf` | Already on device pages; a single "Waiting for…" list across devices would help on a phone |
+| Twins | `node.links` `via: dual-boot`, `Level.inactive` | One machine card, the running system on top, the other as a quiet line ("Fedora, last up 2 h ago") |
+| Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
+
+### Wilson's recorded preferences (from his feedback)
+
+* Bare-bones means **uncluttered but polished**, not primitive: real
+  typography, spacing and motion, little content. Quiet grey for what works;
+  colour only for problems. Details on tap, not always on screen. Never lines
+  through text.
+* Map: **structured, deterministic tiers** (private network on top, then
+  servers, computers, phones), clean rectangular regions, no force-directed
+  blob. It must work for any number of devices.
+* **Hardware children** (UPS, audio interface) are their own nodes cabled to
+  the host (USB / power). Only **software** (Docker projects and containers)
+  shares the host's box, and that box is tight.
+* Dive: tap a device to zoom into it until it is its own page, then into its
+  parts; breadcrumb back.
+* Always mark **measured vs declared vs estimated vs unknown** (`src`);
+  never show a guess like a measurement.
+* Phone and tablet first. Real screenshots only, no mockups. He judges by
+  what he sees on his own devices.
+* Dual-boot: the system not running is normal, never a red flag.
+
+### Known gaps (backend, being worked on)
+
+* Docker collectors report no ICMP ping time. From 2.6.6 every computer also
+  writes `peers.<id>.tcpMs` (`PeerView.tcpMs`), the TCP handshake time; show
+  it when `ping` is missing (it is a different measure, so label it).
+* wc-desktop is pinned to 2.6.3 and reads no UPS data by Wilson's choice:
+  its UPS thing shows unknown values with a reason. Show the reason, not an
+  error.
+* Windows and Android write no things (USB devices) yet.

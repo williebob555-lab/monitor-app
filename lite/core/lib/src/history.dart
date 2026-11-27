@@ -9,6 +9,7 @@ import 'report.dart' show fieldAt;
 ///   devices/<id>/history/detail/YYYY-MM-DD-HH.jsonl  every reading, one file per hour
 ///   devices/<id>/history/hourly/YYYY-MM.jsonl        one summary line per hour
 ///   devices/<id>/history/daily/YYYY.jsonl            one summary line per day
+///   devices/<id>/history/patterns/YYYY.jsonl         one line of pattern values per day
 ///
 /// Why this shape:
 /// * Readings first go to a local spool file that is NOT synced. Every
@@ -236,13 +237,13 @@ class HistoryWriter {
       final DateTime end = switch (kind) {
         'detail' when p.length == 4 => DateTime(p[0]!, p[1]!, p[2]!, p[3]! + 1),
         'hourly' when p.length == 2 => DateTime(p[0]!, p[1]! + 1),
-        'daily' when p.length == 1 => DateTime(p[0]! + 1),
+        'daily' || 'patterns' when p.length == 1 => DateTime(p[0]! + 1),
         _ => local,
       };
       return end.isBefore(limit);
     }
 
-    for (final (kind, days) in [('detail', r.detailDays), ('hourly', r.hourlyDays), ('daily', r.dailyDays)]) {
+    for (final (kind, days) in [('detail', r.detailDays), ('hourly', r.hourlyDays), ('daily', r.dailyDays), ('patterns', r.dailyDays)]) {
       final dir = Directory('$historyDir$_sep$kind');
       if (!dir.existsSync()) continue;
       for (final e in dir.listSync().whereType<File>()) {
@@ -277,28 +278,47 @@ class HistoryWriter {
 /// range, so a year view reads one or two small files.
 enum HistoryRange { day, week, year }
 
+/// File names are in the WRITING device's local time (a server in Docker
+/// is often UTC, a laptop in New York UTC-5), so a reader can't name the
+/// files from its own clock alone. Readers look at every name the period
+/// could have on any clock (UTC-12 to UTC+14) and keep lines by their `t`.
+const _zoneSlack = Duration(hours: 14);
+
+/// The distinct names [name] gives to every hour from [from] to [to], widened
+/// by [_zoneSlack] on both sides. Times are UTC hours shifted into each zone.
+Set<String> historyNames(DateTime from, DateTime to, String Function(DateTime) name, {Duration step = const Duration(hours: 1)}) {
+  final out = <String>{};
+  // A UTC clock face shifted by -12..+14 h covers every zone's wall time.
+  final a = from.toUtc().subtract(_zoneSlack), b = to.toUtc().add(_zoneSlack);
+  for (var t = a; !t.isAfter(b); t = t.add(step)) {
+    final w = DateTime(t.year, t.month, t.day, t.hour); // wall-clock fields, any zone
+    out.add(name(w));
+  }
+  out.add(name(DateTime(b.year, b.month, b.day, b.hour)));
+  return out;
+}
+
 List<Map<String, Object?>> readHistoryRange(String deviceDir, HistoryRange range, DateTime now) {
   final sep = Platform.pathSeparator;
   final h = '$deviceDir${sep}history';
-  final local = now.toLocal();
   final from = now.millisecondsSinceEpoch ~/ 1000 - switch (range) {
         HistoryRange.day => 86400,
         HistoryRange.week => 7 * 86400,
         HistoryRange.year => 365 * 86400,
       };
   final out = <Map<String, Object?>>[];
+  final start = DateTime.fromMillisecondsSinceEpoch(from * 1000, isUtc: true);
   switch (range) {
     case HistoryRange.day:
-      for (var i = 24; i >= 0; i--) {
-        out.addAll(readLines(File('$h${sep}detail$sep${detailName(local.subtract(Duration(hours: i)))}')));
+      for (final n in historyNames(start, now, detailName)) {
+        out.addAll(readLines(File('$h${sep}detail$sep$n')));
       }
     case HistoryRange.week:
-      final months = {hourlyName(local.subtract(const Duration(days: 7))), hourlyName(local)};
-      for (final m in months) {
+      for (final m in historyNames(start, now, hourlyName, step: const Duration(days: 1))) {
         out.addAll(readLines(File('$h${sep}hourly$sep$m')));
       }
     case HistoryRange.year:
-      for (final y in {dailyName(local.subtract(const Duration(days: 365))), dailyName(local)}) {
+      for (final y in historyNames(start, now, dailyName, step: const Duration(days: 28))) {
         out.addAll(readLines(File('$h${sep}daily$sep$y')));
       }
   }
