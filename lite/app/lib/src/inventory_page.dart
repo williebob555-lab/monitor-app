@@ -47,6 +47,21 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   Future<void> _edit([Item? item]) async {
+    if (item != null) {
+      try {
+        final latest = widget.store.get(item.id);
+        if (latest == null || latest.state == 'retired') {
+          setState(_read);
+          return;
+        }
+        item = latest;
+      } on Exception {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open this item.')),
+        );
+        return;
+      }
+    }
     final form = GlobalKey<FormState>();
     var name = item?.name ?? '';
     var kind = item?.type ?? 'thing';
@@ -81,6 +96,16 @@ class _InventoryPageState extends State<InventoryPage> {
                 stateOptions,
                 (value) => lifecycle = value,
               ),
+              if (item != null && item.props.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final entry in item.props.entries)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(entry.key),
+                    subtitle: Text(_propertyText(entry.value)),
+                  ),
+              ],
             ],
           ),
         ),
@@ -127,6 +152,26 @@ class _InventoryPageState extends State<InventoryPage> {
         const SnackBar(content: Text('Could not save to the Monitor folder.')),
       );
     }
+  }
+
+  String _propertyText(Prop property) {
+    final value = property.value;
+    final text = switch (value) {
+      null => 'Not available',
+      true => 'Yes',
+      false => 'No',
+      _ => '$value',
+    };
+    final source = switch (property.src) {
+      'measured' => 'Measured',
+      'declared' => 'Declared',
+      'estimated' => 'Estimated',
+      _ => 'Unknown source',
+    };
+    return [
+      '$text${value != null && property.unit != null ? ' ${property.unit}' : ''}',
+      source,
+    ].join(' · ');
   }
 
   Widget _selector(

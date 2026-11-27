@@ -29,10 +29,13 @@ void main() {
       expect(item.name, 'Power amp');
       expect(item.state, 'proposed');
       item.props['weight'] = Prop(7.0, unit: 'kg', src: 'measured');
+      item.props['height'] = Prop(null, src: 'unknown');
       anotherInstall.put(item);
 
       await tester.tap(find.text('Power amp'));
       await tester.pumpAndSettle();
+      expect(find.text('7.0 kg · Measured'), findsOneWidget);
+      expect(find.text('Not available · Unknown source'), findsOneWidget);
       await tester.enterText(find.byType(TextFormField), 'Stereo power amp');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
