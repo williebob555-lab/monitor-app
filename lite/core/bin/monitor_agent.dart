@@ -7,7 +7,20 @@ import 'package:monitor_core/monitor_core.dart';
 /// monitor-agent --once      one cycle, then exit (for testing)
 /// monitor-agent --folder P  set the synced folder and exit
 /// monitor-agent --version
+/// monitor-agent --ups-alarm off|on|quiet   set the USB UPS's beeper (Linux)
 Future<void> main(List<String> args) async {
+  final ai = args.indexOf('--ups-alarm');
+  if (ai >= 0) {
+    final v = {'off': 1, 'on': 2, 'quiet': 3}[ai + 1 < args.length ? args[ai + 1] : ''];
+    if (v == null || !Platform.isLinux) {
+      stderr.writeln('usage (Linux): monitor-agent --ups-alarm off|on|quiet');
+      exit(2);
+    }
+    final now = HidUps.setAlarm(v, (why) => stderr.writeln(why));
+    if (now == null) exit(1);
+    stdout.writeln('The UPS alarm is now ${{1: 'off', 2: 'on', 3: 'quiet until the next event'}[now] ?? 'set to $now'}.');
+    return;
+  }
   if (args.contains('--version')) {
     stdout.writeln(appVersion);
     return;

@@ -53,7 +53,18 @@ On a dual-boot machine, do this on each system. The .rpm/.deb installs its own r
 
 The collector opens the device read-only and only asks for the UPS's status
 reports (the kernel's get-feature-report call, which a read-only handle may
-make). It never sends anything to the UPS.
+make). It never sends anything to the UPS on its own.
+
+**The UPS's beeper.** The UPS page shows its alarm setting (on, off, or quiet
+until the next event). To change it, run this by hand in this project's
+folder; it is the only thing that ever writes to the UPS:
+
+```sh
+sudo docker compose exec monitor monitor-agent --ups-alarm off    # or: on, quiet
+```
+
+The setting lives in the UPS itself. Turning it off also silences the
+low-battery warning, so you rely on the app for that.
 
 An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
 

@@ -37,6 +37,7 @@ final _icmpSendEcho = _iph.lookupFunction<
 
 // MIB_IF_ROW2 layout on 64-bit Windows (sizeof = 1352).
 const _rowSize = 1352;
+const _oDescription = 542; // WCHAR[257], after Alias
 const _oPhysLen = 1056, _oPermPhys = 1092, _oType = 1128, _oFlags = 1152, _oOper = 1156;
 const _oInOctets = 1208, _oOutOctets = 1280;
 
@@ -79,12 +80,21 @@ class WindowsHost implements Host {
     }
   }
 
+  /// Lowest burned-in MAC of a wired or Wi-Fi card, the same rule as on
+  /// Linux, so a laptop that dual-boots Windows and Linux is recognised as
+  /// one machine. Bluetooth (which Linux does not list as a network card)
+  /// and locally administered (random or virtual) addresses are left out.
   @override
   String? machineKey() {
     final macs = <String>[];
     _rows((row) {
       final len = (row + _oPhysLen).cast<Uint32>().value;
       if (len != 6) return;
+      final type = (row + _oType).cast<Uint32>().value;
+      if (type != 6 && type != 71) return; // Ethernet, Wi-Fi
+      final desc = (row + _oDescription).cast<Utf16>().toDartString();
+      if (desc.toLowerCase().contains('bluetooth')) return;
+      if (row[_oPermPhys] & 2 != 0) return; // locally administered
       final mac = List.generate(6, (i) => row[_oPermPhys + i].toRadixString(16).padLeft(2, '0')).join(':');
       if (mac != '00:00:00:00:00:00') macs.add(mac);
     });
