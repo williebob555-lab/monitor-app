@@ -11,8 +11,9 @@ import '../update.dart';
 /// SHA256SUMS) and runs the per-user installer silently, which restarts it.
 /// Linux servers and packages are updated on the machine itself (the nightly
 /// Docker updater, or the app's Install there), so they don't offer it.
-/// Android can't install without a tap on the phone; its collector posts a
-/// notification instead (Collector.kt).
+/// It also checks on its own every 6 hours (settings.json "update.auto",
+/// on unless set to false) and installs while the app window is closed.
+/// Android's collector does the same through PackageInstaller (Updater.kt).
 class Updater {
   static bool get canUpdate => Platform.isWindows;
 
@@ -40,13 +41,13 @@ class Updater {
   }
 
   /// Starts the update; returns what to tell the asking device.
-  static Future<String> start(SyncFolder folder, LocalConfig cfg) async {
+  static Future<String> start(SyncFolder folder, LocalConfig cfg, {String why = 'asked from another device'}) async {
     if (!Platform.isWindows) throw StateError('update this device on the machine itself');
     final u = await checkForUpdate('windows');
     if (u == null) return 'already on the newest version';
     final dir = Directory.systemTemp.createTempSync('monitor-update');
     final f = await downloadUpdate(u, dir.path);
-    folder.log(cfg.id, 'update: installing ${u.version} (asked from another device)');
+    folder.log(cfg.id, 'update: installing ${u.version} ($why)');
     await Process.start(f.path, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], mode: ProcessStartMode.detached);
     return 'installing ${u.version}';
   }

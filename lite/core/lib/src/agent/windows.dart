@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
@@ -185,26 +186,34 @@ class WindowsHost implements Host {
   @override
   String? get pingProblem => null;
 
+  /// IcmpSendEcho blocks its thread for up to 2 s per unreachable device.
+  /// Called on the collector's own isolate it froze the whole cycle, one
+  /// timeout after another: the laptop's 8.9 s cycles on 2026-11-27 with
+  /// the Pixel, wc-alpha and wc-laptop-f unreachable (cpu 16 ms, all
+  /// waiting). Each ping now runs on its own short-lived isolate, so they
+  /// overlap with each other and with the TCP probes.
   @override
-  Future<int?> ping(String ip) async {
-    final parts = ip.split('.').map(int.tryParse).toList();
-    if (parts.length != 4 || parts.any((x) => x == null)) return null;
-    // IPAddr is in network byte order; on little-endian that's a reversed int.
-    final addr = parts[0]! | parts[1]! << 8 | parts[2]! << 16 | parts[3]! << 24;
-    final h = _icmpCreateFile();
-    if (h == -1 || h == 0) return null;
-    final data = calloc<Uint8>(8);
-    final reply = calloc<Uint8>(256);
-    try {
-      final n = _icmpSendEcho(h, addr, data, 8, nullptr, reply, 256, 2000);
-      if (n == 0) return null;
-      final r = reply.cast<Uint32>();
-      return r[1] == 0 ? r[2] : null; // Status 0 = IP_SUCCESS, then RoundTripTime
-    } finally {
-      calloc.free(data);
-      calloc.free(reply);
-      _icmpCloseHandle(h);
-    }
+  Future<int?> ping(String ip) => Isolate.run(() => _pingBlocking(ip));
+}
+
+int? _pingBlocking(String ip) {
+  final parts = ip.split('.').map(int.tryParse).toList();
+  if (parts.length != 4 || parts.any((x) => x == null)) return null;
+  // IPAddr is in network byte order; on little-endian that's a reversed int.
+  final addr = parts[0]! | parts[1]! << 8 | parts[2]! << 16 | parts[3]! << 24;
+  final h = _icmpCreateFile();
+  if (h == -1 || h == 0) return null;
+  final data = calloc<Uint8>(8);
+  final reply = calloc<Uint8>(256);
+  try {
+    final n = _icmpSendEcho(h, addr, data, 8, nullptr, reply, 256, 2000);
+    if (n == 0) return null;
+    final r = reply.cast<Uint32>();
+    return r[1] == 0 ? r[2] : null; // Status 0 = IP_SUCCESS, then RoundTripTime
+  } finally {
+    calloc.free(data);
+    calloc.free(reply);
+    _icmpCloseHandle(h);
   }
 }
 
