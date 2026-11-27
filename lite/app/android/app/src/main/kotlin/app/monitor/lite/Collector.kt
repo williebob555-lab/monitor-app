@@ -243,7 +243,7 @@ object Collector {
                 p.edit().putLong("lastHistory", now).apply()
             }
 
-            runCatching { Alerts.check(ctx, root, now / 1000) }
+            runCatching { RuleNotices.run(ctx, root, now / 1000) }
                 .onFailure { log(dir, "ERROR notifications check: $it") }
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")
@@ -320,6 +320,7 @@ object Collector {
             a.put(o)
         }
         add("sys.maker", "Maker", Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, "System")
+        runCatching { Location.reading(ctx, System.currentTimeMillis()) }.getOrNull()?.let { a.put(it) }
         add("sys.model", "Model", Build.MODEL, "System")
         if (Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.isNotBlank() && Build.SOC_MODEL != "unknown") add("sys.cpu", "Processor", Build.SOC_MODEL, "System")
         add("sys.cores", "Processor threads", Runtime.getRuntime().availableProcessors().toString(), "System")
@@ -439,11 +440,19 @@ object Collector {
         return type
     }
 
+    /** This phone's Tailscale address. 100.64/10 is also the carrier's
+     *  CGNAT range: the Pixel had rmnet16 100.86.5.58 (carrier) next to
+     *  tun0 100.88.178.60 (Tailscale) and used to publish the carrier's, so
+     *  no device could reach it. The VPN interface wins; cellular never. */
     fun tailscaleIp(): String? = runCatching {
-        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .firstOrNull { val b = it.address; (b[0].toInt() and 0xff) == 100 && (b[1].toInt() and 0xff) in 64..127 }
-            ?.hostAddress
+        val found = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().flatMap { i ->
+            i.inetAddresses.toList().filterIsInstance<Inet4Address>()
+                .filter { val b = it.address; (b[0].toInt() and 0xff) == 100 && (b[1].toInt() and 0xff) in 64..127 }
+                .map { i.name to it.hostAddress }
+        }
+        val cell = Regex("^(rmnet|ccmni|pdp|wwan|clat|v4-rmnet|seth|ccinet)")
+        (found.firstOrNull { it.first.startsWith("tun") || it.first.contains("tailscale", true) }
+            ?: found.firstOrNull { !cell.containsMatchIn(it.first) })?.second
     }.getOrNull()
 
     /** ms to reach [host]:[port], counting a refusal as reached unless
