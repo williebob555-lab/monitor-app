@@ -198,9 +198,13 @@ as one machine with the running system on top.
 says the same per value. UPower doesn't report the load or the beeper, so
 without USB HID `ups.load` is unknown (the note says why) and no `ups.alarm`
 or alarm control is written. `ups.hostAction` is what the HOST does when the
-battery runs low, read from UPower's critical action and the policy in its
-`UPower.conf`: Monitor App only shows it and never changes it; shutdown stays
-the host's. `ups.identity` says what the thing id rests on
+battery runs low (`host powers off at 20 % (low at 35 %, critical at 25 %)`),
+read from UPower's critical action and its effective policy: `UPower.conf`,
+then `UPower.conf.d/*.conf` in name order, the last file to set a key winning,
+only keys in the `[UPower]` group; its note names the file that set it.
+Monitor App only shows it and never changes it; shutdown stays the host's.
+In Docker, an export that says UPower did not answer, or is over 3 minutes
+old, makes the UPS readings unknown with that reason, never old numbers. `ups.identity` says what the thing id rests on
 (`USB 0764:0601 on port 1-5 (it has no serial number)`) and how UPower's
 device was matched. With no serial the id rests on the USB port, which both
 systems of a dual-boot machine see alike (verified on wc-alpha / wc-desktop:

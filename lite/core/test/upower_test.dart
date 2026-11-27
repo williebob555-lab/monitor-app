@@ -198,6 +198,83 @@ void main() {
     expect(only['ups.source']!.value, 'UPower 1.91.5 on the host (exported file)');
   });
 
+  group('host policy (UPower.conf and its drop-ins, read-only)', () {
+    // wc-desktop / wc-alpha: the main file keeps the distribution's values,
+    // 99-wc-ups.conf sets the real policy.
+    void writeConf(String root) {
+      Directory('$root/UPower.conf.d').createSync(recursive: true);
+      File('$root/UPower.conf')
+          .writeAsStringSync('[UPower]\nUsePercentageForPolicy=true\nPercentageLow=20\nPercentageCritical=5\n# PercentageAction=99\nPercentageAction=2\nCriticalPowerAction=HybridSleep\n');
+      File('$root/UPower.conf.d/99-wc-ups.conf')
+          .writeAsStringSync('[UPower]\nPercentageLow=35   # warn early\nPercentageCritical=25\nPercentageAction=20\nCriticalPowerAction=PowerOff\n[Other]\nPercentageAction=77\n');
+      File('$root/UPower.conf.d/10-no-group.conf').writeAsStringSync('PercentageAction=88\n');
+      File('$root/UPower.conf.d/50-middle.conf').writeAsStringSync('[UPower]\nPercentageAction=50\n');
+    }
+
+    test('drop-ins win over UPower.conf in name order; other groups, comments and group-less files do not count', () {
+      writeConf('${dir.path}/etc');
+      final (c, files) = Upower.readConfig('${dir.path}/etc');
+      expect(c, {'UsePercentageForPolicy': 'true', 'PercentageLow': '35', 'PercentageCritical': '25', 'PercentageAction': '20', 'CriticalPowerAction': 'PowerOff'});
+      expect(files.map((f) => f.split('/').last), ['UPower.conf', '50-middle.conf', '99-wc-ups.conf']);
+      final u = Upower(devices: const [], daemon: const {'critical-action': 'PowerOff'}, config: c, policyFiles: files, from: 'upower');
+      expect(u.hostAction, 'host powers off at 20 % (low at 35 %, critical at 25 %)');
+    });
+
+    final script = File('../packaging/linux/upower-export.sh').absolute.path;
+    final hasSh = Process.runSync('sh', ['-c', 'command -v awk mktemp']).exitCode == 0;
+
+    /// A stand-in `upower` that answers like 1.91 for the OR500 and, like
+    /// the real one, prints the host's language unless told LC_ALL=C.
+    String fakeUpower({bool fail = false}) {
+      final bin = Directory('${dir.path}/bin')..createSync(recursive: true);
+      final body = ups().replaceAll('41.0 minutes', r'$T').replaceAll(r'$', r'\$').replaceAll(r'\$T', r'$T');
+      File('${bin.path}/upower').writeAsStringSync(fail
+          ? '#!/bin/sh\nexit 1\n'
+          : '''#!/bin/sh
+if [ "\$LC_ALL" = C ]; then T="41.0 minutes"; else T="41,0 Minuten"; fi
+case "\$1" in
+  -e) printf '/org/freedesktop/UPower/devices/battery_BAT0\\n/org/freedesktop/UPower/devices/ups_hiddev1\\n/org/freedesktop/UPower/devices/mouse_0\\n' ;;
+  -i) cat <<X
+$body
+X
+  ;;
+  -d) printf 'Daemon:\\n  daemon-version:  1.91.5\\n  on-battery:      no\\n  critical-action: PowerOff\\n\\n' ;;
+esac
+''');
+      Process.runSync('chmod', ['+x', '${bin.path}/upower']);
+      return bin.path;
+    }
+
+    ProcessResult runExport(String out, {bool fail = false}) =>
+        Process.runSync('sh', [script, out], environment: {'PATH': '${fakeUpower(fail: fail)}:${Platform.environment['PATH']}', 'UPOWER_CONF_DIR': '${dir.path}/etc', 'LC_ALL': 'de_DE.UTF-8'});
+
+    test('the exporter: C locale, drop-ins resolved, whole files only, UPower failures say so', () {
+      writeConf('${dir.path}/etc');
+      final outDir = Directory('${dir.path}/export')..createSync();
+      final out = '${outDir.path}/ups.txt';
+      expect(runExport(out).exitCode, 0);
+      final now = DateTime.now().toUtc();
+      final (u, why) = Upower.readExport(out, now)!;
+      expect(why, isNull);
+      expect(u!.ups.length, 1, reason: 'the laptop battery and mouse are not exported');
+      final r = byKey(u.readings(u.ups.single));
+      expect(r['ups.runtime']!.value, 41, reason: 'the host speaks German; the export must still be plain C ("41,0 Minuten" would not parse)');
+      expect(File(out).readAsStringSync(), contains('41.0 minutes'));
+      expect(r['ups.hostAction']!.value, 'host powers off at 20 % (low at 35 %, critical at 25 %)');
+      expect(r['ups.hostAction']!.note, contains('99-wc-ups.conf'));
+      expect(outDir.listSync().map((e) => e.path.split('/').last), ['ups.txt'], reason: 'no temporary file left behind');
+
+      // UPower stops answering: the next export says so, the old numbers go.
+      expect(runExport(out, fail: true).exitCode, 0);
+      expect(Upower.readExport(out, now)!.$2, 'UPower on the host: UPower did not answer (is upower.service running?)');
+
+      // Storage not mounted: nothing is written, nothing is created.
+      final gone = runExport('${dir.path}/not-mounted/ups.txt');
+      expect(gone.exitCode, isNot(0));
+      expect(Directory('${dir.path}/not-mounted').existsSync(), isFalse);
+    }, skip: hasSh ? false : 'needs sh, awk and mktemp');
+  });
+
   test('the from field survives the file', () {
     final r = Reading(key: 'ups.load', value: null, src: 'unknown', note: 'x', from: 'hid');
     expect(Reading.tryParse(r.toJson())!.from, 'hid');

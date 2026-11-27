@@ -9,7 +9,7 @@ import '../report.dart';
 /// it never changes its settings, and the host's own low-battery action
 /// (UPower's CriticalPowerAction) stays the only shutdown path.
 class Upower {
-  Upower({required this.devices, this.daemon = const {}, this.config = const {}, this.exported, required this.from});
+  Upower({required this.devices, this.daemon = const {}, this.config = const {}, this.policyFiles = const [], this.errors = const [], this.exported, required this.from});
 
   /// Every device UPower listed, each with its kind (ups, battery, mouse...).
   final List<UpowerDevice> devices;
@@ -20,6 +20,13 @@ class Upower {
   /// Policy lines from the host's /etc/UPower/UPower.conf (PercentageAction,
   /// UsePercentageForPolicy, ...), as the host has them.
   final Map<String, String> config;
+
+  /// The policy files that set any of [config], in the order UPower
+  /// applies them (UPower.conf, then UPower.conf.d/*.conf by name).
+  final List<String> policyFiles;
+
+  /// What the exporter could not get ("UPower did not answer").
+  final List<String> errors;
 
   /// When the host exported it (file only).
   final DateTime? exported;
@@ -40,6 +47,7 @@ class Upower {
   static Upower parse(String text, {required String from}) {
     final devices = <UpowerDevice>[];
     final daemon = <String, String>{}, config = <String, String>{};
+    final files = <String>[], errors = <String>[];
     int? exported;
     Map<String, String>? props;
     String? path, kind;
@@ -66,6 +74,10 @@ class Upower {
           inDaemon = true;
         } else if (line.startsWith('exported:')) {
           exported = int.tryParse(line.substring(9).trim());
+        } else if (line.startsWith('error:')) {
+          errors.add(line.substring(6).trim());
+        } else if (line.startsWith('policy-file:')) {
+          files.add(line.substring(12).trim());
         } else if (line.startsWith('config.')) {
           final k = line.indexOf(':');
           if (k > 7) config[line.substring(7, k).trim()] = line.substring(k + 1).trim();
@@ -95,7 +107,14 @@ class Upower {
       }
     }
     flush();
-    return Upower(devices: devices, daemon: daemon, config: config, exported: exported == null ? null : DateTime.fromMillisecondsSinceEpoch(exported * 1000, isUtc: true), from: from);
+    return Upower(
+        devices: devices,
+        daemon: daemon,
+        config: config,
+        policyFiles: files,
+        errors: errors,
+        exported: exported == null ? null : DateTime.fromMillisecondsSinceEpoch(exported * 1000, isUtc: true),
+        from: from);
   }
 
   static String _kindOf(String? path, String? kind) {
@@ -108,36 +127,60 @@ class Upower {
   /// upower command or no system D-Bus (as inside a container).
   static Future<Upower?> ask() async {
     try {
-      final r = await Process.run('upower', ['-d']).timeout(const Duration(seconds: 3));
+      final r = await Process.run('upower', ['-d'], environment: const {'LC_ALL': 'C', 'LANG': 'C'}).timeout(const Duration(seconds: 3));
       if (r.exitCode != 0) return null;
       final u = parse(r.stdout as String, from: 'upower');
       if (u.daemon.isEmpty && u.devices.isEmpty) return null;
-      return Upower(devices: u.devices, daemon: u.daemon, config: readConfig(), from: 'upower');
+      final (config, files) = readConfig();
+      return Upower(devices: u.devices, daemon: u.daemon, config: config, policyFiles: files, from: 'upower');
     } catch (_) {
       return null;
     }
   }
 
-  /// The host's UPower policy (read-only; never written): UPower.conf, then
-  /// any UPower.conf.d/*.conf, later files winning as they do for UPower.
-  static Map<String, String> readConfig([String dir = '/etc/UPower']) {
-    final out = <String, String>{};
+  /// The host's UPower policy (read-only; never written), resolved the way
+  /// UPower does: UPower.conf, then UPower.conf.d/*.conf in name order, a
+  /// later file's key winning; only keys in the [UPower] group count.
+  /// Returns the effective values and the files that set any of them.
+  static (Map<String, String>, List<String>) readConfig([String dir = '/etc/UPower']) {
+    final out = <String, String>{}, used = <String>[];
     final files = <String>['$dir/UPower.conf'];
     try {
-      files.addAll([
+      final d = [
         for (final e in Directory('$dir/UPower.conf.d').listSync())
-          if (e.path.endsWith('.conf')) e.path
-      ]..sort());
+          if (e is File && e.path.endsWith('.conf')) e.path
+      ];
+      d.sort(_byteCompare); // name order by bytes, as the C library sorts
+      files.addAll(d);
     } catch (_) {}
+    final key = RegExp(r'^\s*(UsePercentageForPolicy|PercentageLow|PercentageCritical|PercentageAction|TimeLow|TimeCritical|TimeAction|CriticalPowerAction)\s*=\s*([^\s#;]+)');
     for (final f in files) {
       try {
+        String? group;
+        var named = false;
         for (final l in File(f).readAsLinesSync()) {
-          final m = RegExp(r'^\s*(UsePercentageForPolicy|PercentageLow|PercentageCritical|PercentageAction|TimeLow|TimeCritical|TimeAction|CriticalPowerAction)\s*=\s*(\S+)').firstMatch(l);
-          if (m != null) out[m.group(1)!] = m.group(2)!;
+          final g = RegExp(r'^\s*\[([^\]]*)\]').firstMatch(l);
+          if (g != null) {
+            group = g.group(1)!.trim();
+            continue;
+          }
+          final m = key.firstMatch(l);
+          if (m == null || group != 'UPower') continue;
+          if (!named) used.add(f);
+          named = true;
+          out[m.group(1)!] = m.group(2)!;
         }
       } catch (_) {}
     }
-    return out;
+    return (out, used);
+  }
+
+  static int _byteCompare(String a, String b) {
+    final x = a.codeUnits, y = b.codeUnits;
+    for (var i = 0; i < x.length && i < y.length; i++) {
+      if (x[i] != y[i]) return x[i] - y[i];
+    }
+    return x.length - y.length;
   }
 
   /// Where a host-side exporter leaves UPower's details, mounted read-only
@@ -155,6 +198,8 @@ class Upower {
       if (u.exported == null) return (null, 'the UPower export has no "exported" time');
       final age = now.difference(u.exported!).inSeconds;
       if (age > 180) return (null, 'the UPower export is ${(age / 60).round()} min old (is its timer running on the host?)');
+      // UPower failed on the host: unknown with its reason, never old numbers.
+      if (u.errors.isNotEmpty) return (null, 'UPower on the host: ${u.errors.first}');
       if (u.ups.isEmpty) return (null, 'UPower on the host sees no UPS');
       return (u, null);
     } catch (e) {
@@ -241,7 +286,9 @@ class Upower {
       if (p['vendor'] != null) r('ups.maker', 'Maker', p['vendor'], src: 'declared'),
       if (p['model'] != null) r('ups.model', 'Model', p['model'], src: 'declared'),
       if ((p['serial'] ?? '').isNotEmpty) r('ups.serial', 'Serial number', p['serial'], src: 'declared'),
-      if (hostAction != null) r('ups.hostAction', 'Host protection', hostAction, src: 'declared', n: 'set in UPower on the host, which shuts it down; Monitor App only reads it'),
+      if (hostAction != null)
+        r('ups.hostAction', 'Host protection', hostAction,
+            src: 'declared', n: 'UPower on the host does this${policyFiles.isEmpty ? '' : ' (set in ${policyFiles.last})'}; Monitor App only reads it and never changes it'),
     ];
   }
 
@@ -260,10 +307,15 @@ class Upower {
     };
     if (a == 'Ignore') return 'host does nothing when the battery runs low';
     final byPct = (config['UsePercentageForPolicy'] ?? 'true').toLowerCase() != 'false';
-    final at = byPct
-        ? (config['PercentageAction'] == null ? '' : ' at ${config['PercentageAction']} %')
-        : (config['TimeAction'] == null ? '' : ' with ${(int.tryParse(config['TimeAction']!) ?? 0) ~/ 60} min left');
-    return 'host $verb$at';
+    String pct(String k) => '${config[k]} %';
+    String min(String k) => '${(int.tryParse(config[k]!) ?? 0) ~/ 60} min left';
+    final at = byPct ? (config['PercentageAction'] == null ? '' : ' at ${pct('PercentageAction')}') : (config['TimeAction'] == null ? '' : ' with ${min('TimeAction')}');
+    final low = byPct ? 'PercentageLow' : 'TimeLow', critical = byPct ? 'PercentageCritical' : 'TimeCritical';
+    final warn = [
+      if (config[low] != null) 'low at ${byPct ? pct(low) : min(low)}',
+      if (config[critical] != null) 'critical at ${byPct ? pct(critical) : min(critical)}',
+    ];
+    return 'host $verb$at${warn.isEmpty ? '' : ' (${warn.join(', ')})'}';
   }
 
   static double? _minutes(String? s) {

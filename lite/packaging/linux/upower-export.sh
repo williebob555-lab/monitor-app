@@ -9,40 +9,78 @@
 #   sudo sh upower-export.sh --remove                   removes the timer (DIR is left alone)
 #   upower-export.sh FILE                               one export (what the timer runs)
 #
-# It only reads from UPower (`upower -e`, `upower -i`), as USER, never root.
+# It only reads from UPower (`upower -e`, `-i`, `-d`) and its policy files,
+# as USER, never root, and never changes either.
 # It never sends anything to the UPS or UPower, and has no part in shutdown:
 # UPower's own low-battery action stays exactly as configured.
 set -eu
 
 lib=/usr/local/lib/monitor-app
+conf=${UPOWER_CONF_DIR:-/etc/UPower}   # overridable for tests only
 name=monitor-upower-export
 
-ups() { upower -e 2>/dev/null | grep '/ups_' || true; }
+# Plain C output whatever the host's language: "41.0 minutes", "100%",
+# English state words and dot decimals, so the collector parses the same text
+# on every host.
+export LC_ALL=C LANG=C
 
-# UPower's policy as the host has it (read-only): when it acts and how.
+# A hung UPower never holds the timer: each call gets 10 s.
+up() { if command -v timeout >/dev/null; then timeout 10 upower "$@"; else upower "$@"; fi; }
+
+ups() { up -e 2>/dev/null | grep '/ups_' || true; }
+
+# UPower's policy as the host has it (read-only). UPower reads UPower.conf,
+# then UPower.conf.d/*.conf in name order, a later file's key winning; only
+# keys inside the [UPower] group count. Each file that sets a key is named
+# ("policy-file:") before its keys, in that same order, so the reader ends
+# up with the effective values.
 policy() {
-  for f in /etc/UPower/UPower.conf /etc/UPower/UPower.conf.d/*.conf; do
+  for f in "$conf/UPower.conf" "$conf"/UPower.conf.d/*.conf; do
     [ -r "$f" ] || continue
-    sed -n 's/^[[:space:]]*\(UsePercentageForPolicy\|PercentageLow\|PercentageCritical\|PercentageAction\|TimeLow\|TimeCritical\|TimeAction\|CriticalPowerAction\)[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/config.\1: \2/p' "$f"
+    awk -v file="$f" '
+      /^[[:space:]]*\[/ { g = $0; gsub(/[][[:space:]]/, "", g); next }
+      g == "UPower" && /^[[:space:]]*(UsePercentageForPolicy|PercentageLow|PercentageCritical|PercentageAction|TimeLow|TimeCritical|TimeAction|CriticalPowerAction)[[:space:]]*=/ {
+        k = $0; sub(/^[[:space:]]*/, "", k); sub(/[[:space:]]*=.*/, "", k)
+        v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); sub(/[[:space:]#;].*$/, "", v)
+        if (!named) { print "policy-file: " file; named = 1 }
+        print "config." k ": " v
+      }' "$f"
   done
 }
 
 # Every UPS UPower knows (never a laptop battery, mouse or keyboard), the
 # daemon's own block (version, on-battery, critical-action) and its policy.
+# Written whole to a temporary file next to FILE and renamed over it, so a
+# reader never sees half a file. When UPower doesn't answer, the file says
+# so ("error:") instead of keeping old numbers. The folder is never created
+# here: if its storage isn't mounted, nothing is written.
 export_to() {
   out=$1
-  tmp="$(dirname "$out")/.$(basename "$out").tmp"
+  d=$(dirname "$out")
+  [ -d "$d" ] || { echo "$d does not exist (is its storage mounted?); nothing written" >&2; exit 1; }
+  tmp=$(mktemp "$d/.$(basename "$out").XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
   {
     echo "exported: $(date +%s)"
-    for dev in $(ups); do
-      echo "Device: $dev"
-      upower -i "$dev" | sed '/^[[:space:]]*\(History\|Statistics\)/,$d'
-    done
-    upower -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p'
+    if ! list=$(up -e 2>/dev/null); then
+      echo "error: UPower did not answer (is upower.service running?)"
+    else
+      for dev in $(printf '%s\n' "$list" | grep '/ups_' || true); do
+        if info=$(up -i "$dev" 2>/dev/null); then
+          echo "Device: $dev"
+          printf '%s\n' "$info" | sed '/^[[:space:]]*\(History\|Statistics\)/,$d'
+        else
+          echo "error: UPower did not answer for $dev"
+        fi
+      done
+      up -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p'
+    fi
     policy
   } > "$tmp"
   chmod 0644 "$tmp"
+  sync "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$out"
+  trap - EXIT
 }
 
 dir= user= mode=
@@ -67,15 +105,17 @@ case $mode in
     if [ -z "$devs" ]; then echo "UPower sees no UPS here (laptop batteries and mice are never exported)."; exit 1; fi
     for dev in $devs; do
       echo "UPower UPS: $dev"
-      upower -i "$dev" | grep -E 'native-path|vendor|model|serial|state|percentage|time to empty|warning-level' || true
+      up -i "$dev" | grep -E 'native-path|vendor|model|serial|state|percentage|time to empty|warning-level' || true
     done
-    upower -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p' | grep -E 'daemon-version|on-battery|critical-action' || true
+    up -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p' | grep -E 'daemon-version|on-battery|critical-action' || true
+    echo "Policy, in the order UPower applies it (later lines win):"
     policy
     ;;
   install)
     [ "$(id -u)" = 0 ] || { echo "run --install with sudo" >&2; exit 2; }
     [ -n "$dir" ] && [ -n "$user" ] || { echo "--install needs --dir and --user" >&2; exit 2; }
     id "$user" >/dev/null 2>&1 || { echo "no user $user" >&2; exit 2; }
+    [ -d "$(dirname "$dir")" ] || { echo "$(dirname "$dir") does not exist (is its storage mounted?)" >&2; exit 2; }
     mkdir -p "$dir" && chown "$user": "$dir" && chmod 0755 "$dir"
     dir=$(cd "$dir" && pwd)
     mkdir -p "$lib"
@@ -84,10 +124,14 @@ case $mode in
 [Unit]
 Description=Share UPower's UPS details with Monitor App (read-only file)
 After=upower.service
+# Never write to the bare mount point while the storage is missing.
+RequiresMountsFor=$dir
 
 [Service]
 Type=oneshot
 User=$user
+Environment=LC_ALL=C
+TimeoutStartSec=45
 ExecStart=/bin/sh $lib/upower-export.sh $dir/ups.txt
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -115,6 +159,8 @@ UNIT
     systemctl start "$name.service"
     echo "Installed $name.timer: $dir/ups.txt is rewritten every minute, as $user."
     head -n 1 "$dir/ups.txt"
+    findmnt -no SOURCE,TARGET -T "$dir" 2>/dev/null | sed 's/^/On storage: /' || true
+    command -v ls >/dev/null && ls -Zd "$dir" 2>/dev/null | sed 's/^/SELinux label: /' || true
     ;;
   remove)
     [ "$(id -u)" = 0 ] || { echo "run --remove with sudo" >&2; exit 2; }

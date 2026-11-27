@@ -83,27 +83,49 @@ If UPower on the host already reads the UPS (for example because it shuts the
 machine down at low battery), the collector shows what UPower sees without
 getting the USB device or D-Bus. A small timer on the host writes what UPower
 says about each UPS (never a laptop battery, mouse or keyboard), its own
-version and low-battery action, and the policy lines of
-`/etc/UPower/UPower.conf` into one file once a minute, as your user, and the
-container gets only that folder, read-only. It only reads from UPower, never
-writes to the UPS or to UPower, and has no part in shutdown: UPower's own
-action stays exactly as configured.
+version and low-battery action, and its effective policy (`UPower.conf`, then
+the drop-ins in `UPower.conf.d/` in name order, the last one winning, as
+UPower applies them) into one file once a minute, as your user, and the
+container gets only that folder, read-only. It only reads from UPower and its
+files, never writes to the UPS, to UPower or to its configuration, and has no
+part in shutdown: UPower's own action stays exactly as configured.
 
 ```sh
 curl -fsSL -o /tmp/upower-export.sh https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/linux/upower-export.sh
-sh /tmp/upower-export.sh --check          # what UPower sees; changes nothing
+sh /tmp/upower-export.sh --check          # what UPower sees and its effective policy; changes nothing
 sudo sh /tmp/upower-export.sh --install --dir /var/lib/monitor-app/upower --user "$(id -un)"
 ```
 
-Then uncomment the `/host/upower` line in `compose.yaml` (same folder as
-`--dir`) and run `docker compose up -d`. You get on mains or battery (and
-"battery, low" when UPower warns), charge, runtime (the UPS's own estimate),
-maker, model and "Host protection" (for example "host powers off at 20 %").
-If the USB step above is also done, load and the beeper come from USB HID and
-"Read through" says so. An export older than 3 minutes is shown as unknown,
-never as current. Needs collector 2.6.8 or later for the host protection,
-the HID supplement and several UPSes (2.6.5 reads the basics). Rerun
-`--install` to update the timer's script. Remove with
+Then uncomment the `/host/upower` mount in `compose.yaml` (`source` = the
+`--dir` folder) and run `docker compose up -d`. Keep that folder outside any
+folder the container can write (such as `./data` or the collector's state
+folder), or the read-only mount means nothing.
+
+How it stays safe and honest:
+
+* **Whole files only.** Each export is written to a temporary file in the
+  same folder and renamed over `ups.txt`, so the collector never reads half
+  of one.
+* **Same text on every host.** The exporter runs `upower` in the C locale, so
+  units, decimals and state words never depend on the host's language.
+* **Never old numbers.** If UPower doesn't answer, the file says so and the
+  readings turn unknown with that reason at once; if the timer stops, they
+  turn unknown after 3 minutes.
+* **Storage not mounted.** The timer waits for the folder's mount
+  (`RequiresMountsFor`) and never creates the folder; the mount in
+  `compose.yaml` uses `create_host_path: false`, so the container doesn't
+  start on an empty stand-in folder.
+* **SELinux stays enforcing.** `selinux: z` labels only that folder so the
+  container may read it; the timer (a system service running as your user)
+  keeps writing to it. `--install` prints the folder's label to check.
+
+You get on mains or battery (and "battery, low" when UPower warns), charge,
+runtime (the UPS's own estimate), maker, model and "Host protection" (for
+example "host powers off at 20 % (low at 35 %, critical at 25 %)"). If the
+USB step above is also done, load and the beeper come from USB HID and "Read
+through" says so. Needs collector 2.6.8 or later for the host protection,
+error reasons, the HID supplement and several UPSes (2.6.5 reads the
+basics). Rerun `--install` to update the timer's script. Remove with
 `sudo sh /usr/local/lib/monitor-app/upower-export.sh --remove`.
 
 Installed from the .rpm or .deb (no Docker), the collector asks UPower itself

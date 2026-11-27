@@ -1,8 +1,10 @@
 # Host telemetry companion (design, not built)
 
-Status: proposed 2026-11-27. Roadmap row 38. Nothing here runs yet except the
-UPower exporter (`lite/packaging/linux/upower-export.sh`), which this design
-generalises.
+Status: pattern approved by Wilson 2026-11-27 ("the file-based UPower exporter
+architecture is approved ... a promising architectural pattern for future
+Docker, SMART and GPU telemetry providers"). Roadmap row 38. Only the UPower
+exporter (`lite/packaging/linux/upower-export.sh`) runs today; every new
+provider follows its contract below.
 
 ## The problem
 
@@ -44,9 +46,26 @@ docker group. Some host data is out of reach from there:
 * `--check SOURCE` shows what it would export and changes nothing;
   `--install SOURCE --dir DIR --user USER` adds that source's timer;
   `--remove SOURCE` removes it. Sources are opt-in one by one.
-* Each export starts with `exported: <unix time>`; the collector treats a
-  file older than its source's limit as unknown with the reason, never as
-  current (as the UPower file does today).
+* **The provider contract** (what the UPower exporter already does, and every
+  provider must):
+  * Read-only towards the source: never writes to a device, a service or its
+    configuration; never part of shutdown or power policy.
+  * Least privilege per provider: its own systemd unit, the smallest user and
+    capability set that source needs, `ProtectSystem=strict`, only its export
+    folder writable, no network.
+  * Atomic writes: temp file in the same folder, renamed over the export.
+  * `exported: <unix time>` first; `error: <reason>` when the source didn't
+    answer, so the collector shows unknown with that reason instead of old
+    numbers; the collector also treats a file older than the source's limit
+    as unknown.
+  * C locale for every tool it runs; raw units where the tool offers them.
+  * Configuration resolved the way the source does (UPower: main file, then
+    drop-ins by name, last wins), with the files named.
+  * `RequiresMountsFor=` its folder and never creates it at export time; the
+    container mount uses `create_host_path: false` and `selinux: z`, and the
+    folder sits outside anything the container can write.
+  * Bounded size (the collector ignores an export over 64 KB) and a `--check`
+    that changes nothing.
 * Sources:
   * `upower`: as today. User, no capabilities, Unix sockets only, every
     minute.
