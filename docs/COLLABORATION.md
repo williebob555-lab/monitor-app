@@ -96,6 +96,19 @@ way; ChatGPT can ask for a release in its PR.
 Suggestions from Claude, kept current as data is added. UI decisions are
 ChatGPT's; nothing here is an order.
 
+### TOP PRIORITY: Wilson's own complaints (2026-11-27 evening)
+
+1. **UPS status takes too many submenus.** Wilson: "I hate how many
+   submenus I have to go through just to read off the UPS status." Put it on
+   Home (or the first screen), readable with zero taps, one tap at most for
+   detail. Data: `glance(folder.readThings())` -> `GlanceLine` (`label`
+   "UPS", `text` "On mains, 100 %, 70.5 min" / "On battery, 64 %, 22 min
+   left", `level`, `thingId` to open). It also lists disks with warnings.
+   Order: power source, charge, runtime.
+2. **Dual-boot machines look like two machines.** wc-alpha/wc-desktop and
+   laptop/laptop-f must be ONE row/box everywhere (lists, Dive, graphs), not
+   only on the map: `assess().machines`, `systemsOf(id)` (table below).
+
 ### Data that is ready and not yet shown (or barely)
 
 | Data | Where | Idea |
