@@ -16,6 +16,9 @@ import 'sample.dart';
 import 'things.dart';
 import 'containers.dart';
 import 'windows.dart';
+import 'updater.dart';
+import 'hid_ups.dart';
+import '../control.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
 /// to its own log and into now.json so it shows in the app.
@@ -149,6 +152,36 @@ class Agent {
     return parents;
   }
 
+  /// Applies requests for this device and its things, once each, and says
+  /// in its own results folder and log what happened.
+  Future<void> _applyRequests(SyncFolder folder, LocalConfig cfg, DateTime now) async {
+    folder.pruneControls(cfg.id, now);
+    for (final r in folder.requestsFor(cfg.id, now)) {
+      if (folder.handled(cfg.id, r.id)) continue;
+      ControlResult done(bool ok, String message, [String? value]) => ControlResult(id: r.id, ok: ok, message: message, value: value, time: DateTime.now().toUtc());
+      ControlResult res;
+      try {
+        if (r.key == 'ups.alarm' && Platform.isLinux) {
+          final v = {'off': 1, 'on': 2, 'quiet': 3}[r.value];
+          var why = '';
+          final now = v == null ? null : HidUps.setAlarm(v, (w) => why = w);
+          res = now == null
+              ? done(false, v == null ? 'unknown value ${r.value}' : why)
+              : done(true, 'alarm ${{1: 'off', 2: 'on', 3: 'quiet'}[now]}', {1: 'off', 2: 'on', 3: 'quiet'}[now]);
+        } else if (r.key == 'update' && r.target == cfg.id && Updater.canUpdate) {
+          res = done(true, await Updater.start(folder, cfg));
+        } else {
+          res = done(false, 'this device has no setting ${r.key}');
+        }
+      } catch (e) {
+        res = done(false, '$e');
+      }
+      folder.writeResult(cfg.id, res);
+      folder.log(cfg.id, '${res.ok ? 'control' : 'ERROR control'} ${r.key}=${r.value} for ${r.target}, asked by ${r.fromName}: ${res.message}');
+      if (r.key == 'update' && res.ok && Updater.exitsAfterStart) exit(0);
+    }
+  }
+
   Future<void> cycle({bool firstRun = false}) async {
     if (_busy) return; // never overlap cycles
     _busy = true;
@@ -169,6 +202,9 @@ class Agent {
         folder.log(cfg.id, 'start agent $appVersion on $_os, folder ${cfg.folder}, pid $pid');
         _lastFolder = cfg.folder;
       }
+      // Changes other devices asked for (control.dart), before collecting,
+      // so the report written below already shows the new value.
+      await _applyRequests(folder, cfg, DateTime.now().toUtc());
       final s = host.sample();
       final ip = await tailscaleIp();
       final stLocal = await tcpProbe('127.0.0.1', timeout: const Duration(seconds: 1));
@@ -252,6 +288,7 @@ class Agent {
         peers: peers,
         readings: extra,
         self: SelfCost(rssMb: rss, runMs: sw.elapsedMilliseconds, cpuMs: cycleCpu, over: over),
+        controls: [if (Updater.canUpdate) Updater.control(appVersion)],
         node: NodeDecl(
           id: cfg.id,
           type: 'device',

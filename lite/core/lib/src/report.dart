@@ -1,3 +1,4 @@
+import 'control.dart';
 import 'topology.dart';
 
 /// One device's latest report, as written to devices/<id>/now.json.
@@ -36,6 +37,7 @@ class Report {
     this.raw = const {},
     this.node,
     this.connected,
+    this.controls = const [],
   })  : peers = peers ?? {},
         readings = readings ?? [];
 
@@ -97,6 +99,9 @@ class Report {
 
   /// Things only: false when the host no longer sees it (unplugged).
   final bool? connected;
+
+  /// Settings this device (or thing) lets other devices change (control.dart).
+  final List<Control> controls;
 
   bool get isThing => kind == 'thing';
 
@@ -164,6 +169,7 @@ class Report {
         self: SelfCost.tryParse(json['self']),
         node: NodeDecl.tryParse(json['node']),
         connected: json['connected'] is bool ? json['connected'] as bool : null,
+        controls: json['controls'] is List ? (json['controls'] as List).map(Control.tryParse).whereType<Control>().toList() : const [],
         readings: json['readings'] is List
             ? (json['readings'] as List).map(Reading.tryParse).whereType<Reading>().toList()
             : null,
@@ -205,6 +211,7 @@ class Report {
         if (readings.isNotEmpty) 'readings': [for (final r in readings) r.toJson()],
         if (node != null) 'node': node!.toJson(),
         if (connected != null) 'connected': connected,
+        if (controls.isNotEmpty) 'controls': [for (final c in controls) c.toJson()],
       };
 
   /// The compact line appended to the daily history file.

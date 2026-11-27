@@ -68,18 +68,17 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
                 if (state.showMap)
-                  SliverPadding(
-                    padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
-                    sliver: SliverToBoxAdapter(
-                      child: Center(
-                        child: SizedBox(
-                          width: math.min(box.maxWidth - 2 * pad, 760),
-                          height: (box.maxWidth - 2 * pad).clamp(300.0, 500.0) + 110,
-                          child: _MapPanel(state),
-                        ),
+                  // The map takes the whole width and the rest of the screen
+                  // below the banner (at least enough to read on a phone).
+                  SliverLayoutBuilder(builder: (context, c) {
+                    final rest = c.viewportMainAxisExtent - c.precedingScrollExtent - 24;
+                    return SliverPadding(
+                      padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
+                      sliver: SliverToBoxAdapter(
+                        child: SizedBox(height: math.max(rest, 420), child: _MapPanel(state)),
                       ),
-                    ),
-                  )
+                    );
+                  })
                 else
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),

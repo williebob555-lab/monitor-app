@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../control.dart';
 import '../report.dart';
 import 'hid_ups.dart';
 import '../topology.dart';
@@ -381,6 +382,18 @@ class _Found {
       nextSeconds: next,
       connected: true,
       readings: readings,
+      controls: [
+        // The UPS's beeper, when it reports the setting (read over USB HID).
+        for (final r in readings)
+          if (r.key == 'ups.alarm' && r.src == 'measured')
+            Control(
+                key: 'ups.alarm',
+                label: 'Alarm',
+                options: const ['on', 'off', 'quiet'],
+                value: switch (r.value) { 'off' => 'off', 'on' => 'on', 'quiet until the next event' => 'quiet', _ => null },
+                note: 'The UPS beeps on battery and when the battery is low.',
+                confirm: 'Off also silences the low-battery warning; quiet lasts until the next power event.'),
+      ],
       node: NodeDecl(id: id, type: type, parent: host, links: [
         NodeLink(to: host, via: 'usb', dir: type == 'ups' ? 'out' : 'both', detail: 'USB ${usb.version ?? ''}$speed'.trim()),
         if (type == 'ups') NodeLink(to: host, via: 'power', dir: 'out', detail: 'mains or battery power'),
