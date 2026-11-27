@@ -401,6 +401,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   final _placedIds = <String>{};
   Offset hub = Offset.zero;
   double trunkX = 0;
+  final branches = <(double, double)>[]; // x, lowest bus it feeds
   Rect layoutBounds = Rect.zero;
 
   /// How a device fares on the network: every peer reaches it both ways,
@@ -477,30 +478,37 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     double rowW(List<_Node> r) => r.fold(0.0, (a, n) => a + cells[n.id]!.w) + (r.length - 1) * _cellGap;
     double rowH(List<_Node> r) => r.map((n) => cells[n.id]!.h).reduce(math.max);
     final total = tops.fold(0.0, (a, n) => a + cells[n.id]!.w + _cellGap);
-    var best = widest, bestZoom = 0.0;
+    double tierH(List<List<_Node>> t) => _header + t.fold(0.0, (b, r) => b + rowH(r) + _rowGap) + _pad;
+    double tierW(List<List<_Node>> t) => t.map(rowW).reduce(math.max) + 2 * _pad;
+    // Stacked (one region under another) or side by side (each region its
+    // own column, joined along the top): whichever lets the map be largest
+    // in this view. A wide screen gets side by side.
+    var best = widest, bestZoom = 0.0, side = false;
     final view = area.isEmpty ? const Size(700, 500) : area;
     for (var i = 0; i <= (narrow ? 0 : 16); i++) {
       final maxW = widest + (total - widest) * i / 16;
       final rows = rowsFor(maxW);
-      final w = rows.expand((t) => t).map(rowW).reduce(math.max) + 2 * _pad + 40;
-      final h = 60 + rows.fold(0.0, (a, t) => a + _header + t.fold(0.0, (b, r) => b + rowH(r) + _rowGap) + _pad + _tierGap);
-      final z = math.min(view.width / w, view.height / h);
-      if (z > bestZoom + 0.01) {
-        bestZoom = z;
-        best = maxW;
+      for (final s in [false, if (!narrow && tiers.length > 1) true]) {
+        final w = s ? rows.fold(0.0, (a, t) => a + tierW(t) + 40) : rows.expand((t) => t).map(rowW).reduce(math.max) + 2 * _pad + 40;
+        final h = 70 + (s ? rows.map(tierH).reduce(math.max) : rows.fold(0.0, (a, t) => a + tierH(t) + _tierGap));
+        final z = math.min(view.width / w, view.height / h);
+        if (z > bestZoom + 0.01) {
+          bestZoom = z;
+          best = maxW;
+          side = s;
+        }
       }
     }
     final rows = rowsFor(best);
-    final inner = rows.expand((t) => t).map(rowW).reduce(math.max);
-    final x0 = 0.0, width = inner + 2 * _pad;
-    trunkX = x0 - 18;
-    hub = Offset(x0 + width / 2, 0);
-    var y = 44.0;
-    for (var t = 0; t < tiers.length; t++) {
+    branches.clear();
+    double placeTier(int t, double x0, double inner, double y) {
       final top = y;
+      final branch = x0 - 18;
       y += _header;
+      var lastBus = y;
       for (final row in rows[t]) {
         final bus = y + 2;
+        lastBus = bus;
         y += _rowGap - 12;
         var x = x0 + _pad + (inner - rowW(row)) / 2;
         var last = x;
@@ -525,14 +533,36 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
           }
           x += c.w + _cellGap;
         }
-        buses.add((bus, trunkX, last));
+        buses.add((bus, branch, last));
         y += rowH(row) + 12;
       }
       y += _pad - 12;
-      regions.add((tiers[t], Rect.fromLTRB(x0, top, x0 + width, y)));
-      y += _tierGap;
+      regions.add((tiers[t], Rect.fromLTRB(x0, top, x0 + inner + 2 * _pad, y)));
+      branches.add((branch, lastBus));
+      return y;
     }
-    layoutBounds = Rect.fromLTRB(trunkX - 10, -20, x0 + width + 10, y + 30); // room for the zoom buttons
+
+    var right = 0.0, bottom = 0.0;
+    if (side) {
+      var x = 0.0;
+      for (var t = 0; t < tiers.length; t++) {
+        final inner = tierW(rows[t]) - 2 * _pad;
+        bottom = math.max(bottom, placeTier(t, x, inner, 54));
+        x += inner + 2 * _pad + 40;
+      }
+      right = x - 40;
+    } else {
+      final inner = rows.expand((t) => t).map(rowW).reduce(math.max);
+      var y = 54.0;
+      for (var t = 0; t < tiers.length; t++) {
+        y = placeTier(t, 0, inner, y) + _tierGap;
+      }
+      bottom = y - _tierGap;
+      right = inner + 2 * _pad;
+    }
+    trunkX = -18;
+    hub = Offset(right / 2, 0);
+    layoutBounds = Rect.fromLTRB(trunkX - 10, -20, right + 10, bottom + 30); // room for the zoom buttons
     for (final n in nodes) {
       if (bodies[n.id] != null && targets[n.id] != null && _placedIds.add(n.id)) {
         // Arrivals start in place and grow, rather than flying in.
@@ -547,7 +577,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   void _fit(double ease) {
     if (area.isEmpty) return;
     final r = _bounds();
-    final z = math.min(area.width / r.width, area.height / r.height).clamp(0.3, 1.1);
+    final z = math.min(area.width / r.width, area.height / r.height).clamp(0.3, 1.5);
     final p = -r.center * z;
     zoom += (z - zoom) * ease;
     pan = Offset.lerp(pan, p, ease)!;
@@ -1240,20 +1270,46 @@ class _MapPainter extends CustomPainter {
     final z = m.zoom.clamp(0.6, 1.4);
     final gap = 7 * m.zoom;
     final hub = m._screen(m.hub);
-    final tNet = m._screen(Offset(m.trunkX, 0)).dx - gap, tSync = tNet + gap;
     final yNetHub = hub.dy - 4 * z, ySyncHub = hub.dy + 4 * z;
-    final lastBus = m._screen(Offset(0, m.buses.map((b) => b.$1).reduce(math.max))).dy;
     final c = 8 * m.zoom;
-    final netTrunk = _trace([Offset(hub.dx, yNetHub), Offset(tNet, yNetHub), Offset(tNet, lastBus + gap)], c);
-    final syncTrunk = _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, lastBus)], c);
-    _copper(canvas, syncTrunk, layerSync);
-    _copper(canvas, netTrunk, layerNet);
-    _pulses(canvas, netTrunk, pulseNet, 0.35, count: 2);
-    _pulses(canvas, syncTrunk, pulseSync, 0.25, count: 2, phase: 0.3);
+    // One branch down the left of each region (all regions share one when
+    // stacked), fed along the top from the hub.
+    final byX = <double, double>{};
+    for (final (x, b) in m.branches) {
+      byX[x] = math.max(byX[x] ?? b, b);
+    }
+    final xs = byX.keys.toList()..sort();
+    double sx(double wx) => m._screen(Offset(wx, 0)).dx;
+    for (var i = 0; i < xs.length; i++) {
+      final tNet = sx(xs[i]) - gap, tSync = tNet + gap;
+      final low = m._screen(Offset(0, byX[xs[i]]!)).dy;
+      final first = i == 0;
+      final net = first
+          ? _trace([Offset(hub.dx, yNetHub), Offset(tNet, yNetHub), Offset(tNet, low + gap)], c)
+          : _trace([Offset(tNet, yNetHub), Offset(tNet, low + gap)], c);
+      final sync = first
+          ? _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, low)], c)
+          : _trace([Offset(tSync, ySyncHub), Offset(tSync, low)], c);
+      _copper(canvas, sync, layerSync);
+      _copper(canvas, net, layerNet);
+      if (!first) {
+        _via(canvas, Offset(tNet, yNetHub), layerNet);
+        _via(canvas, Offset(tSync, ySyncHub), layerSync);
+      }
+      _pulses(canvas, net, pulseNet, 0.35, count: 2, phase: i * 0.2);
+      _pulses(canvas, sync, pulseSync, 0.25, count: 2, phase: 0.3 + i * 0.2);
+    }
+    if (xs.length > 1) {
+      // The top run from the hub out to the farthest branch.
+      final far = sx(xs.last);
+      _copper(canvas, Path()..moveTo(hub.dx, ySyncHub)..lineTo(far, ySyncHub), layerSync);
+      _copper(canvas, Path()..moveTo(hub.dx, yNetHub)..lineTo(far - gap, yNetHub), layerNet);
+    }
     // Buses: Syncthing on the row line, the network a step below it.
-    for (final (y, _, x2) in m.buses) {
+    for (final (y, bx, x2) in m.buses) {
+      final tNet = sx(bx) - gap, tSync = tNet + gap;
       final sy = m._screen(Offset(0, y)).dy, ny = sy + gap;
-      final x = m._screen(Offset(x2, 0)).dx + gap;
+      final x = sx(x2) + gap;
       _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
       _copper(canvas, Path()..moveTo(tNet, ny)..lineTo(x, ny), layerNet);
       _via(canvas, Offset(tSync, sy), layerSync);

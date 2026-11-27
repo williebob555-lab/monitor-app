@@ -16,3 +16,4 @@ export 'src/update.dart';
 export 'src/format.dart';
 export 'src/history.dart';
 export 'src/config.dart';
+export 'src/control.dart';

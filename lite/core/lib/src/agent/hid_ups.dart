@@ -361,6 +361,6 @@ List<Reading> upsReadings(Map<String, double> v) {
           value: switch (alarm.toInt()) { 1 => 'off', 2 => 'on', 3 => 'quiet until the next event', _ => 'unknown (${alarm.toInt()})' },
           group: 'Power',
           src: 'measured',
-          note: 'change it with: monitor-agent --ups-alarm off|on|quiet, on the computer the UPS is plugged into'),
+          note: 'change it from any device on the UPS page, or with monitor-agent --ups-alarm'),
   ];
 }

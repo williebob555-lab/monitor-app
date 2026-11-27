@@ -56,8 +56,10 @@ reports (the kernel's get-feature-report call, which a read-only handle may
 make). It never sends anything to the UPS on its own.
 
 **The UPS's beeper.** The UPS page shows its alarm setting (on, off, or quiet
-until the next event). To change it, run this by hand in this project's
-folder; it is the only thing that ever writes to the UPS:
+until the next event), and you can change it there from any device: the
+collector applies it on its next check and logs who asked. Those requests
+are the only thing that ever writes to the UPS. By hand, in this project's
+folder:
 
 ```sh
 sudo docker compose exec monitor monitor-agent --ups-alarm off    # or: on, quiet
@@ -77,10 +79,10 @@ device id) is read from that project's Compose config:
 ```sh
 curl -fsSL -o /tmp/update.sh https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/docker/update.sh
 sudo sh /tmp/update.sh --dir ~/monitor-app --check     # shows what it found; changes nothing
-sudo sh /tmp/update.sh --dir ~/monitor-app --install   # daily timer for this project only
+sudo sh /tmp/update.sh --dir ~/monitor-app --install   # timer for this project only (run again to update the timer)
 ```
 
-Every day around 04:20 a root systemd timer for that one project checks for a
+Every 15 minutes a root systemd timer for that one project checks for a
 newer release and, if there is one, rebuilds and restarts only its collector
 service (`--no-deps`; no other container is touched). The Dockerfile checks the
 SHA256 first. Each attempt is written to that device's log in the app. Your
@@ -93,8 +95,8 @@ By hand instead:
 cd ~/monitor-app && docker compose build --pull --no-cache && docker compose up -d
 ```
 
-To pin a version, set `VERSION=2.0.1` in `.env` instead of `latest`; the daily
-check then leaves it alone.
+To pin a version, set `VERSION=2.0.1` in `.env` instead of `latest`; the timer
+then leaves it alone.
 
 ## Check it
 

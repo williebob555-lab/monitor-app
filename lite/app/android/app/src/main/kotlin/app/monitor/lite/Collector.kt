@@ -203,6 +203,14 @@ object Collector {
             // nothing attached that it can see.
             j.put("node", JSONObject().put("id", j.getString("id")).put("type", "device")
                 .put("parent", JSONObject.NULL).put("children", org.json.JSONArray()).put("links", org.json.JSONArray()))
+            // "Update now" from any device. Android installs nothing without a
+            // tap on this phone, so asking shows a notification here instead.
+            j.put("controls", org.json.JSONArray().put(JSONObject().put("key", "update").put("label", "Monitor App")
+                .put("options", org.json.JSONArray().put("update")).put("value", BuildConfig.VERSION_NAME)
+                .put("note", "Android installs only with a tap on the phone itself: asking puts a notification there.")
+                .put("confirm", "Android needs a tap on ${deviceName(ctx)} itself: a notification appears there; tap it, then Update at the top.")))
+            runCatching { answerRequests(ctx, root, id, dir, now / 1000) }
+                .onFailure { log(dir, "ERROR requests: $it") }
 
             val runMs = SystemClock.elapsedRealtime() - started
             val cpuMs = Process.getElapsedCpuTime() - cpu0
@@ -256,6 +264,36 @@ object Collector {
             log(dir, "ERROR run failed: $e ${e.stackTrace.take(3).joinToString(" | ")}")
         }
         return next
+    }
+
+    /** Requests other devices left for this one (lite/core control.dart):
+     *  devices/<from>/requests/<id>.json, answered once in results/<id>.json
+     *  within ten minutes. Only "update" is offered here. */
+    private fun answerRequests(ctx: Context, root: File, me: String, dir: File, nowS: Long) {
+        val results = File(dir, "results")
+        results.listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
+        File(dir, "requests").listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
+        val devices = File(root, "devices").listFiles() ?: return
+        for (d in devices) {
+            val files = File(d, "requests").listFiles() ?: continue
+            for (f in files) {
+                if (!f.name.endsWith(".json") || f.name.contains(".sync-conflict")) continue
+                val q = runCatching { JSONObject(f.readText()) }.getOrNull() ?: continue
+                val rid = q.optString("id")
+                if (q.optString("host") != me || rid.isEmpty() || !rid.matches(Regex("[0-9a-f]{1,64}"))) continue
+                if (Math.abs(nowS - q.optLong("t")) > 600) continue
+                val out = File(results, "$rid.json")
+                if (out.exists()) continue
+                val from = q.optString("fromName", q.optString("from"))
+                val ok = q.optString("key") == "update"
+                val msg = if (ok) "notification shown; installing needs a tap on ${deviceName(ctx)}" else "this device has no setting ${q.optString("key")}"
+                if (ok) Alerts.post(ctx, "update", 9, from, "Update asked from $from",
+                    "Open Monitor App and tap Update at the top to install the newest version. Android needs your tap for this.")
+                results.mkdirs()
+                out.writeText(JSONObject().put("id", rid).put("ok", ok).put("message", msg).put("t", nowS).toString())
+                log(dir, "${if (ok) "control" else "ERROR control"} ${q.optString("key")}=${q.optString("value")} for ${q.optString("target")}, asked by $from: $msg")
+            }
+        }
     }
 
     /** Extra readings (lite/FORMAT.md "readings"): what the device is, its

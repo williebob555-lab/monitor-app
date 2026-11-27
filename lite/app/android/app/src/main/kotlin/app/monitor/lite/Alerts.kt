@@ -108,7 +108,7 @@ object Alerts {
     private fun cancel(ctx: Context, id: String, kind: Int) =
         runCatching { NotificationManagerCompat.from(ctx).cancel(tag(id, kind), 1) }
 
-    private fun post(ctx: Context, id: String, kind: Int, name: String, title: String, text: String) {
+    fun post(ctx: Context, id: String, kind: Int, name: String, title: String, text: String) {
         val nm = NotificationManagerCompat.from(ctx)
         if (!nm.areNotificationsEnabled()) {
             Collector.logToFolder(ctx, "notification for $name not shown: notifications are off for the app")

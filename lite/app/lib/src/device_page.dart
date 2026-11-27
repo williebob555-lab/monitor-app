@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'controls_view.dart';
 import 'dive.dart';
 import 'parts.dart';
 import 'state.dart';
@@ -61,6 +62,7 @@ class _DevicePageState extends State<DevicePage> {
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
             ];
             final right = <Widget>[
+              if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
               _fields(r),
               const SizedBox(height: 14),
               _log(r),

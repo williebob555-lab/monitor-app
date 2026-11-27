@@ -54,6 +54,63 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         for (final t in things.values) t.id: t.report.name,
       };
 
+  /// This device's name as the others see it (its collector's report).
+  String get myName => reports[host.id]?.name ?? host.name;
+
+  /// Changes this device asked other devices for, by request id. Loaded from
+  /// its own requests folder, so they survive a restart of the app.
+  Map<String, ControlRequest>? _asked;
+  final Map<String, ControlResult> _answers = {};
+
+  Map<String, ControlRequest> get asked =>
+      _asked ??= {for (final r in folder.myRequests(host.id)) r.id: r};
+
+  /// Asks the device that owns [target] (itself, or a thing's host) to set
+  /// [key] to [value]. That device applies it on its next check and answers.
+  void ask(String target, String key, String value) {
+    final r = ControlRequest(
+      id: ControlRequest.newId(),
+      from: host.id,
+      fromName: myName,
+      host: things[target]?.host ?? target,
+      target: target,
+      key: key,
+      value: value,
+      time: DateTime.now().toUtc(),
+    );
+    folder.sendRequest(r);
+    asked[r.id] = r;
+    host.log('asked ${names[r.host] ?? r.host}: ${r.key}=${r.value} for ${names[target] ?? target}');
+    // Our own collector checks for requests on each cycle: wake it now.
+    if (r.host == host.id) host.nudge().then((_) => refresh(force: true));
+    notifyListeners();
+  }
+
+  /// The newest request for [target]'s [key], and its answer once it came.
+  (ControlRequest, ControlResult?)? lastAsk(String target, String key) {
+    final r = asked.values.where((r) => r.target == target && r.key == key).fold<ControlRequest?>(
+        null, (a, b) => a == null || b.time.isAfter(a.time) ? b : a);
+    if (r == null) return null;
+    final a = _answers[r.id] ?? folder.resultOf(r.host, r.id);
+    if (a != null) _answers[r.id] = a;
+    return (r, a);
+  }
+
+  /// Picks up answers that arrived; true when one did.
+  bool _collectAnswers() {
+    var got = false;
+    final now = DateTime.now().toUtc();
+    for (final r in asked.values) {
+      if (_answers.containsKey(r.id) || now.difference(r.time) > ControlRequest.maxAge * 2) continue;
+      final a = folder.resultOf(r.host, r.id);
+      if (a != null) {
+        _answers[r.id] = a;
+        got = true;
+      }
+    }
+    return got;
+  }
+
   /// Devices not running right now (not booted, old copy, long unseen).
   Set<String> get away => {for (final d in assessment.devices) if (d.level == Level.inactive) d.report.id};
 
@@ -218,6 +275,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _lastWatch = null;
     await host.setFolder(path);
     folder = SyncFolder(path);
+    _asked = null;
     await host.nudge();
     refresh(force: true);
   }
@@ -249,6 +307,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         .map((r) => '${r.id}:${r.seq}:${r.time.millisecondsSinceEpoch}')
         .join(',');
     // Redraw when data changed, or every 30 s so "x min ago" stays true.
+    if (_collectAnswers()) force = true;
     if (!force && sig == _sig && now.difference(_lastNotify) < const Duration(seconds: 30)) return;
     _sig = sig;
     _lastNotify = now;
