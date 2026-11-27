@@ -63,8 +63,28 @@ syncs like everything else.
 * **Notifications (phones and tablets)**: on another device's page, switch on
   "Notify me on this phone". The phone then tells you once if that device
   stops reporting for 30 minutes, or its Syncthing folder stays not up to date
-  for 15 minutes, and clears the notification when it is over. It is checked
-  at the end of each normal collection run, so it costs nothing extra.
+  for 15 minutes. It costs nothing extra: it is checked at the end of each
+  normal collection run. From 2.6.9 each switch is kept as two rules in
+  `rules/`, so a computer does the watching (see below). Until a 2.6.9
+  computer is running, the phone checks these itself.
+
+## Rules and notifications (2.6.9+)
+
+* **Rules.** Each rule is a file, `rules/<id>.json` (FORMAT.md "Rules"),
+  saying when, about what, and what to do: notify, add a note to history, or
+  send a control. A rule fires once per episode and is judged by one device,
+  so it never fires twice. Every firing is written to
+  `rules/<id>/fired/<device>.jsonl` with the reason.
+* **Notifications.** Every device shows each new firing meant for it once:
+  a toast on Windows, a desktop notification on Linux, a notification on
+  Android. Servers without a desktop show nothing.
+* **Ready-made rules**, all switched off at first: a device stopped reporting,
+  UPS on battery, disk over 90 %, container unhealthy, DNS not answering,
+  Syncthing folder stuck. Until the app has a rule screen, turn one on by
+  changing `"enabled": false` to `true` in its file.
+* **Location (phones, 2.7+)**: off by default. Once switched on in the app,
+  the phone adds its rough position (about 1 km) from what Android already
+  knows. Every device in the folder can read it.
 
 ## Updates
 
