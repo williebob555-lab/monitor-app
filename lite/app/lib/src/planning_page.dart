@@ -514,6 +514,10 @@ class _ProjectPageState extends State<_ProjectPage> {
     final rackDepth = draft.rackDepthMm;
     return [
       '${item.heightUnits == null ? 'Height unknown' : '${item.heightUnits}U'} · ${item.placement}',
+      if (item.bottomUnit != null &&
+          item.topUnit != null &&
+          item.heightUnits != item.topUnit! - item.bottomUnit! + 1)
+        'Equipment height differs from its rack position',
       if (depth != null && rackDepth != null && depth > rackDepth)
         'Depth exceeds entered rack depth'
       else if (depth == null || rackDepth == null)
@@ -557,7 +561,7 @@ class _RackElevation extends StatelessWidget {
     final bays = <Widget>[];
     for (var unit = units; unit >= 1;) {
       final item = byTopUnit[unit];
-      final count = item?.heightUnits ?? 1;
+      final count = item == null ? 1 : unit - item.bottomUnit! + 1;
       final top = unit;
       bays.add(
         SizedBox(

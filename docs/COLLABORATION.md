@@ -102,7 +102,10 @@ ChatGPT's; nothing here is an order.
 |---|---|---|
 | Pattern history | `readPatternHistory(dir, now)`, `seriesOf(lines, key)` | A small "over the months" line under each pattern (battery drain trend shows battery ageing) |
 | Patterns from phones | each phone's `patterns.json`, or `findPatterns` | Same patterns section on phone pages as on computers |
-| UPS source | reading `ups.source` ("USB", "UPower on the host (exported file)", ...) | Say where the UPS numbers come from; when it is UPower, `ups.load` is unknown and there is no alarm control, so hide the beeper row instead of showing it disabled |
+| UPS source (2.6.8) | reading `ups.source` in words ("UPower 1.91.5 on the host (exported file), plus USB HID for load and alarm"), and `from` on each UPS reading (`upower`, `upower-export`, `hid`, `nut`, `sysfs`) | Say where the UPS numbers come from, per row if you like (a small "UPower" / "USB" tag). With UPower only, `ups.load` is unknown and there is no `ups.alarm` or alarm control: hide the beeper row instead of showing it disabled |
+| UPS host protection (2.6.8) | reading `ups.hostAction` (declared), e.g. "host powers off at 20 %" | A calm line on the UPS page: what the host does at low battery. It is the host's own UPower setting, read-only: no button |
+| UPS identity (2.6.8) | reading `ups.identity` | Under the UPS's details: "USB 0764:0601 on port 1-5 (no serial)"; its note says moving it to another port gives it a new id |
+| Unavailable vs zero | `value: null` with `src: "unknown"` and a `note` (FORMAT.md "Unavailable is never zero") | Never draw null as 0 or an empty bar: show "unknown" and the note. A 0 is a real zero |
 | Settings from any device | `controls`, `sendRequest`, `myRequests`, `resultOf` | Already on device pages; a single "Waiting for…" list across devices would help on a phone |
 | Twins | `node.links` `via: dual-boot`, `Level.inactive` | One machine card, the running system on top, the other as a quiet line ("Fedora, last up 2 h ago") |
 | UPS patterns (2.6.7) | the UPS thing's `patterns.json` (`readPatternHistory(thingDir, now)` for months) | "On battery 2 times, 17 min in all", usual load, runtime when full (estimated); the runtime line over months shows the battery ageing |
@@ -112,6 +115,12 @@ ChatGPT's; nothing here is an order.
 | Events (2.6.7, row 7) | `readEvents(root, from, to)`; FORMAT.md "Events" | A quiet list per device ("Power cut 21:04, back 21:31"); markers on history charts |
 | History gaps (2.6.7, row 4) | `findGaps(times, restSecondsFor(kind), from:, to:)`, `explainGaps(...)`, `Gap.why` (off, asleep, collector, unknown) | A quiet band on history charts where a device wrote nothing; only `collector` is a problem worth colour |
 | Automatic updates (2.6.7) | `settings.json` `update.auto` (default true), each device's log `update:` lines | One switch in Setup ("Install updates on their own"); "Update all" can show each device's version catching up |
+| Service health (2.6.8, row 10, answers #89) | container `ct.http` (status or `no answer`), `ct.httpMs`; Pi-hole `ph.*` on the Pi-hole container; FORMAT.md container row | #89's health dot beside Docker health: `ct.http` level is the colour. `ph.api` = `needs its password` is a setup note, not a fault |
+| Unplaced rack height (2.6.8, answers #81) | `Placement.height` (int U), `Placement.units` | Save the 2U of an amplifier with no position yet; `check()` says when a placed range disagrees |
+| Android parity (2.6.8, row 9) | phone `st.state`, `ts.state`, `drive.*` | Syncthing peer/folder counts on phones need a place to paste Syncthing-Fork's API key (Settings > GUI in that app). Proposal: a field on the phone's own page that saves to the app's private settings, never to the shared folder |
+| Network layers (2.6.8, row 11) | `net.gateway`, `net.dns`, `net.dnsDirect`, `net.internet`, `net.ifaces`, `net.pihole`; `assess().network` titles | Home's network line already shows `assess().network.title`, which now says which layer failed. A device's Network part can show the four checks as a row of four dots (router, DNS, public DNS, internet) |
+| Who may change settings (2.6.8, row 14) | `controlsAllowed(folder)` (null = everyone), `settings.json` `controls.allow` | An "Allowed to change settings" list in Setup; save it into settings.json without touching other keys |
+| History health (2.6.8, row 13) | `checkHistory(deviceDir, now, Retention.load(folder))` -> `.problems`, `.readMs` | Setup's storage line can say "all green" or the first problem; please time `readHistoryRange` for a year on the tablet and show it there |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)
@@ -139,7 +148,7 @@ ChatGPT's; nothing here is an order.
 * Docker collectors report no ICMP ping time. From 2.6.6 every computer also
   writes `peers.<id>.tcpMs` (`PeerView.tcpMs`), the TCP handshake time; show
   it when `ping` is missing (it is a different measure, so label it).
-* wc-desktop is pinned to 2.6.3 and reads no UPS data by Wilson's choice:
-  its UPS thing shows unknown values with a reason. Show the reason, not an
-  error.
+* wc-desktop reads no UPS data until its host UPower export is set up (it has
+  no USB HID access by design): its UPS thing shows unknown values with a
+  reason. Show the reason, not an error.
 * Windows and Android write no things (USB devices) yet.

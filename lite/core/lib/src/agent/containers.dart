@@ -17,6 +17,11 @@ class Containers {
   List<Report> _last = const [];
   DateTime? _at;
 
+  /// Web addresses containers served while running, by container id, so a
+  /// stopped web service (which publishes no ports) still gets a warning.
+  final _served = <String, String>{};
+  final _pihole = PiHole();
+
   Future<List<Report>> collect(String hostId, String? machine, String? hostIp, DateTime now, int next) async {
     if (!Platform.isLinux) return const [];
     if (_at != null && now.difference(_at!) < const Duration(seconds: 55)) {
@@ -38,11 +43,17 @@ class Containers {
       Map? stats;
       if (state == 'running') stats = await dockerGet('/containers/${c['Id']}/stats?stream=false') as Map?;
       final url = await _url(labels, c['Ports'] as List?, hostIp);
+      // Service health: one request to its page, timed. Any HTTP answer
+      // below 500 (a login redirect is fine) counts as up.
+      final check = state == 'running' && url != null ? await httpCheck(url.$4) : null;
+      if (url != null) _served[id] = url.$1;
+      final wasServing = state != 'running' ? _served[id] : null;
       final level = state == 'restarting'
           ? 'fault'
-          : state == 'exited' && !status.startsWith('Exited (0)')
+          : state == 'exited' && (!status.startsWith('Exited (0)') || wasServing != null)
               ? 'warn'
               : null;
+      final pihole = state == 'running' && url != null && '${c['Image'] ?? ''}'.contains('pihole') ? await _pihole.collect(url.$4, now) : const <Reading>[];
       final r = Report(
         id: id,
         name: '${labels['com.docker.compose.service'] ?? name}',
@@ -53,7 +64,8 @@ class Containers {
         connected: true,
         node: NodeDecl(id: id, type: 'container', parent: pid),
         readings: [
-          Reading(key: 'ct.state', label: 'State', value: state, group: 'Container', src: 'measured', level: level),
+          Reading(key: 'ct.state', label: 'State', value: state, group: 'Container', src: 'measured', level: level,
+              note: wasServing != null ? 'was serving $wasServing' : null),
           Reading(key: 'ct.status', label: 'Docker says', value: status, group: 'Container', src: 'measured'),
           if (health != null)
             Reading(key: 'ct.health', label: 'Health check', value: health, group: 'Container', src: 'measured', level: health == 'unhealthy' ? 'fault' : null),
@@ -64,6 +76,12 @@ class Containers {
           Reading(key: 'ct.image', label: 'Image', value: '${c['Image'] ?? '?'}', group: 'Container', src: 'declared'),
           Reading(key: 'ct.name', label: 'Container', value: name, group: 'Container', src: 'declared'),
           if (url != null) Reading(key: 'ct.url', label: 'Open', value: url.$1, group: 'Interface', src: url.$2, note: url.$3),
+          if (check != null) ...[
+            Reading(key: 'ct.http', label: 'Page answers', value: check.$1 ?? 'no answer', group: 'Interface', src: 'measured',
+                level: check.$1 == null || check.$1! >= 500 ? 'warn' : null),
+            if (check.$1 != null) Reading(key: 'ct.httpMs', label: 'Answer time', value: check.$2, unit: 'ms', group: 'Interface', src: 'measured'),
+          ],
+          ...pihole,
         ],
       );
       (byProject[project] ??= []).add(r);
@@ -130,10 +148,10 @@ class Containers {
 
   /// The container's web interface: a monitor.url label wins; otherwise its
   /// first published TCP port, but only if something answers on it here.
-  /// Returns (url, src, note).
-  static Future<(String, String, String?)?> _url(Map<String, Object?> labels, List? ports, String? hostIp) async {
+  /// Returns (url, src, note, url to check from this host).
+  static Future<(String, String, String?, String)?> _url(Map<String, Object?> labels, List? ports, String? hostIp) async {
     final own = labels['monitor.url'];
-    if (own is String && own.startsWith(RegExp('https?://'))) return (own, 'declared', 'from its monitor.url label');
+    if (own is String && own.startsWith(RegExp('https?://'))) return (own, 'declared', 'from its monitor.url label', own);
     final candidates = [
       for (final p in ports ?? const [])
         if (p is Map && p['Type'] == 'tcp' && p['PublicPort'] is int && !_notWeb.contains(p['PrivatePort']) && !('${p['IP'] ?? ''}'.contains(':') && p['IP'] != '::')) p,
@@ -149,7 +167,8 @@ class Containers {
       // publishes DNS on 53, which answers TCP but is no web page).
       if (!await speaksHttp(local, port, tls: tls)) continue;
       final where = ip == '0.0.0.0' || ip == '::' || ip.isEmpty ? (hostIp ?? local) : ip;
-      return ('${tls ? 'https' : 'http'}://$where:$port', 'measured', 'port $port answers HTTP on this host');
+      final scheme = tls ? 'https' : 'http';
+      return ('$scheme://$where:$port', 'measured', 'port $port answers HTTP on this host', '$scheme://$local:$port');
     }
     return null;
   }
@@ -171,6 +190,51 @@ class Containers {
       return ascii.decode(first.take(5).toList(), allowInvalid: true) == 'HTTP/';
     } catch (_) {
       return false;
+    } finally {
+      s?.destroy();
+    }
+  }
+
+  /// HEAD [url] once: (HTTP status or null when nothing answered, ms).
+  static Future<(int?, int)> httpCheck(String url, {Duration timeout = const Duration(seconds: 3)}) async {
+    final sw = Stopwatch()..start();
+    final res = await httpRequest(url, method: 'HEAD', timeout: timeout);
+    return (res?.$1, sw.elapsedMilliseconds);
+  }
+
+  /// One small HTTP/1.0 request (self-signed certificates allowed: these are
+  /// this host's own services). Returns (status, body) or null.
+  static Future<(int, String)?> httpRequest(String url,
+      {String method = 'GET', Map<String, String> headers = const {}, String? body, Duration timeout = const Duration(seconds: 3)}) async {
+    Socket? s;
+    try {
+      final u = Uri.parse(url);
+      final tls = u.scheme == 'https';
+      final port = u.hasPort ? u.port : (tls ? 443 : 80);
+      s = tls
+          ? await SecureSocket.connect(u.host, port, timeout: timeout, onBadCertificate: (_) => true)
+          : await Socket.connect(u.host, port, timeout: timeout);
+      final b = body == null ? null : utf8.encode(body);
+      final req = StringBuffer('$method ${u.path.isEmpty ? '/' : u.path}${u.hasQuery ? '?${u.query}' : ''} HTTP/1.0\r\nHost: ${u.host}\r\n');
+      headers.forEach((k, v) => req.write('$k: $v\r\n'));
+      if (b != null) req.write('Content-Type: application/json\r\nContent-Length: ${b.length}\r\n');
+      req.write('\r\n');
+      s.write(req);
+      if (b != null) s.add(b);
+      await s.flush();
+      final raw = <int>[];
+      await for (final chunk in s.timeout(timeout)) {
+        raw.addAll(chunk);
+        if (raw.length > 256 * 1024) break;
+        if (method == 'HEAD' && ascii.decode(raw, allowInvalid: true).contains('\r\n\r\n')) break;
+      }
+      final text = utf8.decode(raw, allowMalformed: true);
+      final m = RegExp(r'^HTTP/\d(?:\.\d)? (\d{3})').firstMatch(text);
+      if (m == null) return null;
+      final cut = text.indexOf('\r\n\r\n');
+      return (int.parse(m.group(1)!), cut < 0 ? '' : text.substring(cut + 4));
+    } catch (_) {
+      return null;
     } finally {
       s?.destroy();
     }
@@ -200,5 +264,86 @@ class Containers {
     } finally {
       sock?.destroy();
     }
+  }
+}
+
+/// Pi-hole's own numbers through its local API (v6: /api/stats/summary).
+///
+/// v6 asks for a password unless none is set. The collector reads it from
+/// MONITOR_PIHOLE_PASSWORD (or the file named by MONITOR_PIHOLE_PASSWORD_FILE),
+/// never from the shared folder. One session is kept and reused; numbers are
+/// fetched at most every 5 minutes.
+class PiHole {
+  String? _sid;
+  DateTime? _at;
+  List<Reading> _last = const [];
+
+  static String? password() {
+    final env = Platform.environment;
+    final f = env['MONITOR_PIHOLE_PASSWORD_FILE'];
+    if (f != null && f.isNotEmpty) {
+      try {
+        return File(f).readAsStringSync().trim();
+      } catch (_) {}
+    }
+    final p = env['MONITOR_PIHOLE_PASSWORD'];
+    return p == null || p.isEmpty ? null : p;
+  }
+
+  Future<List<Reading>> collect(String base, DateTime now) async {
+    if (_at != null && now.difference(_at!) < const Duration(minutes: 5)) return _last;
+    _at = now;
+    final root = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    Future<(int, String)?> summary() =>
+        Containers.httpRequest('$root/api/stats/summary', headers: {if (_sid != null) 'X-FTL-SID': _sid!});
+    var res = await summary();
+    if (res != null && res.$1 == 401) {
+      final pw = password();
+      if (pw == null) {
+        return _last = [
+          Reading(key: 'ph.api', label: 'Pi-hole numbers', value: 'needs its password', group: 'Pi-hole', src: 'unknown',
+              note: 'set MONITOR_PIHOLE_PASSWORD (an app password from Pi-hole settings) for the collector'),
+        ];
+      }
+      final auth = await Containers.httpRequest('$root/api/auth', method: 'POST', body: jsonEncode({'password': pw}));
+      try {
+        _sid = ((jsonDecode(auth!.$2) as Map)['session'] as Map)['sid'] as String?;
+      } catch (_) {
+        _sid = null;
+      }
+      if (_sid == null) {
+        return _last = [
+          Reading(key: 'ph.api', label: 'Pi-hole numbers', value: 'password refused', group: 'Pi-hole', src: 'measured', level: 'warn'),
+        ];
+      }
+      res = await summary();
+    }
+    return _last = parseSummary(res?.$1 == 200 ? res!.$2 : null, now);
+  }
+
+  /// Readings from a /api/stats/summary body.
+  static List<Reading> parseSummary(String? body, DateTime now) {
+    Map? j;
+    try {
+      j = body == null ? null : jsonDecode(body) as Map?;
+    } catch (_) {}
+    final q = j?['queries'] as Map?;
+    if (q == null) {
+      return [Reading(key: 'ph.api', label: 'Pi-hole numbers', value: 'no answer', group: 'Pi-hole', src: 'measured', level: 'warn')];
+    }
+    final g = j!['gravity'] as Map?;
+    final last = g?['last_update'] as num?;
+    final ageDays = last == null || last <= 0 ? null : now.difference(DateTime.fromMillisecondsSinceEpoch(last.toInt() * 1000)).inHours / 24;
+    final pct = q['percent_blocked'] as num?;
+    return [
+      Reading(key: 'ph.queries', label: 'Queries today', value: q['total'] ?? 0, group: 'Pi-hole', src: 'measured'),
+      Reading(key: 'ph.blocked', label: 'Blocked today', value: q['blocked'] ?? 0, group: 'Pi-hole', src: 'measured'),
+      if (pct != null) Reading(key: 'ph.blockedPct', label: 'Blocked', value: double.parse(pct.toStringAsFixed(1)), unit: '%', group: 'Pi-hole', src: 'measured'),
+      if (g?['domains_being_blocked'] != null)
+        Reading(key: 'ph.domains', label: 'Domains on blocklists', value: g!['domains_being_blocked'], group: 'Pi-hole', src: 'measured'),
+      if (ageDays != null)
+        Reading(key: 'ph.gravityAge', label: 'Blocklists updated', value: double.parse(ageDays.toStringAsFixed(1)), unit: 'days ago',
+            group: 'Pi-hole', src: 'measured', level: ageDays > 14 ? 'warn' : null),
+    ];
   }
 }

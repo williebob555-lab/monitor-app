@@ -759,4 +759,4 @@ This log separates confirmed product constraints from working technical decision
 
 The Flutter UI can hold disposable session drafts while the shared planning contract is being developed. Drafts own interaction state only and have no service or file boundary. Durable project identity, revisions, placement, and links to Things belong to a future monitor_core contract. The current rack checks use only entered geometry and cannot establish installation compatibility.
 
-With the shared planning contract available, an explicit save writes a project revision through `ProjectStore`. If a newer revision is already present, the UI keeps the working copy open for review or export. A known height without a rack position remains in the working copy until the planner can save it through a typed field.
+With the shared planning contract available, an explicit save writes a project revision through `ProjectStore`. If a newer revision is already present, the UI keeps the working copy open for review or export. Known equipment height and planned rack position are saved independently through the typed placement contract.

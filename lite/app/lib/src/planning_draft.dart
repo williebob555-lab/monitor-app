@@ -35,18 +35,7 @@ class ProjectDraft {
   final equipment = <EquipmentDraft>[];
   final tasks = <ProjectTaskDraft>[];
 
-  String? get saveProblem {
-    final unplaced = equipment
-        .where((e) => e.heightUnits != null && e.bottomUnit == null)
-        .firstOrNull;
-    return unplaced == null
-        ? null
-        : 'Choose a rack position for ${unplaced.name} before saving its height.';
-  }
-
   void save(ProjectStore store) {
-    final problem = saveProblem;
-    if (problem != null) throw StateError(problem);
     final previous = source;
     if (previous != null) {
       final latest = store.get(previous.id);
@@ -150,6 +139,7 @@ class EquipmentDraft {
     required this.name,
     this.heightUnits,
     this.bottomUnit,
+    this.placedTopUnit,
     this.depthMm,
     this.weightKg,
     this.powerW,
@@ -161,9 +151,8 @@ class EquipmentDraft {
   factory EquipmentDraft.fromPlacement(Placement placement) => EquipmentDraft(
     name: placement.name,
     bottomUnit: placement.u?.$1,
-    heightUnits: placement.u == null
-        ? null
-        : placement.u!.$2 - placement.u!.$1 + 1,
+    placedTopUnit: placement.u?.$2,
+    heightUnits: placement.units,
     depthMm: placement.depth?.base('length'),
     weightKg: placement.weight?.base('mass'),
     powerW: placement.power?.base('power'),
@@ -175,6 +164,7 @@ class EquipmentDraft {
   final String id;
   final int? heightUnits;
   final int? bottomUnit;
+  final int? placedTopUnit;
   final double? depthMm;
   final double? weightKg;
   final double? powerW;
@@ -189,6 +179,7 @@ class EquipmentDraft {
     item: source?.item,
     thing: monitorId,
     u: bottomUnit == null || topUnit == null ? null : (bottomUnit!, topUnit!),
+    height: heightUnits,
     face: face,
     fullDepth: fullDepth,
     depth: _quantity(source?.depth, depthMm, 'length', 'mm'),
@@ -197,14 +188,17 @@ class EquipmentDraft {
     extra: source?.extra,
   );
 
-  int? get topUnit => bottomUnit == null || heightUnits == null
-      ? null
-      : bottomUnit! + heightUnits! - 1;
+  int? get topUnit =>
+      placedTopUnit ??
+      (bottomUnit == null || heightUnits == null
+          ? null
+          : bottomUnit! + heightUnits! - 1);
 
   String get placement {
     final bottom = bottomUnit;
-    if (bottom == null || heightUnits == null) return 'Unplaced';
-    return heightUnits == 1 ? 'U$bottom' : 'U$bottom–U$topUnit';
+    final top = topUnit;
+    if (bottom == null || top == null) return 'Unplaced';
+    return top == bottom ? 'U$bottom' : 'U$bottom–U$top';
   }
 }
 

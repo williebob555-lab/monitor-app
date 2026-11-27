@@ -100,6 +100,10 @@ Future<EquipmentDraft?> editEquipment(
     name: name.trim(),
     heightUnits: heightUnits,
     bottomUnit: bottomUnit,
+    placedTopUnit:
+        draft?.heightUnits == heightUnits && draft?.bottomUnit == bottomUnit
+        ? draft?.placedTopUnit
+        : null,
     depthMm: double.tryParse(depth.trim()),
     weightKg: double.tryParse(weight.trim()),
     powerW: double.tryParse(power.trim()),

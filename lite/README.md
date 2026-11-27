@@ -71,8 +71,8 @@ syncs like everything else.
   unit to place equipment or leave the position blank to plan it later. Enter
   any known depth, weight, and power values. **Add from Monitor** links back
   to a device, UPS, or audio-interface report from the draft.
-  Use **Save project** to keep a revision in the Monitor folder. If an
-  equipment entry has a height, choose its rack position before saving.
+  Use **Save project** to keep a revision in the Monitor folder. You can
+  record an equipment height and decide on its rack position later.
   **Copy plan** puts the layout, equipment, and checklist on the clipboard.
 
 ## Updates

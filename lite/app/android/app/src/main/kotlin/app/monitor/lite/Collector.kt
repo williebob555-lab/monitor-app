@@ -279,13 +279,19 @@ object Collector {
         results.listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
         File(dir, "requests").listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
         val devices = File(root, "devices").listFiles() ?: return
+        // settings.json "controls": {"allow": [ids]}; missing = every device.
+        val allow = runCatching { JSONObject(File(root, "settings.json").readText()).optJSONObject("controls")?.optJSONArray("allow") }.getOrNull()
+            ?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
         for (d in devices) {
             val files = File(d, "requests").listFiles() ?: continue
             for (f in files) {
-                if (!f.name.endsWith(".json") || f.name.contains(".sync-conflict")) continue
+                if (!f.name.endsWith(".json") || f.name.contains(".sync-conflict") || f.length() > 16 * 1024) continue
                 val q = runCatching { JSONObject(f.readText()) }.getOrNull() ?: continue
                 val rid = q.optString("id")
-                if (q.optString("host") != me || rid.isEmpty() || !rid.matches(Regex("[0-9a-f]{1,64}"))) continue
+                if (q.optString("host") != me || !rid.matches(Regex("[0-9a-f]{8,64}"))) continue
+                // A device asks only from its own folder, and only if allowed.
+                if (q.optString("from") != d.name || (allow != null && d.name !in allow)) continue
+                if (!q.optString("key").matches(Regex("[a-z0-9._-]{1,64}")) || q.optString("value").length > 256) continue
                 if (Math.abs(nowS - q.optLong("t")) > 600) continue
                 val out = File(results, "$rid.json")
                 if (out.exists()) continue
@@ -306,9 +312,10 @@ object Collector {
      *  battery's health and the Wi-Fi signal. None needs a permission. */
     private fun readings(ctx: Context): org.json.JSONArray {
         val a = org.json.JSONArray()
-        fun add(key: String, label: String, value: Any, group: String, unit: String? = null, level: String? = null) {
+        fun add(key: String, label: String, value: Any, group: String, unit: String? = null, level: String? = null, note: String? = null) {
             val o = JSONObject().put("key", key).put("label", label).put("value", value).put("group", group)
             unit?.let { o.put("unit", it) }
+            note?.let { o.put("note", it) }
             level?.let { o.put("level", it) }
             a.put(o)
         }
@@ -346,6 +353,65 @@ object Collector {
                 break
             }
         }
+        // Tailscale, as far as Android lets another app see it: a VPN
+        // network is up and this phone has a Tailscale (100.64/10) address.
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val vpn = cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+            val ts = tailscaleIp() != null
+            add("ts.state", "State", if (ts) "Running" else if (vpn) "VPN up, no Tailscale address" else "Stopped", "Tailscale",
+                level = if (ts) null else "fault")
+        }
+        // Syncthing on this phone: its sync port answers locally. Peer and
+        // folder counts need Syncthing-Fork's API key, which another app
+        // cannot read (see ROADMAP row 9).
+        runCatching {
+            val up = tcp("127.0.0.1", 300) == "open"
+            add("st.state", "State", if (up) "Running" else "Not running", "Syncthing", level = if (up) null else "fault")
+        }
+        // Which layer of the network works (same keys as computers, see
+        // core netcheck.dart): router, this network's DNS, public DNS, internet.
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val under = cm.allNetworks.firstOrNull { n -> cm.getNetworkCapabilities(n)?.let {
+                !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) } == true }
+            val gw = under?.let { cm.getLinkProperties(it) }?.routes?.firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address }?.gateway?.hostAddress
+            val dns = cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.filterIsInstance<Inet4Address>()?.mapNotNull { it.hostAddress }.orEmpty().take(3)
+            val pool = Executors.newFixedThreadPool(4)
+            try {
+                val g = gw?.let { h -> pool.submit<Long?> { listOf(53, 80, 443).firstNotNullOfOrNull { reachMs(h, it) } } }
+                val d = pool.submit<Pair<String, Long>?> { dns.firstNotNullOfOrNull { s -> dnsMs(s)?.let { s to it } } }
+                val p = pool.submit<Pair<String, Long>?> { listOf("1.1.1.1", "9.9.9.9").firstNotNullOfOrNull { s -> dnsMs(s)?.let { s to it } } }
+                val i = pool.submit<Long?> { listOf("1.1.1.1", "9.9.9.9").firstNotNullOfOrNull { h -> reachMs(h, 443, openOnly = true) } }
+                if (gw != null) { val r = g!!.get(); add("net.gateway", "Router", if (r == null) "no answer" else "answers", "Network",
+                    level = if (r == null) "warn" else null, note = if (r == null) gw else "$gw, $r ms") }
+                d.get().let { add("net.dns", "DNS (this network's)", if (it == null) "no answer" else "answers", "Network",
+                    level = if (it == null) "warn" else null, note = if (it == null) dns.joinToString(", ").ifEmpty { "none set" } else "${it.first}, ${it.second} ms") }
+                p.get().let { add("net.dnsDirect", "DNS (public)", if (it == null) "no answer" else "answers", "Network",
+                    note = if (it == null) "1.1.1.1, 9.9.9.9" else "${it.first}, ${it.second} ms") }
+                i.get().let { add("net.internet", "Internet", if (it == null) "no" else "reachable", "Network",
+                    level = if (it == null) "warn" else null, note = if (it == null) "no answer from 1.1.1.1 or 9.9.9.9" else "$it ms") }
+            } finally { pool.shutdown() }
+            val ifs = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().filter { it.isUp && !it.isLoopback }
+                .flatMap { n -> n.inetAddresses.toList().filterIsInstance<Inet4Address>().map { "${n.name} ${it.hostAddress}" } }
+            if (ifs.isNotEmpty()) add("net.ifaces", "Interfaces", ifs.joinToString(", "), "Network")
+        }
+        // Storage per volume (phone storage, SD card, USB drive), only when
+        // there is more than one: one volume is already "Storage".
+        if (Build.VERSION.SDK_INT >= 30) runCatching {
+            val sm = ctx.getSystemService(android.os.storage.StorageManager::class.java)
+            val vols = sm.storageVolumes.mapNotNull { v ->
+                val d = v.directory ?: return@mapNotNull null
+                val st = android.os.StatFs(d.path)
+                if (st.totalBytes < (1L shl 30)) null else Triple(v.getDescription(ctx), st.totalBytes, st.availableBytes)
+            }
+            if (vols.size > 1) for ((name, total, free) in vols) {
+                val used = (total - free).toDouble() / total
+                val gb = if (total >= (1L shl 40)) "%.1f TB".format(total / (1L shl 40).toDouble()) else "${total / (1L shl 30)} GB"
+                add("drive.${name.replace(Regex("[^A-Za-z0-9]+"), "_")}", "$name ($gb)", Math.round(used * 1000) / 10.0, "Drives", unit = "%",
+                    level = if (used >= 0.95) "fault" else if (used >= 0.9) "warn" else null)
+            }
+        }
         return a
     }
 
@@ -378,6 +444,44 @@ object Collector {
             .filterIsInstance<Inet4Address>()
             .firstOrNull { val b = it.address; (b[0].toInt() and 0xff) == 100 && (b[1].toInt() and 0xff) in 64..127 }
             ?.hostAddress
+    }.getOrNull()
+
+    /** ms to reach [host]:[port], counting a refusal as reached unless
+     *  [openOnly]; null when nothing answers within 2 s. */
+    fun reachMs(host: String, port: Int, openOnly: Boolean = false): Long? {
+        val t0 = SystemClock.elapsedRealtime()
+        return try {
+            Socket().use { it.connect(InetSocketAddress(host, port), 2000) }
+            SystemClock.elapsedRealtime() - t0
+        } catch (e: ConnectException) {
+            if (!openOnly && e.message?.contains("refused", true) == true) SystemClock.elapsedRealtime() - t0 else null
+        } catch (e: Exception) { null }
+    }
+
+    /** One A query for a random name under example.com (no cache can answer
+     *  it). NOERROR or NXDOMAIN: the resolver works. ms or null. */
+    fun dnsMs(server: String): Long? = runCatching {
+        val id = SecureRandom().nextInt(0x10000)
+        val name = "monitor-${java.lang.Long.toHexString(SecureRandom().nextInt().toLong() and 0xffffffffL)}.example.com"
+        val q = java.io.ByteArrayOutputStream()
+        q.write(byteArrayOf((id shr 8).toByte(), id.toByte(), 1, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+        for (l in name.split('.')) { q.write(l.length); q.write(l.toByteArray()) }
+        q.write(byteArrayOf(0, 0, 1, 0, 1))
+        val out = q.toByteArray()
+        java.net.DatagramSocket().use { s ->
+            s.soTimeout = 2000
+            val t0 = SystemClock.elapsedRealtime()
+            s.send(java.net.DatagramPacket(out, out.size, java.net.InetAddress.getByName(server), 53))
+            val buf = ByteArray(512)
+            var rc = -1
+            while (rc < 0) {
+                val p = java.net.DatagramPacket(buf, buf.size)
+                s.receive(p) // throws on timeout
+                if (p.length >= 12 && (((buf[0].toInt() and 0xff) shl 8) or (buf[1].toInt() and 0xff)) == id && (buf[2].toInt() and 0x80) != 0)
+                    rc = buf[3].toInt() and 0x0f
+            }
+            if (rc == 0 || rc == 3) SystemClock.elapsedRealtime() - t0 else null
+        }
     }.getOrNull()
 
     /** open: Syncthing listening. refused: device up, Syncthing not. timeout: no route. */
@@ -428,6 +532,11 @@ object Collector {
             }
         }
         h.put("p", pv)
+        // Pattern conditions (core report.dart historyLine): app open somewhere, network type.
+        if ((j.optJSONArray("watch")?.length() ?: 0) > 0) h.put("w", 1)
+        when (j.optJSONObject("net")?.optString("type")) {
+            "wifi" -> h.put("nt", 1); "cellular" -> h.put("nt", 2); "ethernet" -> h.put("nt", 3); "none" -> h.put("nt", 0)
+        }
         j.optJSONArray("readings")?.let { rs ->
             for (i in 0 until rs.length()) {
                 val r = rs.optJSONObject(i) ?: continue

@@ -400,4 +400,4 @@ desktop-width test verifies that editing a draft name preserves the link
 to its original monitoring report. Verify physical touch and keyboard
 behavior on the installed app separately.
 
-The same suite saves a rack and checklist through the real `ProjectStore`, reopens them through a new page with a second device ID, and checks preservation of measured quantities, repeat saves, and rejection of stale revisions. Installed-device Syncthing transfer is a separate check.
+The same suite saves a rack and checklist through the real `ProjectStore`, reopens them through a new page with a second device ID, and checks unplaced equipment height, preservation of measured quantities, repeat saves, and rejection of stale revisions. Installed-device Syncthing transfer is a separate check.

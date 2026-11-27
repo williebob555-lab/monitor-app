@@ -63,14 +63,27 @@ void main() {
     await tester.tap(find.byTooltip('Save project'));
     await tester.pumpAndSettle();
     expect(find.text('Saved to Monitor folder'), findsOneWidget);
+    await tap(tester, 'Equipment');
+    await tap(tester, 'Add equipment');
+    await tester.enterText(field('Equipment name'), 'Spare amplifier');
+    await tester.enterText(field('Height (U), optional'), '2');
+    await tap(tester, 'Add to project');
+    await tester.tap(find.byTooltip('Save project'));
+    await tester.pumpAndSettle();
     final saved = second.list().single;
     expect(saved.tasks.single.done, true);
-    expect(saved.assemblies.single.placements.single.u, (1, 1));
+    final placements = saved.assemblies.single.placements;
+    expect(placements.first.u, (1, 1));
+    expect(placements.last.u, isNull);
+    expect(placements.last.height, 2);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await openWorkspace(tester, [], store: second);
     await tap(tester, 'Studio rack');
     expect(find.text('Interface'), findsOneWidget);
+    await tap(tester, 'Equipment');
+    expect(find.text('Spare amplifier'), findsOneWidget);
+    expect(find.textContaining('2U · Unplaced'), findsOneWidget);
     await tap(tester, 'Tasks');
     expect(
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
@@ -124,10 +137,6 @@ void main() {
         (14, 'in', 'measured'),
       );
       expect((placement.face, placement.thing), ('rear', 'power'));
-      draft.equipment.add(EquipmentDraft(name: 'Unplaced', heightUnits: 2));
-      expect(() => draft.save(first), throwsStateError);
-      expect(second.get('studio')!.rev, copy.rev);
-      draft.equipment.removeLast();
       second.put(copy..name = 'Changed on tablet');
       expect(() => draft.save(first), throwsStateError);
       expect(first.get('studio')!.name, 'Changed on tablet');

@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
+import '../config.dart';
 import 'containers.dart';
+import 'netcheck.dart';
 
 import '../report.dart';
 import 'linux.dart' show linuxStatvfs;
-import 'windows.dart' show windowsDrives, windowsRegString;
+import 'windows.dart' show windowsDrives, windowsRegString, windowsPipeRequest, windowsUsbDevices;
 
 /// Readings beyond the basics, all through the open-ended `readings` list so
 /// the app shows them without knowing them: what the machine is (read once),
@@ -24,9 +27,10 @@ class Extras {
         ...await _tailscale(),
         ...await _syncthing(),
         ...await _containers(),
+        ..._windowsUsb(),
       ];
     }
-    return [..._system!, ..._temps(), ..._drives(), ..._services];
+    return [..._system!, ..._temps(), ..._drives(), ...await NetCheck.collect(), ..._services];
   }
 
   static String? _read(String p) {
@@ -136,12 +140,24 @@ class Extras {
 
   // ---- Tailscale (Linux: its own CLI, read-only) --------------------------
 
+  /// Why the Windows local API could not be read (logged once, by the agent).
+  static String? tailscaleProblem;
+
   Future<List<Reading>> _tailscale() async {
-    if (!Platform.isLinux) return const [];
+    if (!Platform.isLinux && !Platform.isWindows) return const [];
     try {
-      final r = await Process.run('tailscale', ['status', '--json']).timeout(const Duration(seconds: 4));
-      if (r.exitCode != 0 && (r.stdout as String).isEmpty) return const [];
-      final j = jsonDecode(r.stdout as String);
+      Object? j;
+      if (Platform.isWindows) {
+        // No child processes on Windows (a console would flash): ask
+        // tailscaled's local API over its named pipe, on a side isolate.
+        final body = await Isolate.run(_windowsTailscaleStatus).timeout(const Duration(seconds: 4));
+        j = jsonDecode(body);
+        tailscaleProblem = null;
+      } else {
+        final r = await Process.run('tailscale', ['status', '--json']).timeout(const Duration(seconds: 4));
+        if (r.exitCode != 0 && (r.stdout as String).isEmpty) return const [];
+        j = jsonDecode(r.stdout as String);
+      }
       if (j is! Map) return const [];
       final peers = j['Peer'] is Map ? (j['Peer'] as Map).values.whereType<Map>().toList() : const <Map>[];
       final online = peers.where((p) => p['Online'] == true).length;
@@ -152,7 +168,8 @@ class Extras {
         Reading(key: 'ts.devices', label: 'Devices in tailnet', value: peers.length, group: 'Tailscale'),
         if (exit != null) Reading(key: 'ts.exit', label: 'Exit node', value: '$exit', group: 'Tailscale'),
       ];
-    } catch (_) {
+    } catch (e) {
+      if (Platform.isWindows) tailscaleProblem = '$e';
       return const [];
     }
   }
@@ -165,12 +182,17 @@ class Extras {
       final list = await Containers.dockerGet('/containers/json?all=1');
       if (list is! List) return const [];
       var running = 0;
+      String? pihole;
       final bad = <String>[];
       final stopped = <String>[];
       for (final c in list.whereType<Map>()) {
         final name = ((c['Names'] as List?)?.firstOrNull as String? ?? '?').replaceFirst('/', '');
         final state = '${c['State'] ?? ''}';
         final status = '${c['Status'] ?? ''}';
+        if ('${c['Image'] ?? ''}'.contains('pihole')) {
+          // Ask this host's Pi-hole directly: does DNS answer here?
+          pihole = state != 'running' ? 'stopped' : (await NetCheck.dnsQuery('127.0.0.1') != null ? 'answers' : 'no answer');
+        }
         if (state == 'running') {
           running++;
           if (status.contains('unhealthy')) bad.add('$name: unhealthy');
@@ -186,10 +208,43 @@ class Extras {
         Reading(key: 'ct.running', label: 'Running', value: running, group: 'Containers'),
         Reading(key: 'ct.total', label: 'Containers', value: list.length, group: 'Containers'),
         if (bad.isNotEmpty) Reading(key: 'ct.problems', label: 'Problems', value: bad.join('; '), group: 'Containers', level: 'warn'),
+        if (pihole != null)
+          Reading(key: 'net.pihole', label: 'Pi-hole DNS', value: pihole, group: 'Network', src: 'measured', level: pihole == 'answers' ? null : 'fault'),
         if (stopped.isNotEmpty) Reading(key: 'ct.stopped', label: 'Stopped', value: stopped.join(', '), group: 'Containers'),
       ];
     } catch (_) {
       return const [];
+    }
+  }
+
+  // ---- Windows USB devices (SetupAPI) ---------------------------------------
+
+  /// A marker file is written before each scan and removed after it. If the
+  /// collector finds it at start, the last scan took the process down, and
+  /// USB stays off on this machine (the log says so) instead of crashing
+  /// every minute.
+  bool? _usbOk;
+  List<Reading> _windowsUsb() {
+    if (!Platform.isWindows) return const [];
+    final marker = File('${LocalConfig.dir}${Platform.pathSeparator}usb-scan.running');
+    _usbOk ??= !marker.existsSync();
+    if (_usbOk == false) {
+      return [Reading(key: 'usb.count', label: 'USB devices', value: null, group: 'USB', src: 'unknown', note: 'USB listing is off: it stopped the collector once (delete usb-scan.running in the Monitor settings folder to try again)')];
+    }
+    try {
+      marker.writeAsStringSync('${DateTime.now().toUtc()}', flush: true);
+      final list = windowsUsbDevices();
+      marker.deleteSync();
+      final names = [for (final u in list) '${u.name} (${u.vid}:${u.pid}${u.serial == null ? '' : ', ${u.serial}'})']..sort();
+      return [
+        Reading(key: 'usb.count', label: 'USB devices', value: list.length, group: 'USB', src: 'measured'),
+        if (names.isNotEmpty) Reading(key: 'usb.list', label: 'Connected', value: names.join('; '), group: 'USB', src: 'measured'),
+      ];
+    } catch (e) {
+      try {
+        marker.deleteSync();
+      } catch (_) {}
+      return [Reading(key: 'usb.count', label: 'USB devices', value: null, group: 'USB', src: 'unknown', note: 'could not list: $e')];
     }
   }
 
@@ -270,4 +325,34 @@ class Extras {
       http.close(force: true);
     }
   }
+}
+
+/// GET /localapi/v0/status from tailscaled on Windows, over its named pipe
+/// (the same one the tailscale CLI uses). Returns the JSON body.
+String _windowsTailscaleStatus() => httpBody(windowsPipeRequest(r'\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled',
+    utf8.encode('GET /localapi/v0/status HTTP/1.1\r\nHost: local-tailscaled.sock\r\nConnection: close\r\n\r\n')));
+
+/// The body of a raw HTTP/1.1 response (status 200 only; chunked or not).
+String httpBody(List<int> raw) {
+  final text = utf8.decode(raw, allowMalformed: true);
+  final split = text.indexOf('\r\n\r\n');
+  if (split < 0) throw const FormatException('no HTTP header');
+  final head = text.substring(0, split).toLowerCase();
+  final status = head.split('\r\n').first;
+  if (!status.contains(' 200')) throw FormatException('tailscaled answered "$status"');
+  var body = text.substring(split + 4);
+  if (head.contains('transfer-encoding: chunked')) {
+    final out = StringBuffer();
+    var i = 0;
+    while (i < body.length) {
+      final eol = body.indexOf('\r\n', i);
+      if (eol < 0) break;
+      final size = int.parse(body.substring(i, eol).split(';').first.trim(), radix: 16);
+      if (size == 0) break;
+      out.write(body.substring(eol + 2, eol + 2 + size));
+      i = eol + 2 + size + 2;
+    }
+    body = out.toString();
+  }
+  return body;
 }

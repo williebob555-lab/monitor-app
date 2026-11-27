@@ -5,12 +5,14 @@ import 'dart:io';
 import '../control.dart';
 import '../report.dart';
 import 'hid_ups.dart';
+import 'upower.dart';
 import '../topology.dart';
 
 /// Things attached to this computer that get their own node under it: a UPS
 /// on USB and USB audio interfaces (Linux). Everything comes from what the
 /// system already exposes: sysfs for USB, /proc/asound for ALSA, and for a
-/// UPS the open NUT server (usbhid-ups) or upower. No vendor software.
+/// UPS UPower (the standard Linux power service), the UPS itself over USB
+/// HID, or a NUT server if one happens to run. No vendor software.
 ///
 /// Every reading says where it comes from (Reading.src): measured now,
 /// declared by the device about itself, estimated, or unknown with a note
@@ -64,8 +66,12 @@ class Things {
   Future<List<_Found>> _scan() async {
     if (!Platform.isLinux) return const [];
     final out = <_Found>[];
-    for (final u in _usb()) {
-      final ups = u.ifClasses.contains(0x03) && upsVendors.containsKey(u.vid);
+    final usb = _usb();
+    bool isUps(_Usb u) => u.ifClasses.contains(0x03) && upsVendors.containsKey(u.vid);
+    final upsCount = usb.where(isUps).length;
+    _upower = null; // asked again on each scan, and at most once per scan
+    for (final u in usb) {
+      final ups = isUps(u);
       final audio = u.ifClasses.contains(0x01) && !u.ifClasses.contains(0x0e);
       if (!ups && !audio) continue;
       final id = u.thingId;
@@ -73,7 +79,7 @@ class Things {
       if (prev != null && prev != u.devnum) _reconnects[id] = (_reconnects[id] ?? 0) + 1;
       _devnum[id] = u.devnum;
       if (ups) {
-        out.add(_Found(id, 'ups', u, [..._usbReadings(u, id), ...await _ups(u)]));
+        out.add(_Found(id, 'ups', u, [..._usbReadings(u, id), ...await _ups(u, upsCount)]));
       } else {
         out.add(_Found(id, 'audio-interface', u, [..._usbReadings(u, id), ...await _alsa(u)]));
       }
@@ -161,21 +167,104 @@ class Things {
 
   // ---- UPS ------------------------------------------------------------------
 
-  Future<List<Reading>> _ups(_Usb u) async {
-    // Directly over USB first; NUT or upower only if they happen to run.
-    var why = '';
-    final hid = HidUps.read(u.path, (w) => why = w);
-    if (hid != null) return hid;
-    final nut = await _nut();
-    if (nut != null) return _upsFromNut(nut);
-    final up = await _upower();
-    if (up != null) return upsFromUpower(up);
-    final export = readUpowerExport(upowerExportFile, DateTime.now());
-    if (export != null) {
-      if (export.$2 != null) return _upsUnknown(export.$2!);
-      return upsFromUpower(export.$1!, source: 'UPower on the host (exported file)');
+  /// UPower first (asked here on a native install, else the host's
+  /// exported file in Docker); USB HID adds what UPower leaves out (load,
+  /// the alarm) and stands in when UPower can't be reached; NUT only if it
+  /// happens to run. Each reading says which path it came through (`from`).
+  Future<List<Reading>> _ups(_Usb u, int usbUpsCount) async {
+    var hidWhy = '';
+    final hid = HidUps.read(u.path, (w) => hidWhy = w)?.map((r) => r.withFrom('hid')).toList();
+    final (up, upWhy) = await (_upower ??= _findUpower());
+    final m = up?.match(usbPath: u.path, serial: u.serial, maker: u.maker, product: u.product, usbUpsCount: usbUpsCount);
+    if (up != null && m != null) return _fromUpower(up, m.$1, m.$2, u, hid, hidWhy);
+    final noUpower = up == null ? upWhy : 'UPower lists ${up.ups.length} UPS, none of them this one';
+    if (hid != null) {
+      return _ordered([
+        ...hid,
+        if (!hid.any((r) => r.key == 'ups.load')) Reading(key: 'ups.load', label: 'Load', value: null, group: 'Power', src: 'unknown', note: 'this UPS does not report it', from: 'hid'),
+        _identity(u, null),
+        Reading(key: 'ups.source', label: 'Read through', value: 'USB HID, directly', group: 'Power', src: 'measured', note: 'UPower: $noUpower', from: 'hid'),
+      ]);
     }
-    return _upsUnknown(why.isEmpty ? why : '$why, or share what UPower sees ("UPS through UPower")');
+    final nut = await _nut();
+    if (nut != null) return _ordered([for (final r in _upsFromNut(nut)) r.withFrom('nut'), _identity(u, null)]);
+    return [..._upsUnknown('UPower: $noUpower; USB HID: ${hidWhy.isEmpty ? 'not readable' : hidWhy}'), _identity(u, null)];
+  }
+
+  /// UPower for this scan: asked natively, else the host's exported file;
+  /// or why neither is there.
+  Future<(Upower?, String)>? _upower;
+  static Future<(Upower?, String)> _findUpower() async {
+    final native = await Upower.ask();
+    if (native != null && native.ups.isNotEmpty) return (native, '');
+    final export = Upower.readExport(Upower.exportFile, DateTime.now().toUtc());
+    if (export != null) return (export.$1, export.$2 ?? '');
+    if (native != null) return (null, 'UPower on this machine sees no UPS');
+    return (null, 'not reachable here (in Docker, share the host\'s with packaging/linux/upower-export.sh: "UPS through UPower")');
+  }
+
+  static List<Reading> _fromUpower(Upower up, UpowerDevice d, String how, _Usb u, List<Reading>? hid, String hidWhy) {
+    final out = up.readings(d);
+    final known = {for (final r in out) if (r.src != 'unknown') r.key};
+    final added = <String>[];
+    for (final h in hid ?? const <Reading>[]) {
+      if (known.contains(h.key) || h.src == 'unknown') continue;
+      out.removeWhere((r) => r.key == h.key);
+      out.add(h);
+      added.add((h.label ?? h.key).toLowerCase());
+    }
+    if (!out.any((r) => r.key == 'ups.load')) {
+      out.add(Reading(
+          key: 'ups.load',
+          label: 'Load',
+          value: null,
+          group: 'Power',
+          src: 'unknown',
+          note: hid == null ? 'UPower does not report the load, and USB HID is not readable here (${hidWhy.isEmpty ? 'no access' : hidWhy})' : 'this UPS does not report it',
+          from: up.from));
+    }
+    final version = up.daemon['daemon-version'];
+    final where = up.from == 'upower-export' ? 'on the host (exported file)' : 'on this machine';
+    out.add(_identity(u, how));
+    out.add(Reading(
+        key: 'ups.source',
+        label: 'Read through',
+        value: 'UPower${version == null ? '' : ' $version'} $where${added.isEmpty ? '' : ', plus USB HID for ${added.join(' and ')}'}',
+        group: 'Power',
+        src: 'measured',
+        from: up.from));
+    return _ordered(out);
+  }
+
+  /// [_fromUpower] for a UPS described by its USB id, port and serial
+  /// (tests; the collector passes what sysfs shows).
+  static List<Reading> combine(Upower up, UpowerDevice d, String how,
+          {required String vid, required String pid, required String usbPath, String? serial, List<Reading>? hid, String hidWhy = ''}) =>
+      _fromUpower(up, d, how, _Usb(path: usbPath, vid: vid, pid: pid, serial: serial, devnum: '', ifClasses: const {0x03}), hid, hidWhy);
+
+  /// How this UPS is told apart from any other, the same on both systems
+  /// of a dual-boot machine: USB id and serial number, else the USB port.
+  static Reading _identity(_Usb u, String? upowerMatch) => Reading(
+      key: 'ups.identity',
+      label: 'Identified by',
+      value: u.serial != null ? 'USB ${u.vid}:${u.pid}, serial ${u.serial}' : 'USB ${u.vid}:${u.pid} on port ${u.path} (it has no serial number)',
+      group: 'Power',
+      src: 'declared',
+      note: [
+        'the thing id is built from this, so both systems of a dual-boot machine write the same UPS',
+        if (u.serial == null) 'moving it to another USB port gives it a new id',
+        if (upowerMatch != null) 'UPower\'s device matched by $upowerMatch',
+      ].join('; '),
+      from: 'sysfs');
+
+  static const _order = ['ups.status', 'ups.charge', 'ups.runtime', 'ups.load', 'ups.alarm', 'ups.hostAction', 'ups.maker', 'ups.model', 'ups.serial', 'ups.identity', 'ups.source'];
+  static List<Reading> _ordered(List<Reading> r) {
+    int rank(Reading x) {
+      final i = _order.indexOf(x.key);
+      return i < 0 ? _order.length : i;
+    }
+
+    return [...r]..sort((a, b) => rank(a).compareTo(rank(b)));
   }
 
   static List<Reading> _upsUnknown(String why) => [
@@ -265,96 +354,6 @@ class Things {
       src: v == null ? 'unknown' : src,
       note: v == null ? 'this UPS does not report it' : note,
       level: level);
-
-  static Future<Map<String, String>?> _upower() async {
-    try {
-      final e = await Process.run('upower', ['-e']).timeout(const Duration(seconds: 3));
-      final path = (e.stdout as String).split('\n').map((l) => l.trim()).firstWhere((l) => l.contains('/ups_'), orElse: () => '');
-      if (path.isEmpty) return null;
-      final i = await Process.run('upower', ['-i', path]).timeout(const Duration(seconds: 3));
-      final out = <String, String>{};
-      for (final l in (i.stdout as String).split('\n')) {
-        final k = l.indexOf(':');
-        if (k > 0) out[l.substring(0, k).trim()] = l.substring(k + 1).trim();
-      }
-      return out;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Where a host-side exporter (packaging/linux/upower-export.sh) leaves
-  /// `upower -i` for the UPS, mounted read-only into the container. The
-  /// collector gets this one file: no D-Bus, no USB device.
-  static const upowerExportFile = '/host/upower/ups.txt';
-
-  /// The exported UPower details, or why they can't be used (missing file:
-  /// null). An export older than 3 minutes is not shown as current.
-  static (Map<String, String>?, String?)? readUpowerExport(String path, DateTime now) {
-    final f = File(path);
-    try {
-      if (!f.existsSync() || f.lengthSync() > 64 * 1024) return null;
-      final out = <String, String>{};
-      for (final l in f.readAsLinesSync()) {
-        final k = l.indexOf(':');
-        if (k > 0) out[l.substring(0, k).trim()] = l.substring(k + 1).trim();
-      }
-      final t = int.tryParse(out['exported'] ?? '');
-      if (t == null) return (null, 'the UPower export has no "exported" time');
-      final age = now.millisecondsSinceEpoch ~/ 1000 - t;
-      if (age > 180) return (null, 'the UPower export is ${(age / 60).round()} min old (is its timer running on the host?)');
-      if (!out.containsKey('percentage') && !out.containsKey('state')) return (null, 'UPower on the host sees no UPS');
-      return (out, null);
-    } catch (e) {
-      return (null, 'the UPower export could not be read: $e');
-    }
-  }
-
-  static List<Reading> upsFromUpower(Map<String, String> v, {String source = 'upower'}) {
-    final pct = double.tryParse((v['percentage'] ?? '').replaceAll('%', '').trim());
-    final state = v['state'] ?? '';
-    final onBattery = state == 'discharging';
-    // UPower's own warning: low, critical or action (about to shut down).
-    final low = onBattery && const {'low', 'critical', 'action'}.contains(v['warning-level']);
-    double? minutes(String? s) {
-      if (s == null) return null;
-      final m = RegExp(r'([\d.,]+)\s*(hours?|minutes?|seconds?)').firstMatch(s);
-      if (m == null) return null;
-      final x = double.tryParse(m.group(1)!.replaceAll(',', '.'));
-      if (x == null) return null;
-      final u = m.group(2)!;
-      return u.startsWith('hour')
-          ? x * 60
-          : u.startsWith('second')
-              ? x / 60
-              : x;
-    }
-
-    const none = 'UPower does not report the load';
-    return [
-      Reading(
-          key: 'ups.status',
-          label: 'Running on',
-          value: low
-              ? 'battery, low'
-              : onBattery
-                  ? 'battery'
-                  : 'mains',
-          group: 'Power',
-          src: 'measured',
-          level: low
-              ? 'fault'
-              : onBattery
-                  ? 'warn'
-                  : null),
-      _num('ups.charge', 'Battery charge', pct, '%', 'measured', level: pct != null && pct < 20 ? 'fault' : null),
-      _num('ups.runtime', 'Runtime left', minutes(v['time to empty']), 'min', 'estimated', note: 'the UPS\'s own estimate'),
-      Reading(key: 'ups.load', label: 'Load', value: null, group: 'Power', src: 'unknown', note: none),
-      if (v['vendor'] != null) Reading(key: 'ups.maker', label: 'Maker', value: v['vendor'], group: 'Power', src: 'declared'),
-      if (v['model'] != null) Reading(key: 'ups.model', label: 'Model', value: v['model'], group: 'Power', src: 'declared'),
-      Reading(key: 'ups.source', label: 'Read through', value: source, group: 'Power', src: 'measured'),
-    ];
-  }
 
   // ---- Audio (ALSA) ---------------------------------------------------------
 

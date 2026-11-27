@@ -42,7 +42,7 @@ class Qty {
 }
 
 class Placement {
-  Placement({required this.id, required this.name, this.item, this.thing, this.u, this.face = 'front', this.fullDepth = false, this.depth, this.weight, this.power, Map<String, Object?>? extra}) : extra = extra ?? {};
+  Placement({required this.id, required this.name, this.item, this.thing, this.u, this.height, this.face = 'front', this.fullDepth = false, this.depth, this.weight, this.power, Map<String, Object?>? extra}) : extra = extra ?? {};
   final String id;
   String name;
 
@@ -52,13 +52,18 @@ class Placement {
   /// Rack units it occupies, bottom first: (1, 2) is U1-U2. null: not placed yet.
   (int, int)? u;
 
+  /// Rack units it takes (2 for a 2U amplifier), known before it is placed.
+  /// When placed, [units] is this, or else the size of [u].
+  int? height;
+  int? get units => height ?? (u == null ? null : u!.$2 - u!.$1 + 1);
+
   /// "front" or "rear". [fullDepth] blocks both faces.
   String face;
   bool fullDepth;
   Qty? depth, weight, power;
   final Map<String, Object?> extra;
 
-  static const _known = {'id', 'name', 'item', 'thing', 'u', 'face', 'fullDepth', 'depth', 'weight', 'power'};
+  static const _known = {'id', 'name', 'item', 'thing', 'u', 'height', 'face', 'fullDepth', 'depth', 'weight', 'power'};
 
   static Placement? fromJson(Object? j) {
     if (j is! Map || j['id'] is! String || j['name'] is! String) return null;
@@ -69,6 +74,7 @@ class Placement {
       item: j['item'] as String?,
       thing: j['thing'] as String?,
       u: u is List && u.length == 2 && u[0] is int && u[1] is int ? (u[0] as int, u[1] as int) : null,
+      height: j['height'] is int && (j['height'] as int) > 0 ? j['height'] as int : null,
       face: j['face'] == 'rear' ? 'rear' : 'front',
       fullDepth: j['fullDepth'] == true,
       depth: Qty.fromJson(j['depth']),
@@ -85,6 +91,7 @@ class Placement {
         if (item != null) 'item': item,
         if (thing != null) 'thing': thing,
         'u': u == null ? null : [u!.$1, u!.$2],
+        if (height != null) 'height': height,
         'face': face,
         if (fullDepth) 'fullDepth': true,
         if (depth != null) 'depth': depth!.toJson(),
@@ -146,6 +153,8 @@ class Assembly {
         problems.add('${p.name}: U$a-U$b is not a valid range');
       } else if (units != null && b > units!) {
         problems.add('${p.name}: U$a-U$b is outside the ${units}U ${type}');
+      } else if (p.height != null && b - a + 1 != p.height) {
+        problems.add('${p.name} is ${p.height}U but placed at U$a-U$b');
       }
       final pd = p.depth?.base('length'), rd = depth?.base('length');
       if (pd != null && rd != null && pd > rd) {

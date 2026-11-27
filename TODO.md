@@ -102,4 +102,5 @@ This file contains active and near-term tasks only. Read it with the required do
 
 - [x] T076: add session drafts for named projects, rack layout, equipment, tasks, and references back to monitor reports.
 - [x] Save project goals, rack positions, monitored equipment references, and tasks through `ProjectStore` (roadmap row 6).
-- [ ] Verify saved plans on a second synced device and support saving a known equipment height before assigning a rack position.
+- [x] Save a known equipment height before assigning a rack position.
+- [ ] Verify saved plans on a second synced device.
