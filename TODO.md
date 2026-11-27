@@ -97,3 +97,10 @@ This file contains active and near-term tasks only. Read it with the required do
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions beyond monitoring controls (power, services, scripts), multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.
+
+## Monitor App 2.x project planning
+
+- [x] T076: add session drafts for named projects, rack layout, equipment, tasks, and references back to monitor reports.
+- [x] Save project goals, rack positions, monitored equipment references, and tasks through `ProjectStore` (roadmap row 6).
+- [x] Save a known equipment height before assigning a rack position.
+- [ ] Verify saved plans on a second synced device.

@@ -86,6 +86,15 @@ syncs like everything else.
   the phone adds its rough position (about 1 km) from what Android already
   knows. Every device in the folder can read it.
 
+* **Projects**: open Projects from Home to start a draft with just a name.
+  Add a rack, equipment, and tasks as details become available. Tap a rack
+  unit to place equipment or leave the position blank to plan it later. Enter
+  any known depth, weight, and power values. **Add from Monitor** links back
+  to a device, UPS, or audio-interface report from the draft.
+  Use **Save project** to keep a revision in the Monitor folder. You can
+  record an equipment height and decide on its rack position later.
+  **Copy plan** puts the layout, equipment, and checklist on the clipboard.
+
 ## Updates
 
 Setup and updates > Install. The app downloads the release file, checks it

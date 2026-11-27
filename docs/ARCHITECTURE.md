@@ -267,6 +267,8 @@ SQLite WAL remains the personal-scale starting point. Schema migrations, backup,
 
 ## Experience clients
 
+In Monitor App 2.x, Projects in `lite/app` keeps editable working copies and saves project revisions through `monitor_core.ProjectStore` in the selected Monitor folder. The rack elevation and equipment list show the first rack in the same project. Equipment may reference an existing monitor report by ID so the UI can open it through the usual device route. Projects describe design state. The production data interface is documented in `lite/FORMAT.md`.
+
 The local experience renders the same domain model available to replication and query. The living schematic summarizes relationships and state. Domain lenses expose power, audio, storage, network infrastructure, thermal, security, and other coherent subsets. Search reaches exact signals. The final scene remains a projection of the domain model, never the source of truth.
 
 The first functional client may be plain but must expose pairing, peer reachability, synchronization/freshness, observed-device and adapter health, exact values, and provenance. Android must state when lifecycle restrictions prevent continuous peer availability.

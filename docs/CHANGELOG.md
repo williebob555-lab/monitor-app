@@ -257,3 +257,15 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x project planning (unreleased)
+
+- Projects on Home opens a session draft with a numbered rack elevation, editable equipment dimensions and positions, and a task checklist. The draft rejects overlapping or out-of-range positions and shows depth, weight, and power only where values were entered.
+- Start a project with just a name and add rack details later. Equipment can link back to its existing Monitor report while plan changes remain in the draft.
+- Copy plan puts a plain-text copy of the draft rack layout, equipment, and checklist on the clipboard.
+- The rack front uses a numbered ruler, mounting rails, faceplates sized in rack units, and a depth warning beside the affected faceplate.
+- Save project goals, rack layouts, equipment, and tasks to the Monitor folder and reopen them later. Saved rack layouts with rear equipment have a separate rear view.
+- Record an equipment height while the equipment is still unplaced.
+- Review a project's missing materials, purchases, owned equipment, physical findings, connection problems, and open tasks.
+- Add equipment from inventory so a rack placement keeps its link to the actual item.
+- Both mounting rails mark every rack-unit boundary, aligned with the numbered ruler.

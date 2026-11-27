@@ -7,6 +7,7 @@ import 'device_page.dart';
 import 'dive.dart';
 import 'map_view.dart';
 import 'parts.dart';
+import 'planning_page.dart';
 import 'timeline.dart';
 import 'setup_page.dart';
 import 'state.dart';
@@ -42,6 +43,25 @@ class HomePage extends StatelessWidget {
                 tooltip: state.showMap ? 'Show as cards' : 'Show as a map',
                 onPressed: () => state.setShowMap(!state.showMap),
                 icon: Icon(state.showMap ? Icons.grid_view_rounded : Icons.hub_outlined),
+              ),
+              IconButton(
+                tooltip: 'Projects',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => PlanningPage(
+                    state.projectDrafts.putIfAbsent(state.folder.root, () => []),
+                    store: state.folder.exists ? ProjectStore(state.folder.root, state.host.id) : null,
+                    monitoredEquipment: () => {
+                      for (final report in state.reports.values) report.id: report.name,
+                      for (final thing in state.things.values)
+                        if (const {'ups', 'audio-interface'}.contains(thing.report.node?.type))
+                          thing.id: thing.report.name,
+                    },
+                    openMonitorReport: (context, id) => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)),
+                    ),
+                  )),
+                ),
+                icon: const Icon(Icons.architecture_outlined),
               ),
               IconButton(
                 tooltip: 'Setup and updates',

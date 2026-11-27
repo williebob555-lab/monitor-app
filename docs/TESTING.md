@@ -389,3 +389,18 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x project planning
+
+From `lite/app`, run `flutter test test/planning_page_test.dart`. The widget
+tests create and reopen session drafts at phone width, copy a checklist,
+capture equipment without measurements, place and move rack equipment,
+reject an overlap, and exercise entered and missing measurements. A
+desktop-width test verifies that editing a draft name preserves the link
+to its original monitoring report. Verify physical touch and keyboard
+behavior on the installed app separately.
+
+The same suite saves a rack and checklist through the real `ProjectStore`, reopens them through a new page with a second device ID, and checks unplaced equipment height, preservation of measured quantities, repeat saves, and rejection of stale revisions. Installed-device Syncthing transfer is a separate check.
+The same suite opens the project needs view and classifies a persisted owned item separately from an unpurchased equipment entry.
+The same suite adds rack equipment from inventory and verifies the placement retains the item identity after saving.
+The rack test checks that an accessible U label aligns with the centre of its mount group.
