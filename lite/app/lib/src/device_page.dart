@@ -7,8 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controls_view.dart';
 import 'dive.dart';
 import 'parts.dart';
+import 'pattern_history_page.dart';
 import 'state.dart';
 import 'theme.dart';
+import 'ups_evidence.dart';
 import 'widgets.dart';
 
 /// One device, opened up: its status in words, then the device with its parts
@@ -29,11 +31,15 @@ class _DevicePageState extends State<DevicePage> {
 
   /// Worked out once per opening, off the UI thread: it reads up to a week
   /// of this device's history and a month of every device's summaries.
-  Future<List<Pattern>> _findPatterns() {
+  Future<List<Pattern>> _findPatterns(Report report) {
     final st = widget.state;
     final names = st.names;
     final dir = st.dirOf(widget.id);
-    final others = {for (final id in st.reports.keys) if (id != widget.id) id: st.folder.deviceDir(id)};
+    final others = <String, String>{
+      if (!report.isThing)
+        for (final id in st.reports.keys)
+          if (id != widget.id) id: st.folder.deviceDir(id),
+    };
     return Isolate.run(() {
       final now = DateTime.now();
       final up = {for (final e in others.entries) e.key: hoursUp(readHourly(e.value, now))};
@@ -77,7 +83,8 @@ class _DevicePageState extends State<DevicePage> {
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
-              if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
+              if (!r.isThing || const {'ups', 'container'}.contains(r.node?.type))
+                ...[const SizedBox(height: 14), _patterns(r)],
             ];
             final right = <Widget>[
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
@@ -182,8 +189,8 @@ class _DevicePageState extends State<DevicePage> {
   }
 
   /// What its history shows, in words (core patterns.dart).
-  Widget _patterns() {
-    patterns ??= _findPatterns();
+  Widget _patterns(Report report) {
+    patterns ??= _findPatterns(report);
     return FutureBuilder<List<Pattern>>(
       future: patterns,
       builder: (context, snap) {
@@ -213,7 +220,25 @@ class _DevicePageState extends State<DevicePage> {
             ],
           ]);
         }
-        return Section('Patterns', body);
+        return Section('Patterns', Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            body,
+            const SizedBox(height: 8),
+            TextButton.icon(
+              icon: const Icon(Icons.show_chart),
+              label: const Text('Pattern history'),
+              onPressed: () {
+                final dir = widget.state.dirOf(report.id);
+                final now = DateTime.now();
+                final history = Isolate.run(() => readPatternHistory(dir, now));
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => PatternHistoryPage(report.name, history, patterns: list ?? const []),
+                ));
+              },
+            ),
+          ],
+        ));
       },
     );
   }
@@ -284,6 +309,10 @@ class _DevicePageState extends State<DevicePage> {
           const SizedBox(height: 6),
           Text('Last update ${ago(s.age)} ago. Next one expected within ${ago(Duration(seconds: s.report.nextSeconds))}.',
               style: const TextStyle(color: C.muted, fontSize: 12)),
+          if (s.report.node?.type == 'ups') ...[
+            const SizedBox(height: 8),
+            UpsEvidence(s.report),
+          ],
         ]),
       );
 

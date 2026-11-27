@@ -57,6 +57,10 @@ syncs like everything else.
 * **A device, opened up**: the device in the middle and its parts around it
   (battery, processor, memory, storage, network, links, and any extra readings
   it publishes), each with its value and live line.
+  Under Patterns, open **Pattern history** to see daily recorded summaries
+  for that device, with dates and gaps where a pattern was unavailable.
+  UPS pages also show the reading source and their own power patterns when
+  the collector has recorded them.
 * **A part**: its live chart since the app opened, its history (24 h, 7 days,
   a year) with low, average and high, its details, and anything else on that
   device that needs a look.

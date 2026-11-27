@@ -197,7 +197,10 @@ List<Part> partsOf(Report r, Map<String, String> names, {Set<String> away = cons
           Series(x.label ?? x.key, x.key, (rr) => rr.readings.where((y) => y.key == x.key).map((y) => y.value).whereType<num>().firstOrNull?.toDouble(),
               unit: x.unit ?? ''),
       ],
-      facts: [for (final x in g.value) (x.label ?? x.key, _readingText(x))],
+      facts: [
+        for (final x in g.value)
+          (x.label ?? x.key, [_readingText(x), if (x.value != null) ?_sourceName(x.from)].join(' · ')),
+      ],
     ));
   }
   return out;
@@ -228,3 +231,12 @@ String _readingText(Reading x) {
   // Only measured values go unmarked.
   return x.src == 'estimated' ? '$s (estimated)' : x.src == 'declared' ? '$s (declared)' : s;
 }
+
+String? _sourceName(String? source) => switch (source) {
+  'upower' => 'UPower',
+  'upower-export' => 'Host UPower',
+  'hid' => 'USB HID',
+  'nut' => 'NUT',
+  'sysfs' => 'Linux hardware',
+  _ => null,
+};

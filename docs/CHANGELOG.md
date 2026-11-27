@@ -257,3 +257,10 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x pattern history (unreleased)
+
+- Device pages can show archived pattern values over time. Pattern history shows recorded points, dates, and recent values, and leaves gaps where the collector did not record the selected pattern.
+- UPS pages show their reading source and the reason when load is unavailable. When the collector provides UPS patterns, the device page shows power cuts, usual load, and estimated runtime history.
+- UPS pages show the host's reported low-battery policy and USB identity. Detail rows identify the collection method when the report includes it. Docker containers can open their recorded pattern history.
+- Recorded conditional patterns show readable labels and units even when the current report omits the pattern.

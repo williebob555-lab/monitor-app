@@ -97,3 +97,8 @@ This file contains active and near-term tasks only. Read it with the required do
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions beyond monitoring controls (power, services, scripts), multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.
+
+## Monitor App 2.x pattern history
+
+- [x] T077: show recorded daily pattern values on device pages through `monitor_core`, including dates and gaps.
+- [x] Expose the UPS reading source and archive trends when the collector supplies them.
