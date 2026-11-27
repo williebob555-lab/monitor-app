@@ -603,6 +603,16 @@ library connector id, `dir`, `signals`, `power`, `gender`, `required`).
   from `checkPhysical`, such as a power shortfall.
 - `openTasks`: tasks that aren't done.
 
+### One past moment (`systemAt`)
+
+`systemAt(root, t)` returns three views of the same moment:
+
+- `items` and `projects` as they were written at `t`;
+- `live`, the device state at `t` (from `topologyAt`);
+- `upAt(item)`, which joins the two through `observes` and `alsoObserves`.
+  It says whether the item's device was up, or whether its thing was
+  attached and on (a container: running).
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.
