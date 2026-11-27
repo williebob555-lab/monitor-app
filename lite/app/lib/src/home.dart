@@ -162,7 +162,6 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = C.of(n.level);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
