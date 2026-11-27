@@ -70,7 +70,51 @@ object Patterns {
 
     fun find(detail: List<JSONObject>, hourly: List<JSONObject>, names: Map<String, String>, up: Map<String, Set<Long>>?): List<P> =
         battery(detail) + byTimeOfDay(hourly, "cpu", "Processor", "CPU") + usual(hourly, "mem", "Memory", "Memory") +
-            usual(hourly, "temp.cpu", "Temperature", "CPU temperature", "°C") + traffic(hourly) + reach(hourly, names, up)
+            usual(hourly, "temp.cpu", "Temperature", "CPU temperature", "°C") + traffic(hourly) + reach(hourly, names, up) + conditions(detail)
+
+    /** core patterns.dart _conditions: drain with the app open somewhere (w) or not, data a day by network type (nt). */
+    private fun conditions(lines: List<JSONObject>): List<P> {
+        val out = ArrayList<P>()
+        val drain = HashMap<String, DoubleArray>()
+        val bytes = HashMap<Int, Double>(); val secs = HashMap<Int, Double>()
+        for (i in 1 until lines.size) {
+            val a = lines[i - 1]; val b = lines[i]
+            val dt = (b.getLong("t") - a.getLong("t")).toDouble()
+            if (dt <= 0 || dt > 1200) continue
+            val ba = num(a, "b"); val bb = num(b, "b")
+            val wa = num(a, "w") ?: 0.0; val wb = num(b, "w") ?: 0.0
+            if (ba != null && bb != null && num(a, "c") == 0.0 && num(b, "c") == 0.0 && !(ba >= 99 && bb >= 99) && wa == wb) {
+                val x = drain.getOrPut(if (wb == 1.0) "watched" else "quiet") { DoubleArray(2) }
+                x[0] += ba - bb; x[1] += dt
+            }
+            val na = num(a, "nt"); val nb = num(b, "nt")
+            if (na != null && na == nb && nb != 0.0 && (b.has("rx") || b.has("tx"))) {
+                val k = nb.toInt()
+                bytes[k] = (bytes[k] ?: 0.0) + ((num(b, "rx") ?: 0.0) + (num(b, "tx") ?: 0.0)) * dt
+                secs[k] = (secs[k] ?: 0.0) + dt
+            }
+        }
+        for ((k, v) in drain) {
+            val hours = v[1] / 3600
+            if (hours < MIN_HOURS) continue
+            val rate = maxOf(v[0] / hours, 0.0)
+            val wh = if (k == "watched") "while the app is open somewhere" else "while nobody has the app open"
+            out += P("battery.drain.$k", "Battery", "On battery it drains ${f(rate)} %/h $wh (over ${h(hours)})", hours, rate, "%/h")
+        }
+        if (lines.size > 1) {
+            val span = (lines.last().getLong("t") - lines.first().getLong("t")) / 86400.0
+            val labels = mapOf(1 to ("wifi" to "Wi-Fi"), 2 to ("mobile" to "mobile data"), 3 to ("wired" to "a cable"))
+            fun size(b: Double) = if (b >= 1e9) "${f(b / 1e9)} GB" else if (b >= 1e6) "${f(b / 1e6)} MB" else "${f(b / 1e3)} KB"
+            for ((k, total) in bytes) {
+                val hours = (secs[k] ?: 0.0) / 3600
+                val (key, label) = labels[k] ?: continue
+                if (hours < MIN_HOURS || span <= 0) continue
+                val perDay = total / maxOf(span, hours / 24)
+                out += P("net.perDay.$key", "Network", "Moves about ${size(perDay)} a day over $label (on it ${h(hours)} of the last ${h(span * 24)})", hours, perDay, "B/day")
+            }
+        }
+        return out
+    }
 
     private fun num(l: JSONObject, k: String): Double? = (l.opt(k) as? Number)?.toDouble()
     private fun avg(l: JSONObject, k: String): Double? = when (val v = l.opt(k)) {

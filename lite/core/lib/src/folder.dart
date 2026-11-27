@@ -50,7 +50,12 @@ class SyncFolder {
   void log(String id, String line) {
     try {
       final f = File(_p(id, logFileName));
-      final stamp = DateTime.now().toIso8601String().substring(0, 19);
+      // Local time with its UTC offset, so readers can line logs up with
+      // history (gaps.dart); older lines have no offset.
+      final n = DateTime.now();
+      final o = n.timeZoneOffset;
+      final stamp = '${n.toIso8601String().substring(0, 19)}${o.isNegative ? '-' : '+'}'
+          '${o.inHours.abs().toString().padLeft(2, '0')}:${(o.inMinutes.abs() % 60).toString().padLeft(2, '0')}';
       f.writeAsStringSync('$stamp $line\n', mode: FileMode.append, flush: true);
       if (f.lengthSync() > logMaxBytes) {
         final text = f.readAsStringSync();
@@ -96,7 +101,9 @@ class SyncFolder {
             _cache[f.path] = (text, r);
           }
         }
-        if (r != null) out[r.id] = r;
+        // A report speaks only for its own folder: an id that differs from
+        // the folder name would let one device pose as another.
+        if (r != null && r.id == e.uri.pathSegments.where((x) => x.isNotEmpty).last) out[r.id] = r;
       } catch (_) {
         final c = _cache[f.path];
         if (c?.$2 != null) out[c!.$2!.id] = c.$2!;
@@ -177,8 +184,7 @@ class SyncFolder {
   FolderHealth health() {
     final h = FolderHealth();
     final dir = Directory(devicesPath);
-    if (!dir.existsSync()) return h;
-    for (final d in dir.listSync()) {
+    for (final d in dir.existsSync() ? dir.listSync() : const <FileSystemEntity>[]) {
       if (d is! Directory) continue;
       final name = d.uri.pathSegments.where((x) => x.isNotEmpty).last;
       var hasNow = false;
@@ -193,6 +199,19 @@ class SyncFolder {
       }
       if (!hasNow) h.empty.add(name);
     }
+    // Shared model (model.dart): conflict copies of item.json, project.json...
+    final model = Directory('$root${Platform.pathSeparator}model');
+    if (model.existsSync()) {
+      for (final c in model.listSync()) {
+        if (c is! Directory) continue;
+        for (final d in c.listSync()) {
+          if (d is! Directory) continue;
+          for (final f in d.listSync()) {
+            if (f is File && f.uri.pathSegments.last.contains('.sync-conflict-')) h.conflicts.add(f.path);
+          }
+        }
+      }
+    }
     return h;
   }
 
@@ -201,6 +220,9 @@ class SyncFolder {
   int removeConflicts() {
     var n = 0;
     for (final p in health().conflicts) {
+      // Model conflict copies may be the newest version: ModelStore
+      // .resolveConflicts() keeps that one and removes the others.
+      if (!p.startsWith(devicesPath)) continue;
       try {
         File(p).deleteSync();
         n++;
@@ -232,6 +254,16 @@ class SyncFolder {
       final f = _watchFile(id);
       if (f.existsSync()) f.deleteSync();
     } catch (_) {}
+  }
+
+  /// True while this device's own app is open (its watch file is fresh).
+  bool watchedHere(String id, DateTime now) {
+    try {
+      final j = jsonDecode(_watchFile(id).readAsStringSync());
+      return j is Map && j['until'] is num && (j['until'] as num) > now.toUtc().millisecondsSinceEpoch ~/ 1000;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Names of the devices whose app is open right now (fresh watch files).

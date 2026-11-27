@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'events.dart';
 import 'history.dart';
 
 /// What a device's history shows, in words: "battery drains 1.2 %/h with
@@ -123,7 +124,112 @@ List<Pattern> findPatterns(List<Map<String, Object?>> detail, List<Map<String, O
     ..._usual(hourly, 'ups.load', 'Power', 'UPS load'),
     ..._powerCuts(detail),
     ..._fullRuntime(detail),
+    ..._conditions(detail),
+    ..._runtimeByLoad(detail),
+    ..._usual(hourly, 'ct.mem', 'Container', 'Memory', unit: 'MB'),
   ];
+}
+
+/// "Usage X under condition Y" from consecutive detail lines (at most 20
+/// minutes apart, same condition at both ends): battery drain with the app
+/// open somewhere (`w`) or not, data a day by network type (`nt`), and CPU
+/// temperature when idle against busy.
+List<Pattern> _conditions(List<Map<String, Object?>> lines) {
+  final out = <Pattern>[];
+  final drain = <String, List<double>>{};
+  final bytes = <int, double>{}, secs = <int, double>{};
+  final temp = <String, List<double>>{};
+  for (var i = 0; i < lines.length; i++) {
+    final b = lines[i];
+    final cpu = _num(b, 'cpu'), tc = _num(b, 'temp.cpu');
+    if (cpu != null && tc != null && (cpu < 25 || cpu >= 60)) {
+      (temp[cpu < 25 ? 'idle' : 'busy'] ??= []).add(tc.toDouble());
+    }
+    if (i == 0) continue;
+    final a = lines[i - 1];
+    final dt = ((b['t']! as num) - (a['t']! as num)).toDouble();
+    if (dt <= 0 || dt > 1200) continue;
+    final ba = _num(a, 'b'), bb = _num(b, 'b');
+    if (ba != null && bb != null && _num(a, 'c') == 0 && _num(b, 'c') == 0 && !(ba >= 99 && bb >= 99) && (_num(a, 'w') ?? 0) == (_num(b, 'w') ?? 0)) {
+      final x = drain.putIfAbsent((_num(b, 'w') ?? 0) == 1 ? 'watched' : 'quiet', () => [0, 0]);
+      x[0] += (ba - bb).toDouble();
+      x[1] += dt;
+    }
+    final na = _num(a, 'nt'), nb = _num(b, 'nt');
+    final rate = (_num(b, 'rx') ?? 0) + (_num(b, 'tx') ?? 0);
+    if (na != null && nb != null && na == nb && nb != 0 && (b.containsKey('rx') || b.containsKey('tx'))) {
+      final k = nb.toInt();
+      bytes[k] = (bytes[k] ?? 0) + rate * dt;
+      secs[k] = (secs[k] ?? 0) + dt;
+    }
+  }
+  for (final e in drain.entries) {
+    final hours = e.value[1] / 3600;
+    if (hours < minHours) continue;
+    final rate = e.value[0] / hours;
+    final when = e.key == 'watched' ? 'while the app is open somewhere' : 'while nobody has the app open';
+    out.add(Pattern(key: 'battery.drain.${e.key}', group: 'Battery', text: 'On battery it drains ${_f(math.max(rate, 0))} %/h $when (over ${_h(hours)})',
+        value: math.max(rate, 0), unit: '%/h', hours: hours));
+  }
+  if (lines.length > 1) {
+    final span = ((lines.last['t']! as num) - (lines.first['t']! as num)) / 86400;
+    const names = {1: ('wifi', 'Wi-Fi'), 2: ('mobile', 'mobile data'), 3: ('wired', 'a cable')};
+    for (final e in bytes.entries) {
+      final hours = secs[e.key]! / 3600;
+      if (hours < minHours || span <= 0 || !names.containsKey(e.key)) continue;
+      final perDay = e.value / math.max(span, hours / 24);
+      final (k, label) = names[e.key]!;
+      out.add(Pattern(key: 'net.perDay.$k', group: 'Network', text: 'Moves about ${_size(perDay)} a day over $label (on it ${_h(hours)} of the last ${_h(span * 24)})',
+          value: perDay, unit: 'B/day', hours: hours));
+    }
+  }
+  final idle = temp['idle'], busy = temp['busy'];
+  if (idle != null && busy != null && idle.length >= 60 && busy.length >= 30) {
+    double med(List<double> v) => (v..sort())[v.length ~/ 2];
+    out.add(Pattern(key: 'temp.cpu.byLoad', group: 'Temperature',
+        text: 'CPU temperature is about ${_f(med(idle))} °C when idle and ${_f(med(busy))} °C when busy (over ${_h((idle.length + busy.length) / 60)})',
+        value: med(busy) - med(idle), unit: '°C', hours: (idle.length + busy.length) / 60));
+  }
+  return out;
+}
+
+String _size(double bytes) => bytes >= 1e9
+    ? '${_f(bytes / 1e9)} GB'
+    : bytes >= 1e6
+        ? '${_f(bytes / 1e6)} MB'
+        : '${_f(bytes / 1e3)} KB';
+
+/// How long a full UPS expects to last at each load it has seen (10 % steps,
+/// readings with the battery at 95 % or more, at least 30 per step).
+List<Pattern> _runtimeByLoad(List<Map<String, Object?>> lines) {
+  final by = <int, List<double>>{};
+  for (final l in lines) {
+    final load = _num(l, 'ups.load'), rt = _num(l, 'ups.runtime'), ch = _num(l, 'ups.charge');
+    if (load == null || rt == null || ch == null || ch < 95 || (_num(l, 'ups.onBattery') ?? 0) == 1) continue;
+    (by[load ~/ 10] ??= []).add(rt.toDouble());
+  }
+  final steps = by.entries.where((e) => e.value.length >= 30).toList()..sort((a, b) => a.key.compareTo(b.key));
+  if (steps.length < 2) return const [];
+  double med(List<double> v) => (v..sort())[v.length ~/ 2];
+  final n = steps.fold<int>(0, (a, e) => a + e.value.length);
+  return [
+    Pattern(
+        key: 'ups.runtime.byLoad',
+        group: 'Power',
+        text: 'When full, the UPS expects ${steps.map((e) => '${_f(med(e.value))} min at ${e.key * 10}-${e.key * 10 + 10} % load').join(', ')}',
+        value: med(steps.first.value),
+        unit: 'min',
+        hours: n / 60,
+        estimated: true),
+  ];
+}
+
+/// Restarts per container, from the host's events: `container.started` in
+/// the last 7 days for [subject].
+List<Pattern> restartsPattern(List<Event> events, String subject, DateTime now) {
+  final from = now.subtract(const Duration(days: 7));
+  final n = events.where((e) => e.type == 'container.started' && e.subject == subject && e.time.isAfter(from)).length;
+  return [Pattern(key: 'ct.restarts', group: 'Container', text: n == 0 ? 'Not restarted in 7 days' : 'Started $n ${n == 1 ? 'time' : 'times'} in 7 days (${_f(n / 7)} a day)', value: n / 7, unit: '/day', hours: 168)];
 }
 
 /// Power cuts a UPS rode through: from `ups.onBattery` in detail lines (the
