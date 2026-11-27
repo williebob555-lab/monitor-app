@@ -346,6 +346,38 @@ object Collector {
                 break
             }
         }
+        // Tailscale, as far as Android lets another app see it: a VPN
+        // network is up and this phone has a Tailscale (100.64/10) address.
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val vpn = cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+            val ts = tailscaleIp() != null
+            add("ts.state", "State", if (ts) "Running" else if (vpn) "VPN up, no Tailscale address" else "Stopped", "Tailscale",
+                level = if (ts) null else "fault")
+        }
+        // Syncthing on this phone: its sync port answers locally. Peer and
+        // folder counts need Syncthing-Fork's API key, which another app
+        // cannot read (see ROADMAP row 9).
+        runCatching {
+            val up = tcp("127.0.0.1", 300) == "open"
+            add("st.state", "State", if (up) "Running" else "Not running", "Syncthing", level = if (up) null else "fault")
+        }
+        // Storage per volume (phone storage, SD card, USB drive), only when
+        // there is more than one: one volume is already "Storage".
+        if (Build.VERSION.SDK_INT >= 30) runCatching {
+            val sm = ctx.getSystemService(android.os.storage.StorageManager::class.java)
+            val vols = sm.storageVolumes.mapNotNull { v ->
+                val d = v.directory ?: return@mapNotNull null
+                val st = android.os.StatFs(d.path)
+                if (st.totalBytes < (1L shl 30)) null else Triple(v.getDescription(ctx), st.totalBytes, st.availableBytes)
+            }
+            if (vols.size > 1) for ((name, total, free) in vols) {
+                val used = (total - free).toDouble() / total
+                val gb = if (total >= (1L shl 40)) "%.1f TB".format(total / (1L shl 40).toDouble()) else "${total / (1L shl 30)} GB"
+                add("drive.${name.replace(Regex("[^A-Za-z0-9]+"), "_")}", "$name ($gb)", Math.round(used * 1000) / 10.0, "Drives", unit = "%",
+                    level = if (used >= 0.95) "fault" else if (used >= 0.9) "warn" else null)
+            }
+        }
         return a
     }
 
