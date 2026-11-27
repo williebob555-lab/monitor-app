@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x device activity
+
+Run `flutter test test/device_activity_test.dart` from `lite/app`. The widget test uses the real core event writer and reader and verifies ordering, subject filtering, and observer labels.
