@@ -16,8 +16,9 @@ uses host networking and publishes nothing.
 
 ## What a reader accepts from the folder
 
-Each device writes only inside `devices/<its id>/` (and the shared `model/`
-store). Syncthing doesn't enforce this, so readers check:
+Each device writes only inside `devices/<its id>/`, the shared `model/`
+store, `rules/<id>.json` when someone edits a rule, and its own
+`rules/<id>/fired/<its id>.jsonl`. Syncthing doesn't enforce this, so readers check:
 
 - **Identity.** A `now.json` counts only if its `id` matches its folder
   name, so one device can't pose as another.
@@ -55,6 +56,15 @@ store). Syncthing doesn't enforce this, so readers check:
   `control.applied` event.
 - No biometrics or PIN are ever required. The app asks in-app before
   sending.
+
+## Rules
+
+- A rule can only notify, add a note to history, or send the same control
+  request a person could send. A rule's control request comes from the
+  device that judged the rule and still has to pass `controls.allow` on the
+  device that applies it.
+- Rule ids follow the model id pattern before they become a file or folder
+  name. A rule file over 64 KB, or one with any problem, never runs.
 
 ## Updates
 
@@ -99,6 +109,8 @@ folder:
 - Anyone with a device in the Syncthing folder can read all telemetry,
   including device names, addresses on Tailscale and the local network,
   and container names.
+- A phone's location, when its owner switches it on (off by default), is
+  rounded to about 1 km and readable by every device in the folder.
 - A device that is fully compromised can still write wrong readings about
   itself, and ask for allowed controls.
 - Model, project and event files are trusted as data from the devices in
