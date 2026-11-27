@@ -202,6 +202,7 @@ class _ProjectPageState extends State<_ProjectPage> {
     EquipmentDraft? item,
     int? unit,
     (String, String)? monitored,
+    (String, String)? inventory,
   }) async {
     final edited = await editEquipment(
       context,
@@ -209,6 +210,7 @@ class _ProjectPageState extends State<_ProjectPage> {
       draft: item,
       unit: unit,
       monitored: monitored,
+      inventory: inventory,
     );
     if (edited == null || !mounted) return;
     _change(() {
@@ -218,6 +220,45 @@ class _ProjectPageState extends State<_ProjectPage> {
         draft.equipment[draft.equipment.indexOf(item)] = edited;
       }
     });
+  }
+
+  Future<void> _addInventoryEquipment() async {
+    try {
+      final store = widget.store!;
+      final items = ModelStore(store.root, store.deviceId).list()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      final chosen = await showDialog<Item>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Choose inventory equipment'),
+          children: [
+            if (items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                child: Text('No inventory items have been added yet.'),
+              ),
+            for (final item in items)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, item),
+                child: Text(item.name),
+              ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+      if (chosen != null && mounted) {
+        await _editEquipment(inventory: (chosen.id, chosen.name));
+      }
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open inventory.')),
+        );
+      }
+    }
   }
 
   Future<void> _addMonitoredEquipment() async {
@@ -455,6 +496,12 @@ class _ProjectPageState extends State<_ProjectPage> {
             icon: const Icon(Icons.link),
             label: const Text('Add from Monitor'),
           ),
+        if (widget.store != null)
+          OutlinedButton.icon(
+            onPressed: _addInventoryEquipment,
+            icon: const Icon(Icons.inventory_2_outlined),
+            label: const Text('Add from inventory'),
+          ),
       ],
     ),
     if (draft.equipment.isNotEmpty) ...[
@@ -527,6 +574,7 @@ class _ProjectPageState extends State<_ProjectPage> {
     final rackDepth = draft.rackDepthMm;
     return [
       '${item.heightUnits == null ? 'Height unknown' : '${item.heightUnits}U'} · ${item.placement}',
+      if (item.inventoryId != null) 'Linked to inventory',
       if (item.bottomUnit != null &&
           item.topUnit != null &&
           item.heightUnits != item.topUnit! - item.bottomUnit! + 1)
@@ -556,8 +604,9 @@ class _RackElevation extends StatelessWidget {
   final ValueChanged<EquipmentDraft> onOpen;
   final ValueChanged<int>? onEmpty;
   static const _unitHeight = 44.0;
-  static const _railWidth = 18.0;
-  static const _rulerWidth = 38.0;
+  static const _railWidth = 22.0;
+  static const _rulerWidth = 42.0;
+  static const _unitMark = Color(0xFF7F909F);
   static const _frame = Color(0xFF0E1114);
 
   @override
@@ -599,17 +648,26 @@ class _RackElevation extends StatelessWidget {
                 child: Column(
                   children: [
                     for (var unit = units; unit > 0; unit--)
-                      SizedBox(
+                      Container(
                         height: _unitHeight,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'U$unit',
-                            style: const TextStyle(
-                              color: C.muted,
-                              fontSize: 11,
-                              fontFeatures: [FontFeature.tabularFigures()],
-                            ),
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 7),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: unit == units
+                                ? const BorderSide(color: _unitMark)
+                                : BorderSide.none,
+                            bottom: const BorderSide(color: _unitMark),
+                          ),
+                        ),
+                        child: Text(
+                          'U$unit',
+                          semanticsLabel: 'Rack unit $unit',
+                          style: const TextStyle(
+                            color: Color(0xFFD1D9E1),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
                       ),
@@ -649,7 +707,7 @@ class _RackElevation extends StatelessWidget {
   Widget _rail() => SizedBox(
     width: _railWidth,
     height: _unitHeight * units,
-    child: CustomPaint(painter: _RackRail(units, _unitHeight)),
+    child: CustomPaint(painter: _RackRail(units, _unitHeight, _unitMark)),
   );
 
   Widget _emptyBay(int unit) => Material(
@@ -727,17 +785,22 @@ class _RackElevation extends StatelessWidget {
 }
 
 class _RackRail extends CustomPainter {
-  const _RackRail(this.units, this.unitHeight);
+  const _RackRail(this.units, this.unitHeight, this.unitMark);
 
   final int units;
   final double unitHeight;
+  final Color unitMark;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFF292F36),
-    );
+    final steel = Paint()..color = const Color(0xFF2C343D);
+    final alternate = Paint()..color = const Color(0xFF353E48);
+    for (var unit = 0; unit < units; unit++) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, unit * unitHeight, size.width, unitHeight),
+        unit.isEven ? steel : alternate,
+      );
+    }
     final groove = Paint()..color = const Color(0xFF39414B);
     canvas.drawLine(const Offset(1, 0), Offset(1, size.height), groove);
     final hole = Paint()..color = const Color(0xFF101317);
@@ -752,11 +815,20 @@ class _RackRail extends CustomPainter {
         );
       }
     }
+    final etched = Paint()
+      ..color = unitMark
+      ..strokeWidth = 1.25;
+    for (var unit = 0; unit <= units; unit++) {
+      final y = (unit * unitHeight).clamp(0.75, size.height - 0.75).toDouble();
+      canvas.drawLine(Offset(1, y), Offset(size.width - 1, y), etched);
+    }
   }
 
   @override
   bool shouldRepaint(_RackRail oldDelegate) =>
-      units != oldDelegate.units || unitHeight != oldDelegate.unitHeight;
+      units != oldDelegate.units ||
+      unitHeight != oldDelegate.unitHeight ||
+      unitMark != oldDelegate.unitMark;
 }
 
 Widget _workspaceList(List<Widget> children, {String page = 'projects'}) =>

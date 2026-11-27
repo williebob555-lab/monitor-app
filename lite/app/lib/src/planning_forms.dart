@@ -87,9 +87,10 @@ Future<EquipmentDraft?> editEquipment(
   EquipmentDraft? draft,
   int? unit,
   (String id, String name)? monitored,
+  (String id, String name)? inventory,
 }) {
   final form = GlobalKey<FormState>();
-  var name = draft?.name ?? monitored?.$2 ?? '';
+  var name = draft?.name ?? inventory?.$2 ?? monitored?.$2 ?? '';
   var height = draft?.heightUnits?.toString() ?? (unit == null ? '' : '1');
   var position = (draft?.bottomUnit ?? unit)?.toString() ?? '';
   var depth = draft?.depthMm?.toString() ?? '';
@@ -108,6 +109,7 @@ Future<EquipmentDraft?> editEquipment(
     weightKg: double.tryParse(weight.trim()),
     powerW: double.tryParse(power.trim()),
     monitorId: draft?.monitorId ?? monitored?.$1,
+    inventoryId: draft?.inventoryId ?? inventory?.$1,
     source: draft?.source,
     id: draft?.id,
   );

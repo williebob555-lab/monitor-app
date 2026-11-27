@@ -402,3 +402,5 @@ behavior on the installed app separately.
 
 The same suite saves a rack and checklist through the real `ProjectStore`, reopens them through a new page with a second device ID, and checks unplaced equipment height, preservation of measured quantities, repeat saves, and rejection of stale revisions. Installed-device Syncthing transfer is a separate check.
 The same suite opens the project needs view and classifies a persisted owned item separately from an unpurchased equipment entry.
+The same suite adds rack equipment from inventory and verifies the placement retains the item identity after saving.
+The rack test checks that an accessible U label aligns with the centre of its mount group.

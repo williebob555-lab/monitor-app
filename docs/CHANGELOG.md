@@ -267,3 +267,5 @@ This file records completed user-visible, operational, architectural, packaging,
 - Save project goals, rack layouts, equipment, and tasks to the Monitor folder and reopen them later. Saved rack layouts with rear equipment have a separate rear view.
 - Record an equipment height while the equipment is still unplaced.
 - Review a project's missing materials, purchases, owned equipment, physical findings, connection problems, and open tasks.
+- Add equipment from inventory so a rack placement keeps its link to the actual item.
+- Both mounting rails mark every rack-unit boundary, aligned with the numbered ruler.

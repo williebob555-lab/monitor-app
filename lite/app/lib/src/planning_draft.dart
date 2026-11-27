@@ -147,6 +147,7 @@ class EquipmentDraft {
     this.weightKg,
     this.powerW,
     this.monitorId,
+    this.inventoryId,
     this.source,
     String? id,
   }) : id = id ?? source?.id ?? newModelId();
@@ -160,6 +161,7 @@ class EquipmentDraft {
     weightKg: placement.weight?.base('mass'),
     powerW: placement.power?.base('power'),
     monitorId: placement.thing,
+    inventoryId: placement.item,
     source: placement,
   );
 
@@ -172,6 +174,7 @@ class EquipmentDraft {
   final double? weightKg;
   final double? powerW;
   final String? monitorId;
+  final String? inventoryId;
   final Placement? source;
   String get face => source?.face ?? 'front';
   bool get fullDepth => source?.fullDepth ?? false;
@@ -179,7 +182,7 @@ class EquipmentDraft {
   Placement toPlacement() => Placement(
     id: id,
     name: name,
-    item: source?.item,
+    item: inventoryId,
     thing: monitorId,
     u: bottomUnit == null || topUnit == null ? null : (bottomUnit!, topUnit!),
     height: heightUnits,

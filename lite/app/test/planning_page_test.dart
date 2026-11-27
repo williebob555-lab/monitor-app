@@ -85,6 +85,36 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('rack equipment keeps its inventory identity when saved', (
+    tester,
+  ) async {
+    final folder = Directory.systemTemp.createTempSync(
+      'monitor-rack-inventory',
+    );
+    addTearDown(() => folder.deleteSync(recursive: true));
+    final store = ProjectStore(folder.path, 'laptop');
+    store.put(Project(id: 'rack-project', name: 'Studio rack'));
+    ModelStore(folder.path, 'laptop').put(
+      Item(
+        id: 'interface-r2',
+        type: 'audio-interface',
+        name: 'My interface',
+        state: 'owned',
+      ),
+    );
+    await openWorkspace(tester, [], store: store);
+    await tap(tester, 'Studio rack');
+    await tap(tester, 'Equipment');
+    await tap(tester, 'Add from inventory');
+    await tap(tester, 'My interface');
+    await tap(tester, 'Add to project');
+    await tester.tap(find.byTooltip('Save project'));
+    await tester.pumpAndSettle();
+    final item = store.get('rack-project')!.assemblies.single.placements.single;
+    expect(item.item, 'interface-r2');
+    expect(item.name, 'My interface');
+  });
+
   testWidgets('saved racks and tasks reopen for another device', (
     tester,
   ) async {
@@ -217,6 +247,10 @@ void main() {
 
     expect(find.text('Move the recording gear off the desk'), findsOneWidget);
     expect(find.textContaining('0 of 4U occupied'), findsOneWidget);
+    final label = find.text('U1');
+    final bay = find.byKey(const ValueKey('rack-empty:1'));
+    expect(tester.widget<Text>(label).semanticsLabel, 'Rack unit 1');
+    expect(tester.getCenter(label).dy, closeTo(tester.getCenter(bay).dy, 1));
     expect(find.text('Session draft'), findsOneWidget);
     await tap(tester, 'Tasks');
     await tap(tester, 'New task');
