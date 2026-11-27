@@ -5,9 +5,8 @@ import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
 import 'dive.dart';
-import 'map_view.dart';
+import 'network_map_panel.dart';
 import 'parts.dart';
-import 'timeline.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -75,7 +74,15 @@ class HomePage extends StatelessWidget {
                     return SliverPadding(
                       padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                       sliver: SliverToBoxAdapter(
-                        child: SizedBox(height: math.max(rest, 420), child: _MapPanel(state)),
+                        child: SizedBox(height: math.max(rest, 420), child: MapPanel(
+                          folder: state.folder,
+                          devices: a.devices,
+                          things: [for (final t in state.things.values) state.statusOf(t.id)!],
+                          myId: state.host.id,
+                          openLive: (id) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)),
+                          ),
+                        )),
                       ),
                     );
                   })
@@ -293,83 +300,4 @@ class _Net extends StatelessWidget {
             maxLines: 1, overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
       ]);
-}
-
-
-/// The map with a timeline under it: drag back up to 24 hours to see who
-/// reached whom then. Recorded views are marked and can't be mistaken for now.
-class _MapPanel extends StatefulWidget {
-  const _MapPanel(this.state);
-  final AppState state;
-  @override
-  State<_MapPanel> createState() => _MapPanelState();
-}
-
-class _MapPanelState extends State<_MapPanel> {
-  late final timeline = Timeline(widget.state.folder);
-
-  /// Minutes back from now; 0 is live.
-  double back = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = widget.state;
-    final a = state.assessment;
-    final now = DateTime.now().toUtc();
-    var devices = a.devices;
-    DateTime? at;
-    if (back > 0) {
-      at = now.subtract(Duration(minutes: back.round()));
-      timeline.load(a.devices.map((d) => d.report.id), now);
-      devices = timeline.at([for (final d in a.devices) d.report], at);
-    }
-    final local = at?.toLocal();
-    String hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    return Column(children: [
-      Expanded(
-        child: NetworkMap(devices, myId: state.host.id, things: [for (final t in state.things.values) state.statusOf(t.id)!], onOpen: (id) {
-          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
-        }),
-      ),
-      const SizedBox(height: 4),
-      Row(children: [
-        const SizedBox(width: 64, child: Text('24 h ago', style: TextStyle(color: C.muted, fontSize: 11.5))),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 2,
-              activeTrackColor: C.muted.withValues(alpha: 0.6),
-              inactiveTrackColor: C.line,
-              thumbColor: C.text,
-              overlayColor: C.text.withValues(alpha: 0.08),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 2),
-              tickMarkShape: SliderTickMarkShape.noTickMark,
-              showValueIndicator: ShowValueIndicator.never,
-            ),
-            child: Slider(
-              // Left is 24 h ago, right is now.
-              value: 24 * 60 - back,
-              min: 0,
-              max: 24 * 60,
-              divisions: 24 * 4,
-              onChanged: (v) => setState(() => back = 24 * 60 - v),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 64,
-          child: GestureDetector(
-            onTap: () => setState(() => back = 0),
-            child: Text(local == null ? 'Live' : hm(local),
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                    color: local == null ? C.ok : C.warn,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()])),
-          ),
-        ),
-      ]),
-    ]);
-  }
 }

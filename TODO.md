@@ -99,3 +99,4 @@ This file contains active and near-term tasks only. Read it with the required do
 ## Monitor App 2.x UI
 
 - [x] T075: clarify the live map using the `monitor_core` contract. Dual-boot installs share one host, warnings are summarized, and Flutter widget tests exercise the map at phone width.
+- [x] Keep recorded map details read-only and anchored to their selected time.

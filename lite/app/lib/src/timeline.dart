@@ -36,8 +36,7 @@ class Timeline {
     return t == null ? null : DateTime.fromMillisecondsSinceEpoch(t * 1000, isUtc: true);
   }
 
-  /// Every device as it reported nearest to [at] (within 10 minutes), or
-  /// marked silent when it wrote nothing around then.
+  /// Every device's latest reading at or before [at], up to 10 minutes old.
   List<DeviceStatus> at(List<Report> devices, DateTime at) {
     final out = <DeviceStatus>[];
     final ts = at.millisecondsSinceEpoch ~/ 1000;
@@ -46,15 +45,15 @@ class Timeline {
       Map<String, Object?>? best;
       var bestD = 601;
       for (final l in lines) {
-        final d = ((l['t']! as num).toInt() - ts).abs();
-        if (d < bestD) {
+        final d = ts - (l['t']! as num).toInt();
+        if (d >= 0 && d < bestD) {
           bestD = d;
           best = l;
         }
       }
       if (best == null) {
         out.add(DeviceStatus(Report(id: r.id, name: r.name, kind: r.kind, time: at), Level.inactive, 'No readings then',
-            'Nothing from ${r.name} within 10 minutes of this time.',
+            'Nothing from ${r.name} in the 10 minutes up to this time.',
             fresh: false, age: Duration.zero));
         continue;
       }
@@ -62,7 +61,8 @@ class Timeline {
       final peers = <String, PeerView>{
         if (p is Map)
           for (final e in p.entries)
-            if (e.key is String) e.key as String: PeerView(tcp: e.value == 1 ? 'open' : 'timeout'),
+            if (e.key is String && (e.value == 1 || e.value == 0))
+              e.key as String: PeerView(tcp: e.value == 1 ? 'open' : 'timeout'),
       };
       final rep = Report(
         id: r.id,
@@ -74,9 +74,14 @@ class Timeline {
         peers: peers,
       );
       final reached = peers.values.where((v) => v.reachable).length;
-      final level = peers.isEmpty || reached == peers.length ? Level.ok : reached == 0 ? Level.fault : Level.warn;
-      out.add(DeviceStatus(rep, level, peers.isEmpty || reached == peers.length ? 'Reached all' : reached == 0 ? 'Reached none' : 'Reached $reached of ${peers.length}', '${r.name} reached $reached of ${peers.length} devices.',
-          fresh: true, age: Duration.zero));
+      final level = peers.isEmpty
+          ? Level.inactive
+          : reached == peers.length ? Level.ok : reached == 0 ? Level.fault : Level.warn;
+      final reachability = peers.isEmpty
+          ? 'No checks recorded'
+          : 'Reached $reached of ${peers.length}';
+      out.add(DeviceStatus(rep, level, reachability, '',
+          fresh: true, age: Duration(seconds: bestD)));
     }
     return out;
   }

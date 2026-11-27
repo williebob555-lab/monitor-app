@@ -68,12 +68,13 @@ String familyOf(Report r) {
 /// go. Pan and zoom; with many devices each family can fold into one node.
 /// Dots travel along a cable in each direction a device reaches the other.
 class NetworkMap extends StatefulWidget {
-  const NetworkMap(this.devices, {super.key, required this.myId, required this.onOpen, this.things = const []});
+  const NetworkMap(this.devices, {super.key, required this.myId, required this.onOpen, this.things = const [], this.recorded = false});
   final List<DeviceStatus> devices;
 
   /// Attached things (UPS, audio interface). Each hangs under the device its
   /// file names as parent, and folds into it.
   final List<DeviceStatus> things;
+  final bool recorded;
   final String myId;
   final void Function(String id) onOpen;
 
@@ -339,7 +340,11 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     nodes = out;
     netLevel.clear();
     // Not answering is expected of a device that isn't running right now.
-    final resting = {...primaryByTwin.keys, for (final d in devices) if (d.level == Level.inactive) d.report.id};
+    final resting = {
+      ...primaryByTwin.keys,
+      for (final d in devices)
+        if (widget.recorded ? !d.fresh : d.level == Level.inactive) d.report.id,
+    };
     final ls = [for (final l in linksOf(devices)) if (!resting.contains(l.a) && !resting.contains(l.b)) l];
     for (final n in out.where((n) => !n.small)) {
       final mine = [for (final l in ls) if (n.folded ? n.members.any((d) => d.report.id == l.a || d.report.id == l.b) : (l.a == n.id || l.b == n.id)) l];
@@ -364,6 +369,10 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     }
     _layout();
     if (focus != null && !ids.contains(focus)) focus = null;
+    if (selDev != null && !ids.contains(selDev)) selDev = null;
+    if (selected case final current?) {
+      selected = edges.where((e) => e.a == current.a && e.b == current.b && e.via == current.via).firstOrNull;
+    }
     if (changed) _wake();
   }
 
@@ -904,11 +913,13 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       key: const ValueKey('hint'),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        for (final (c, t) in const [
-          (_MapPainter.pulseNet, 'network'),
-          (_MapPainter.pulseSync, 'Syncthing'),
-          (_MapPainter.layerUsb, 'USB'),
-          (_MapPainter.pulsePower, 'power'),
+        for (final (c, t) in [
+          (_MapPainter.pulseNet, widget.recorded ? 'Recorded reachability' : 'network'),
+          if (!widget.recorded) ...const [
+            (_MapPainter.pulseSync, 'Syncthing'),
+            (_MapPainter.layerUsb, 'USB'),
+            (_MapPainter.pulsePower, 'power'),
+          ],
         ])
           Row(mainAxisSize: MainAxisSize.min, children: [
             Container(width: 14, height: 2.5, color: c.withValues(alpha: 0.7)),
@@ -1276,17 +1287,19 @@ class _MapPainter extends CustomPainter {
       final sync = first
           ? _trace([Offset(hub.dx, ySyncHub), Offset(tSync, ySyncHub), Offset(tSync, low)], c)
           : _trace([Offset(tSync, ySyncHub), Offset(tSync, low)], c);
-      _copper(canvas, sync, layerSync);
+      if (!m.widget.recorded) _copper(canvas, sync, layerSync);
       _copper(canvas, net, layerNet);
       if (!first) {
         _via(canvas, Offset(tNet, yNetHub), layerNet);
-        _via(canvas, Offset(tSync, ySyncHub), layerSync);
+        if (!m.widget.recorded) _via(canvas, Offset(tSync, ySyncHub), layerSync);
       }
     }
     if (xs.length > 1) {
       // The top run from the hub out to the farthest branch.
       final far = sx(xs.last);
-      _copper(canvas, Path()..moveTo(hub.dx, ySyncHub)..lineTo(far, ySyncHub), layerSync);
+      if (!m.widget.recorded) {
+        _copper(canvas, Path()..moveTo(hub.dx, ySyncHub)..lineTo(far, ySyncHub), layerSync);
+      }
       _copper(canvas, Path()..moveTo(hub.dx, yNetHub)..lineTo(far - gap, yNetHub), layerNet);
     }
     // Buses: Syncthing on the row line, the network a step below it.
@@ -1294,9 +1307,9 @@ class _MapPainter extends CustomPainter {
       final tNet = sx(bx) - gap, tSync = tNet + gap;
       final sy = m._screen(Offset(0, y)).dy, ny = sy + gap;
       final x = sx(x2) + gap;
-      _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
+      if (!m.widget.recorded) _copper(canvas, Path()..moveTo(tSync, sy)..lineTo(x, sy), layerSync);
       _copper(canvas, Path()..moveTo(tNet, ny)..lineTo(x, ny), layerNet);
-      _via(canvas, Offset(tSync, sy), layerSync);
+      if (!m.widget.recorded) _via(canvas, Offset(tSync, sy), layerSync);
       _via(canvas, Offset(tNet, ny), layerNet);
     }
     for (final n in m.nodes) {
@@ -1310,11 +1323,13 @@ class _MapPainter extends CustomPainter {
       final top = r.top - 1;
       final syncPath = Path()..moveTo(xs, top)..lineTo(xs, sy);
       final netPath = Path()..moveTo(xn, top)..lineTo(xn, ny);
-      _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+      if (!m.widget.recorded) {
+        _copper(canvas, syncPath, _layer(sync, layerSync), dashed: sync == Level.fault, width: sel ? 2.4 : 1.6);
+        _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
+        _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
+      }
       _copper(canvas, netPath, _layer(net, layerNet), dashed: net == Level.fault || net == Level.inactive, width: sel ? 2.4 : 1.6);
-      _via(canvas, Offset(xs, sy), _layer(sync, layerSync));
       _via(canvas, Offset(xn, ny), _layer(net, layerNet));
-      _pad(canvas, Offset(xs, top), _layer(sync, layerSync));
       _pad(canvas, Offset(xn, top), _layer(net, layerNet));
     }
     // The hub chip.
