@@ -32,10 +32,19 @@ first published port, and only if that port answers.
 
 ## UPS (optional)
 
-A USB UPS (CyberPower, APC, Eaton, Tripp Lite) is read directly over USB: on
-mains or battery, charge, load and runtime. No vendor software and no NUT. One
-rule lets your own group (the one the collector runs as, `GID` in `.env`)
-read it, nobody else, and gives it a fixed name:
+A USB UPS (CyberPower, APC, Eaton, Tripp Lite) can reach the collector two
+ways, and it uses both when it has both. No vendor software and no NUT.
+
+* **UPower** (preferred, see "UPS through UPower" below): the standard Linux
+  power service most desktops already run, often the one that shuts the
+  machine down at low battery. Gives on mains or battery, charge, runtime and
+  what the host does when the battery runs low.
+* **USB HID directly** (this section): adds the load and the beeper setting,
+  which UPower doesn't report, and stands in when UPower isn't there.
+
+With only UPower the load shows as unknown, with the reason. For the direct
+path, one rule lets your own group (the one the collector runs as, `GID` in
+`.env`) read it, nobody else, and gives it a fixed name:
 
 ```sh
 sudo tee /etc/udev/rules.d/70-monitor-ups.rules >/dev/null <<RULES
@@ -68,14 +77,17 @@ sudo docker compose exec monitor monitor-agent --ups-alarm off    # or: on, quie
 The setting lives in the UPS itself. Turning it off also silences the
 low-battery warning, so you rely on the app for that.
 
-## UPS through UPower (optional, instead of the USB step)
+## UPS through UPower (recommended where the host runs UPower)
 
 If UPower on the host already reads the UPS (for example because it shuts the
-machine down at low battery), the collector can show what UPower sees
-without getting the USB device or D-Bus. A small timer on the host writes
-`upower -i` for the UPS into one file once a minute, as your user, and the
-container gets only that folder, read-only. It only reads from UPower,
-never writes to the UPS, and has no part in shutdown.
+machine down at low battery), the collector shows what UPower sees without
+getting the USB device or D-Bus. A small timer on the host writes what UPower
+says about each UPS (never a laptop battery, mouse or keyboard), its own
+version and low-battery action, and the policy lines of
+`/etc/UPower/UPower.conf` into one file once a minute, as your user, and the
+container gets only that folder, read-only. It only reads from UPower, never
+writes to the UPS or to UPower, and has no part in shutdown: UPower's own
+action stays exactly as configured.
 
 ```sh
 curl -fsSL -o /tmp/upower-export.sh https://raw.githubusercontent.com/williebob555-lab/monitor-app/main/lite/packaging/linux/upower-export.sh
@@ -86,10 +98,16 @@ sudo sh /tmp/upower-export.sh --install --dir /var/lib/monitor-app/upower --user
 Then uncomment the `/host/upower` line in `compose.yaml` (same folder as
 `--dir`) and run `docker compose up -d`. You get on mains or battery (and
 "battery, low" when UPower warns), charge, runtime (the UPS's own estimate),
-maker and model. Load shows as unknown, because UPower doesn't report it,
-and the beeper setting isn't offered, since this path is read-only. An export
-older than 3 minutes is shown as unknown, never as current. Needs collector
-2.6.5 or later. Remove with `sudo sh /usr/local/lib/monitor-app/upower-export.sh --remove`.
+maker, model and "Host protection" (for example "host powers off at 20 %").
+If the USB step above is also done, load and the beeper come from USB HID and
+"Read through" says so. An export older than 3 minutes is shown as unknown,
+never as current. Needs collector 2.6.8 or later for the host protection,
+the HID supplement and several UPSes (2.6.5 reads the basics). Rerun
+`--install` to update the timer's script. Remove with
+`sudo sh /usr/local/lib/monitor-app/upower-export.sh --remove`.
+
+Installed from the .rpm or .deb (no Docker), the collector asks UPower itself
+(`upower -d`, as any user may), so none of this is needed.
 
 An audio interface's readings need the `/proc/asound` line in `compose.yaml` uncommented.
 

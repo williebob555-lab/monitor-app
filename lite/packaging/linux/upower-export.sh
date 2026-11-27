@@ -17,15 +17,29 @@ set -eu
 lib=/usr/local/lib/monitor-app
 name=monitor-upower-export
 
-ups() { upower -e 2>/dev/null | grep -m1 '/ups_' || true; }
+ups() { upower -e 2>/dev/null | grep '/ups_' || true; }
 
+# UPower's policy as the host has it (read-only): when it acts and how.
+policy() {
+  for f in /etc/UPower/UPower.conf /etc/UPower/UPower.conf.d/*.conf; do
+    [ -r "$f" ] || continue
+    sed -n 's/^[[:space:]]*\(UsePercentageForPolicy\|PercentageLow\|PercentageCritical\|PercentageAction\|TimeLow\|TimeCritical\|TimeAction\|CriticalPowerAction\)[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/config.\1: \2/p' "$f"
+  done
+}
+
+# Every UPS UPower knows (never a laptop battery, mouse or keyboard), the
+# daemon's own block (version, on-battery, critical-action) and its policy.
 export_to() {
   out=$1
   tmp="$(dirname "$out")/.$(basename "$out").tmp"
-  dev=$(ups)
   {
     echo "exported: $(date +%s)"
-    [ -z "$dev" ] || upower -i "$dev"
+    for dev in $(ups); do
+      echo "Device: $dev"
+      upower -i "$dev" | sed '/^[[:space:]]*\(History\|Statistics\)/,$d'
+    done
+    upower -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p'
+    policy
   } > "$tmp"
   chmod 0644 "$tmp"
   mv -f "$tmp" "$out"
@@ -49,10 +63,14 @@ command -v upower >/dev/null || { echo "upower is not installed on this host" >&
 
 case $mode in
   check)
-    dev=$(ups)
-    if [ -z "$dev" ]; then echo "UPower sees no UPS here."; exit 1; fi
-    echo "UPower device: $dev"
-    upower -i "$dev" | grep -E 'vendor|model|state|percentage|time to empty|warning-level' || true
+    devs=$(ups)
+    if [ -z "$devs" ]; then echo "UPower sees no UPS here (laptop batteries and mice are never exported)."; exit 1; fi
+    for dev in $devs; do
+      echo "UPower UPS: $dev"
+      upower -i "$dev" | grep -E 'native-path|vendor|model|serial|state|percentage|time to empty|warning-level' || true
+    done
+    upower -d 2>/dev/null | sed -n '/^Daemon:/,/^$/p' | grep -E 'daemon-version|on-battery|critical-action' || true
+    policy
     ;;
   install)
     [ "$(id -u)" = 0 ] || { echo "run --install with sudo" >&2; exit 2; }
