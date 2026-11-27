@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x archive coverage
+
+From `lite/app`, run `flutter test test/history_coverage_test.dart`. It checks sparse data, valid zeros, and timestamps outside the selected window. A phone-width test writes data through the core history writer and opens the production part history screen.
