@@ -48,7 +48,29 @@ class Prop {
 
 /// An object in the model. Unknown keys are kept and written back, so a
 /// newer app's fields survive an older one's edit.
-class Item {
+/// What a store needs from a record: identity and the write stamp.
+abstract class Versioned {
+  String get id;
+  int get rev;
+  set rev(int v);
+  String? get by;
+  set by(String? v);
+  DateTime? get time;
+  set time(DateTime? v);
+  String get state;
+  Map<String, Object?> toJson();
+}
+
+/// Newest wins: later t, then higher rev, then the larger writer id (so
+/// every device picks the same one).
+int newerVersion(Versioned a, Versioned b) {
+  final ta = a.time?.millisecondsSinceEpoch ?? 0, tb = b.time?.millisecondsSinceEpoch ?? 0;
+  if (ta != tb) return ta.compareTo(tb);
+  if (a.rev != b.rev) return a.rev.compareTo(b.rev);
+  return (a.by ?? '').compareTo(b.by ?? '');
+}
+
+class Item implements Versioned {
   Item({
     required this.id,
     required this.type,
@@ -68,9 +90,11 @@ class Item {
         links = links ?? [],
         extra = extra ?? {};
 
+  @override
   final String id;
   String type;
   String name;
+  @override
   String state;
   String? parent;
   final Map<String, Prop> props;
@@ -83,8 +107,11 @@ class Item {
 
   /// The device or thing id in devices/ this item is (its live telemetry).
   String? observes;
+  @override
   int rev;
+  @override
   String? by;
+  @override
   DateTime? time;
   final Map<String, Object?> extra;
 
@@ -120,6 +147,7 @@ class Item {
     );
   }
 
+  @override
   Map<String, Object?> toJson() => {
         ...extra,
         'v': 1,
@@ -139,18 +167,24 @@ class Item {
 
   Item copy() => Item.fromJson(jsonDecode(jsonEncode(toJson())))!;
 
-  /// Newest wins: later t, then higher rev, then the larger writer id (so
-  /// every device picks the same one).
-  static int newer(Item a, Item b) {
-    final ta = a.time?.millisecondsSinceEpoch ?? 0, tb = b.time?.millisecondsSinceEpoch ?? 0;
-    if (ta != tb) return ta.compareTo(tb);
-    if (a.rev != b.rev) return a.rev.compareTo(b.rev);
-    return (a.by ?? '').compareTo(b.by ?? '');
-  }
+  static int newer(Item a, Item b) => newerVersion(a, b);
 }
 
-class ModelStore {
-  ModelStore(this.root, this.deviceId);
+/// One folder of versioned records (`model/<collection>/<id>/<file>.json`
+/// plus per-device history). [ModelStore] holds items; [ProjectStore]
+/// (project.dart) projects.
+class VersionedStore<T extends Versioned> {
+  VersionedStore(this.root, this.deviceId, {required this.collection, required this.fileBase, required this.parse, this.validate});
+
+  final String collection;
+
+  /// The record's file name without .json ("item", "project").
+  final String fileBase;
+  final T? Function(Object? json) parse;
+
+  /// Extra checks before a write; throw ArgumentError to refuse it.
+  final void Function(T record)? validate;
+
 
   /// The shared Monitor folder.
   final String root;
@@ -159,31 +193,31 @@ class ModelStore {
   final String deviceId;
 
   static final _sep = Platform.pathSeparator;
-  String get itemsPath => '$root$_sep$modelDirName${_sep}items';
+  String get itemsPath => '$root$_sep$modelDirName$_sep$collection';
   String _dir(String id) => '$itemsPath$_sep$id';
 
   /// item.json and any conflict copies of it, parsed (unreadable ones left out).
-  List<(File, Item)> _copies(String id) {
+  List<(File, T)> _copies(String id) {
     final d = Directory(_dir(id));
     if (!d.existsSync()) return const [];
-    final out = <(File, Item)>[];
+    final out = <(File, T)>[];
     for (final f in d.listSync()) {
       if (f is! File) continue;
       final n = f.uri.pathSegments.last;
-      if (n != 'item.json' && !(n.startsWith('item.sync-conflict-') && n.endsWith('.json'))) continue;
+      if (n != '$fileBase.json' && !(n.startsWith('$fileBase.sync-conflict-') && n.endsWith('.json'))) continue;
       try {
-        final it = Item.fromJson(jsonDecode(f.readAsStringSync()));
+        final it = parse(jsonDecode(f.readAsStringSync()));
         if (it != null && it.id == id) out.add((f, it));
       } catch (_) {}
     }
     return out;
   }
 
-  Item? get(String id) {
+  T? get(String id) {
     if (!validModelId(id)) return null;
     final c = _copies(id);
     if (c.isEmpty) return null;
-    c.sort((a, b) => Item.newer(b.$2, a.$2));
+    c.sort((a, b) => newerVersion(b.$2, a.$2));
     return c.first.$2;
   }
 
@@ -197,18 +231,18 @@ class ModelStore {
   }
 
   /// Every item, retired ones only if [withRetired].
-  List<Item> list({bool withRetired = false}) => [
+  List<T> list({bool withRetired = false}) => [
         for (final id in ids())
           if (get(id) case final it? when withRetired || it.state != 'retired') it
       ];
 
   /// Writes [item] as the next revision, by this device, now. Returns what
   /// was written.
-  Item put(Item item, {DateTime? now}) {
+  T put(T item, {DateTime? now}) {
     if (!validModelId(item.id)) throw ArgumentError('invalid id ${item.id}');
-    if (!itemStates.contains(item.state)) throw ArgumentError('invalid state ${item.state}');
+    validate?.call(item);
     final old = get(item.id);
-    final it = item.copy()
+    final it = parse(jsonDecode(jsonEncode(item.toJson())))!
       ..rev = (old?.rev ?? 0) + 1
       ..by = deviceId
       ..time = (now ?? DateTime.now()).toUtc();
@@ -218,19 +252,13 @@ class ModelStore {
       it.time = old.time!.add(const Duration(milliseconds: 1));
     }
     final d = Directory(_dir(it.id))..createSync(recursive: true);
-    final tmp = File('${d.path}$_sep.syncthing.item.json.tmp');
+    final tmp = File('${d.path}$_sep.syncthing.$fileBase.json.tmp');
     tmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(it.toJson()), flush: true);
-    tmp.renameSync('${d.path}${_sep}item.json');
+    tmp.renameSync('${d.path}$_sep$fileBase.json');
     _history(it.id, {'t': it.time!.millisecondsSinceEpoch / 1000, 'by': deviceId, 'rev': it.rev, 'item': it.toJson()});
     return it;
   }
 
-  /// Items are never deleted: they are retired, and stay in history.
-  Item? retire(String id, {DateTime? now}) {
-    final it = get(id);
-    if (it == null) return null;
-    return put(it..state = 'retired', now: now);
-  }
 
   void _history(String id, Map<String, Object?> line) {
     final h = Directory('${_dir(id)}${_sep}history')..createSync(recursive: true);
@@ -238,33 +266,33 @@ class ModelStore {
   }
 
   /// Every recorded version of [id], oldest first, from all devices.
-  List<Item> history(String id) {
+  List<T> history(String id) {
     if (!validModelId(id)) return const [];
     final h = Directory('${_dir(id)}${_sep}history');
     if (!h.existsSync()) return const [];
-    final out = <Item>[];
+    final out = <T>[];
     for (final f in h.listSync()) {
       if (f is! File || !f.path.endsWith('.jsonl') || f.path.contains('.sync-conflict-')) continue;
       for (final l in const LineSplitter().convert(f.readAsStringSync())) {
         try {
           final j = jsonDecode(l);
           if (j is Map && j['conflictLoser'] != true) {
-            final it = Item.fromJson(j['item']);
+            final it = parse(j['item']);
             if (it != null) out.add(it);
           }
         } catch (_) {}
       }
     }
-    out.sort(Item.newer);
+    out.sort(newerVersion);
     return out;
   }
 
   /// The model as it was at [t]: each item's newest version written at or
   /// before then (items created later are left out).
-  List<Item> asOf(DateTime t, {bool withRetired = false}) {
-    final out = <Item>[];
+  List<T> asOf(DateTime t, {bool withRetired = false}) {
+    final out = <T>[];
     for (final id in ids()) {
-      Item? best;
+      T? best;
       for (final it in history(id)) {
         if (it.time != null && !it.time!.isAfter(t)) best = it;
       }
@@ -277,7 +305,7 @@ class ModelStore {
   List<String> conflicts() => [
         for (final id in ids())
           for (final (f, _) in _copies(id))
-            if (f.uri.pathSegments.last != 'item.json') f.path
+            if (f.uri.pathSegments.last != '$fileBase.json') f.path
       ];
 
   /// Makes the newest copy item.json and deletes the others, noting each
@@ -287,11 +315,11 @@ class ModelStore {
     for (final id in ids()) {
       final c = _copies(id);
       if (c.length < 2) continue;
-      c.sort((a, b) => Item.newer(b.$2, a.$2));
+      c.sort((a, b) => newerVersion(b.$2, a.$2));
       final win = c.first;
-      final main = File('${_dir(id)}${_sep}item.json');
+      final main = File('${_dir(id)}$_sep$fileBase.json');
       if (win.$1.path != main.path) {
-        final tmp = File('${_dir(id)}$_sep.syncthing.item.json.tmp');
+        final tmp = File('${_dir(id)}$_sep.syncthing.$fileBase.json.tmp');
         tmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(win.$2.toJson()), flush: true);
         tmp.renameSync(main.path);
       }
@@ -311,5 +339,20 @@ class ModelStore {
       }
     }
     return n;
+  }
+}
+
+/// Items: `model/items/<id>/item.json`.
+class ModelStore extends VersionedStore<Item> {
+  ModelStore(String root, String deviceId)
+      : super(root, deviceId, collection: 'items', fileBase: 'item', parse: Item.fromJson, validate: (it) {
+          if (!itemStates.contains(it.state)) throw ArgumentError('invalid state ${it.state}');
+        });
+
+  /// Items are never deleted: they are retired, and stay in history.
+  Item? retire(String id, {DateTime? now}) {
+    final it = get(id);
+    if (it == null) return null;
+    return put(it..state = 'retired', now: now);
   }
 }

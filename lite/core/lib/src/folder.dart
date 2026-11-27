@@ -197,13 +197,16 @@ class SyncFolder {
       }
       if (!hasNow) h.empty.add(name);
     }
-    // Shared model items (model.dart): conflict copies of item.json.
-    final items = Directory('$root${Platform.pathSeparator}model${Platform.pathSeparator}items');
-    if (items.existsSync()) {
-      for (final d in items.listSync()) {
-        if (d is! Directory) continue;
-        for (final f in d.listSync()) {
-          if (f is File && f.uri.pathSegments.last.startsWith('item.sync-conflict-')) h.conflicts.add(f.path);
+    // Shared model (model.dart): conflict copies of item.json, project.json...
+    final model = Directory('$root${Platform.pathSeparator}model');
+    if (model.existsSync()) {
+      for (final c in model.listSync()) {
+        if (c is! Directory) continue;
+        for (final d in c.listSync()) {
+          if (d is! Directory) continue;
+          for (final f in d.listSync()) {
+            if (f is File && f.uri.pathSegments.last.contains('.sync-conflict-')) h.conflicts.add(f.path);
+          }
         }
       }
     }

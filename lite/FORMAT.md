@@ -299,6 +299,37 @@ model/items/<id>/history/<device>.jsonl every version, appended only by that dev
 * `ModelStore(root, deviceId)`: `list()`, `get(id)`, `put(item)`,
   `retire(id)`, `history(id)`, `asOf(t)`, `conflicts()`, `resolveConflicts()`.
 
+## Projects and assemblies (`model/projects/`)
+
+Same versioning, history, conflict and time-travel rules as items
+(`model/projects/<id>/project.json`, `history/<device>.jsonl`).
+
+```json
+{"v": 1, "id": "studio-rack", "name": "Studio rack", "goal": "...",
+ "state": "draft", "items": ["ups-1"],
+ "tasks": [{"id": "t1", "text": "Measure the desk depth", "done": false}],
+ "assemblies": [{"id": "rack", "name": "Rack", "type": "rack", "units": 12,
+   "depth": {"value": 450, "unit": "mm", "src": "declared"},
+   "maxWeight": {"value": 40, "unit": "kg", "src": "declared"},
+   "placements": [{"id": "p1", "name": "UPS", "thing": "usb-0764-0601-port15",
+     "u": [1, 2], "face": "front", "depth": {"value": 14, "unit": "in", "src": "declared"},
+     "weight": {"value": 6, "unit": "kg", "src": "declared"}}]}],
+ "rev": 1, "by": "301230114386", "t": 1795788000.5}
+```
+
+* `state`: `draft`, `active`, `done`, `archived` (never deleted).
+* A placement points at a model `item`, a live `thing`/device id, or neither
+  (a planned part with only a name). `u`: `[bottom, top]` rack units, or
+  `null` while not placed. `face`: `front` or `rear`; `fullDepth: true`
+  blocks both faces.
+* Quantities are `{"value", "unit", "src"}`. Units understood: mm, cm, m,
+  in, ft; g, kg, lb, oz; mW, W, kW. Others are kept but not added up.
+* `Assembly.check()`: overlaps (same face), outside the rack, deeper than
+  the rack, over the weight or power limit, as sentences; weight and power
+  totals with how many parts had a value (`Total.known` of `count`); free units.
+* `ProjectStore(root, deviceId)`: `list()`, `get`, `put`, `archive`,
+  `history`, `asOf`, `conflicts()`, `resolveConflicts()`.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.
