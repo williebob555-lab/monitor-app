@@ -25,6 +25,8 @@ import '../model.dart';
 import '../events.dart';
 import '../integrity.dart';
 import '../unusual.dart';
+import '../rules.dart';
+import '../rule_eval.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -200,6 +202,9 @@ class Agent {
 
   bool _busy = false;
   EventState? _eventState;
+  bool _settled = false;
+  RuleEngine? _rules;
+  String _ruleProblems = '';
   DateTime? _prevCycleAt;
 
   /// Automatic update (Windows): first check [autoUpdateFirstDelay] after
@@ -463,6 +468,7 @@ class Agent {
         final after = EventState.of(app: appVersion, others: others, things: things, now: now);
         // Just started, or this machine slept: others' files lag behind.
         final settled = !firstRun && _prevCycleAt != null && now.difference(_prevCycleAt!) < const Duration(minutes: 3) && now.difference(_started) > const Duration(minutes: 5);
+        _settled = settled;
         final ev = diffEvents(before, after, now, peers: settled);
         appendEvents(folder.deviceDir(cfg.id), ev);
         for (final e in ev) {
@@ -539,6 +545,28 @@ class Agent {
         _lastHistory = now;
       }
       _step('write');
+      // Rules (row 19): only once others' files have caught up after a start
+      // or a sleep, so nothing looks offline that isn't.
+      if (_settled) {
+        try {
+          final set = RuleSet.load(cfg.folder);
+          final probs = set.problems.entries.map((e) => '${e.key}: ${e.value.join('; ')}').join(' | ');
+          if (probs != _ruleProblems) {
+            if (probs.isNotEmpty) folder.log(cfg.id, 'rules not run: $probs');
+            _ruleProblems = probs;
+          }
+          if (set.rules.isNotEmpty) {
+            final fired = (_rules ??= RuleEngine('${LocalConfig.dir}${Platform.pathSeparator}rules-state.json'))
+                .evaluate(root: cfg.folder, me: cfg.id, rules: set, reports: {...others, cfg.id: r}, things: things, now: now);
+            for (final f in fired) {
+              folder.log(cfg.id, 'rule ${f.rule.id} fired for ${f.subject}: ${f.why} -> ${f.did.join(', ')}');
+            }
+          }
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR rules: $e');
+        }
+        _step('rules');
+      }
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;

@@ -354,6 +354,33 @@ valid rules and, per file name, the problems in plain sentences
 ("\"when.op\" < needs a number"), so an editor can show them. Writers use
 `RuleSet.save`, which validates and writes atomically.
 
+**Who runs a rule (2.6.9+).** A computer judges value, event and unusual
+rules about itself and the things it hosts. Offline rules, and rules about
+phones, are judged by one computer: the lowest id among the fresh computers
+on 2.6.9 or newer, which every computer works out the same way from the
+files. A condition fires once per episode (after holding `for` seconds;
+again only after it stopped holding and `cooldown` passed). Offline never
+fires for one system of a dual-boot machine while the other runs, and no
+rule runs in the first 5 minutes after a start or a sleep. Events of type
+`rule.*` never trigger rules.
+
+**What fired: `rules/<id>/fired/<evaluator>.jsonl`**, one line per firing,
+written only by the evaluator named in the file name (at most 256 KB; the
+older half is dropped):
+
+```json
+{"t": 1764252000, "rule": "laptop-offline", "subject": "301230114386",
+ "since": 1764251400, "why": "Wilsons-Laptop: no report for 10 min (last 13:50Z)",
+ "did": ["notify", "annotate"], "notify": "Laptop offline 10 min: ...", "by": "ebad35097c54"}
+```
+
+`since` is when the episode began; a firing whose `since` is already in any
+evaluator's file is not repeated, so a hand-over between evaluators can't
+fire twice. `annotate` adds a `rule.fired` event (subject, name = rule name,
+detail = why) to the evaluator's events. `control` sends an ordinary request
+from the evaluator. `notify` is recorded here; devices show it from 2.7
+(row 20).
+
 ## Model: things you own, plan or observe (`model/`)
 
 Telemetry (`devices/`) says what a device measures; the model says what
