@@ -29,7 +29,8 @@ import 'model.dart' show validModelId;
 /// `devices` (ids), `things` (ids), `types` (`android`, `windows`,
 /// `linux`, or `thing:<kind>`, e.g. `thing:ups`, `thing:container`).
 ///
-/// Actions (`then`): `notify` (optional `text`), `annotate` (a note on the
+/// Actions (`then`): `notify` (optional `text`; optional `on`, the device ids
+/// that show it, else every device), `annotate` (a note on the
 /// history at that time), `control` (`host`, `target`, `key`, `value`, the
 /// same request another device could send; subject to `controls.allow`).
 class Rule {
@@ -162,6 +163,8 @@ List<String> validateRule(Object? j) {
         continue;
       }
       if (a['text'] != null && (a['text'] is! String || (a['text'] as String).length > 500)) p.add('action text must be at most 500 characters');
+      final on = a['on'];
+      if (on != null && (on is! List || on.any((x) => x is! String || !ControlRequest.validName(x)))) p.add('"on" lists the device ids to notify');
       if (a['type'] == 'control') {
         for (final k in const ['host', 'target']) {
           if (a[k] is! String || !ControlRequest.validName(a[k] as String)) p.add('a control action needs "$k", a device or thing id');

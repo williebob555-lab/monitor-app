@@ -342,7 +342,8 @@ when something should happen, about which devices or things, and what to do.
   - `offline`: the device's reports stop for `for` seconds (default 600).
 - `scope` (optional; missing or empty means everything): `devices` (ids),
   `things` (ids), `types` (`android`, `windows`, `linux`, `thing:<kind>`).
-- `then` (at least one): `notify` (optional `text`), `annotate` (a note on
+- `then` (at least one): `notify` (optional `text`, else the reason;
+  optional `on`, the device ids that show it, else every device), `annotate` (a note on
   the history at that moment), `control` (`host`, `target`, `key`, `value`:
   the same request a device could send, still subject to `controls.allow`).
 - `cooldown`: seconds before the same rule fires again for the same subject
@@ -378,8 +379,21 @@ older half is dropped):
 evaluator's file is not repeated, so a hand-over between evaluators can't
 fire twice. `annotate` adds a `rule.fired` event (subject, name = rule name,
 detail = why) to the evaluator's events. `control` sends an ordinary request
-from the evaluator. `notify` is recorded here; devices show it from 2.7
-(row 20).
+from the evaluator. `notify` is recorded here with the rule's `name` and `on`.
+
+**Notifications (2.6.9+).** Every device reads the firing files and shows
+each new firing meant for it once (title = rule name, text = `notify`):
+Windows as a toast, a Linux desktop through its notification service,
+Android as a notification. A firing that reaches a device over an hour
+late is skipped; at most three show at once, then a count. Servers
+without a desktop show nothing.
+
+**Phone switches.** A phone's "Notify me on this phone" switch for a device
+is kept as two rules notifying only that phone:
+`phone-<phone>-offline-<device>.json` (no report for 30 min) and
+`phone-<phone>-stuck-<device>.json` (`readings.st.problems` not empty for
+15 min). Switching off sets `enabled` false. Until a 2.6.9+ computer is
+running to judge rules, the phone keeps checking these itself.
 
 ## Model: things you own, plan or observe (`model/`)
 

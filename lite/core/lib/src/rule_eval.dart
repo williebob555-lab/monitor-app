@@ -29,7 +29,7 @@ const rulesSince = '2.6.9';
 
 /// One firing: what happened and why.
 class Firing {
-  Firing({required this.rule, required this.subject, required this.since, required this.time, required this.why, required this.did, this.notify});
+  Firing({required this.rule, required this.subject, required this.since, required this.time, required this.why, required this.did, this.notify, this.notifyOn});
   final Rule rule;
   final String subject;
   final DateTime since, time;
@@ -40,6 +40,9 @@ class Firing {
   /// it on every device).
   final String? notify;
 
+  /// Devices that show it; null means every device.
+  final List<String>? notifyOn;
+
   Map<String, Object?> toJson(String by) => {
         't': time.millisecondsSinceEpoch ~/ 1000,
         'rule': rule.id,
@@ -47,7 +50,9 @@ class Firing {
         'since': since.millisecondsSinceEpoch ~/ 1000,
         'why': why,
         'did': did,
+        'name': rule.name,
         if (notify != null) 'notify': notify,
+        if (notifyOn != null) 'on': notifyOn,
         'by': by,
       };
 }
@@ -201,10 +206,12 @@ class RuleEngine {
 
     final did = <String>[];
     String? notify;
+    List<String>? notifyOn;
     for (final a in rule.then) {
       switch (a['type']) {
         case 'notify':
-          notify = a['text'] is String ? a['text'] as String : '${rule.name}: $why';
+          notify = a['text'] is String ? a['text'] as String : why;
+          if (a['on'] is List) notifyOn = [...?notifyOn, for (final x in a['on'] as List) '$x'];
           did.add('notify');
         case 'annotate':
           try {
@@ -231,7 +238,7 @@ class RuleEngine {
           }
       }
     }
-    final f = Firing(rule: rule, subject: sid, since: since, time: now, why: why, did: did, notify: notify);
+    final f = Firing(rule: rule, subject: sid, since: since, time: now, why: why, did: did, notify: notify, notifyOn: notifyOn);
     _appendFired(folder.root, rule.id, me, f.toJson(me));
     return f;
   }

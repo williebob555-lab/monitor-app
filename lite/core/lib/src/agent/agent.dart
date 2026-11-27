@@ -27,6 +27,8 @@ import '../integrity.dart';
 import '../unusual.dart';
 import '../rules.dart';
 import '../rule_eval.dart';
+import '../notify.dart';
+import 'desktop_notify.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -204,6 +206,7 @@ class Agent {
   EventState? _eventState;
   bool _settled = false;
   RuleEngine? _rules;
+  NotifyInbox? _inbox;
   String _ruleProblems = '';
   DateTime? _prevCycleAt;
 
@@ -566,6 +569,21 @@ class Agent {
           folder.log(cfg.id, 'ERROR rules: $e');
         }
         _step('rules');
+      }
+      // Notifications from rules, wherever they fired (row 20). Shown off
+      // the cycle; a burst shows three and a count.
+      try {
+        final notes = (_inbox ??= NotifyInbox('${LocalConfig.dir}${Platform.pathSeparator}notify-state.json')).take(cfg.folder, cfg.id, now);
+        final show = [
+          ...notes.take(3).map((n) => (n.title, n.text)),
+          if (notes.length > 3) ('Monitor App', '${notes.length - 3} more rules fired; see the app'),
+        ];
+        final f = folder, id = cfg.id;
+        for (final (title, text) in show) {
+          desktopNotify(title, text).then((why) => f.log(id, why == null ? 'notified: $title: $text' : 'notification not shown ($why): $title'));
+        }
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR notifications: $e');
       }
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
