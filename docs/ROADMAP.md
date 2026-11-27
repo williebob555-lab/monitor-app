@@ -159,7 +159,7 @@ says otherwise; tests alone are never enough.
 
 | # | Item | Size | Depends | Done when | UI it enables (ChatGPT) | Status |
 |---|---|---|---|---|---|---|
-| 1 | **Fleet on the current version.** Find from wc-tab's and the laptop's logs why 2.4.0 / 2.6.0 never updated (Android install hand-off, Windows `update` control), fix the path, release. | M | | every unpinned, booted device reports the newest `app` within a day of a release | "Update all" shows real progress | Todo |
+| 1 | **Fleet on the current version.** Find from wc-tab's and the laptop's logs why 2.4.0 / 2.6.0 never updated (Android install hand-off, Windows `update` control), fix the path, release. | M | | every unpinned, booted device reports the newest `app` within a day of a release | Fleet UI shows requests, host replies, and fresh version reports separately. | Todo |
 | 2 | **Budgets honest.** Laptop cycle 8.9 s > 8 s and wc-beta 66 MB > 40 MB: find which step costs it (time each step in the log), fix, or move the budget with the reason in README. | M | | 24 h with no `OVER BUDGET` line in any device log | | Todo |
 | 3 | **One-way phone.** Code side done (2.6.6 says "Can't be reached"). Remaining is the Pixel setting. | S | | wc-beta and laptop `peers.<pixel>.tcp` = `open` | | Gate: Pixel setting (section 5) |
 | 4 | **Prove collection with the app closed, everywhere.** Core `gaps(deviceDir, range)` lists holes in history longer than 3x the device's rate; run it over all devices for the last 7 days; explain each hole from the log (off, asleep, Doze, crash). Also confirm the live rate: `next` 10/15 while watched, back to rest after. | M | 1 | every hole in the last 7 days is explained by power/boot, not by the collector | "Gaps" band on history charts; `gaps()` | Todo |

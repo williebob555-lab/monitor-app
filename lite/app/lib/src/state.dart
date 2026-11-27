@@ -146,6 +146,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   UpdateInfo? update;
+  String? latestUpdateVersion;
   String? updateMessage;
   bool checking = false;
   double? downloadProgress;
@@ -337,8 +338,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     }
     try {
-      update = await checkForUpdate(host.kind, linuxPackage: host.kind == 'linux' ? host.linuxPackage : 'rpm', current: host.version);
-      updateMessage = update == null ? 'You have the newest version (${host.version}).' : null;
+      final offered = await checkForUpdate(
+        host.kind,
+        linuxPackage: host.kind == 'linux' ? host.linuxPackage : 'rpm',
+        current: 'dev',
+      );
+      latestUpdateVersion = offered?.version;
+      update = offered != null && compareVersions(offered.version, host.version) > 0
+          ? offered
+          : null;
+      updateMessage = update == null ? 'No newer update offered for this device.' : null;
       _lastUpdateCheck = DateTime.now();
     } catch (e) {
       updateMessage = quiet ? null : 'Could not check for updates: $e';
