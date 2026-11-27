@@ -58,7 +58,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
 | `watch` | names of the devices that have the app open, when written at the live rate |
-| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
+| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Computers (2.6.9+) add group Unusual when the last hour is far outside what the device usually does at that time of day: `unusual.cpu` / `unusual.mem` / `unusual.temp.cpu`, `level: warn`, value in words ("CPU 70 %, usually 8 % at night"), at most 3 new a day. Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
 
 Missing keys mean "not available"; readers never guess.
 
@@ -316,6 +316,94 @@ deleted with the hourly history limit (`hourlyDays`).
 `readEvents(root, from, to, {device})` reads them all, oldest first, each
 with the `device` that wrote it.
 
+## Rules (`rules/<id>.json`)
+
+One file per rule, so two devices never edit the same file. A rule says
+when something should happen, about which devices or things, and what to do.
+
+```json
+{"v": 1, "id": "laptop-offline", "name": "Laptop offline 10 min",
+ "enabled": true,
+ "when": {"type": "offline", "for": 600},
+ "scope": {"devices": ["301230114386"]},
+ "then": [{"type": "notify"}, {"type": "annotate"}],
+ "cooldown": 3600}
+```
+
+- `id`: lower-case letters, digits, `-`, `_`, `.` (at most 64), and the
+  file name must be `<id>.json`.
+- `when.type`:
+  - `value`: `path` (e.g. `battery.pct`, `readings.ups.charge`), `op`
+    (`<` `<=` `>` `>=` `==` `!=`), `value` (number, text or true/false; the
+    ordering ops need a number), optional `for` (seconds it must hold).
+  - `event`: `event` is an event type (`peer.offline`) or a prefix ending
+    in `*` (`container.*`).
+  - `unusual`: any `unusual.*` reading appears.
+  - `offline`: the device's reports stop for `for` seconds (default 600).
+- `scope` (optional; missing or empty means everything): `devices` (ids),
+  `things` (ids), `types` (`android`, `windows`, `linux`, `thing:<kind>`).
+- `then` (at least one): `notify` (optional `text`, else the reason;
+  optional `on`, the device ids that show it, else every device), `annotate` (a note on
+  the history at that moment), `control` (`host`, `target`, `key`, `value`:
+  the same request a device could send, still subject to `controls.allow`).
+- `cooldown`: seconds before the same rule fires again for the same subject
+  (default 3600). `enabled`: false keeps the file but stops it.
+- Unknown keys are kept when the file is rewritten.
+
+A file that is not valid never runs. `RuleSet.load(folder)` returns the
+valid rules and, per file name, the problems in plain sentences
+("\"when.op\" < needs a number"), so an editor can show them. Writers use
+`RuleSet.save`, which validates and writes atomically.
+
+**Who runs a rule (2.6.9+).** A computer judges value, event and unusual
+rules about itself and the things it hosts. Offline rules, and rules about
+phones, are judged by one computer: the lowest id among the fresh computers
+on 2.6.9 or newer, which every computer works out the same way from the
+files. A condition fires once per episode (after holding `for` seconds;
+again only after it stopped holding and `cooldown` passed). Offline never
+fires for one system of a dual-boot machine while the other runs, and no
+rule runs in the first 5 minutes after a start or a sleep. Events of type
+`rule.*` never trigger rules.
+
+**What fired: `rules/<id>/fired/<evaluator>.jsonl`**, one line per firing,
+written only by the evaluator named in the file name (at most 256 KB; the
+older half is dropped):
+
+```json
+{"t": 1764252000, "rule": "laptop-offline", "subject": "301230114386",
+ "since": 1764251400, "why": "Wilsons-Laptop: no report for 10 min (last 13:50Z)",
+ "did": ["notify", "annotate"], "notify": "Laptop offline 10 min: ...", "by": "ebad35097c54"}
+```
+
+`since` is when the episode began; a firing whose `since` is already in any
+evaluator's file is not repeated, so a hand-over between evaluators can't
+fire twice. `annotate` adds a `rule.fired` event (subject, name = rule name,
+detail = why) to the evaluator's events. `control` sends an ordinary request
+from the evaluator. `notify` is recorded here with the rule's `name` and `on`.
+
+**Notifications (2.6.9+).** Every device reads the firing files and shows
+each new firing meant for it once (title = rule name, text = `notify`):
+Windows as a toast, a Linux desktop through its notification service,
+Android as a notification. A firing that reaches a device over an hour
+late is skipped; at most three show at once, then a count. Servers
+without a desktop show nothing.
+
+**Default rules (2.6.9+).** The computer that judges rules for others
+writes these once per folder, all with `enabled: false`: `device-offline`
+(30 min), `ups-on-battery` (`power.battery` event), `disk-over-90`
+(`disk.pct`, 10 min), `container-unhealthy`, `dns-failing`
+(`readings.net.dns` is "no answer" for 5 min) and `syncthing-stuck`. Which
+ones were written is kept in `rules/.defaults-written.json`, so a default
+someone changed or deleted is never put back. `disk.pct` and `mem.pct` are
+worked out from `used` and `total` for any rule.
+
+**Phone switches.** A phone's "Notify me on this phone" switch for a device
+is kept as two rules notifying only that phone:
+`phone-<phone>-offline-<device>.json` (no report for 30 min) and
+`phone-<phone>-stuck-<device>.json` (`readings.st.problems` not empty for
+15 min). Switching off sets `enabled` false. Until a 2.6.9+ computer is
+running to judge rules, the phone keeps checking these itself.
+
 ## Model: things you own, plan or observe (`model/`)
 
 Telemetry (`devices/`) says what a device measures; the model says what
@@ -345,6 +433,16 @@ model/items/<id>/history/<device>.jsonl every version, appended only by that dev
 * `props`: every value carries `src` (`measured`, `declared`, `estimated`,
   `unknown`) and optionally `unit`.
 * `observes`: the device or thing id in `devices/` whose telemetry this item is.
+* `match` (items made from what was seen): the object's lasting identity,
+  `usb:<vid:pid>:<serial>` (else `usb:<vid:pid>@<host>:<port>`),
+  `machine:<machine key>`, `device:<id>` or `thing:<id>`. When the
+  telemetry id changes (a UPS without a serial moved to another port), the
+  item is offered a relink, not a duplicate.
+* `alsoObserves`: the other systems of a dual-boot machine.
+* `suggestLinks(reports, things, items, now)` lists devices (one per
+  machine) and things not yet in the model; `acceptLink(store, s)` makes an
+  `owned` item under its host's item, or relinks. `tool/suggest.dart`
+  prints them for a folder.
 * `rev`, `by`, `t`: revision, the device that wrote it, when (Unix seconds).
 * Unknown keys are kept on every edit.
 * Written to `.syncthing.item.json.tmp` and renamed.
@@ -388,6 +486,162 @@ Same versioning, history, conflict and time-travel rules as items
   totals with how many parts had a value (`Total.known` of `count`); free units.
 * `ProjectStore(root, deviceId)`: `list()`, `get`, `put`, `archive`,
   `history`, `asOf`, `conflicts()`, `resolveConflicts()`.
+
+## Library: connectors and signals (`model/library/*.json`)
+
+The built-in library is in the code (`Library.builtIn`), so the phone
+loads it instantly: 86 connector shapes and 110 signals in the families
+usb, display, network, power, audio, eurorack, storage, rf and control. It
+comes from the old app's planning catalogue, with pinouts and limits added.
+It keeps four things apart:
+
+- **shape** (`connectors[]`): `fit` says what mates (a plug goes into a
+  receptacle with the same `fit`, or one listed in the receptacle's
+  `alsoMates`); `genders`; `pins` when the standard fixes them.
+- **signals the shape may carry** (`signals`): never a promise. A USB-C
+  shape guarantees USB 2 and 5 V; Thunderbolt or DisplayPort only when the
+  port and the cable declare it.
+- **signal** (`signals[]`): `kind` (data, video, audio, power, control),
+  `direction` (`both` or `out-to-in`), `limits` from the standard (`gbps`,
+  `v`, `vMin`, `a`, `w`, `dbu`, `impedanceOhm`, `polarity`, `m`).
+
+Your own additions go in `model/library/<name>.json`:
+
+```json
+{"signals": [{"id": "motu-avb", "label": "MOTU AVB", "family": "network", "kind": "audio"}],
+ "connectors": [{"id": "motu-combo", "label": "Combo XLR/TRS", "family": "audio",
+   "fit": "xlr3", "alsoMates": ["jack-635"], "signals": ["mic-level", "line-pro"]}]}
+```
+
+Ids follow the model id rule. A file may not replace a built-in id; a bad
+file is listed in `Library.load(root).problems` and skipped.
+
+### Checking a connection (`checkChain`)
+
+`checkChain(from, links, to, {want})` checks a whole path, port to cable or
+adapter to port, and returns a verdict for each layer:
+
+- `physical`: every joint mates, by shape and gender;
+- `protocol`: a data, video or control signal gets through every part, or
+  the one asked for with `want`;
+- `electrical`: the source's voltage, polarity and current suit the sink
+  and the cable;
+- `level`: audio leaving one end is a level the other end takes.
+
+Each layer says `ok`, `fail` or `unknown`, and how sure it is:
+
+- `verified`: both ends declare their signals;
+- `estimated`: from what the shapes may carry;
+- `unknown`.
+
+Every verdict comes with its reasons in words. A `Port` declares its
+connector, `dir` (`out`, `in` or `both`), `signals` and `power` (`v`,
+`vMin`, `a`, `polarity`). A `Link` (a cable or adapter) declares the
+connectors at its ends, `passes` (the signals it carries unchanged) or
+`converts` (for an active adapter), and `maxA` / `maxGbps`.
+
+### Physical constraints (`checkPhysical`)
+
+`checkPhysical(assembly)` returns a list of findings. Each finding has a
+`topic` (`fit`, `mount`, `power`, `heat` or `cable`), a `level` (`fail`,
+`warn`, `ok` or `unknown`) and an `evidence`:
+
+- `verified`: from declared or measured values;
+- `estimated`: a rule of thumb was used, for example for heat in a closed
+  box;
+- `unknown`: the finding names the value that is missing.
+
+All the fields below are optional, and older files stay valid.
+
+**On the assembly:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | `19in`, `10in`, `eurorack` ... |
+| `width`, `heightMm`, `depth` | Inside size, as Qty |
+| `ventilation` | `open`, `vented` or `closed` |
+| `cooling` | Heat it can remove, as a W Qty |
+| `rearOpen`, `frontOpen`, `topOpen`, `sidesOpen` | Whether that side is open |
+| `outlets` | List of `{id, v, polarity, ma, maxPower}` |
+| `hp`, `psu` | Eurorack row width; `psu` is `{"+12": mA, "-12": mA, "+5": mA}` |
+| `cables` | List of `{name, from, to, length, minBend}` |
+
+**On a placement:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | Its mounting standard |
+| `width`, `heightMm` | Its size, as Qty (depth is the usual `depth`) |
+| `x`, `y` | Position on a flat surface |
+| `clearance` | `{front, rear, top, sides}` |
+| `airflow` | `front-to-back`, `back-to-front`, `side-to-side`, `bottom-to-top` or `passive` |
+| `heat` | Heat it gives off; if missing, power × (1 − `efficiency`), else all of its power, both estimated |
+| `outlet`, `v`, `polarity`, `ma` | Which outlet it uses and what it needs |
+| `hp`, `row`, `ma` | Eurorack; here `ma` is `{"+12": ...}` |
+
+### What's missing (`projectNeeds`)
+
+A project can list `connections`:
+
+```json
+{"id": "net", "from": {"placement": "p-sw", "port": "p1"},
+ "to": {"placement": "p-srv", "port": "eth0"}, "required": true,
+ "want": "eth-1g", "via": [{"item": "<cable item id>"} | {"name": "USB-A cable", "a": "usb-a", "b": "usb-c", "passes": ["usb-2"]}]}
+```
+
+Each port is looked up in the placed item's `ports` (`id`, `kind` = a
+library connector id, `dir`, `signals`, `power`, `gender`, `required`).
+`projectNeeds(project, items)` returns:
+
+- `lines`: the bill of materials. Each part is `owned` (an owned or
+  installed item, or a live thing), `to-buy` (planned, or only proposed) or
+  `missing`. A connection with no `via` needs a cable, named after the two
+  shapes. A chain that doesn't physically mate needs an adapter.
+- `connectionProblems`: the failing layers' reasons, from `checkChain`.
+- `unconnected`: ports marked `required` that no connection uses.
+- `physical`: failing or unknown findings from the assembly's own check and
+  from `checkPhysical`, such as a power shortfall.
+- `openTasks`: tasks that aren't done.
+
+### One past moment (`systemAt`)
+
+`systemAt(root, t)` returns three views of the same moment:
+
+- `items` and `projects` as they were written at `t`;
+- `live`, the device state at `t` (from `topologyAt`);
+- `upAt(item)`, which joins the two through `observes` and `alsoObserves`.
+  It says whether the item's device was up, or whether its thing was
+  attached and on (a container: running).
+
+### Location (Android, opt-in)
+
+A phone whose owner switched location on writes the reading `loc`, for
+example `"45.52,-122.68"`, with `src: measured`. It is the last position
+Android already has, rounded to two decimals (about 1 km). The note gives
+its age and accuracy. Switched off, which is the default, there is no
+reading.
+
+## Products (`model/products/<id>/product.json`)
+
+A product is what can be bought. An item is the one you own or plan, and it
+points at its product with `"product": "<id>"`. Products are versioned like
+items: per-device history, and the newest version wins over a conflict
+copy.
+
+```json
+{"v": 1, "id": "cps-or500", "name": "CyberPower OR500LCDRM1U", "maker": "CyberPower",
+ "model": "OR500LCDRM1U", "state": "active",
+ "specs": {"outputW": {"value": 300, "unit": "W", "src": "declared"}},
+ "images": ["https://..."], "docs": [{"title": "User manual", "url": "https://..."}],
+ "offers": [{"seller": "B", "price": 214.5, "currency": "USD", "inStock": true, "url": "https://...", "seen": 1764266400}]}
+```
+
+- `ProductStore(root, me)` provides `put`, `get`, `asOf`, `of(item)`,
+  `link(items, item, productId)` and `resolveConflicts`. Computers resolve
+  conflict copies every 6 h.
+- `bestOffer()` returns the cheapest offer that is in stock or whose stock
+  is unknown.
+- A BOM line reaches its product through its item.
 
 ## Reading the folder from Dart (`package:monitor_core`)
 

@@ -243,7 +243,7 @@ object Collector {
                 p.edit().putLong("lastHistory", now).apply()
             }
 
-            runCatching { Alerts.check(ctx, root, now / 1000) }
+            runCatching { RuleNotices.run(ctx, root, now / 1000) }
                 .onFailure { log(dir, "ERROR notifications check: $it") }
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")
@@ -320,6 +320,7 @@ object Collector {
             a.put(o)
         }
         add("sys.maker", "Maker", Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, "System")
+        runCatching { Location.reading(ctx, System.currentTimeMillis()) }.getOrNull()?.let { a.put(it) }
         add("sys.model", "Model", Build.MODEL, "System")
         if (Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.isNotBlank() && Build.SOC_MODEL != "unknown") add("sys.cpu", "Processor", Build.SOC_MODEL, "System")
         add("sys.cores", "Processor threads", Runtime.getRuntime().availableProcessors().toString(), "System")
