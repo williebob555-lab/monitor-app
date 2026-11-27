@@ -112,21 +112,56 @@ class _ServiceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final report = status.report;
-    final health = report.readings
-        .where((r) => r.key == 'ct.health')
-        .firstOrNull
-        ?.value;
     final uri = serviceInterface(report);
-    final text =
-        health is String && status.fresh && !status.title.contains(health)
-        ? '${status.title} · $health'
+    Reading? reading(String key) =>
+        report.readings.where((r) => r.key == key).firstOrNull;
+    final health = reading('ct.health')?.value;
+    final http = status.fresh ? reading('ct.http') : null;
+    final latency = reading('ct.httpMs')?.value;
+    final reportedState =
+        http != null &&
+            status.title == '${http.label ?? http.key}: ${http.value}'
+        ? reading('ct.state')?.value?.toString() ?? 'State unavailable'
         : status.title;
+    final httpText = switch (http?.value) {
+      final int code => 'HTTP $code${latency is num ? ' · $latency ms' : ''}',
+      'no answer' => 'HTTP · No answer',
+      _ => null,
+    };
+    final text = [
+      reportedState,
+      if (health is String && status.fresh && !reportedState.contains(health))
+        health,
+    ].join(' · ');
+    final piHoleNeedsPassword =
+        status.fresh && reading('ph.api')?.value == 'needs its password';
     return ListTile(
       dense: true,
       contentPadding: const EdgeInsets.only(left: 12),
       leading: _ServiceStatus(status.level),
       title: Text(report.name),
-      subtitle: Text(text),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(text),
+          if (httpText != null)
+            Text(
+              httpText,
+              style: TextStyle(
+                color: switch (http?.level) {
+                  'fault' => C.of(Level.fault),
+                  'warn' => C.of(Level.warn),
+                  _ => C.muted,
+                },
+              ),
+            ),
+          if (piHoleNeedsPassword)
+            const Text(
+              'Pi-hole statistics need an app password',
+              style: TextStyle(color: C.muted),
+            ),
+        ],
+      ),
       onTap: () => onInspect(report.id),
       trailing: uri == null
           ? null

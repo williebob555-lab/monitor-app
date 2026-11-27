@@ -393,3 +393,5 @@ A handoff must report the literal commands run, whether each succeeded, the envi
 ## Monitor App 2.x services
 
 From `lite/app`, run `flutter test test/services_panel_test.dart`. The widget test uses real core thing status to verify grouping by reported parent, health text, separate navigation and web link actions, and safe handling of a URL containing credentials.
+
+The same test covers a responsive service row showing a reported HTTP 503 with its latency and a Pi-hole setup note.

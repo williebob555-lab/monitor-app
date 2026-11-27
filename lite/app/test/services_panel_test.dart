@@ -39,6 +39,14 @@ void main() {
         Reading(key: 'ct.state', value: 'running'),
         Reading(key: 'ct.health', value: 'healthy'),
         Reading(key: 'ct.url', value: 'http://device.example:8080/admin/'),
+        Reading(
+          key: 'ct.http',
+          value: 503,
+          label: 'Page answers',
+          level: 'warn',
+        ),
+        Reading(key: 'ct.httpMs', value: 23, unit: 'ms'),
+        Reading(key: 'ph.api', value: 'needs its password', src: 'unknown'),
       ]);
       final files = status('files', 'File service', 'container', 'home', [
         Reading(
@@ -76,6 +84,12 @@ void main() {
       await tester.tap(find.text('Home services'));
       await tester.pumpAndSettle();
       expect(find.text('running · healthy'), findsOneWidget);
+      expect(find.text('HTTP 503 · 23 ms'), findsOneWidget);
+      expect(find.text('Page answers: 503'), findsNothing);
+      expect(
+        find.text('Pi-hole statistics need an app password'),
+        findsOneWidget,
+      );
       expect(find.text('State: stopped'), findsOneWidget);
       expect(find.text('Other service'), findsNothing);
       expect(find.byTooltip('Open File service web interface'), findsNothing);
