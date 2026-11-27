@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'controls_view.dart';
 import 'dive.dart';
+import 'inventory_link.dart';
 import 'parts.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -74,6 +75,8 @@ class _DevicePageState extends State<DevicePage> {
             );
             final left = <Widget>[
               if (_url(r) != null) ...[_open(_url(r)!), const SizedBox(height: 14)],
+                if (st.folder.exists)
+                  InventoryLink(st.folder.root, st.host.id, r.id, key: ValueKey((st.folder.root, r.id))),
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),

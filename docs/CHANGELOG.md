@@ -262,3 +262,4 @@ This file records completed user-visible, operational, architectural, packaging,
 
 - Inventory on Home can add, find, and edit items through the shared Monitor folder. Editing name, kind, or state preserves other stored fields.
 - The inventory editor shows saved properties with units and the source of each value.
+- Device pages can add observed equipment to owned inventory or review a suggested link to an existing item.
