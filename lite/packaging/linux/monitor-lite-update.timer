@@ -1,0 +1,10 @@
+[Unit]
+Description=Monitor App automatic package update (after boot, then every 6 hours)
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target
