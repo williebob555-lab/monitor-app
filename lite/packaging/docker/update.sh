@@ -73,7 +73,7 @@ log() {
   echo "$1"
   f="$folder/devices/$id/log.txt"
   # Append only to the collector's existing log, so ownership stays yours.
-  [ -n "$id" ] && [ -f "$f" ] && echo "$(date +%Y-%m-%dT%H:%M:%S) $1" >> "$f"
+  [ -n "$id" ] && [ -f "$f" ] && echo "$(date +%Y-%m-%dT%H:%M:%S%:z) $1" >> "$f"
 }
 
 if [ $check = 1 ]; then

@@ -101,7 +101,9 @@ class SyncFolder {
             _cache[f.path] = (text, r);
           }
         }
-        if (r != null) out[r.id] = r;
+        // A report speaks only for its own folder: an id that differs from
+        // the folder name would let one device pose as another.
+        if (r != null && r.id == e.uri.pathSegments.where((x) => x.isNotEmpty).last) out[r.id] = r;
       } catch (_) {
         final c = _cache[f.path];
         if (c?.$2 != null) out[c!.$2!.id] = c.$2!;
