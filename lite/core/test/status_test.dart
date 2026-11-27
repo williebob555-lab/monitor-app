@@ -190,4 +190,18 @@ void main() {
     expect(compareVersions('2.0.10', '2.0.9'), greaterThan(0));
     expect(compareVersions('dev', '2.0.0'), lessThan(0));
   });
+
+  test('it reaches the others but nobody reaches it = incoming blocked there, on every device', () {
+    final reports = m([
+      r('laptop', peers: {'pixel': gone(20), 'tablet': ok()}),
+      r('tablet', kind: 'android', peers: {'pixel': gone(20), 'laptop': ok()}),
+      r('pixel', kind: 'android', peers: {'laptop': ok(), 'tablet': ok()}),
+    ]);
+    final seenByLaptop = of(assess(reports, myId: 'laptop', now: now), 'pixel');
+    expect(seenByLaptop.title, "Can't be reached");
+    expect(seenByLaptop.detail, contains('incoming connections are blocked on pixel'));
+    final onPixel = of(assess(reports, myId: 'pixel', now: now), 'pixel');
+    expect(onPixel.title, "Others can't reach this device");
+    expect(onPixel.level, Level.warn);
+  });
 }
