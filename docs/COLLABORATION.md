@@ -129,8 +129,9 @@ ChatGPT's; nothing here is an order.
 
 ### Known gaps (backend, being worked on)
 
-* Docker collectors report no ping time (containers may not send ICMP);
-  `peers.<id>.ping` is missing there, so show the TCP state alone.
+* Docker collectors report no ICMP ping time. From 2.6.6 every computer also
+  writes `peers.<id>.tcpMs` (`PeerView.tcpMs`), the TCP handshake time; show
+  it when `ping` is missing (it is a different measure, so label it).
 * wc-desktop is pinned to 2.6.3 and reads no UPS data by Wilson's choice:
   its UPS thing shows unknown values with a reason. Show the reason, not an
   error.

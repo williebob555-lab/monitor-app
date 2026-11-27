@@ -49,19 +49,25 @@ Future<String?> tailscaleIp() async {
   return null;
 }
 
-Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async {
+Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async => (await tcpProbeTimed(host, timeout: timeout)).$1;
+
+/// [tcpProbe] plus how long the TCP handshake took (ms): the time to the
+/// peer's answer, accepted or refused. A second measure of latency that
+/// needs no ICMP, so it works where ping can't (containers).
+Future<(String, int?)> tcpProbeTimed(String host, {Duration timeout = const Duration(seconds: 3)}) async {
+  final sw = Stopwatch()..start();
   try {
     final s = await Socket.connect(host, syncthingPort, timeout: timeout);
+    final ms = sw.elapsedMilliseconds;
     s.destroy();
-    return 'open';
+    return ('open', ms);
   } on SocketException catch (e) {
     final code = e.osError?.errorCode;
     // ECONNREFUSED: Linux 111, Windows 10061, macOS 61.
-    if (code == 111 || code == 10061 || code == 61) return 'refused';
-    if (e.message.contains('timed out') || code == 110 || code == 10060) return 'timeout';
-    return 'timeout';
+    if (code == 111 || code == 10061 || code == 61) return ('refused', sw.elapsedMilliseconds);
+    return ('timeout', null);
   } catch (_) {
-    return 'error';
+    return ('error', null);
   }
 }
 
@@ -252,8 +258,8 @@ class Agent {
             seen > o.nextSeconds * 3 + 120;
         if (twinUp || (o.machine != null && o.machine == _machine)) return;
         // Both at once: an unreachable device costs one timeout, not two.
-        final (tcp, ms) = await (tcpProbe(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
-        peers[o.id] = PeerView(tcp: tcp, pingMs: ms, seenAge: seen);
+        final (t, ms) = await (tcpProbeTimed(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
+        peers[o.id] = PeerView(tcp: t.$1, pingMs: ms, tcpMs: t.$2, seenAge: seen);
       }));
 
       List<Reading> extra;
@@ -341,11 +347,11 @@ class Agent {
       _maxRss = rss > _maxRss ? rss : _maxRss;
       if (_lastSummary == null || now.difference(_lastSummary!) > const Duration(hours: 1)) {
         final seen = others.values
-            .map((o) => '${o.name}:${peers[o.id]?.tcp ?? '-'}/${peers[o.id]?.pingMs ?? '-'}ms/'
+            .map((o) => '${o.name}:${peers[o.id]?.tcp ?? '-'}/${peers[o.id]?.pingMs ?? '-'}ms/tcp${peers[o.id]?.tcpMs ?? '-'}ms/'
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;

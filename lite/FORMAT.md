@@ -48,7 +48,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `ts.ip` | Tailscale address or null |
 | `st.up` | Syncthing listening on this device (port 22000) |
 | `screen` | `on`/`off` (Android) |
-| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms, `seen` = age in seconds of that device's now.json here |
+| `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms (ICMP), `tcpMs` (computers: TCP handshake time to its port 22000, open or refused; present where ICMP is not allowed, e.g. Docker), `seen` = age in seconds of that device's now.json here |
 | `self` | collector cost: `runMs`, `cpuMs`, `rssMb`, `over` (broken budgets) |
 | `node` | its place in the hierarchy (see "Hierarchy") |
 | `controls` | settings anyone may ask it to change (see "Controls") |
