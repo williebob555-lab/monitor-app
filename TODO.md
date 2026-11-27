@@ -95,3 +95,7 @@ This file contains active and near-term tasks only. Read it with the required do
 - Durable automation ownership, notification outbox, Android/desktop push delivery, and historical rule simulation.
 - Distributed local-AI capability routing, tools, and derived-artifact provenance.
 - Operational control actions beyond monitoring controls (power, services, scripts), multi-user roles, transitive trust, automatic collector failover, and shared-metadata consensus.
+
+## Monitor App 2.x settings requests
+
+- [x] T078: show the status of requests sent from this device in Setup and updates.

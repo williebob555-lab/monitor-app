@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'controls_view.dart';
+import 'request_activity.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -120,7 +121,20 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
           ),
         ];
         return Scaffold(
-          appBar: AppBar(title: const Text('Setup and updates')),
+          appBar: AppBar(title: const Text('Setup and updates'), actions: [
+            IconButton(
+              tooltip: 'Settings requests',
+              icon: const Icon(Icons.receipt_long_outlined),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => ListenableBuilder(listenable: st, builder: (context, _) => RequestActivity(
+                  requests: st.asked.values,
+                  answerFor: st.answerFor,
+                  names: st.names,
+                  now: DateTime.now(),
+                )),
+              )),
+            ),
+          ]),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 28),
             children: [
