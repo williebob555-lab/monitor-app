@@ -102,7 +102,10 @@ ChatGPT's; nothing here is an order.
 |---|---|---|
 | Pattern history | `readPatternHistory(dir, now)`, `seriesOf(lines, key)` | A small "over the months" line under each pattern (battery drain trend shows battery ageing) |
 | Patterns from phones | each phone's `patterns.json`, or `findPatterns` | Same patterns section on phone pages as on computers |
-| UPS source | reading `ups.source` ("USB", "UPower on the host (exported file)", ...) | Say where the UPS numbers come from; when it is UPower, `ups.load` is unknown and there is no alarm control, so hide the beeper row instead of showing it disabled |
+| UPS source (2.6.8) | reading `ups.source` in words ("UPower 1.91.5 on the host (exported file), plus USB HID for load and alarm"), and `from` on each UPS reading (`upower`, `upower-export`, `hid`, `nut`, `sysfs`) | Say where the UPS numbers come from, per row if you like (a small "UPower" / "USB" tag). With UPower only, `ups.load` is unknown and there is no `ups.alarm` or alarm control: hide the beeper row instead of showing it disabled |
+| UPS host protection (2.6.8) | reading `ups.hostAction` (declared), e.g. "host powers off at 20 %" | A calm line on the UPS page: what the host does at low battery. It is the host's own UPower setting, read-only: no button |
+| UPS identity (2.6.8) | reading `ups.identity` | Under the UPS's details: "USB 0764:0601 on port 1-5 (no serial)"; its note says moving it to another port gives it a new id |
+| Unavailable vs zero | `value: null` with `src: "unknown"` and a `note` (FORMAT.md "Unavailable is never zero") | Never draw null as 0 or an empty bar: show "unknown" and the note. A 0 is a real zero |
 | Settings from any device | `controls`, `sendRequest`, `myRequests`, `resultOf` | Already on device pages; a single "Waiting for…" list across devices would help on a phone |
 | Twins | `node.links` `via: dual-boot`, `Level.inactive` | One machine card, the running system on top, the other as a quiet line ("Fedora, last up 2 h ago") |
 | UPS patterns (2.6.7) | the UPS thing's `patterns.json` (`readPatternHistory(thingDir, now)` for months) | "On battery 2 times, 17 min in all", usual load, runtime when full (estimated); the runtime line over months shows the battery ageing |
@@ -145,7 +148,7 @@ ChatGPT's; nothing here is an order.
 * Docker collectors report no ICMP ping time. From 2.6.6 every computer also
   writes `peers.<id>.tcpMs` (`PeerView.tcpMs`), the TCP handshake time; show
   it when `ping` is missing (it is a different measure, so label it).
-* wc-desktop is pinned to 2.6.3 and reads no UPS data by Wilson's choice:
-  its UPS thing shows unknown values with a reason. Show the reason, not an
-  error.
+* wc-desktop reads no UPS data until its host UPower export is set up (it has
+  no USB HID access by design): its UPS thing shows unknown values with a
+  reason. Show the reason, not an error.
 * Windows and Android write no things (USB devices) yet.
