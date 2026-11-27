@@ -12,13 +12,14 @@ Sizes: **S** under an hour, **M** one to three hours, **L** a night or more.
 | 2.2.0 | **Dive + map**: a map of the network (who reaches whom, ping times). Each device opens up into its parts, and each part opens into live and history charts. Home lists what needs a look. Computers say what they are (maker, model, processor), their CPU temperature (Linux), and how Tailscale (Linux) and Syncthing are doing. Phones report battery health, charge cycles and Wi-Fi signal. Computers with more than one drive list each. |
 | 2.3.0 | **Phones' and tablets' latest readings now reach the other devices every time** (before, an update was skipped whenever the file kept the same size). Docker containers on servers (running, stopped, unhealthy) as a Containers part. Android memory line set to what a phone screen really costs. **Timeline under the map**: drag back up to 24 h to see who reached whom then. |
 | 2.4.0 | **Notifications, opt-in per device** (phones and tablets): "LAPTOP stopped reporting 31 min ago", "Syncthing folder stuck". A switch on each device's page; nothing is sent for devices you leave off. |
+| 2.6.x | **Patterns** on each device's page (battery drain by screen, busiest time of day, usual memory, data per day, how often it reaches each device). **Change settings from any device**: the UPS beeper, Update now (Windows, Android), Update all. Map fills the screen. |
 
 ## Next
 
 | # | Item | Size | What you will see |
 |---|---|---|---|
 | 1 | Verify 2.2.0 on your devices from their logs, and fix what shows up | M | Every device's parts filled in on every other device |
-| 6 | Patterns instead of old raw data ("battery drains 4%/h with screen off") | L | A Patterns section on each part |
+| 6 | Patterns, step 2: phones write patterns.json; cut old summaries once patterns cover them | M | Patterns that last after old history is pruned |
 | 7 | More things: Windows-side USB/UPS reading; the UPS udev rule + `devices:` line on both Docker systems of the desktop (wc-desktop Fedora, wc-alpha Ubuntu); xruns via PipeWire | M | The UPS readable whichever system the desktop runs |
 | 8 | Verify 2.5.0 on the desktop: the CyberPower UPS and MOTU files appear under its device folder | S | The real UPS and MOTU on the map |
 
