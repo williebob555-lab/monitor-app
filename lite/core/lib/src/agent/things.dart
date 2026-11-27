@@ -50,7 +50,15 @@ class Things {
   static List<NodeLink> hostLinks(List<Report> things) => [
         for (final t in things)
           for (final l in t.node?.links ?? const <NodeLink>[])
-            NodeLink(to: t.id, via: l.via, dir: l.dir == 'out' ? 'in' : l.dir == 'in' ? 'out' : 'both', detail: l.detail),
+            NodeLink(
+                to: t.id,
+                via: l.via,
+                dir: l.dir == 'out'
+                    ? 'in'
+                    : l.dir == 'in'
+                        ? 'out'
+                        : 'both',
+                detail: l.detail),
       ];
 
   Future<List<_Found>> _scan() async {
@@ -118,16 +126,33 @@ class Things {
   }
 
   List<Reading> _usbReadings(_Usb u, String id) => [
-        Reading(key: 'usb.speed', label: 'Link speed', value: u.speedMbps, unit: 'Mbit/s', group: 'USB', src: u.speedMbps == null ? 'unknown' : 'measured',
+        Reading(
+            key: 'usb.speed',
+            label: 'Link speed',
+            value: u.speedMbps,
+            unit: 'Mbit/s',
+            group: 'USB',
+            src: u.speedMbps == null ? 'unknown' : 'measured',
             note: u.speedMbps == null ? 'not reported by the system' : null),
         if (u.version != null) Reading(key: 'usb.version', label: 'USB version', value: u.version, group: 'USB', src: 'declared'),
         Reading(key: 'usb.port', label: 'Port', value: 'bus ${u.path.split('-').first}, port ${u.path.split('-').skip(1).join('-')}', group: 'USB', src: 'measured'),
-        Reading(key: 'usb.maxPower', label: 'Power it may draw', value: u.maxPowerMa, unit: 'mA', group: 'USB', src: u.maxPowerMa == null ? 'unknown' : 'declared',
+        Reading(
+            key: 'usb.maxPower',
+            label: 'Power it may draw',
+            value: u.maxPowerMa,
+            unit: 'mA',
+            group: 'USB',
+            src: u.maxPowerMa == null ? 'unknown' : 'declared',
             note: u.maxPowerMa == null ? 'not reported' : 'the device\'s own rating, not a measurement'),
         Reading(key: 'usb.current', label: 'Power drawn now', value: null, group: 'USB', src: 'unknown', note: 'USB ports do not measure current'),
-        if (u.connectedMs != null)
-          Reading(key: 'usb.connectedMin', label: 'Connected for', value: (u.connectedMs! / 60000).round(), unit: 'min', group: 'USB', src: 'measured'),
-        Reading(key: 'usb.reconnects', label: 'Reconnects', value: _reconnects[id] ?? 0, group: 'USB', src: 'measured', note: 'since the collector started',
+        if (u.connectedMs != null) Reading(key: 'usb.connectedMin', label: 'Connected for', value: (u.connectedMs! / 60000).round(), unit: 'min', group: 'USB', src: 'measured'),
+        Reading(
+            key: 'usb.reconnects',
+            label: 'Reconnects',
+            value: _reconnects[id] ?? 0,
+            group: 'USB',
+            src: 'measured',
+            note: 'since the collector started',
             level: (_reconnects[id] ?? 0) > 0 ? 'warn' : null),
         Reading(key: 'usb.errors', label: 'Transfer errors', value: null, group: 'USB', src: 'unknown', note: 'Linux keeps no per-device USB error count'),
         if (u.serial != null) Reading(key: 'usb.serial', label: 'Serial number', value: u.serial, group: 'USB', src: 'declared'),
@@ -144,12 +169,19 @@ class Things {
     final nut = await _nut();
     if (nut != null) return _upsFromNut(nut);
     final up = await _upower();
-    if (up != null) return _upsFromUpower(up);
-    return [
-      for (final k in const [('ups.status', 'Running on'), ('ups.charge', 'Battery charge'), ('ups.runtime', 'Runtime left'), ('ups.load', 'Load')])
-        Reading(key: k.$1, label: k.$2, value: null, group: 'Power', src: 'unknown', note: why),
-    ];
+    if (up != null) return upsFromUpower(up);
+    final export = readUpowerExport(upowerExportFile, DateTime.now());
+    if (export != null) {
+      if (export.$2 != null) return _upsUnknown(export.$2!);
+      return upsFromUpower(export.$1!, source: 'UPower on the host (exported file)');
+    }
+    return _upsUnknown(why.isEmpty ? why : '$why, or share what UPower sees ("UPS through UPower")');
   }
+
+  static List<Reading> _upsUnknown(String why) => [
+        for (final k in const [('ups.status', 'Running on'), ('ups.charge', 'Battery charge'), ('ups.runtime', 'Runtime left'), ('ups.load', 'Load')])
+          Reading(key: k.$1, label: k.$2, value: null, group: 'Power', src: 'unknown', note: why),
+      ];
 
   /// Asks a NUT server on this machine (port 3493) for every variable of
   /// its first UPS. Plain text protocol, no NUT tools needed here.
@@ -191,14 +223,35 @@ class Things {
     final onBattery = status.contains('OB'), low = status.contains('LB');
     final charge = n('battery.charge');
     return [
-      Reading(key: 'ups.status', label: 'Running on', value: low ? 'battery, low' : onBattery ? 'battery' : status.contains('OL') ? 'mains' : status, group: 'Power',
-          src: 'measured', level: low ? 'fault' : onBattery ? 'warn' : null),
-      _num('ups.charge', 'Battery charge', charge, '%', 'measured', level: charge == null ? null : charge < 20 ? 'fault' : charge < 50 && onBattery ? 'warn' : null),
+      Reading(
+          key: 'ups.status',
+          label: 'Running on',
+          value: low
+              ? 'battery, low'
+              : onBattery
+                  ? 'battery'
+                  : status.contains('OL')
+                      ? 'mains'
+                      : status,
+          group: 'Power',
+          src: 'measured',
+          level: low
+              ? 'fault'
+              : onBattery
+                  ? 'warn'
+                  : null),
+      _num('ups.charge', 'Battery charge', charge, '%', 'measured',
+          level: charge == null
+              ? null
+              : charge < 20
+                  ? 'fault'
+                  : charge < 50 && onBattery
+                      ? 'warn'
+                      : null),
       _num('ups.runtime', 'Runtime left', n('battery.runtime') == null ? null : n('battery.runtime')! / 60, 'min', 'estimated', note: 'the UPS\'s own estimate at the current load'),
       _num('ups.load', 'Load', n('ups.load'), '%', 'measured'),
       if (v['ups.mfr'] != null || v['device.mfr'] != null) Reading(key: 'ups.maker', label: 'Maker', value: v['ups.mfr'] ?? v['device.mfr'], group: 'Power', src: 'declared'),
-      if (v['ups.model'] != null || v['device.model'] != null)
-        Reading(key: 'ups.model', label: 'Model', value: v['ups.model'] ?? v['device.model'], group: 'Power', src: 'declared'),
+      if (v['ups.model'] != null || v['device.model'] != null) Reading(key: 'ups.model', label: 'Model', value: v['ups.model'] ?? v['device.model'], group: 'Power', src: 'declared'),
       Reading(key: 'ups.source', label: 'Read through', value: 'NUT (${v['driver.name'] ?? 'usbhid-ups'}, "${v['_ups']}")', group: 'Power', src: 'measured'),
     ];
   }
@@ -230,27 +283,76 @@ class Things {
     }
   }
 
-  static List<Reading> _upsFromUpower(Map<String, String> v) {
+  /// Where a host-side exporter (packaging/linux/upower-export.sh) leaves
+  /// `upower -i` for the UPS, mounted read-only into the container. The
+  /// collector gets this one file: no D-Bus, no USB device.
+  static const upowerExportFile = '/host/upower/ups.txt';
+
+  /// The exported UPower details, or why they can't be used (missing file:
+  /// null). An export older than 3 minutes is not shown as current.
+  static (Map<String, String>?, String?)? readUpowerExport(String path, DateTime now) {
+    final f = File(path);
+    try {
+      if (!f.existsSync() || f.lengthSync() > 64 * 1024) return null;
+      final out = <String, String>{};
+      for (final l in f.readAsLinesSync()) {
+        final k = l.indexOf(':');
+        if (k > 0) out[l.substring(0, k).trim()] = l.substring(k + 1).trim();
+      }
+      final t = int.tryParse(out['exported'] ?? '');
+      if (t == null) return (null, 'the UPower export has no "exported" time');
+      final age = now.millisecondsSinceEpoch ~/ 1000 - t;
+      if (age > 180) return (null, 'the UPower export is ${(age / 60).round()} min old (is its timer running on the host?)');
+      if (!out.containsKey('percentage') && !out.containsKey('state')) return (null, 'UPower on the host sees no UPS');
+      return (out, null);
+    } catch (e) {
+      return (null, 'the UPower export could not be read: $e');
+    }
+  }
+
+  static List<Reading> upsFromUpower(Map<String, String> v, {String source = 'upower'}) {
     final pct = double.tryParse((v['percentage'] ?? '').replaceAll('%', '').trim());
     final state = v['state'] ?? '';
     final onBattery = state == 'discharging';
-    double? hours(String? s) {
+    // UPower's own warning: low, critical or action (about to shut down).
+    final low = onBattery && const {'low', 'critical', 'action'}.contains(v['warning-level']);
+    double? minutes(String? s) {
       if (s == null) return null;
-      final m = RegExp(r'([\d.,]+)\s*(hours?|minutes?)').firstMatch(s);
+      final m = RegExp(r'([\d.,]+)\s*(hours?|minutes?|seconds?)').firstMatch(s);
       if (m == null) return null;
       final x = double.tryParse(m.group(1)!.replaceAll(',', '.'));
-      return x == null ? null : (m.group(2)!.startsWith('hour') ? x * 60 : x);
+      if (x == null) return null;
+      final u = m.group(2)!;
+      return u.startsWith('hour')
+          ? x * 60
+          : u.startsWith('second')
+              ? x / 60
+              : x;
     }
 
-    const none = 'upower does not read it; NUT (usbhid-ups) does';
+    const none = 'UPower does not report the load';
     return [
-      Reading(key: 'ups.status', label: 'Running on', value: onBattery ? 'battery' : 'mains', group: 'Power', src: 'measured', level: onBattery ? 'warn' : null),
+      Reading(
+          key: 'ups.status',
+          label: 'Running on',
+          value: low
+              ? 'battery, low'
+              : onBattery
+                  ? 'battery'
+                  : 'mains',
+          group: 'Power',
+          src: 'measured',
+          level: low
+              ? 'fault'
+              : onBattery
+                  ? 'warn'
+                  : null),
       _num('ups.charge', 'Battery charge', pct, '%', 'measured', level: pct != null && pct < 20 ? 'fault' : null),
-      _num('ups.runtime', 'Runtime left', hours(v['time to empty']), 'min', 'estimated', note: 'the UPS\'s own estimate'),
+      _num('ups.runtime', 'Runtime left', minutes(v['time to empty']), 'min', 'estimated', note: 'the UPS\'s own estimate'),
       Reading(key: 'ups.load', label: 'Load', value: null, group: 'Power', src: 'unknown', note: none),
       if (v['vendor'] != null) Reading(key: 'ups.maker', label: 'Maker', value: v['vendor'], group: 'Power', src: 'declared'),
       if (v['model'] != null) Reading(key: 'ups.model', label: 'Model', value: v['model'], group: 'Power', src: 'declared'),
-      Reading(key: 'ups.source', label: 'Read through', value: 'upower', group: 'Power', src: 'measured'),
+      Reading(key: 'ups.source', label: 'Read through', value: source, group: 'Power', src: 'measured'),
     ];
   }
 
@@ -285,7 +387,16 @@ class Things {
       final fmt = RegExp(r'Format:\s*(\S+)').firstMatch(sec)?.group(1);
       final k = dir.toLowerCase();
       out.addAll([
-        Reading(key: 'audio.$k.state', label: '$dir', value: status == 'Running' ? 'running' : status == 'Stop' ? 'stopped' : status, group: 'Audio', src: 'measured'),
+        Reading(
+            key: 'audio.$k.state',
+            label: '$dir',
+            value: status == 'Running'
+                ? 'running'
+                : status == 'Stop'
+                    ? 'stopped'
+                    : status,
+            group: 'Audio',
+            src: 'measured'),
         if (freq != null) Reading(key: 'audio.$k.rate', label: '$dir sample rate', value: int.parse(freq), unit: 'Hz', group: 'Audio', src: 'measured'),
         if (ch != null) Reading(key: 'audio.$k.channels', label: '$dir channels', value: int.parse(ch), group: 'Audio', src: 'declared'),
         if (fmt != null) Reading(key: 'audio.$k.format', label: '$dir format', value: fmt, group: 'Audio', src: 'declared'),
@@ -301,7 +412,12 @@ class Things {
         if (per != null) out.add(Reading(key: 'audio.$k.period', label: '$dir period', value: int.parse(per), unit: 'frames', group: 'Audio', src: 'measured'));
       }
     }
-    out.add(Reading(key: 'audio.xruns', label: 'Dropouts (xruns)', value: null, group: 'Audio', src: 'unknown',
+    out.add(Reading(
+        key: 'audio.xruns',
+        label: 'Dropouts (xruns)',
+        value: null,
+        group: 'Audio',
+        src: 'unknown',
         note: 'ALSA counts them only with xrun_debug switched on, and the sound server (PipeWire) keeps its own'));
     out.addAll(await _mixer(card.substring(4)));
     return out;
