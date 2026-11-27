@@ -7,7 +7,7 @@ import 'folder.dart';
 import 'history.dart' show readLines;
 import 'report.dart';
 import 'rules.dart';
-import 'status.dart' show freshLimit;
+import 'status.dart' show freshLimit, sameMachine;
 import 'version.dart';
 
 /// Rule evaluation (roadmap row 19). FORMAT.md "Rules".
@@ -167,7 +167,7 @@ class RuleEngine {
             if (!rule.covers(s.id, _typeOf(s))) continue;
             // The other system of a dual-boot machine is running: this one
             // is not booted, which is not "offline".
-            final twinUp = s.machine != null && reports.values.any((o) => o.id != s.id && o.machine == s.machine && now.difference(o.time) <= freshLimit(o));
+            final twinUp = reports.values.any((o) => o.id != s.id && sameMachine(o, s) && now.difference(o.time) <= freshLimit(o));
             final age = now.difference(s.time);
             final f = ((w['for'] as num?) ?? 600).toInt();
             consider(rule, s, !twinUp && age.inSeconds >= f, s.time, '${s.name}: no report for ${_age(age)} (last ${_hm(s.time)})');

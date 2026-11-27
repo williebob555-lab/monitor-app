@@ -180,7 +180,10 @@ class Extras {
     if (!Platform.isLinux) return const [];
     try {
       final list = await Containers.dockerGet('/containers/json?all=1');
-      if (list is! List) return const [];
+      if (list is! List) {
+        final why = containersUnseen();
+        return why == null ? const [] : [Reading(key: 'ct.access', label: 'Containers', value: 'not visible', group: 'Containers', src: 'unknown', note: why)];
+      }
       var running = 0;
       String? pihole;
       final bad = <String>[];
@@ -209,12 +212,31 @@ class Extras {
         Reading(key: 'ct.total', label: 'Containers', value: list.length, group: 'Containers'),
         if (bad.isNotEmpty) Reading(key: 'ct.problems', label: 'Problems', value: bad.join('; '), group: 'Containers', level: 'warn'),
         if (pihole != null)
-          Reading(key: 'net.pihole', label: 'Pi-hole DNS', value: pihole, group: 'Network', src: 'measured', level: pihole == 'answers' ? null : 'fault'),
+          // No level here: Pi-hole serves from one server at a time, so an
+          // idle one is normal. Whether DNS works is judged across devices.
+          Reading(key: 'net.pihole', label: 'Pi-hole DNS', value: pihole, group: 'Network', src: 'measured',
+              note: pihole == 'answers' ? null : 'Pi-hole serves from one server at a time; this is only a problem if devices stop resolving names'),
         if (stopped.isNotEmpty) Reading(key: 'ct.stopped', label: 'Stopped', value: stopped.join(', '), group: 'Containers'),
       ];
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Why this host's containers can't be seen, when Docker evidently runs
+  /// here (its docker0 network exists) but the collector got no list; null
+  /// when there is no Docker. Said once in the log, and as a reading, so a
+  /// server whose containers never show says why instead of nothing.
+  static String? containersUnseen({String? dockerHost, bool? dockerHere, bool? socket}) {
+    dockerHere ??= Directory('/sys/class/net/docker0').existsSync();
+    if (!dockerHere) return null;
+    dockerHost ??= Platform.environment['DOCKER_HOST'] ?? '';
+    socket ??= FileSystemEntity.typeSync('/var/run/docker.sock') != FileSystemEntityType.notFound;
+    if (dockerHost.startsWith('tcp://')) {
+      return 'Docker runs here, but the docker-list helper at ${dockerHost.replaceFirst('tcp://', '')} does not answer. Is the monitor-app-docker-list container running?';
+    }
+    if (socket) return 'Docker runs here, but its socket did not answer.';
+    return 'Docker runs here, but the collector has no read-only way to see it: the docker-list helper is not set up in this server\'s compose file (Containers in packaging/docker/README.md).';
   }
 
   // ---- Windows USB devices (SetupAPI) ---------------------------------------

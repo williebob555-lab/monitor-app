@@ -135,6 +135,8 @@ ChatGPT's; nothing here is an order.
 | Products (row 30) | `ProductStore(root, me)`: `put/get/ids/asOf`, `of(item)`, `link(ModelStore, item, productId)`; `Product` (`maker`, `model`, `specs`, `images`, `docs`, `offers`, `bestOffer()`) | Product lens of an item: photo, specs with src, manuals, offers; manual entry form |
 | Notifications (row 20) | Nothing new for the UI: the phone's "Notify me on this phone" switch now becomes rule files (FORMAT "Phone switches"); the notify action's `on` lists devices | A rule editor's notify action: "show on" every device or chosen ones |
 | Why a rule fired (row 19) | `firedLines(root, ruleId)`: `t`, `subject`, `since`, `why`, `did`, `notify`, `by`; `rule.fired` events | "Why did this fire" view on a rule; `rule.fired` events as notes on the history |
+| One machine, two systems (2.7.1) | `assess().machines` -> `Machine` (`current`, `others`, `systems`, `name`, `level`); `assess().systemsOf(id)` | Wilson (2026-11-27): wc-alpha/wc-desktop and laptop/laptop-f must look like ONE machine everywhere, not just on the map. Device lists, home rows, Dive and graphs: one row per `Machine`, titled by the running system, the other system shown as "also boots Fedora/Windows", history graphs drawn across `systemsOf(id)` |
+| Containers not visible (2.7.1) | reading `ct.access` = `not visible`, reason in `note` | Show the note on the host's Containers part instead of an empty list |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)

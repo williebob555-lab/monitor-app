@@ -51,13 +51,25 @@ bool isTailscaleIp(InternetAddress a) {
 
 Future<String?> tailscaleIp() async {
   try {
+    final found = <(String, String)>[];
     for (final i in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
       for (final a in i.addresses) {
-        if (isTailscaleIp(a)) return a.address;
+        if (isTailscaleIp(a)) found.add((i.name, a.address));
       }
     }
+    return pickTailscale(found);
   } catch (_) {}
   return null;
+}
+
+/// 100.64/10 is also what mobile carriers and some ISPs hand out (CGNAT):
+/// the Pixel on 2026-11-27 had rmnet16 100.86.5.58 (the carrier) next to
+/// tun0 100.88.178.60 (Tailscale), and published the carrier's, so nobody
+/// could reach it. Prefer the VPN interface; never a cellular one.
+String? pickTailscale(List<(String, String)> found) {
+  bool vpn(String n) => n.startsWith('tailscale') || n.startsWith('tun') || n.startsWith('utun') || n.toLowerCase().contains('tailscale');
+  bool cell(String n) => RegExp(r'^(rmnet|ccmni|pdp|wwan|clat|v4-rmnet|seth|ccinet|wwp)').hasMatch(n);
+  return found.where((f) => vpn(f.$1)).firstOrNull?.$2 ?? found.where((f) => !cell(f.$1)).firstOrNull?.$2;
 }
 
 Future<String> tcpProbe(String host, {Duration timeout = const Duration(seconds: 3)}) async => (await tcpProbeTimed(host, timeout: timeout)).$1;
@@ -163,6 +175,7 @@ class Agent {
   List<Reading> _unusual = const [];
   final _unusualLimit = UnusualLimiter();
   final _extras = Extras();
+  String? _ctWhyLogged;
   final _things = Things();
   final _containers = Containers();
   DateTime? _lastThingHistory;
@@ -429,6 +442,11 @@ class Agent {
         extra = await _extras.collect(now);
       } catch (_) {
         extra = const [];
+      }
+      final ctWhy = extra.where((r) => r.key == 'ct.access').firstOrNull?.note;
+      if (ctWhy != _ctWhyLogged) {
+        if (ctWhy != null) folder.log(cfg.id, 'containers: $ctWhy');
+        _ctWhyLogged = ctWhy;
       }
       // Unusual for this device (row 16): every 5 minutes, from its history.
       if (_unusualAt == null || now.difference(_unusualAt!) >= const Duration(minutes: 5)) {
