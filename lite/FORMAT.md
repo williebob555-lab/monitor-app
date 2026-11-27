@@ -21,7 +21,9 @@
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
                                   "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50},
                                   "update": {"auto": true}} (auto: Windows and
-                                  Android install new releases on their own; default true)
+                                  Android install new releases on their own; default true),
+                                  "controls": {"allow": ["<device id>", ...]} (who may change
+                                  settings; missing = every device, [] = none; lite/SECURITY.md)
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees

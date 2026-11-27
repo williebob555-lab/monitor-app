@@ -279,13 +279,19 @@ object Collector {
         results.listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
         File(dir, "requests").listFiles()?.forEach { if (nowS * 1000 - it.lastModified() > 86_400_000L) it.delete() }
         val devices = File(root, "devices").listFiles() ?: return
+        // settings.json "controls": {"allow": [ids]}; missing = every device.
+        val allow = runCatching { JSONObject(File(root, "settings.json").readText()).optJSONObject("controls")?.optJSONArray("allow") }.getOrNull()
+            ?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
         for (d in devices) {
             val files = File(d, "requests").listFiles() ?: continue
             for (f in files) {
-                if (!f.name.endsWith(".json") || f.name.contains(".sync-conflict")) continue
+                if (!f.name.endsWith(".json") || f.name.contains(".sync-conflict") || f.length() > 16 * 1024) continue
                 val q = runCatching { JSONObject(f.readText()) }.getOrNull() ?: continue
                 val rid = q.optString("id")
-                if (q.optString("host") != me || rid.isEmpty() || !rid.matches(Regex("[0-9a-f]{1,64}"))) continue
+                if (q.optString("host") != me || !rid.matches(Regex("[0-9a-f]{8,64}"))) continue
+                // A device asks only from its own folder, and only if allowed.
+                if (q.optString("from") != d.name || (allow != null && d.name !in allow)) continue
+                if (!q.optString("key").matches(Regex("[a-z0-9._-]{1,64}")) || q.optString("value").length > 256) continue
                 if (Math.abs(nowS - q.optLong("t")) > 600) continue
                 val out = File(results, "$rid.json")
                 if (out.exists()) continue

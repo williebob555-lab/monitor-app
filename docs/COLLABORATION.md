@@ -116,6 +116,8 @@ ChatGPT's; nothing here is an order.
 | Unplaced rack height (2.6.8, answers #81) | `Placement.height` (int U), `Placement.units` | Save the 2U of an amplifier with no position yet; `check()` says when a placed range disagrees |
 | Android parity (2.6.8, row 9) | phone `st.state`, `ts.state`, `drive.*` | Syncthing peer/folder counts on phones need a place to paste Syncthing-Fork's API key (Settings > GUI in that app). Proposal: a field on the phone's own page that saves to the app's private settings, never to the shared folder |
 | Network layers (2.6.8, row 11) | `net.gateway`, `net.dns`, `net.dnsDirect`, `net.internet`, `net.ifaces`, `net.pihole`; `assess().network` titles | Home's network line already shows `assess().network.title`, which now says which layer failed. A device's Network part can show the four checks as a row of four dots (router, DNS, public DNS, internet) |
+| Who may change settings (2.6.8, row 14) | `controlsAllowed(folder)` (null = everyone), `settings.json` `controls.allow` | An "Allowed to change settings" list in Setup; save it into settings.json without touching other keys |
+| History health (2.6.8, row 13) | `checkHistory(deviceDir, now, Retention.load(folder))` -> `.problems`, `.readMs` | Setup's storage line can say "all green" or the first problem; please time `readHistoryRange` for a year on the tablet and show it there |
 | Docker | things of type `compose-project` / `container` | Project rows inside the host box; `ct.url` as the tap target; `cp.problems` is the only thing worth colour |
 
 ### Wilson's recorded preferences (from his feedback)
