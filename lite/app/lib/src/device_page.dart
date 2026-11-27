@@ -10,6 +10,7 @@ import 'parts.dart';
 import 'pattern_history_page.dart';
 import 'state.dart';
 import 'theme.dart';
+import 'ups_evidence.dart';
 import 'widgets.dart';
 
 /// One device, opened up: its status in words, then the device with its parts
@@ -82,7 +83,8 @@ class _DevicePageState extends State<DevicePage> {
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
-              if (!r.isThing || r.node?.type == 'ups') ...[const SizedBox(height: 14), _patterns(r)],
+              if (!r.isThing || const {'ups', 'container'}.contains(r.node?.type))
+                ...[const SizedBox(height: 14), _patterns(r)],
             ];
             final right = <Widget>[
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
@@ -308,11 +310,8 @@ class _DevicePageState extends State<DevicePage> {
           Text('Last update ${ago(s.age)} ago. Next one expected within ${ago(Duration(seconds: s.report.nextSeconds))}.',
               style: const TextStyle(color: C.muted, fontSize: 12)),
           if (s.report.node?.type == 'ups') ...[
-            if (s.report.field('readings.ups.source') case final String source when source.isNotEmpty)
-              Text('Read through $source', style: const TextStyle(color: C.muted)),
-            if (s.report.readings.where((r) => r.key == 'ups.load').firstOrNull
-                case Reading(value: null, note: final String reason))
-              Text('Load unavailable · $reason', style: const TextStyle(color: C.muted)),
+            const SizedBox(height: 8),
+            UpsEvidence(s.report),
           ],
         ]),
       );

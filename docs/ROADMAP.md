@@ -180,7 +180,7 @@ says otherwise; tests alone are never enough.
 
 | # | Item | Size | Depends | Done when | UI it enables | Status |
 |---|---|---|---|---|---|---|
-| 15 | **Conditional patterns** ("usage X under condition Y"): CPU temperature by load, data per day by network type, battery drain by app-open vs closed, UPS runtime by load, container memory and restarts per day. Same `patterns.json` shape. | M | 7 | each appears on at least one real device with a sensible value | more pattern lines | Todo |
+| 15 | **Conditional patterns** ("usage X under condition Y"): CPU temperature by load, data per day by network type, battery drain by app-open vs closed, UPS runtime by load, container memory and restarts per day. Same `patterns.json` shape. | M | 7 | each appears on at least one real device with a sensible value | Device, UPS, and container pages show patterns when available. | Todo |
 | 16 | **"Unusual for this device".** Compare the current hour with the learned usual (patterns history); write `level: warn` with the reason ("CPU 70 %, usually 8 % at night"). Never on less than 3 days of history. | M | 15 | one real, explainable flag over a week and no flood (fewer than 3 a day per device) | a quiet "unusual" note on a part | Todo |
 | 17 | **Topology over time.** Core `topologyAt(t)` from history `p` and events: who reached whom, what was plugged into what, which containers ran. Works over the full detail window, then hourly. | M | 7 | reconstructing last night's power cut on the real folder matches the logs | timeline drags the map and the hierarchy | Todo |
 
