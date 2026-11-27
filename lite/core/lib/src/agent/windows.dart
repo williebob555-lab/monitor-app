@@ -305,3 +305,40 @@ List<int> windowsPipeRequest(String path, List<int> request, {int maxBytes = 4 *
     _closeHandle(h);
   }
 }
+
+final _getNetworkParams = _iph.lookupFunction<Uint32 Function(Pointer<Uint8>, Pointer<Uint32>), int Function(Pointer<Uint8>, Pointer<Uint32>)>('GetNetworkParams');
+
+/// The DNS servers Windows uses (GetNetworkParams, FIXED_INFO). Layout on
+/// x64: HostName[132], DomainName[132], CurrentDnsServer pointer at 264,
+/// DnsServerList (IP_ADDR_STRING: Next pointer, IpAddress[16]) at 272.
+List<String> windowsDnsServers() {
+  final size = calloc<Uint32>();
+  Pointer<Uint8> buf = nullptr;
+  try {
+    _getNetworkParams(nullptr, size);
+    if (size.value < 296 || size.value > 1 << 20) return const [];
+    buf = calloc<Uint8>(size.value);
+    if (_getNetworkParams(buf, size) != 0) return const [];
+    String ip(Pointer<Uint8> p) {
+      final b = <int>[];
+      for (var i = 0; i < 16 && p[i] != 0; i++) {
+        b.add(p[i]);
+      }
+      return String.fromCharCodes(b);
+    }
+
+    final out = <String>[];
+    var entry = buf + 272;
+    for (var n = 0; n < 4 && entry != nullptr; n++) {
+      final a = ip(entry + 8);
+      if (InternetAddress.tryParse(a)?.type == InternetAddressType.IPv4 && a != '0.0.0.0') out.add(a);
+      entry = Pointer<Uint8>.fromAddress(entry.cast<IntPtr>().value);
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  } finally {
+    calloc.free(size);
+    if (buf != nullptr) calloc.free(buf);
+  }
+}

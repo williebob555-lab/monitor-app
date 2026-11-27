@@ -306,9 +306,10 @@ object Collector {
      *  battery's health and the Wi-Fi signal. None needs a permission. */
     private fun readings(ctx: Context): org.json.JSONArray {
         val a = org.json.JSONArray()
-        fun add(key: String, label: String, value: Any, group: String, unit: String? = null, level: String? = null) {
+        fun add(key: String, label: String, value: Any, group: String, unit: String? = null, level: String? = null, note: String? = null) {
             val o = JSONObject().put("key", key).put("label", label).put("value", value).put("group", group)
             unit?.let { o.put("unit", it) }
+            note?.let { o.put("note", it) }
             level?.let { o.put("level", it) }
             a.put(o)
         }
@@ -362,6 +363,33 @@ object Collector {
             val up = tcp("127.0.0.1", 300) == "open"
             add("st.state", "State", if (up) "Running" else "Not running", "Syncthing", level = if (up) null else "fault")
         }
+        // Which layer of the network works (same keys as computers, see
+        // core netcheck.dart): router, this network's DNS, public DNS, internet.
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val under = cm.allNetworks.firstOrNull { n -> cm.getNetworkCapabilities(n)?.let {
+                !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) } == true }
+            val gw = under?.let { cm.getLinkProperties(it) }?.routes?.firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address }?.gateway?.hostAddress
+            val dns = cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.filterIsInstance<Inet4Address>()?.mapNotNull { it.hostAddress }.orEmpty().take(3)
+            val pool = Executors.newFixedThreadPool(4)
+            try {
+                val g = gw?.let { h -> pool.submit<Long?> { listOf(53, 80, 443).firstNotNullOfOrNull { reachMs(h, it) } } }
+                val d = pool.submit<Pair<String, Long>?> { dns.firstNotNullOfOrNull { s -> dnsMs(s)?.let { s to it } } }
+                val p = pool.submit<Pair<String, Long>?> { listOf("1.1.1.1", "9.9.9.9").firstNotNullOfOrNull { s -> dnsMs(s)?.let { s to it } } }
+                val i = pool.submit<Long?> { listOf("1.1.1.1", "9.9.9.9").firstNotNullOfOrNull { h -> reachMs(h, 443, openOnly = true) } }
+                if (gw != null) { val r = g!!.get(); add("net.gateway", "Router", if (r == null) "no answer" else "answers", "Network",
+                    level = if (r == null) "warn" else null, note = if (r == null) gw else "$gw, $r ms") }
+                d.get().let { add("net.dns", "DNS (this network's)", if (it == null) "no answer" else "answers", "Network",
+                    level = if (it == null) "warn" else null, note = if (it == null) dns.joinToString(", ").ifEmpty { "none set" } else "${it.first}, ${it.second} ms") }
+                p.get().let { add("net.dnsDirect", "DNS (public)", if (it == null) "no answer" else "answers", "Network",
+                    note = if (it == null) "1.1.1.1, 9.9.9.9" else "${it.first}, ${it.second} ms") }
+                i.get().let { add("net.internet", "Internet", if (it == null) "no" else "reachable", "Network",
+                    level = if (it == null) "warn" else null, note = if (it == null) "no answer from 1.1.1.1 or 9.9.9.9" else "$it ms") }
+            } finally { pool.shutdown() }
+            val ifs = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().filter { it.isUp && !it.isLoopback }
+                .flatMap { n -> n.inetAddresses.toList().filterIsInstance<Inet4Address>().map { "${n.name} ${it.hostAddress}" } }
+            if (ifs.isNotEmpty()) add("net.ifaces", "Interfaces", ifs.joinToString(", "), "Network")
+        }
         // Storage per volume (phone storage, SD card, USB drive), only when
         // there is more than one: one volume is already "Storage".
         if (Build.VERSION.SDK_INT >= 30) runCatching {
@@ -410,6 +438,44 @@ object Collector {
             .filterIsInstance<Inet4Address>()
             .firstOrNull { val b = it.address; (b[0].toInt() and 0xff) == 100 && (b[1].toInt() and 0xff) in 64..127 }
             ?.hostAddress
+    }.getOrNull()
+
+    /** ms to reach [host]:[port], counting a refusal as reached unless
+     *  [openOnly]; null when nothing answers within 2 s. */
+    fun reachMs(host: String, port: Int, openOnly: Boolean = false): Long? {
+        val t0 = SystemClock.elapsedRealtime()
+        return try {
+            Socket().use { it.connect(InetSocketAddress(host, port), 2000) }
+            SystemClock.elapsedRealtime() - t0
+        } catch (e: ConnectException) {
+            if (!openOnly && e.message?.contains("refused", true) == true) SystemClock.elapsedRealtime() - t0 else null
+        } catch (e: Exception) { null }
+    }
+
+    /** One A query for a random name under example.com (no cache can answer
+     *  it). NOERROR or NXDOMAIN: the resolver works. ms or null. */
+    fun dnsMs(server: String): Long? = runCatching {
+        val id = SecureRandom().nextInt(0x10000)
+        val name = "monitor-${java.lang.Long.toHexString(SecureRandom().nextInt().toLong() and 0xffffffffL)}.example.com"
+        val q = java.io.ByteArrayOutputStream()
+        q.write(byteArrayOf((id shr 8).toByte(), id.toByte(), 1, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+        for (l in name.split('.')) { q.write(l.length); q.write(l.toByteArray()) }
+        q.write(byteArrayOf(0, 0, 1, 0, 1))
+        val out = q.toByteArray()
+        java.net.DatagramSocket().use { s ->
+            s.soTimeout = 2000
+            val t0 = SystemClock.elapsedRealtime()
+            s.send(java.net.DatagramPacket(out, out.size, java.net.InetAddress.getByName(server), 53))
+            val buf = ByteArray(512)
+            var rc = -1
+            while (rc < 0) {
+                val p = java.net.DatagramPacket(buf, buf.size)
+                s.receive(p) // throws on timeout
+                if (p.length >= 12 && (((buf[0].toInt() and 0xff) shl 8) or (buf[1].toInt() and 0xff)) == id && (buf[2].toInt() and 0x80) != 0)
+                    rc = buf[3].toInt() and 0x0f
+            }
+            if (rc == 0 || rc == 3) SystemClock.elapsedRealtime() - t0 else null
+        }
     }.getOrNull()
 
     /** open: Syncthing listening. refused: device up, Syncthing not. timeout: no route. */

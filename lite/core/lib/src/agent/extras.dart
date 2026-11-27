@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'containers.dart';
+import 'netcheck.dart';
 
 import '../report.dart';
 import 'linux.dart' show linuxStatvfs;
@@ -27,7 +28,7 @@ class Extras {
         ...await _containers(),
       ];
     }
-    return [..._system!, ..._temps(), ..._drives(), ..._services];
+    return [..._system!, ..._temps(), ..._drives(), ...await NetCheck.collect(), ..._services];
   }
 
   static String? _read(String p) {
@@ -179,12 +180,17 @@ class Extras {
       final list = await Containers.dockerGet('/containers/json?all=1');
       if (list is! List) return const [];
       var running = 0;
+      String? pihole;
       final bad = <String>[];
       final stopped = <String>[];
       for (final c in list.whereType<Map>()) {
         final name = ((c['Names'] as List?)?.firstOrNull as String? ?? '?').replaceFirst('/', '');
         final state = '${c['State'] ?? ''}';
         final status = '${c['Status'] ?? ''}';
+        if ('${c['Image'] ?? ''}'.contains('pihole')) {
+          // Ask this host's Pi-hole directly: does DNS answer here?
+          pihole = state != 'running' ? 'stopped' : (await NetCheck.dnsQuery('127.0.0.1') != null ? 'answers' : 'no answer');
+        }
         if (state == 'running') {
           running++;
           if (status.contains('unhealthy')) bad.add('$name: unhealthy');
@@ -200,6 +206,8 @@ class Extras {
         Reading(key: 'ct.running', label: 'Running', value: running, group: 'Containers'),
         Reading(key: 'ct.total', label: 'Containers', value: list.length, group: 'Containers'),
         if (bad.isNotEmpty) Reading(key: 'ct.problems', label: 'Problems', value: bad.join('; '), group: 'Containers', level: 'warn'),
+        if (pihole != null)
+          Reading(key: 'net.pihole', label: 'Pi-hole DNS', value: pihole, group: 'Network', src: 'measured', level: pihole == 'answers' ? null : 'fault'),
         if (stopped.isNotEmpty) Reading(key: 'ct.stopped', label: 'Stopped', value: stopped.join(', '), group: 'Containers'),
       ];
     } catch (_) {
