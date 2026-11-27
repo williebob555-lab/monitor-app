@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'theme.dart';
+import 'phone_location.dart';
 
 /// One part of a device that the Dive can open: battery, CPU, memory, disk,
 /// network, links (Tailscale and Syncthing), and one per group of extra
@@ -221,6 +222,8 @@ String? _subline(List<Reading> g) {
 int? _minus(int? a, int? b) => a == null || b == null ? null : a - b;
 
 String _readingText(Reading x) {
+  if (reportedLocation(x) case final String location) return location;
+  if (x.key == 'loc' && x.value != null) return 'Not available';
   final v = x.value;
   if (v == null) return x.note == null ? 'not available' : 'not available: ${x.note}';
   final t = v is double ? (v.abs() >= 100 ? v.round().toString() : v.toStringAsFixed(1)) : v is bool ? (v ? 'yes' : 'no') : '$v';

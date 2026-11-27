@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controls_view.dart';
 import 'dive.dart';
 import 'parts.dart';
+import 'phone_location.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -80,6 +81,10 @@ class _DevicePageState extends State<DevicePage> {
               if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
             ];
             final right = <Widget>[
+                if (!r.isThing && r.id == st.host.id && st.host.isAndroid) ...[
+                  PhoneLocation(st.host),
+                  const SizedBox(height: 14),
+                ],
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
               _fields(r),
               const SizedBox(height: 14),
