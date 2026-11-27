@@ -234,6 +234,16 @@ class SyncFolder {
     } catch (_) {}
   }
 
+  /// True while this device's own app is open (its watch file is fresh).
+  bool watchedHere(String id, DateTime now) {
+    try {
+      final j = jsonDecode(_watchFile(id).readAsStringSync());
+      return j is Map && j['until'] is num && (j['until'] as num) > now.toUtc().millisecondsSinceEpoch ~/ 1000;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Names of the devices whose app is open right now (fresh watch files).
   /// Costs one small directory listing.
   List<String> watchers(DateTime now) {

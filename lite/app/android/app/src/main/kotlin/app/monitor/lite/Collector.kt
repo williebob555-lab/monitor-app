@@ -257,6 +257,7 @@ object Collector {
                     "screen=${if (screenOn) "on" else "off"} next=${next}s ts=${ip ?: "none"} " +
                     "st=${j.getJSONObject("st").getBoolean("up")} batteryExempt=${pm.isIgnoringBatteryOptimizations(ctx.packageName)} peers[$peerText]")
                 p.edit().putLong("lastSummary", now).apply()
+                Updater.ensureScheduled(ctx)
             }
             if (now - p.getLong("lastPrune", 0) > 6 * 3600_000L) {
                 val used = history.prune(now, History.Retention.load(root))

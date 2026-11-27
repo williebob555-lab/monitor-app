@@ -19,7 +19,9 @@
   watch/<device id>.json          {"id","name","until"}: that device's app is open
                                   until "until" (Unix seconds); collectors go live
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
-                                  "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50}}
+                                  "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50},
+                                  "update": {"auto": true}} (auto: Windows and
+                                  Android install new releases on their own; default true)
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees

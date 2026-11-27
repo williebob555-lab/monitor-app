@@ -9,6 +9,7 @@ import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
 import '../topology.dart';
+import '../update.dart';
 import '../version.dart';
 import 'extras.dart';
 import 'linux.dart';
@@ -158,6 +159,8 @@ class Agent {
       // A little slack so a 10 s timer doesn't miss a 60 s cycle by a hair.
       if (_lastCycle == null || now.difference(_lastCycle!) >= due - const Duration(seconds: 2) || (_watchers.isNotEmpty && !was)) {
         cycle();
+      } else {
+        _autoUpdate(now);
       }
     } catch (_) {
       cycle();
@@ -165,6 +168,44 @@ class Agent {
   }
 
   bool _busy = false;
+
+  /// Automatic update (Windows): first check [autoUpdateFirstDelay] after
+  /// start, then every [autoUpdateEvery]. Runs beside the cycles, not in
+  /// one, so a download never counts against the cycle budget. Waits while
+  /// the app window is open here, so nobody's screen closes under them.
+  final DateTime _started = DateTime.now().toUtc();
+  DateTime? _lastUpdateCheck;
+  bool _updating = false;
+
+  Future<void> _autoUpdate(DateTime now) async {
+    if (!Updater.canUpdate || _updating || _busy) return;
+    if (now.difference(_lastUpdateCheck ?? _started.subtract(autoUpdateEvery - autoUpdateFirstDelay)) < autoUpdateEvery) return;
+    _updating = true;
+    _lastUpdateCheck = now;
+    try {
+      final cfg = LocalConfig.load();
+      final folder = SyncFolder(cfg.folder);
+      if (!autoUpdateOn(cfg.folder)) return;
+      if (folder.watchedHere(cfg.id, now)) {
+        _lastUpdateCheck = now.subtract(autoUpdateEvery - const Duration(minutes: 30)); // look again in 30 min
+        return;
+      }
+      String msg;
+      try {
+        msg = await Updater.start(folder, cfg, why: 'automatic update');
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR update check: $e');
+        return;
+      }
+      if (msg.startsWith('installing')) {
+        folder.log(cfg.id, 'update: $msg; the installer restarts the collector');
+        exit(0);
+      }
+    } catch (_) {
+    } finally {
+      _updating = false;
+    }
+  }
 
   /// Writes each attached thing's file. A thing seen before but not now is
   /// rewritten as disconnected, keeping its declared place in the hierarchy.

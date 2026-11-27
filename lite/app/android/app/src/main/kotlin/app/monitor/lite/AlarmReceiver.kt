@@ -28,5 +28,6 @@ class BootReceiver : BroadcastReceiver() {
         Migration.run(ctx)
         Collector.logToFolder(ctx, "start (${intent.action?.substringAfterLast('.')}) app ${BuildConfig.VERSION_NAME}")
         Collector.schedule(ctx, 15)
+        Updater.ensureScheduled(ctx)
     }
 }
