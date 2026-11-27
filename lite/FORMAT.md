@@ -516,6 +516,133 @@ Your own additions go in `model/library/<name>.json`:
 Ids follow the model id rule. A file may not replace a built-in id; a bad
 file is listed in `Library.load(root).problems` and skipped.
 
+### Checking a connection (`checkChain`)
+
+`checkChain(from, links, to, {want})` checks a whole path, port to cable or
+adapter to port, and returns a verdict for each layer:
+
+- `physical`: every joint mates, by shape and gender;
+- `protocol`: a data, video or control signal gets through every part, or
+  the one asked for with `want`;
+- `electrical`: the source's voltage, polarity and current suit the sink
+  and the cable;
+- `level`: audio leaving one end is a level the other end takes.
+
+Each layer says `ok`, `fail` or `unknown`, and how sure it is:
+
+- `verified`: both ends declare their signals;
+- `estimated`: from what the shapes may carry;
+- `unknown`.
+
+Every verdict comes with its reasons in words. A `Port` declares its
+connector, `dir` (`out`, `in` or `both`), `signals` and `power` (`v`,
+`vMin`, `a`, `polarity`). A `Link` (a cable or adapter) declares the
+connectors at its ends, `passes` (the signals it carries unchanged) or
+`converts` (for an active adapter), and `maxA` / `maxGbps`.
+
+### Physical constraints (`checkPhysical`)
+
+`checkPhysical(assembly)` returns a list of findings. Each finding has a
+`topic` (`fit`, `mount`, `power`, `heat` or `cable`), a `level` (`fail`,
+`warn`, `ok` or `unknown`) and an `evidence`:
+
+- `verified`: from declared or measured values;
+- `estimated`: a rule of thumb was used, for example for heat in a closed
+  box;
+- `unknown`: the finding names the value that is missing.
+
+All the fields below are optional, and older files stay valid.
+
+**On the assembly:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | `19in`, `10in`, `eurorack` ... |
+| `width`, `heightMm`, `depth` | Inside size, as Qty |
+| `ventilation` | `open`, `vented` or `closed` |
+| `cooling` | Heat it can remove, as a W Qty |
+| `rearOpen`, `frontOpen`, `topOpen`, `sidesOpen` | Whether that side is open |
+| `outlets` | List of `{id, v, polarity, ma, maxPower}` |
+| `hp`, `psu` | Eurorack row width; `psu` is `{"+12": mA, "-12": mA, "+5": mA}` |
+| `cables` | List of `{name, from, to, length, minBend}` |
+
+**On a placement:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | Its mounting standard |
+| `width`, `heightMm` | Its size, as Qty (depth is the usual `depth`) |
+| `x`, `y` | Position on a flat surface |
+| `clearance` | `{front, rear, top, sides}` |
+| `airflow` | `front-to-back`, `back-to-front`, `side-to-side`, `bottom-to-top` or `passive` |
+| `heat` | Heat it gives off; if missing, power × (1 − `efficiency`), else all of its power, both estimated |
+| `outlet`, `v`, `polarity`, `ma` | Which outlet it uses and what it needs |
+| `hp`, `row`, `ma` | Eurorack; here `ma` is `{"+12": ...}` |
+
+### What's missing (`projectNeeds`)
+
+A project can list `connections`:
+
+```json
+{"id": "net", "from": {"placement": "p-sw", "port": "p1"},
+ "to": {"placement": "p-srv", "port": "eth0"}, "required": true,
+ "want": "eth-1g", "via": [{"item": "<cable item id>"} | {"name": "USB-A cable", "a": "usb-a", "b": "usb-c", "passes": ["usb-2"]}]}
+```
+
+Each port is looked up in the placed item's `ports` (`id`, `kind` = a
+library connector id, `dir`, `signals`, `power`, `gender`, `required`).
+`projectNeeds(project, items)` returns:
+
+- `lines`: the bill of materials. Each part is `owned` (an owned or
+  installed item, or a live thing), `to-buy` (planned, or only proposed) or
+  `missing`. A connection with no `via` needs a cable, named after the two
+  shapes. A chain that doesn't physically mate needs an adapter.
+- `connectionProblems`: the failing layers' reasons, from `checkChain`.
+- `unconnected`: ports marked `required` that no connection uses.
+- `physical`: failing or unknown findings from the assembly's own check and
+  from `checkPhysical`, such as a power shortfall.
+- `openTasks`: tasks that aren't done.
+
+### One past moment (`systemAt`)
+
+`systemAt(root, t)` returns three views of the same moment:
+
+- `items` and `projects` as they were written at `t`;
+- `live`, the device state at `t` (from `topologyAt`);
+- `upAt(item)`, which joins the two through `observes` and `alsoObserves`.
+  It says whether the item's device was up, or whether its thing was
+  attached and on (a container: running).
+
+### Location (Android, opt-in)
+
+A phone whose owner switched location on writes the reading `loc`, for
+example `"45.52,-122.68"`, with `src: measured`. It is the last position
+Android already has, rounded to two decimals (about 1 km). The note gives
+its age and accuracy. Switched off, which is the default, there is no
+reading.
+
+## Products (`model/products/<id>/product.json`)
+
+A product is what can be bought. An item is the one you own or plan, and it
+points at its product with `"product": "<id>"`. Products are versioned like
+items: per-device history, and the newest version wins over a conflict
+copy.
+
+```json
+{"v": 1, "id": "cps-or500", "name": "CyberPower OR500LCDRM1U", "maker": "CyberPower",
+ "model": "OR500LCDRM1U", "state": "active",
+ "specs": {"outputW": {"value": 300, "unit": "W", "src": "declared"}},
+ "images": ["https://..."], "docs": [{"title": "User manual", "url": "https://..."}],
+ "offers": [{"seller": "B", "price": 214.5, "currency": "USD", "inStock": true, "url": "https://...", "seen": 1764266400}]}
+```
+
+- `ProductStore(root, me)` provides `put`, `get`, `asOf`, `of(item)`,
+  `link(items, item, productId)` and `resolveConflicts`. Computers resolve
+  conflict copies every 6 h.
+- `bestOffer()` returns the cheapest offer that is in stock or whose stock
+  is unknown.
+- A BOM line reaches its product through its item.
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.
