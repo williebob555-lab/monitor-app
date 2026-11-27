@@ -261,3 +261,4 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Monitor App 2.x archive coverage (unreleased)
 
 - Part history shows archive coverage against elapsed time. Charts leave missing slots blank and retain every archived value for their low, average, and high figures.
+- Part history can check archive gaps for the last day or week and display what the available device records suggest about each gap.

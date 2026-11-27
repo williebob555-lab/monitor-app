@@ -393,3 +393,5 @@ A handoff must report the literal commands run, whether each succeeded, the envi
 ## Monitor App 2.x archive coverage
 
 From `lite/app`, run `flutter test test/history_coverage_test.dart`. It checks sparse data, valid zeros, and timestamps outside the selected window. A phone-width test writes data through the core history writer and opens the production part history screen.
+
+The gap explanation test drives the production history view with gap evidence returned by the core reader.
