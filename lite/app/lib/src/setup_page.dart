@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
+import 'controls_view.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -20,7 +21,9 @@ class SetupPage extends StatefulWidget {
 
 class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
   Map<String, Object?> perms = const {};
-  late final TextEditingController folderCtl = TextEditingController(text: widget.state.host.folder);
+  late final TextEditingController folderCtl = TextEditingController(
+    text: widget.state.host.folder,
+  );
 
   @override
   void initState() {
@@ -55,33 +58,66 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
       listenable: st,
       builder: (context, _) {
         final me = st.reports[host.id];
-        final meStatus = st.assessment.devices.where((d) => d.report.id == host.id).firstOrNull;
+        final meStatus = st.assessment.devices
+            .where((d) => d.report.id == host.id)
+            .firstOrNull;
         final checks = <_Check>[
           if (host.isAndroid) ...[
-            _Check('Allow access to the Monitor folder', perms['allFiles'] == true,
-                'Android setting "All files access". Monitor only touches the folder below.', 'Allow', host.openAllFiles),
-            _Check('Let Monitor run in the background', perms['battery'] == true,
-                'Android setting "Unrestricted" battery. Monitor wakes briefly once a minute (every 5 min with the screen off) and then stops.',
-                'Allow', host.openBattery),
-            _Check('Syncthing-Fork installed', perms['syncthing'] != null,
-                'Syncthing-Fork moves the files between your devices directly, with no computer needed.',
-                perms['syncthing'] != null ? 'Open' : null, perms['syncthing'] != null ? host.openSyncthing : null),
+            _Check(
+              'Allow access to the Monitor folder',
+              perms['allFiles'] == true,
+              'Android setting "All files access". Monitor only touches the folder below.',
+              'Allow',
+              host.openAllFiles,
+            ),
+            _Check(
+              'Let Monitor run in the background',
+              perms['battery'] == true,
+              'Android setting "Unrestricted" battery. Monitor wakes briefly once a minute (every 5 min with the screen off) and then stops.',
+              'Allow',
+              host.openBattery,
+            ),
+            _Check(
+              'Syncthing-Fork installed',
+              perms['syncthing'] != null,
+              'Syncthing-Fork moves the files between your devices directly, with no computer needed.',
+              perms['syncthing'] != null ? 'Open' : null,
+              perms['syncthing'] != null ? host.openSyncthing : null,
+            ),
           ],
           _Check('Monitor folder exists', st.folder.exists, host.folder),
-          _Check('Folder is shared in Syncthing', st.folder.sharedBySyncthing,
-              st.folder.syncthingRoot != null && st.folder.syncthingRoot != st.folder.root
-                  ? 'Inside the Syncthing folder ${st.folder.syncthingRoot}.'
-                  : 'Either put this folder inside a folder Syncthing already shares with your devices (for example Infrastructure/Monitor), or add it in Syncthing with Folder ID "$syncFolderId" on every device.'),
-          _Check('This device is collecting', meStatus?.fresh == true,
-              me == null ? 'No readings from this device yet.' : 'Last reading ${ago(meStatus!.age)} ago.',
-              host.isAndroid ? 'Run now' : 'Start', () async {
-            await host.nudge();
-            st.refresh(force: true);
-          }),
-          _Check('Tailscale is on', me?.tailscaleIp != null,
-              me?.tailscaleIp != null ? 'Address ${me!.tailscaleIp}' : 'Used only to check whether the other devices are alive.'),
-          _Check('Syncthing is running here', me?.syncthingLocal == true,
-              'Checked by looking for Syncthing on this device\'s port $syncthingPortText.'),
+          _Check(
+            'Folder is shared in Syncthing',
+            st.folder.sharedBySyncthing,
+            st.folder.syncthingRoot != null &&
+                    st.folder.syncthingRoot != st.folder.root
+                ? 'Inside the Syncthing folder ${st.folder.syncthingRoot}.'
+                : 'Either put this folder inside a folder Syncthing already shares with your devices (for example Infrastructure/Monitor), or add it in Syncthing with Folder ID "$syncFolderId" on every device.',
+          ),
+          _Check(
+            'This device is collecting',
+            meStatus?.fresh == true,
+            me == null
+                ? 'No readings from this device yet.'
+                : 'Last reading ${ago(meStatus!.age)} ago.',
+            host.isAndroid ? 'Run now' : 'Start',
+            () async {
+              await host.nudge();
+              st.refresh(force: true);
+            },
+          ),
+          _Check(
+            'Tailscale is on',
+            me?.tailscaleIp != null,
+            me?.tailscaleIp != null
+                ? 'Address ${me!.tailscaleIp}'
+                : 'Used only to check whether the other devices are alive.',
+          ),
+          _Check(
+            'Syncthing is running here',
+            me?.syncthingLocal == true,
+            'Checked by looking for Syncthing on this device\'s port $syncthingPortText.',
+          ),
         ];
         return Scaffold(
           appBar: AppBar(title: const Text('Setup and updates')),
@@ -91,27 +127,34 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 760),
-                  child: Column(children: [
-                    _updates(st),
-                    const SizedBox(height: 14),
-                    Section('This device', Column(children: [for (final c in checks) _checkRow(c)])),
-                    const SizedBox(height: 14),
-                    _folder(st),
-                    const SizedBox(height: 14),
-                    _health(st),
-                    const SizedBox(height: 14),
-                    _HistorySettings(st),
-                    const SizedBox(height: 14),
-                    Section(
-                      'How it works',
-                      const Text(
-                        'Each device writes a small file with its latest readings into the shared Monitor folder, and Syncthing copies it to your other devices. '
-                        'Each device also checks the others over Tailscale. If a device\'s file stops updating, Syncthing on it or the path to it is down; '
-                        'if it stops answering over Tailscale too, it is off or cut off. Comparing what every device sees tells these apart.',
-                        style: TextStyle(color: C.muted, height: 1.45),
+                  child: Column(
+                    children: [
+                      _updates(st),
+                      const SizedBox(height: 14),
+                      Section(
+                        'This device',
+                        Column(
+                          children: [for (final c in checks) _checkRow(c)],
+                        ),
                       ),
-                    ),
-                  ]),
+                      const SizedBox(height: 14),
+                      _folder(st),
+                      const SizedBox(height: 14),
+                      _health(st),
+                      const SizedBox(height: 14),
+                      _HistorySettings(st),
+                      const SizedBox(height: 14),
+                      Section(
+                        'How it works',
+                        const Text(
+                          'Each device writes a small file with its latest readings into the shared Monitor folder, and Syncthing copies it to your other devices. '
+                          'Each device also checks the others over Tailscale. If a device\'s file stops updating, Syncthing on it or the path to it is down; '
+                          'if it stops answering over Tailscale too, it is off or cut off. Comparing what every device sees tells these apart.',
+                          style: TextStyle(color: C.muted, height: 1.45),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -125,44 +168,183 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
     final u = st.update;
     return Section(
       'Updates',
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('This device has version ${st.host.version}.', style: const TextStyle(color: C.muted)),
-        const SizedBox(height: 10),
-        if (u != null) ...[
-          Text('Version ${u.version} is available.', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-          if (u.notes.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(plainNotes(u.notes), maxLines: 16, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, height: 1.4)),
-          ],
-          const SizedBox(height: 12),
-          if (st.downloadProgress != null)
-            LinearProgressIndicator(value: st.downloadProgress == 0 ? null : st.downloadProgress)
-          else
-            FilledButton.icon(
-              onPressed: st.installUpdate,
-              icon: const Icon(Icons.system_update_alt),
-              label: Text('Install ${u.version}'),
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'This device has version ${st.host.version}.',
+            style: const TextStyle(color: C.muted),
+          ),
+          const SizedBox(height: 10),
+          if (u != null) ...[
+            Text(
+              'Version ${u.version} is available.',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
             ),
-        ] else
-          OutlinedButton(onPressed: st.checking ? null : () => st.checkUpdate(), child: const Text('Check for updates')),
-        if (st.updateMessage != null) ...[
-          const SizedBox(height: 8),
-          Text(st.updateMessage!, style: const TextStyle(color: C.muted, fontSize: 12.5)),
+            if (u.notes.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                plainNotes(u.notes),
+                maxLines: 16,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: C.muted, height: 1.4),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (st.downloadProgress != null)
+              LinearProgressIndicator(
+                value: st.downloadProgress == 0 ? null : st.downloadProgress,
+              )
+            else
+              FilledButton.icon(
+                onPressed: st.installUpdate,
+                icon: const Icon(Icons.system_update_alt),
+                label: Text('Install ${u.version}'),
+              ),
+          ] else
+            OutlinedButton(
+              onPressed: st.checking ? null : () => st.checkUpdate(),
+              child: const Text('Check for updates'),
+            ),
+          if (st.updateMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              st.updateMessage!,
+              style: const TextStyle(color: C.muted, fontSize: 12.5),
+            ),
+          ],
+          ..._others(st),
         ],
-      ]),
+      ),
     );
   }
 
-  Widget _folder(AppState st) => Section(
-        'Monitor folder',
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(
-            controller: folderCtl,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+  /// Every other device that can update itself when asked: one button for
+  /// all, plus where each one stands. Android isn't listed: installing there
+  /// always needs a tap on that phone or tablet.
+  List<Widget> _others(AppState st) {
+    final can = [
+      for (final r in st.reports.values)
+        if (r.id != st.host.id &&
+            !st.away.contains(r.id) &&
+            r.controls.any((c) => c.key == 'update'))
+          r,
+    ]..sort((a, b) => a.name.compareTo(b.name));
+    // Linux machines update on the machine itself; listed with how.
+    final byHand = [
+      for (final r in st.reports.values)
+        if (r.id != st.host.id &&
+            !st.away.contains(r.id) &&
+            r.kind == 'linux' &&
+            !r.controls.any((c) => c.key == 'update'))
+          r,
+    ]..sort((a, b) => a.name.compareTo(b.name));
+    if (can.isEmpty && byHand.isEmpty) return const [];
+    String ver(Report r) =>
+        r.controls.firstWhere((c) => c.key == 'update').value ?? '?';
+    final waiting = can.any((r) {
+      final l = st.lastAsk(r.id, 'update');
+      return l != null &&
+          l.$2 == null &&
+          DateTime.now().toUtc().difference(l.$1.time) < ControlRequest.maxAge;
+    });
+    return [
+      const Divider(height: 28, color: C.line),
+      const Text(
+        'Other devices',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 6),
+      for (final r in can) ...[
+        Text(
+          '${r.name}: version ${ver(r)}',
+          style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.5),
+        ),
+        if (st.lastAsk(r.id, 'update') case final l?)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, bottom: 4),
+            child: Text(
+              askStatus(st, l.$1, l.$2),
+              style: TextStyle(
+                color: l.$2?.ok == false ? C.fault : C.muted,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
           ),
-          const SizedBox(height: 10),
-          Wrap(spacing: 10, runSpacing: 8, children: [
+      ],
+      for (final r in byHand)
+        Text(
+          '${r.name}: version ${r.app ?? '?'}, updated on the machine: '
+          '${(r.os ?? '').contains('Docker') ? 'by itself within 15 minutes of a release' : 'Setup and updates > Install there'}',
+          style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.5),
+        ),
+      if (can.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: waiting ? null : () => _updateAll(st, can),
+          icon: const Icon(Icons.system_update_alt, size: 18),
+          label: Text(
+            can.length == 1
+                ? 'Update ${can.single.name}'
+                : 'Update all ${can.length}',
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Windows installs the newest release itself, checked against its SHA256SUMS. '
+          'Phones and tablets get a notification: Android installs only with a tap on the device itself.',
+          style: TextStyle(color: C.muted, fontSize: 12, height: 1.4),
+        ),
+      ],
+    ];
+  }
+
+  Future<void> _updateAll(AppState st, List<Report> can) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Update ${can.length} devices?'),
+        content: Text(
+          '${can.map((r) => r.name).join(', ')}.\n\nEach restarts its collector and is back in a minute or two. '
+          'Their logs note that ${st.myName} asked.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Update all'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    for (final r in can) {
+      st.ask(r.id, 'update', 'update');
+    }
+  }
+
+  Widget _folder(AppState st) => Section(
+    'Monitor folder',
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: folderCtl,
+          style: const TextStyle(fontSize: 14),
+          decoration: const InputDecoration(
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
             FilledButton.tonal(
               onPressed: () async {
                 await st.setFolder(folderCtl.text.trim());
@@ -171,72 +353,125 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               child: const Text('Use this folder'),
             ),
             TextButton(
-              onPressed: () => Clipboard.setData(ClipboardData(text: folderCtl.text.trim())),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: folderCtl.text.trim())),
               child: const Text('Copy path'),
             ),
-          ]),
-          const SizedBox(height: 8),
-          Text('Device id ${st.host.id} · Folder ID in Syncthing: $syncFolderId',
-              style: const TextStyle(color: C.muted, fontSize: 12)),
-        ]),
-      );
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Device id ${st.host.id} · Folder ID in Syncthing: $syncFolderId',
+          style: const TextStyle(color: C.muted, fontSize: 12),
+        ),
+      ],
+    ),
+  );
 
   Widget _health(AppState st) {
     final h = st.health;
-    String short(String p) => p.split(RegExp(r'[\\/]')).reversed.take(2).toList().reversed.join('/');
+    String short(String p) =>
+        p.split(RegExp(r'[\\/]')).reversed.take(2).toList().reversed.join('/');
     return Section(
       'Folder health',
       h.clean
-          ? const Text('No leftovers: no conflict copies, no damaged or empty device folders, no broken links between files.', style: TextStyle(color: C.muted))
-          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (h.conflicts.isNotEmpty) ...[
-                Text('${h.conflicts.length} Syncthing conflict ${h.conflicts.length == 1 ? 'copy' : 'copies'}. The app ignores them.',
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(h.conflicts.take(5).map(short).join('\n'), style: const TextStyle(color: C.muted, fontSize: 12)),
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: () {
-                    final n = st.removeConflicts();
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Removed $n conflict copies.')));
-                  },
-                  child: const Text('Remove conflict copies'),
-                ),
-                const SizedBox(height: 12),
+          ? const Text(
+              'No leftovers: no conflict copies, no damaged or empty device folders, no broken links between files.',
+              style: TextStyle(color: C.muted),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (h.conflicts.isNotEmpty) ...[
+                  Text(
+                    '${h.conflicts.length} Syncthing conflict ${h.conflicts.length == 1 ? 'copy' : 'copies'}. The app ignores them.',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    h.conflicts.take(5).map(short).join('\n'),
+                    style: const TextStyle(color: C.muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: () {
+                      final n = st.removeConflicts();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Removed $n conflict copies.')),
+                      );
+                    },
+                    child: const Text('Remove conflict copies'),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (h.unreadable.isNotEmpty)
+                  Text(
+                    'Could not read the latest file from: ${h.unreadable.join(', ')}. Usually it is still syncing; it is skipped until it reads cleanly.',
+                    style: const TextStyle(color: C.muted, fontSize: 12.5),
+                  ),
+                if (h.empty.isNotEmpty)
+                  Text(
+                    'Device folders with no readings yet: ${h.empty.join(', ')}.',
+                    style: const TextStyle(color: C.muted, fontSize: 12.5),
+                  ),
+                if (h.topology.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Hierarchy problems',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    h.topology.take(8).join('\n'),
+                    style: const TextStyle(color: C.muted, fontSize: 12.5),
+                  ),
+                ],
               ],
-              if (h.unreadable.isNotEmpty)
-                Text('Could not read the latest file from: ${h.unreadable.join(', ')}. Usually it is still syncing; it is skipped until it reads cleanly.',
-                    style: const TextStyle(color: C.muted, fontSize: 12.5)),
-              if (h.empty.isNotEmpty)
-                Text('Device folders with no readings yet: ${h.empty.join(', ')}.', style: const TextStyle(color: C.muted, fontSize: 12.5)),
-              if (h.topology.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text('Hierarchy problems', style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(h.topology.take(8).join('\n'), style: const TextStyle(color: C.muted, fontSize: 12.5)),
-              ],
-            ]),
+            ),
     );
   }
 
   Widget _checkRow(_Check c) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(c.ok ? Icons.check_circle : Icons.radio_button_unchecked, color: c.ok ? C.ok : C.warn, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(c.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          c.ok ? Icons.check_circle : Icons.radio_button_unchecked,
+          color: c.ok ? C.ok : C.warn,
+          size: 22,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                c.title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 2),
-              Text(c.detail, style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.35)),
-            ]),
+              Text(
+                c.detail,
+                style: const TextStyle(
+                  color: C.muted,
+                  fontSize: 12.5,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ),
-          if (c.action != null && c.onAction != null && !c.ok) ...[
-            const SizedBox(width: 8),
-            OutlinedButton(onPressed: () => unawaited(c.onAction!()), child: Text(c.action!)),
-          ],
-        ]),
-      );
+        ),
+        if (c.action != null && c.onAction != null && !c.ok) ...[
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: () => unawaited(c.onAction!()),
+            child: Text(c.action!),
+          ),
+        ],
+      ],
+    ),
+  );
 }
 
 const syncthingPortText = '22000';
@@ -278,55 +513,77 @@ class _HistorySettingsState extends State<_HistorySettings> {
   }
 
   Widget _field(String key, String label, String unit) => SizedBox(
-        width: 170,
-        child: TextField(
-          controller: ctl[key],
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(isDense: true, labelText: label, suffixText: unit, border: const OutlineInputBorder()),
-        ),
-      );
+    width: 170,
+    child: TextField(
+      controller: ctl[key],
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        isDense: true,
+        labelText: label,
+        suffixText: unit,
+        border: const OutlineInputBorder(),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final used = historyBytes(widget.st.folder.deviceDir(widget.st.host.id));
     return Section(
       'History',
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-          'Every reading is kept for ${r.detailDays} days, hourly summaries (min, average, max) for ${r.hourlyDays} days, '
-          'and daily summaries for ${r.dailyDays} days. Each device keeps its history under ${r.maxMb} MB; this one uses ${fmtBytes(used)}. '
-          'Readings are added to the shared folder every 15 minutes so Syncthing sends small changes, not a growing file.',
-          style: const TextStyle(color: C.muted, height: 1.4),
-        ),
-        const SizedBox(height: 12),
-        Wrap(spacing: 10, runSpacing: 10, children: [
-          _field('detailDays', 'Every reading', 'days'),
-          _field('hourlyDays', 'Hourly', 'days'),
-          _field('dailyDays', 'Daily', 'days'),
-          _field('maxMb', 'Per device', 'MB'),
-        ]),
-        const SizedBox(height: 10),
-        FilledButton.tonal(
-          onPressed: () {
-            final n = Retention.fromJson({for (final e in ctl.entries) e.key: int.tryParse(e.value.text.trim())});
-            try {
-              n.save(widget.st.folder.root);
-              widget.st.host.log('history limits set to ${n.toJson()}');
-              setState(() {
-                r = n;
-                for (final e in n.toJson().entries) {
-                  ctl[e.key]!.text = '${e.value}';
-                }
-                msg = 'Saved for all devices. Each applies it at its next cleanup (within 6 hours).';
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Every reading is kept for ${r.detailDays} days, hourly summaries (min, average, max) for ${r.hourlyDays} days, '
+            'and daily summaries for ${r.dailyDays} days. Each device keeps its history under ${r.maxMb} MB; this one uses ${fmtBytes(used)}. '
+            'Readings are added to the shared folder every 15 minutes so Syncthing sends small changes, not a growing file.',
+            style: const TextStyle(color: C.muted, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _field('detailDays', 'Every reading', 'days'),
+              _field('hourlyDays', 'Hourly', 'days'),
+              _field('dailyDays', 'Daily', 'days'),
+              _field('maxMb', 'Per device', 'MB'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonal(
+            onPressed: () {
+              final n = Retention.fromJson({
+                for (final e in ctl.entries)
+                  e.key: int.tryParse(e.value.text.trim()),
               });
-            } catch (e) {
-              setState(() => msg = 'Could not save: $e');
-            }
-          },
-          child: const Text('Save for all devices'),
-        ),
-        if (msg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(msg!, style: const TextStyle(color: C.muted, fontSize: 12.5))),
-      ]),
+              try {
+                n.save(widget.st.folder.root);
+                widget.st.host.log('history limits set to ${n.toJson()}');
+                setState(() {
+                  r = n;
+                  for (final e in n.toJson().entries) {
+                    ctl[e.key]!.text = '${e.value}';
+                  }
+                  msg = 'Saved for all devices. Each applies it at its next cleanup (within 6 hours).';
+                });
+              } catch (e) {
+                setState(() => msg = 'Could not save: $e');
+              }
+            },
+            child: const Text('Save for all devices'),
+          ),
+          if (msg != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                msg!,
+                style: const TextStyle(color: C.muted, fontSize: 12.5),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -337,5 +594,8 @@ String plainNotes(String md) {
   var t = md;
   final cut = t.indexOf('### Which file');
   if (cut >= 0) t = t.substring(0, cut);
-  return t.replaceAll('**', '').replaceAll(RegExp(r'^#+\s*', multiLine: true), '').trim();
+  return t
+      .replaceAll('**', '')
+      .replaceAll(RegExp(r'^#+\s*', multiLine: true), '')
+      .trim();
 }

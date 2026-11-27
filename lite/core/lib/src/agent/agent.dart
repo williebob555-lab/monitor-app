@@ -204,6 +204,12 @@ class Agent {
       }
       // Changes other devices asked for (control.dart), before collecting,
       // so the report written below already shows the new value.
+      // Linux package updated underneath us (dnf/apt or the app's Install): the running binary is the old, deleted one. Exit; systemd
+      // starts the new one.
+      if (Updater.replaced) {
+        folder.log(cfg.id, 'update: a new version was installed; restarting the collector');
+        exit(0);
+      }
       await _applyRequests(folder, cfg, DateTime.now().toUtc());
       final s = host.sample();
       final ip = await tailscaleIp();

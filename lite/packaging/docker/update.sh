@@ -2,7 +2,7 @@
 # Keeps one Docker deployment of the Monitor App collector on the newest
 # release, so nobody has to touch the server.
 #
-#   sudo sh update.sh --install --dir /path/to/compose/project   # once
+#   sudo sh update.sh --install --dir /path/to/compose/project   # once (again to pick up changes)
 #   sudo sh update.sh --dir /path/to/compose/project             # update now
 #   sudo sh update.sh --dir /path/to/compose/project --check     # show, change nothing
 #
@@ -102,10 +102,10 @@ ExecStart=/bin/sh /usr/local/lib/monitor-app/update.sh $args
 UNIT
   cat > /etc/systemd/system/monitor-update-$name.timer <<UNIT
 [Unit]
-Description=Daily check for a new Monitor App release ($dir)
+Description=Check every 15 minutes for a new Monitor App release ($dir)
 [Timer]
-OnCalendar=*-*-* 04:20
-RandomizedDelaySec=30m
+OnCalendar=*:0/15
+RandomizedDelaySec=3m
 Persistent=true
 [Install]
 WantedBy=timers.target
@@ -117,10 +117,10 @@ UNIT
   exit 0
 fi
 
-if [ -n "$pin" ] && [ "$pin" != latest ]; then log "update: pinned to $pin, not checking"; exit 0; fi
+if [ -n "$pin" ] && [ "$pin" != latest ]; then echo "update: pinned to $pin, not checking"; exit 0; fi
 new=$(curl -fsSL "https://api.github.com/repos/williebob555-lab/monitor-app/releases?per_page=30" \
   | grep -o '"tag_name": *"lite-v[^"]*"' | head -n1 | sed 's/.*lite-v//; s/"$//')
-if [ -z "$new" ]; then log "update: could not read the newest release (offline?), trying again tomorrow"; exit 0; fi
+if [ -z "$new" ]; then echo "update: could not read the newest release (offline?), trying again later"; exit 0; fi
 have=$(docker run --rm --entrypoint /usr/local/bin/monitor-agent "$image" --version 2>/dev/null | grep -o '[0-9][0-9.]*' | head -n1)
 [ "$have" = "$new" ] && exit 0
 log "update: ${have:-unknown} -> $new, rebuilding"
