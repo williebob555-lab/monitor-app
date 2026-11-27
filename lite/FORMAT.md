@@ -49,7 +49,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `st.up` | Syncthing listening on this device (port 22000) |
 | `screen` | `on`/`off` (Android) |
 | `peers.<id>` | what this device sees of another: `tcp` (`open`/`refused`/`timeout`/`noip`/`error`), `ping` ms (ICMP), `tcpMs` (computers: TCP handshake time to its port 22000, open or refused; present where ICMP is not allowed, e.g. Docker), `seen` = age in seconds of that device's now.json here |
-| `self` | collector cost: `runMs`, `cpuMs`, `rssMb`, `over` (broken budgets) |
+| `self` | collector cost: `runMs`, `cpuMs` (the collector's own CPU; on Android its collection thread, not the app screen sharing the process), `rssMb`, `over` (broken budgets) |
 | `node` | its place in the hierarchy (see "Hierarchy") |
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
