@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import '../config.dart';
 import 'containers.dart';
 import 'netcheck.dart';
 
 import '../report.dart';
 import 'linux.dart' show linuxStatvfs;
-import 'windows.dart' show windowsDrives, windowsRegString, windowsPipeRequest;
+import 'windows.dart' show windowsDrives, windowsRegString, windowsPipeRequest, windowsUsbDevices;
 
 /// Readings beyond the basics, all through the open-ended `readings` list so
 /// the app shows them without knowing them: what the machine is (read once),
@@ -26,6 +27,7 @@ class Extras {
         ...await _tailscale(),
         ...await _syncthing(),
         ...await _containers(),
+        ..._windowsUsb(),
       ];
     }
     return [..._system!, ..._temps(), ..._drives(), ...await NetCheck.collect(), ..._services];
@@ -212,6 +214,37 @@ class Extras {
       ];
     } catch (_) {
       return const [];
+    }
+  }
+
+  // ---- Windows USB devices (SetupAPI) ---------------------------------------
+
+  /// A marker file is written before each scan and removed after it. If the
+  /// collector finds it at start, the last scan took the process down, and
+  /// USB stays off on this machine (the log says so) instead of crashing
+  /// every minute.
+  bool? _usbOk;
+  List<Reading> _windowsUsb() {
+    if (!Platform.isWindows) return const [];
+    final marker = File('${LocalConfig.dir}${Platform.pathSeparator}usb-scan.running');
+    _usbOk ??= !marker.existsSync();
+    if (_usbOk == false) {
+      return [Reading(key: 'usb.count', label: 'USB devices', value: null, group: 'USB', src: 'unknown', note: 'USB listing is off: it stopped the collector once (delete usb-scan.running in the Monitor settings folder to try again)')];
+    }
+    try {
+      marker.writeAsStringSync('${DateTime.now().toUtc()}', flush: true);
+      final list = windowsUsbDevices();
+      marker.deleteSync();
+      final names = [for (final u in list) '${u.name} (${u.vid}:${u.pid}${u.serial == null ? '' : ', ${u.serial}'})']..sort();
+      return [
+        Reading(key: 'usb.count', label: 'USB devices', value: list.length, group: 'USB', src: 'measured'),
+        if (names.isNotEmpty) Reading(key: 'usb.list', label: 'Connected', value: names.join('; '), group: 'USB', src: 'measured'),
+      ];
+    } catch (e) {
+      try {
+        marker.deleteSync();
+      } catch (_) {}
+      return [Reading(key: 'usb.count', label: 'USB devices', value: null, group: 'USB', src: 'unknown', note: 'could not list: $e')];
     }
   }
 

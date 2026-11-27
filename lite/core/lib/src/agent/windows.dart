@@ -342,3 +342,69 @@ List<String> windowsDnsServers() {
     if (buf != nullptr) calloc.free(buf);
   }
 }
+
+final _setupapi = DynamicLibrary.open('setupapi.dll');
+final _getClassDevs = _setupapi.lookupFunction<IntPtr Function(Pointer<Void>, Pointer<Utf16>, IntPtr, Uint32), int Function(Pointer<Void>, Pointer<Utf16>, int, int)>('SetupDiGetClassDevsW');
+final _enumDeviceInfo = _setupapi.lookupFunction<Int32 Function(IntPtr, Uint32, Pointer<Uint8>), int Function(int, int, Pointer<Uint8>)>('SetupDiEnumDeviceInfo');
+final _getInstanceId = _setupapi.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Pointer<Utf16>, Uint32, Pointer<Uint32>),
+    int Function(int, Pointer<Uint8>, Pointer<Utf16>, int, Pointer<Uint32>)>('SetupDiGetDeviceInstanceIdW');
+final _getRegistryProperty = _setupapi.lookupFunction<Int32 Function(IntPtr, Pointer<Uint8>, Uint32, Pointer<Uint32>, Pointer<Uint8>, Uint32, Pointer<Uint32>),
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint32>, Pointer<Uint8>, int, Pointer<Uint32>)>('SetupDiGetDeviceRegistryPropertyW');
+final _destroyInfoList = _setupapi.lookupFunction<Int32 Function(IntPtr), int Function(int)>('SetupDiDestroyDeviceInfoList');
+
+/// One USB device Windows has present: (vid, pid, serial or null, name,
+/// location such as "Port_#0005.Hub_#0001").
+typedef WinUsb = ({String vid, String pid, String? serial, String name, String? location});
+
+/// Present USB devices from SetupAPI (no child process). Interfaces of
+/// composite devices (MI_xx) and root hubs are left out. SP_DEVINFO_DATA on
+/// x64 is 32 bytes: cbSize, GUID, DevInst, Reserved pointer.
+List<WinUsb> windowsUsbDevices() {
+  const digcfPresent = 0x2, digcfAllClasses = 0x4, spdrpDeviceDesc = 0x0, spdrpFriendlyName = 0xC, spdrpLocation = 0xD;
+  final out = <WinUsb>[];
+  final enumerator = 'USB'.toNativeUtf16();
+  final info = calloc<Uint8>(32);
+  final idBuf = calloc<Uint16>(512);
+  final prop = calloc<Uint8>(1024);
+  final need = calloc<Uint32>();
+  final type = calloc<Uint32>();
+  final set = _getClassDevs(nullptr, enumerator, 0, digcfPresent | digcfAllClasses);
+  try {
+    if (set == -1 || set == 0) return out;
+    String? property(int which) {
+      for (var i = 0; i < 1024; i++) {
+        prop[i] = 0;
+      }
+      if (_getRegistryProperty(set, info, which, type, prop, 1022, need) == 0) return null;
+      final s = prop.cast<Utf16>().toDartString().trim();
+      return s.isEmpty ? null : s;
+    }
+
+    for (var i = 0; i < 256; i++) {
+      info.cast<Uint32>().value = 32;
+      if (_enumDeviceInfo(set, i, info) == 0) break;
+      if (_getInstanceId(set, info, idBuf.cast<Utf16>(), 511, need) == 0) continue;
+      final id = idBuf.cast<Utf16>().toDartString();
+      final m = RegExp(r'^USB\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})\\(.+)$').firstMatch(id);
+      if (m == null) continue; // root hubs, composite interfaces (…&MI_00)
+      final tail = m.group(3)!;
+      out.add((
+        vid: m.group(1)!.toLowerCase(),
+        pid: m.group(2)!.toLowerCase(),
+        // Windows makes up an instance id with '&' when there is no serial.
+        serial: tail.contains('&') ? null : tail,
+        name: property(spdrpFriendlyName) ?? property(spdrpDeviceDesc) ?? 'USB device',
+        location: property(spdrpLocation),
+      ));
+    }
+  } finally {
+    if (set != -1 && set != 0) _destroyInfoList(set);
+    calloc.free(enumerator);
+    calloc.free(info);
+    calloc.free(idBuf);
+    calloc.free(prop);
+    calloc.free(need);
+    calloc.free(type);
+  }
+  return out;
+}
