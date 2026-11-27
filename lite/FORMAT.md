@@ -86,7 +86,7 @@ A report written at the live rate has `"next": 10` (or 15 on Android) and
 
 ## History
 
-Detail line: `{"t":…, "b":battery%, "c":charging 0/1, "s":screen on 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, <numeric readings by key>}`
+Detail line: `{"t":…, "b":battery%, "c":charging 0/1, "s":screen on 0/1, "cpu":%, "mem":%, "disk":%, "rx":B/s, "tx":B/s, "p":{peer id: reachable 0/1}, "w": 1 while the app is open on some device, "nt": network type (1 Wi-Fi, 2 mobile, 3 wired, 0 none), <numeric readings by key>}`
 
 Summary line (hourly and daily): `{"t": start, "n": readings, "<path>": [min, avg, max], ...}`
 for every numeric value, nested ones flattened (`"p.<peer id>"`).

@@ -226,6 +226,10 @@ class Report {
         if (netRxBps != null) 'rx': netRxBps!.round(),
         if (netTxBps != null) 'tx': netTxBps!.round(),
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
+        // Conditions for patterns (FORMAT.md "History"): someone has the app
+        // open, and the network type (1 Wi-Fi, 2 mobile, 3 wired, 0 none).
+        if (watchedBy.isNotEmpty) 'w': 1,
+        if (netTypeCode(netType) case final nt?) 'nt': nt,
         for (final r in readings)
           if (r.value is num) r.key: r.value,
         // A UPS's mains/battery state as a number, so history and patterns
@@ -440,3 +444,12 @@ Map<String, Object?> flattenJson(Object? json, [String prefix = '']) {
 /// One series out of history lines by path, e.g. "cpu" or "p.<peer id>".
 List<double?> seriesOf(List<Map<String, Object?>> lines, String path) =>
     [for (final l in lines) switch (fieldAt(l, path)) { num n => n.toDouble(), _ => null }];
+
+/// History code for a network type: 1 Wi-Fi, 2 mobile data, 3 wired, 0 none.
+int? netTypeCode(String? type) => switch (type?.toLowerCase()) {
+      'wifi' || 'wi-fi' => 1,
+      'cellular' || 'mobile' => 2,
+      'ethernet' || 'wired' => 3,
+      'none' => 0,
+      _ => null,
+    };

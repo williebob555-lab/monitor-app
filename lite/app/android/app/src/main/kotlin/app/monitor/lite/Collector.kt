@@ -532,6 +532,11 @@ object Collector {
             }
         }
         h.put("p", pv)
+        // Pattern conditions (core report.dart historyLine): app open somewhere, network type.
+        if ((j.optJSONArray("watch")?.length() ?: 0) > 0) h.put("w", 1)
+        when (j.optJSONObject("net")?.optString("type")) {
+            "wifi" -> h.put("nt", 1); "cellular" -> h.put("nt", 2); "ethernet" -> h.put("nt", 3); "none" -> h.put("nt", 0)
+        }
         j.optJSONArray("readings")?.let { rs ->
             for (i in 0 until rs.length()) {
                 val r = rs.optJSONObject(i) ?: continue
