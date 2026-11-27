@@ -540,6 +540,45 @@ connector, `dir` (`out`, `in` or `both`), `signals` and `power` (`v`,
 connectors at its ends, `passes` (the signals it carries unchanged) or
 `converts` (for an active adapter), and `maxA` / `maxGbps`.
 
+### Physical constraints (`checkPhysical`)
+
+`checkPhysical(assembly)` returns a list of findings. Each finding has a
+`topic` (`fit`, `mount`, `power`, `heat` or `cable`), a `level` (`fail`,
+`warn`, `ok` or `unknown`) and an `evidence`:
+
+- `verified`: from declared or measured values;
+- `estimated`: a rule of thumb was used, for example for heat in a closed
+  box;
+- `unknown`: the finding names the value that is missing.
+
+All the fields below are optional, and older files stay valid.
+
+**On the assembly:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | `19in`, `10in`, `eurorack` ... |
+| `width`, `heightMm`, `depth` | Inside size, as Qty |
+| `ventilation` | `open`, `vented` or `closed` |
+| `cooling` | Heat it can remove, as a W Qty |
+| `rearOpen`, `frontOpen`, `topOpen`, `sidesOpen` | Whether that side is open |
+| `outlets` | List of `{id, v, polarity, ma, maxPower}` |
+| `hp`, `psu` | Eurorack row width; `psu` is `{"+12": mA, "-12": mA, "+5": mA}` |
+| `cables` | List of `{name, from, to, length, minBend}` |
+
+**On a placement:**
+
+| Field | Meaning |
+|---|---|
+| `mount` | Its mounting standard |
+| `width`, `heightMm` | Its size, as Qty (depth is the usual `depth`) |
+| `x`, `y` | Position on a flat surface |
+| `clearance` | `{front, rear, top, sides}` |
+| `airflow` | `front-to-back`, `back-to-front`, `side-to-side`, `bottom-to-top` or `passive` |
+| `heat` | Heat it gives off; if missing, power × (1 − `efficiency`), else all of its power, both estimated |
+| `outlet`, `v`, `polarity`, `ma` | Which outlet it uses and what it needs |
+| `hp`, `row`, `ma` | Eurorack; here `ma` is `{"+12": ...}` |
+
 ## Reading the folder from Dart (`package:monitor_core`)
 
 The app reads everything through core; it never parses files itself.

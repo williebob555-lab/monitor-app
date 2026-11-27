@@ -29,5 +29,6 @@ export 'src/notify.dart';
 export 'src/suggest.dart';
 export 'src/library.dart';
 export 'src/compat.dart';
+export 'src/constraints.dart';
 export 'src/config.dart';
 export 'src/control.dart';
