@@ -263,3 +263,4 @@ This file records completed user-visible, operational, architectural, packaging,
 - Device pages can show archived pattern values over time. Pattern history shows recorded points, dates, and recent values, and leaves gaps where the collector did not record the selected pattern.
 - UPS pages show their reading source and the reason when load is unavailable. When the collector provides UPS patterns, the device page shows power cuts, usual load, and estimated runtime history.
 - UPS pages show the host's reported low-battery policy and USB identity. Detail rows identify the collection method when the report includes it. Docker containers can open their recorded pattern history.
+- Recorded conditional patterns show readable labels and units even when the current report omits the pattern.

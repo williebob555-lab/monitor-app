@@ -61,10 +61,20 @@ class _PatternHistoryPageState extends State<PatternHistoryPage> {
             known?.unit ??
             switch (key) {
               'ups.load.usual' => '%',
-              'ups.runtime.full' => 'min',
+              'ups.runtime.full' || 'ups.runtime.byLoad' => 'min',
+              'battery.drain.watched' || 'battery.drain.quiet' => '%/h',
+              'net.perDay.wifi' ||
+              'net.perDay.mobile' ||
+              'net.perDay.wired' => 'B/day',
+              'temp.cpu.byLoad' => '°C',
+              'ct.mem.usual' => 'MB',
+              'ct.restarts' => '/day',
               _ => null,
             };
-        final estimated = known?.estimated == true || key == 'ups.runtime.full';
+        final estimated =
+            known?.estimated == true ||
+            key == 'ups.runtime.full' ||
+            key == 'ups.runtime.byLoad';
         final points = [
           for (final row in rows)
             if (row['t'] case final num timestamp)
@@ -155,14 +165,23 @@ String _patternName(String key) => switch (key) {
   'battery.drain.on' => 'Battery drain with screen on',
   'battery.drain.off.lasts' => 'Estimated battery life with screen off',
   'battery.drain.on.lasts' => 'Estimated battery life with screen on',
+  'battery.drain.watched' => 'Battery drain while the app is open',
+  'battery.drain.quiet' => 'Battery drain while the app is closed',
   'cpu.steady' => 'Steady CPU usage',
   'cpu.busiest' => 'CPU usage during busiest period',
   'mem.usual' => 'Usual memory usage',
   'temp.cpu.usual' => 'Usual CPU temperature',
+  'temp.cpu.byLoad' => 'CPU temperature difference from idle to busy',
   'net.perDay' => 'Network data per day',
+  'net.perDay.wifi' => 'Wi-Fi data per day',
+  'net.perDay.mobile' => 'Cellular data per day',
+  'net.perDay.wired' => 'Wired data per day',
   'ups.cuts' => 'Power cuts',
   'ups.load.usual' => 'Usual UPS load',
   'ups.runtime.full' => 'Estimated UPS runtime at full charge',
+  'ups.runtime.byLoad' => 'Estimated UPS runtime at lowest recorded load band',
+  'ct.mem.usual' => 'Usual container memory',
+  'ct.restarts' => 'Container starts per day',
   'reach.always' => 'Devices always reached',
   _ => key,
 };

@@ -83,6 +83,28 @@ void main() {
     );
   });
 
+  testWidgets('archived container starts have a readable name and rate', (
+    tester,
+  ) async {
+    final fixture = Directory.systemTemp.createTempSync(
+      'monitor-container-pattern',
+    );
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    recordPatterns(fixture.path, const [
+      Pattern(
+        key: 'ct.restarts',
+        group: 'Container',
+        text: 'Started 7 times in 7 days',
+        value: 1,
+        unit: '/day',
+        hours: 168,
+      ),
+    ], today);
+    await open(tester, readPatternHistory(fixture.path, today));
+    expect(find.text('Container starts per day'), findsOneWidget);
+    expect(find.text('High 1 /day'), findsOneWidget);
+  });
+
   testWidgets(
     'keeps archived UPS runtime labelled as estimated without recent metadata',
     (tester) async {
