@@ -19,7 +19,9 @@
   watch/<device id>.json          {"id","name","until"}: that device's app is open
                                   until "until" (Unix seconds); collectors go live
   settings.json                   shared settings, e.g. {"history": {"detailDays": 7,
-                                  "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50}}
+                                  "hourlyDays": 365, "dailyDays": 1825, "maxMb": 50},
+                                  "update": {"auto": true}} (auto: Windows and
+                                  Android install new releases on their own; default true)
 ```
 
 A device writes only inside its own `devices/<id>/`, so Syncthing never sees
@@ -256,6 +258,98 @@ goes last under the size cap, so patterns outlast the detail and hourly
 files they came from. Read it with `readPatternHistory(deviceDir, now)`;
 `seriesOf(lines, "battery.drain.off")` charts one pattern over months.
 
+
+## Events (`devices/<id>/events/YYYY-MM.jsonl`)
+
+What happened, once, on the device that saw it. One line each, UTC months,
+deleted with the hourly history limit (`hourlyDays`).
+
+```json
+{"t": 1795788000, "type": "power.battery", "subject": "usb-0764-0601-port15", "name": "UPS", "detail": "mains power lost"}
+```
+
+| type | written by | when |
+|---|---|---|
+| `peer.offline` / `peer.online` | computers | another device's reports went stale / fresh, as this device sees them (not in the first 5 minutes after start or after this machine slept) |
+| `power.battery` / `power.mains` | the computer reading the UPS | `ups.status` changed |
+| `container.stopped` / `container.started` / `container.unhealthy` | Docker hosts | `ct.state` left or reached `running`; `ct.health` became `unhealthy` |
+| `thing.plugged` / `thing.unplugged` | computers | an attached thing appeared or went |
+| `app.updated` | every device | the collector or app came back on a new version (`detail`: "old -> new") |
+| `control.applied` | every device | a request from another device was applied |
+
+`readEvents(root, from, to, {device})` reads them all, oldest first, each
+with the `device` that wrote it.
+
+## Model: things you own, plan or observe (`model/`)
+
+Telemetry (`devices/`) says what a device measures; the model says what
+things *are*: the UPS you own, the rack you are planning, the cable you
+still need. Any device may write it, so it has its own rules.
+
+```
+model/items/<id>/item.json              the item now
+model/items/<id>/history/<device>.jsonl every version, appended only by that device
+```
+
+```json
+{"v": 1, "id": "ups-1", "type": "ups", "name": "CyberPower OR500",
+ "state": "owned", "parent": "rack-1",
+ "props": {"height": {"value": 1, "unit": "U", "src": "declared"},
+           "load": {"value": 13, "unit": "%", "src": "measured"}},
+ "ports": [{"id": "out1", "kind": "nema-5-15", "dir": "out"}],
+ "links": [{"to": "desktop-1", "port": "out1", "via": "power"}],
+ "observes": "usb-0764-0601-port15",
+ "rev": 3, "by": "301230114386", "t": 1795788000.123}
+```
+
+* `id`: lowercase letters, digits, `-`, `_`, `.`; at most 64; never starts
+  with a dot. Readers refuse anything else.
+* `state`: `proposed`, `owned`, `installed` or `retired`. Items are never
+  deleted, only retired.
+* `props`: every value carries `src` (`measured`, `declared`, `estimated`,
+  `unknown`) and optionally `unit`.
+* `observes`: the device or thing id in `devices/` whose telemetry this item is.
+* `rev`, `by`, `t`: revision, the device that wrote it, when (Unix seconds).
+* Unknown keys are kept on every edit.
+* Written to `.syncthing.item.json.tmp` and renamed.
+* Two devices writing at once leave `item.sync-conflict-*.json`. Readers take
+  the newest `t` (then `rev`, then `by`) of all copies. Computers'
+  collectors resolve copies every 6 hours: the newest becomes `item.json`,
+  each loser is noted in history (`"conflictLoser": true`) and the copy is
+  deleted. Folder health lists copies until then.
+* `ModelStore(root, deviceId)`: `list()`, `get(id)`, `put(item)`,
+  `retire(id)`, `history(id)`, `asOf(t)`, `conflicts()`, `resolveConflicts()`.
+
+## Projects and assemblies (`model/projects/`)
+
+Same versioning, history, conflict and time-travel rules as items
+(`model/projects/<id>/project.json`, `history/<device>.jsonl`).
+
+```json
+{"v": 1, "id": "studio-rack", "name": "Studio rack", "goal": "...",
+ "state": "draft", "items": ["ups-1"],
+ "tasks": [{"id": "t1", "text": "Measure the desk depth", "done": false}],
+ "assemblies": [{"id": "rack", "name": "Rack", "type": "rack", "units": 12,
+   "depth": {"value": 450, "unit": "mm", "src": "declared"},
+   "maxWeight": {"value": 40, "unit": "kg", "src": "declared"},
+   "placements": [{"id": "p1", "name": "UPS", "thing": "usb-0764-0601-port15",
+     "u": [1, 2], "face": "front", "depth": {"value": 14, "unit": "in", "src": "declared"},
+     "weight": {"value": 6, "unit": "kg", "src": "declared"}}]}],
+ "rev": 1, "by": "301230114386", "t": 1795788000.5}
+```
+
+* `state`: `draft`, `active`, `done`, `archived` (never deleted).
+* A placement points at a model `item`, a live `thing`/device id, or neither
+  (a planned part with only a name). `u`: `[bottom, top]` rack units, or
+  `null` while not placed. `face`: `front` or `rear`; `fullDepth: true`
+  blocks both faces.
+* Quantities are `{"value", "unit", "src"}`. Units understood: mm, cm, m,
+  in, ft; g, kg, lb, oz; mW, W, kW. Others are kept but not added up.
+* `Assembly.check()`: overlaps (same face), outside the rack, deeper than
+  the rack, over the weight or power limit, as sentences; weight and power
+  totals with how many parts had a value (`Total.known` of `count`); free units.
+* `ProjectStore(root, deviceId)`: `list()`, `get`, `put`, `archive`,
+  `history`, `asOf`, `conflicts()`, `resolveConflicts()`.
 
 ## Reading the folder from Dart (`package:monitor_core`)
 

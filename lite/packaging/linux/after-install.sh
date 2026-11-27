@@ -22,4 +22,7 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09ae", MODE="0600", TAG+="uaccess", SYMLI
 RULES
 udevadm control --reload >/dev/null 2>&1 || true
 udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+# Automatic package updates (package-update.sh): after boot, then every 6 h.
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable --now monitor-lite-update.timer >/dev/null 2>&1 || true
 exit 0

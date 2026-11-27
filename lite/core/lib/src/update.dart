@@ -125,3 +125,23 @@ class _DigestSink implements Sink<Digest> {
   @override
   void close() {}
 }
+
+/// Automatic updates (settings.json `"update": {"auto": true}`, the default).
+/// Collectors that can install on their own (the Windows agent, Android's
+/// collector) check every [autoUpdateEvery] and install a newer release
+/// without a tap. `"auto": false` turns it off for every device; the
+/// "Update now" control still works.
+const autoUpdateEvery = Duration(hours: 6);
+
+/// The first check waits this long after the collector starts, so a sign-in
+/// or reboot is not slowed down and a crash loop cannot hammer GitHub.
+const autoUpdateFirstDelay = Duration(minutes: 10);
+
+bool autoUpdateOn(String folder) {
+  try {
+    final j = jsonDecode(File('$folder${Platform.pathSeparator}settings.json').readAsStringSync());
+    final u = j is Map ? j['update'] : null;
+    if (u is Map && u['auto'] == false) return false;
+  } catch (_) {}
+  return true;
+}
