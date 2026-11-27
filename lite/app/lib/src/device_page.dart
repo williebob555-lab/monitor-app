@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controls_view.dart';
 import 'dive.dart';
 import 'parts.dart';
+import 'pattern_history_page.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -77,7 +78,7 @@ class _DevicePageState extends State<DevicePage> {
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
-              if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
+              if (!r.isThing) ...[const SizedBox(height: 14), _patterns(r)],
             ];
             final right = <Widget>[
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
@@ -182,7 +183,7 @@ class _DevicePageState extends State<DevicePage> {
   }
 
   /// What its history shows, in words (core patterns.dart).
-  Widget _patterns() {
+  Widget _patterns(Report report) {
     patterns ??= _findPatterns();
     return FutureBuilder<List<Pattern>>(
       future: patterns,
@@ -213,7 +214,25 @@ class _DevicePageState extends State<DevicePage> {
             ],
           ]);
         }
-        return Section('Patterns', body);
+        return Section('Patterns', Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            body,
+            const SizedBox(height: 8),
+            TextButton.icon(
+              icon: const Icon(Icons.show_chart),
+              label: const Text('Pattern history'),
+              onPressed: () {
+                final dir = widget.state.dirOf(report.id);
+                final now = DateTime.now();
+                final history = Isolate.run(() => readPatternHistory(dir, now));
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => PatternHistoryPage(report.name, history, patterns: list ?? const []),
+                ));
+              },
+            ),
+          ],
+        ));
       },
     );
   }

@@ -382,6 +382,13 @@ The Android core suite calls the production URI policy, one-time enrollment pars
 
 Do not leave multiple undocumented ways to run the same suite. Package and platform jobs may wrap these commands, but the root verification script is authoritative.
 
+## Monitor App 2.x pattern history
+
+From `lite/app`, run `flutter test test/pattern_history_test.dart`. The widget
+test writes and reads real archive files using `monitor_core` and checks
+the trend, archived zero and negative values, dates, units, and empty state
+at phone width.
+
 ## Desktop client tests
 
 `tests/MonitorApp.Client.Core.Tests` starts the real `LocalApiHost` over a file-backed SQLite store seeded through the production `PeerStore`, and drives the typed client and view models against it (round trip, cursor paging and page cap, unavailable values, validation, antiforgery, revoke confirmation, unreachable node, polling and push updates). `tests/MonitorApp.Client.Desktop.Tests` is an Avalonia.Headless suite: it binds every section to a real node and checks the shared shell at phone width (400x800: bottom bar, menu overlay, every section reachable) and desktop width (side navigation), plus resizing between them. `tests/MonitorApp.Client.Mobile.Tests` runs `InProcessPeerDataSource` against a real `MobilePeerRuntime` and a real desktop peer over loopback gRPC and SQLite (replicated state, history paging, as-of, catalog, push `StateChanged`, viewing interest reaching the desktop, alerts, typed-code and invitation pairing). The Dive has one scenario test in each suite. `DiveViewModelTests` (Core) covers tile order, wording, root cause, navigation, selection sync, actions, approvals and history. `DiveViewTests` (Desktop, headless) covers the responsive grid, real taps, Escape, the back chip, the recorded band, and that the zoom comes to rest. `ShellScreenshots` (Category=Manual, built with `-p:ManualShots=true`) renders Dive and outline PNGs for design review. None verifies visual appearance or Android; the Android head compiles only in the CI `android-build` job. Run `dotnet test` on each project (all are in `eng/verify.ps1`).
