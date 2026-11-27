@@ -40,12 +40,36 @@ class LinuxHost implements Host {
       for (final e in Directory('/sys/class/net').listSync()) {
         final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
         if (!Directory('/sys/class/net/$name/device').existsSync()) continue;
-        final mac = _read('/sys/class/net/$name/address');
-        if (mac != null && mac != '00:00:00:00:00:00') macs.add(mac.toLowerCase());
+        // Wired and Wi-Fi cards only (type 1), as on Windows.
+        if (_read('/sys/class/net/$name/type')?.trim() != '1') continue;
+        final mac = _read('/sys/class/net/$name/address')?.trim().toLowerCase();
+        if (mac == null || mac == '00:00:00:00:00:00') continue;
+        // A random or set address (NetworkManager can randomise Wi-Fi) is
+        // not the card's own: use the burned-in one ethtool reports, if any.
+        final assigned = _read('/sys/class/net/$name/addr_assign_type')?.trim();
+        if (assigned != null && assigned != '0') {
+          final perm = _permanentMac(name);
+          if (perm != null) macs.add(perm);
+          continue;
+        }
+        if (int.parse(mac.substring(0, 2), radix: 16) & 2 != 0) continue; // locally administered
+        macs.add(mac);
       }
       if (macs.isEmpty) return null;
       macs.sort();
       return sha256.convert(macs.first.codeUnits).toString().substring(0, 16);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The card's burned-in address via `ethtool -P`, when ethtool is there.
+  static String? _permanentMac(String dev) {
+    try {
+      final r = Process.runSync('ethtool', ['-P', dev]);
+      final m = RegExp(r'([0-9a-f]{2}(:[0-9a-f]{2}){5})').firstMatch('${r.stdout}'.toLowerCase());
+      final mac = m?.group(1);
+      return mac == null || mac == '00:00:00:00:00:00' ? null : mac;
     } catch (_) {
       return null;
     }

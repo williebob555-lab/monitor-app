@@ -43,6 +43,86 @@ class HidUps {
     return upsReadings(values);
   }
 
+  /// The UPS's own alarm (beeper): 1 off, 2 on, 3 quiet until the next
+  /// event. The only thing this program ever sends to a UPS, and only when
+  /// someone runs `monitor-agent --ups-alarm` on the machine it is plugged
+  /// into. Returns what the UPS reports afterwards, or null.
+  static int? setAlarm(int value, void Function(String) say) {
+    const usage = 0x84005a; // Power Device page, AudibleAlarmControl
+    for (final raw in _allHidraw()) {
+      List<HidField> fields;
+      try {
+        fields = parseDescriptor(File('/sys/class/hidraw/$raw/device/report_descriptor').readAsBytesSync());
+      } catch (_) {
+        continue;
+      }
+      final f = fields.where((f) => f.feature && f.usage == usage).firstOrNull;
+      if (f == null) continue;
+      final dev = [for (final p in ['/dev/$raw', '/dev/monitor-ups']) if (File(p).existsSync()) p].firstOrNull;
+      if (dev == null) {
+        say('the UPS is $raw, but /dev/$raw is not visible here');
+        return null;
+      }
+      final libc = DynamicLibrary.open('libc.so.6');
+      final open = libc.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>('open');
+      final close = libc.lookupFunction<Int32 Function(Int32), int Function(int)>('close');
+      final ioctl = libc.lookupFunction<Int32 Function(Int32, UnsignedLong, VarArgs<(Pointer<Uint8>,)>), int Function(int, int, Pointer<Uint8>)>('ioctl');
+      final path = dev.toNativeUtf8();
+      // Read/write where allowed; inside Docker the device is passed in
+      // read-only, and Linux's hidraw takes the set-feature call on a
+      // read-only handle too (drivers/hid/hidraw.c).
+      var fd = open(path, 2); // O_RDWR
+      if (fd < 0) fd = open(path, 0);
+      malloc.free(path);
+      if (fd < 0) {
+        say('no permission to open $dev for writing; see "UPS" in packaging/linux/README.md');
+        return null;
+      }
+      final buf = malloc<Uint8>(512);
+      try {
+        final bits = fields.where((x) => x.feature && x.reportId == f.reportId).map((x) => x.bitOffset + x.size).reduce(math.max);
+        final len = (bits + 7) ~/ 8 + 1;
+        int get() {
+          for (var i = 0; i < len; i++) {
+            buf[i] = 0;
+          }
+          buf[0] = f.reportId;
+          return ioctl(fd, (3 << 30) | (len << 16) | (0x48 << 8) | 0x07, buf); // HIDIOCGFEATURE
+        }
+
+        if (get() < 0) {
+          say('the UPS did not answer');
+          return null;
+        }
+        // Change only this field's bits in the report the UPS just gave.
+        final off = f.reportId == 0 ? 0 : 8;
+        for (var i = 0; i < f.size; i++) {
+          final bit = off + f.bitOffset + i, byte = bit ~/ 8, mask = 1 << (bit % 8);
+          buf[byte] = (value >> i) & 1 == 1 ? buf[byte] | mask : buf[byte] & ~mask;
+        }
+        if (ioctl(fd, (3 << 30) | (len << 16) | (0x48 << 8) | 0x06, buf) < 0) { // HIDIOCSFEATURE
+          say('the UPS refused the change');
+          return null;
+        }
+        if (get() < 0) return null;
+        return f.decode(f.reportId == 0 ? buf.asTypedList(len) : buf.asTypedList(len).sublist(1))?.toInt();
+      } finally {
+        malloc.free(buf);
+        close(fd);
+      }
+    }
+    say('no UPS with an alarm setting was found');
+    return null;
+  }
+
+  static List<String> _allHidraw() {
+    try {
+      return [for (final e in Directory('/sys/class/hidraw').listSync()) e.uri.pathSegments.where((x) => x.isNotEmpty).last];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   static String? _hidraw(String usbPath) {
     try {
       for (final e in Directory('/sys/class/hidraw').listSync()) {
@@ -64,7 +144,7 @@ class HidUps {
     final path = dev.toNativeUtf8();
     // Read-only is enough: Linux's hidraw checks no write access for
     // HIDIOCGFEATURE (drivers/hid/hidraw.c, hidraw_open and hidraw_ioctl).
-    // Nothing is ever sent to the UPS.
+    // Nothing is sent to the UPS here; only setAlarm, run by hand, writes.
     final fd = open(path, 0); // O_RDONLY
     malloc.free(path);
     if (fd < 0) {
@@ -257,6 +337,7 @@ List<Reading> upsReadings(Map<String, double> v) {
   final charge = any(0x850066);
   final runtime = any(0x850068);
   final load = any(0x840035, const ['output', 'summary', '', 'input']);
+  final alarm = any(0x84005a);
   final unknown = 'the UPS does not report it';
   Reading num(String key, String label, double? x, String unit, {String src = 'measured', String? note, String? level}) =>
       Reading(key: key, label: label, value: x == null ? null : double.parse(x.toStringAsFixed(1)), unit: unit, group: 'Power',
@@ -273,5 +354,13 @@ List<Reading> upsReadings(Map<String, double> v) {
     num('ups.charge', 'Battery charge', charge, '%', level: charge == null ? null : charge < 20 ? 'fault' : charge < 50 && onBattery ? 'warn' : null),
     num('ups.runtime', 'Runtime left', runtime == null ? null : runtime / 60, 'min', src: 'estimated', note: "the UPS's own estimate at the current load"),
     num('ups.load', 'Load', load, '%'),
+    if (alarm != null)
+      Reading(
+          key: 'ups.alarm',
+          label: 'Alarm',
+          value: switch (alarm.toInt()) { 1 => 'off', 2 => 'on', 3 => 'quiet until the next event', _ => 'unknown (${alarm.toInt()})' },
+          group: 'Power',
+          src: 'measured',
+          note: 'change it with: monitor-agent --ups-alarm off|on|quiet, on the computer the UPS is plugged into'),
   ];
 }

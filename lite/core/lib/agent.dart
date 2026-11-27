@@ -3,3 +3,4 @@ library;
 
 export 'src/agent/agent.dart';
 export 'src/config.dart';
+export 'src/agent/hid_ups.dart' show HidUps;
