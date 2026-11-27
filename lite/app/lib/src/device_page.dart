@@ -5,6 +5,7 @@ import 'package:monitor_core/monitor_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'controls_view.dart';
+import 'device_activity.dart';
 import 'dive.dart';
 import 'parts.dart';
 import 'state.dart';
@@ -56,6 +57,21 @@ class _DevicePageState extends State<DevicePage> {
         final attached = st.thingsOf(r.id);
         return Scaffold(
           appBar: AppBar(
+            actions: [
+              IconButton(
+                tooltip: 'Recorded activity',
+                icon: const Icon(Icons.history),
+                onPressed: () {
+                  final root = st.folder.root;
+                  final id = r.id;
+                  final now = DateTime.now();
+                  final events = Isolate.run(() => readDeviceActivity(root, id, now));
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => DeviceActivity(r.name, events, names),
+                  ));
+                },
+              ),
+            ],
             title: Row(children: [
               Icon(r.isThing ? thingIcon(r.node?.type) : kindIcon(r.kind, r.name), color: C.muted, size: 22),
               const SizedBox(width: 10),

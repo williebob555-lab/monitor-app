@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
@@ -7,7 +9,9 @@ import 'device_page.dart';
 import 'dive.dart';
 import 'map_view.dart';
 import 'parts.dart';
+import 'past_moment_page.dart';
 import 'timeline.dart';
+import 'timeline_activity.dart';
 import 'setup_page.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -75,7 +79,7 @@ class HomePage extends StatelessWidget {
                     return SliverPadding(
                       padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                       sliver: SliverToBoxAdapter(
-                        child: SizedBox(height: math.max(rest, 420), child: _MapPanel(state)),
+                        child: SizedBox(height: math.max(rest, 420), child: _MapPanel(state, key: ValueKey(state.folder.root))),
                       ),
                     );
                   })
@@ -296,80 +300,206 @@ class _Net extends StatelessWidget {
 }
 
 
-/// The map with a timeline under it: drag back up to 24 hours to see who
-/// reached whom then. Recorded views are marked and can't be mistaken for now.
+/// The map can show current reports or an archive snapshot.
 class _MapPanel extends StatefulWidget {
-  const _MapPanel(this.state);
+  const _MapPanel(this.state, {super.key});
   final AppState state;
+
   @override
   State<_MapPanel> createState() => _MapPanelState();
 }
 
 class _MapPanelState extends State<_MapPanel> {
-  late final timeline = Timeline(widget.state.folder);
+  static const dayMinutes = 24 * 60.0;
 
-  /// Minutes back from now; 0 is live.
-  double back = 0;
+  DateTime? _selected;
+  Future<Moment>? _recorded;
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _select(DateTime? at, {bool dragging = false}) {
+    _debounce?.cancel();
+    setState(() {
+      _selected = at;
+      _recorded = null;
+    });
+    if (at == null) return;
+    void load() {
+      final root = widget.state.folder.root;
+      final now = DateTime.now();
+      setState(() {
+        _recorded = compute(readRecordedMoment, (root, at, now));
+      });
+    }
+    if (dragging) {
+      _debounce = Timer(const Duration(milliseconds: 180), load);
+    } else {
+      load();
+    }
+  }
+
+  Future<void> _chooseTime() async {
+    final now = DateTime.now();
+    final retained = Retention.load(widget.state.folder.root).hourlyDays;
+    final first = DateUtils.dateOnly(now.subtract(Duration(days: retained)));
+    final selected = (_selected ?? now).toLocal();
+    final day = await showDatePicker(
+      context: context,
+      initialDate: selected.isBefore(first) ? first : selected,
+      firstDate: first,
+      lastDate: now,
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime((_selected ?? now).toLocal()),
+    );
+    if (time == null || !mounted) return;
+    final requested = DateTime(day.year, day.month, day.day, time.hour, time.minute);
+    if (requested.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a time in the past.')));
+      return;
+    }
+    _select(requested);
+  }
+
+  void _showRecordedDevice(DeviceStatus status, List<DeviceStatus> attached) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(status.report.name),
+        scrollable: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(status.title),
+            for (final item in attached.where((t) => t.report.node?.parent == status.report.id))
+              Text('${item.report.name} · ${item.title}'),
+          ],
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
+      ),
+    );
+  }
+
+  Widget _map(AppState state) {
+    if (_selected == null) {
+      return NetworkMap(
+        state.assessment.devices,
+        key: const ValueKey('live topology'),
+        myId: state.host.id,
+        things: [for (final t in state.things.values) state.statusOf(t.id)!],
+        onOpen: (id) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id))),
+      );
+    }
+    return FutureBuilder<Moment>(
+      future: _recorded,
+      builder: (context, snap) {
+        if (snap.hasError) return const Center(child: Text('Could not read the recorded map.'));
+        final moment = snap.data;
+        if (snap.connectionState != ConnectionState.done || moment == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final topology = recordedTopology(moment, {
+          ...state.reports,
+          for (final t in state.things.values) t.id: t.report,
+        }, hidden: state.hidden.keys.toSet());
+        if (!topology.devices.any((device) => device.fresh)) {
+          return const Center(child: Text('No device readings near this time.'));
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(moment.fromHourly ? 'Hourly summaries' : 'Recorded readings', style: const TextStyle(color: C.muted)),
+            Expanded(
+              child: NetworkMap(
+                topology.devices,
+                key: const ValueKey('recorded topology'),
+                myId: state.host.id,
+                things: topology.things,
+                onOpen: (id) {
+                  final status = [...topology.devices, ...topology.things]
+                      .where((status) => status.report.id == id).firstOrNull;
+                  if (status != null) _showRecordedDevice(status, topology.things);
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final a = state.assessment;
-    final now = DateTime.now().toUtc();
-    var devices = a.devices;
-    DateTime? at;
-    if (back > 0) {
-      at = now.subtract(Duration(minutes: back.round()));
-      timeline.load(a.devices.map((d) => d.report.id), now);
-      devices = timeline.at([for (final d in a.devices) d.report], at);
-    }
-    final local = at?.toLocal();
-    String hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    final local = _selected?.toLocal();
+    final minutesBack = local == null ? 0.0 : (now.difference(local).inMilliseconds / 60000).clamp(0.0, dayMinutes);
+    final locale = MaterialLocalizations.of(context);
     return Column(children: [
-      Expanded(
-        child: NetworkMap(devices, myId: state.host.id, things: [for (final t in state.things.values) state.statusOf(t.id)!], onOpen: (id) {
-          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, id)));
-        }),
-      ),
-      const SizedBox(height: 4),
-      Row(children: [
-        const SizedBox(width: 64, child: Text('24 h ago', style: TextStyle(color: C.muted, fontSize: 11.5))),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 2,
-              activeTrackColor: C.muted.withValues(alpha: 0.6),
-              inactiveTrackColor: C.line,
-              thumbColor: C.text,
-              overlayColor: C.text.withValues(alpha: 0.08),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 2),
-              tickMarkShape: SliderTickMarkShape.noTickMark,
-              showValueIndicator: ShowValueIndicator.never,
+      Expanded(child: _map(state)),
+      if (state.folder.exists) ...[
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          children: [
+            Text(
+              local == null ? 'Live map' : '${locale.formatShortDate(local)} · ${locale.formatTimeOfDay(TimeOfDay.fromDateTime(local))}',
+              style: const TextStyle(color: C.muted),
             ),
-            child: Slider(
-              // Left is 24 h ago, right is now.
-              value: 24 * 60 - back,
-              min: 0,
-              max: 24 * 60,
-              divisions: 24 * 4,
-              onChanged: (v) => setState(() => back = 24 * 60 - v),
+            TextButton(onPressed: _chooseTime, child: const Text('Choose time')),
+            if (_selected case final selected?)
+              TextButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => PastMomentPage(state.folder.root, selected, topology: _recorded)),
+                ),
+                child: const Text('Recorded workspace'),
+              ),
+            if (local != null) TextButton(onPressed: () => _select(null), child: const Text('Back to live')),
+          ],
+        ),
+        Row(children: [
+          const SizedBox(width: 64, child: Text('24 h ago', style: TextStyle(color: C.muted, fontSize: 11.5))),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 2,
+                tickMarkShape: SliderTickMarkShape.noTickMark,
+                showValueIndicator: ShowValueIndicator.never,
+              ),
+              child: Slider(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                value: dayMinutes - minutesBack,
+                max: dayMinutes,
+                divisions: 24 * 4,
+                semanticFormatterCallback: (value) => '${(dayMinutes - value).round()} minutes ago',
+                onChanged: (value) => _select(
+                  value == dayMinutes ? null : now.subtract(Duration(minutes: (dayMinutes - value).round())),
+                  dragging: true,
+                ),
+              ),
             ),
           ),
-        ),
-        SizedBox(
-          width: 64,
-          child: GestureDetector(
-            onTap: () => setState(() => back = 0),
-            child: Text(local == null ? 'Live' : hm(local),
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                    color: local == null ? C.ok : C.warn,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()])),
+          const SizedBox(
+            width: 64,
+            child: Text('Now', textAlign: TextAlign.right, style: TextStyle(color: C.muted, fontSize: 11.5)),
           ),
+        ]),
+        TimelineActivity(
+          state.folder.root,
+          key: ValueKey(state.folder.root),
+          now: now,
+          names: state.names,
+          onSelect: _select,
         ),
-      ]),
+      ],
     ]);
   }
 }
