@@ -81,7 +81,11 @@ Automatic (2.6.7+, on unless `settings.json` has `"update": {"auto": false}`):
   running version itself; the first time it asks once with a notification.
 * **Servers in Docker**: the updater timer (`packaging/docker/update.sh`),
   or by hand `docker compose build --pull --no-cache && docker compose up -d`.
-* **Linux packages** (rpm/deb): through the app's Install for now.
+* **Linux packages** (rpm/deb): a root timer the package installs
+  (`monitor-lite-update.timer`, 15 minutes after boot, then every 6 hours)
+  runs `/usr/lib/monitor-lite/package-update.sh`: newest release, checked
+  against SHA256SUMS, installed with dnf or apt. `sh
+  /usr/lib/monitor-lite/package-update.sh --check` says what it would do.
 
 ## Layout
 

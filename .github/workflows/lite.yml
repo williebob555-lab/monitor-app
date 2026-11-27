@@ -183,6 +183,9 @@ jobs:
           ln -s ../lib/monitor-lite/monitor-agent stage/usr/bin/monitor-agent
           cp lite/packaging/linux/monitor-lite.desktop stage/usr/share/applications/monitor-app.desktop
           cp lite/packaging/linux/monitor-agent.service stage/usr/lib/systemd/user/
+          mkdir -p stage/usr/lib/systemd/system
+          cp lite/packaging/linux/monitor-lite-update.service lite/packaging/linux/monitor-lite-update.timer stage/usr/lib/systemd/system/
+          cp lite/packaging/linux/package-update.sh stage/usr/lib/monitor-lite/
           common="-s dir -n monitor-app -v $VERSION --iteration 1 -C stage --description Monitor-App --url https://github.com/${{ github.repository }} --after-install lite/packaging/linux/after-install.sh --before-remove lite/packaging/linux/before-remove.sh"
           fpm $common -t rpm -a x86_64 -d gtk3 -p out/monitor-app-$VERSION-1.x86_64.rpm .
           fpm $common -t deb -a amd64 -d libgtk-3-0 -p out/monitor-app_${VERSION}_amd64.deb .
