@@ -165,6 +165,16 @@ class HistoryWriter {
     if (nowS - last >= flushEvery.inSeconds || firstOfHour) flush(now);
   }
 
+  /// How far the clock went back since the last flush (more than 2 min), or
+  /// null. Reported once: the next flush moves the marker.
+  Duration? clockWentBack(DateTime now) {
+    final last = (_readState()['lastFlush'] as num?)?.toInt();
+    final d = last == null ? 0 : last - now.millisecondsSinceEpoch ~/ 1000;
+    if (d <= 120) return null;
+    flush(now);
+    return Duration(seconds: d);
+  }
+
   /// Move spooled readings into their hour files, then write summaries for
   /// hours and days that have ended.
   void flush(DateTime now) {
@@ -182,6 +192,21 @@ class HistoryWriter {
     if (_spool.existsSync()) _spool.writeAsStringSync('');
     final st = _readState();
     st['lastFlush'] = now.millisecondsSinceEpoch ~/ 1000;
+    // Lines for an hour already summarized: the clock went back (a dual-boot
+    // machine whose other system keeps the hardware clock in local time
+    // starts hours off until it syncs, seen on wc-desktop 2026-11-26/27).
+    // Step the done-markers back so those hours and days are summarized
+    // again once they end; summaries replace their earlier line.
+    if (lines.isNotEmpty) {
+      final first = lines.map((l) => (l['t']! as num).toInt()).reduce((a, b) => a < b ? a : b);
+      final t = DateTime.fromMillisecondsSinceEpoch(first * 1000);
+      final hour = DateTime(t.year, t.month, t.day, t.hour).millisecondsSinceEpoch ~/ 1000;
+      final day = DateTime(t.year, t.month, t.day).millisecondsSinceEpoch ~/ 1000;
+      if (st['hourlyDone'] is num && (st['hourlyDone']! as num) >= hour) st['hourlyDone'] = hour - 3600;
+      if (st['dailyDone'] is num && (st['dailyDone']! as num) >= day) {
+        st['dailyDone'] = DateTime(t.year, t.month, t.day - 1).millisecondsSinceEpoch ~/ 1000;
+      }
+    }
     _summarizeEnded(now, st);
     _writeState(st);
   }
@@ -199,9 +224,7 @@ class HistoryWriter {
     while (h.isBefore(thisHour)) {
       final ls = readLines(File('$historyDir${_sep}detail$_sep${detailName(h)}'));
       if (ls.isNotEmpty) {
-        File('${hourlyDir.path}$_sep${hourlyName(h)}').writeAsStringSync(
-            '${jsonEncode(summarize(ls, h.millisecondsSinceEpoch ~/ 1000))}\n',
-            mode: FileMode.append, flush: true);
+        _putSummary(File('${hourlyDir.path}$_sep${hourlyName(h)}'), summarize(ls, h.millisecondsSinceEpoch ~/ 1000));
       }
       st['hourlyDone'] = h.millisecondsSinceEpoch ~/ 1000;
       h = h.add(const Duration(hours: 1));
@@ -219,12 +242,26 @@ class HistoryWriter {
           .where((l) => (l['t']! as num) >= start && (l['t']! as num) < end)
           .toList();
       if (ls.isNotEmpty) {
-        File('${dailyDir.path}$_sep${dailyName(d)}')
-            .writeAsStringSync('${jsonEncode(summarize(ls, start))}\n', mode: FileMode.append, flush: true);
+        _putSummary(File('${dailyDir.path}$_sep${dailyName(d)}'), summarize(ls, start));
       }
       st['dailyDone'] = start;
       d = DateTime(d.year, d.month, d.day + 1);
     }
+  }
+
+  /// Append [line], or replace the line with the same start time when an
+  /// hour or day is summarized again (the file is small: one month of hours
+  /// or one year of days).
+  void _putSummary(File f, Map<String, Object?> line) {
+    final t = line['t'];
+    final old = readLines(f);
+    if (!old.any((l) => l['t'] == t)) {
+      f.writeAsStringSync('${jsonEncode(line)}\n', mode: FileMode.append, flush: true);
+      return;
+    }
+    final tmp = File('${f.parent.path}$_sep.syncthing.${f.uri.pathSegments.last}.tmp');
+    tmp.writeAsStringSync([for (final l in old) l['t'] == t ? line : l].map((l) => '${jsonEncode(l)}\n').join(), flush: true);
+    tmp.renameSync(f.path);
   }
 
   /// Delete by age, then enforce the size cap oldest-first. Returns bytes used.

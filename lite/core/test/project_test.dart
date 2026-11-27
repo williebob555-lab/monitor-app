@@ -71,4 +71,16 @@ void main() {
     expect(s.list(withRetired: true).single.state, 'archived');
     expect(s.history('studio-rack'), hasLength(2));
   });
+
+  test('height is kept for unplaced parts and checked once placed', () {
+    final amp = Placement(id: 'a', name: 'Amplifier', height: 2);
+    final back = Placement.fromJson(jsonDecode(jsonEncode(amp.toJson())))!;
+    expect(back.height, 2);
+    expect(back.u, isNull);
+    expect(back.units, 2);
+    final rack = Assembly(id: 'r', name: 'Rack', units: 12, placements: [back..u = (3, 3)]);
+    expect(rack.check().problems, contains('Amplifier is 2U but placed at U3-U3'));
+    back.u = (3, 4);
+    expect(rack.check().problems, isEmpty);
+  });
 }
