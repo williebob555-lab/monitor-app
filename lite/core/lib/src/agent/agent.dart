@@ -24,6 +24,11 @@ import '../patterns.dart';
 import '../model.dart';
 import '../events.dart';
 import '../integrity.dart';
+import '../unusual.dart';
+import '../rules.dart';
+import '../rule_eval.dart';
+import '../notify.dart';
+import 'desktop_notify.dart';
 import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
@@ -153,6 +158,9 @@ class Agent {
   DateTime? _lastCycle;
   DateTime? _lastHistory;
   List<String> _watchers = const [];
+  DateTime? _unusualAt;
+  List<Reading> _unusual = const [];
+  final _unusualLimit = UnusualLimiter();
   final _extras = Extras();
   final _things = Things();
   final _containers = Containers();
@@ -196,6 +204,11 @@ class Agent {
 
   bool _busy = false;
   EventState? _eventState;
+  bool _settled = false;
+  RuleEngine? _rules;
+  NotifyInbox? _inbox;
+  bool _defaultsChecked = false;
+  String _ruleProblems = '';
   DateTime? _prevCycleAt;
 
   /// Automatic update (Windows): first check [autoUpdateFirstDelay] after
@@ -416,6 +429,23 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      // Unusual for this device (row 16): every 5 minutes, from its history.
+      if (_unusualAt == null || now.difference(_unusualAt!) >= const Duration(minutes: 5)) {
+        _unusualAt = now;
+        try {
+          final dir = folder.deviceDir(cfg.id);
+          final from = now.millisecondsSinceEpoch ~/ 1000 - 3600;
+          final recent = readDetail(dir, now, days: 1).where((l) => (l['t']! as num) >= from).toList();
+          final found = _unusualLimit.apply(findUnusual(readHourly(dir, now), recent, now), now);
+          for (final r in found) {
+            if (!_unusual.any((o) => o.key == r.key)) folder.log(cfg.id, 'unusual: ${r.value}');
+          }
+          _unusual = found;
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR unusual: $e');
+        }
+      }
+      extra = [...extra, ..._unusual];
       _step('extras');
 
       // Things plugged into this machine (UPS, audio interface), Linux only.
@@ -442,6 +472,7 @@ class Agent {
         final after = EventState.of(app: appVersion, others: others, things: things, now: now);
         // Just started, or this machine slept: others' files lag behind.
         final settled = !firstRun && _prevCycleAt != null && now.difference(_prevCycleAt!) < const Duration(minutes: 3) && now.difference(_started) > const Duration(minutes: 5);
+        _settled = settled;
         final ev = diffEvents(before, after, now, peers: settled);
         appendEvents(folder.deviceDir(cfg.id), ev);
         for (final e in ev) {
@@ -518,6 +549,50 @@ class Agent {
         _lastHistory = now;
       }
       _step('write');
+      // Rules (row 19): only once others' files have caught up after a start
+      // or a sleep, so nothing looks offline that isn't.
+      if (_settled) {
+        try {
+          // Default rules (row 21), written once per folder by the one
+          // computer that judges rules for others.
+          if (!_defaultsChecked && ruleEvaluator({...others, cfg.id: r}, now) == cfg.id) {
+            _defaultsChecked = true;
+            final wrote = ensureDefaultRules(cfg.folder);
+            if (wrote.isNotEmpty) folder.log(cfg.id, 'rules: added default rules (switched off): ${wrote.join(', ')}');
+          }
+          final set = RuleSet.load(cfg.folder);
+          final probs = set.problems.entries.map((e) => '${e.key}: ${e.value.join('; ')}').join(' | ');
+          if (probs != _ruleProblems) {
+            if (probs.isNotEmpty) folder.log(cfg.id, 'rules not run: $probs');
+            _ruleProblems = probs;
+          }
+          if (set.rules.isNotEmpty) {
+            final fired = (_rules ??= RuleEngine('${LocalConfig.dir}${Platform.pathSeparator}rules-state.json'))
+                .evaluate(root: cfg.folder, me: cfg.id, rules: set, reports: {...others, cfg.id: r}, things: things, now: now);
+            for (final f in fired) {
+              folder.log(cfg.id, 'rule ${f.rule.id} fired for ${f.subject}: ${f.why} -> ${f.did.join(', ')}');
+            }
+          }
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR rules: $e');
+        }
+        _step('rules');
+      }
+      // Notifications from rules, wherever they fired (row 20). Shown off
+      // the cycle; a burst shows three and a count.
+      try {
+        final notes = (_inbox ??= NotifyInbox('${LocalConfig.dir}${Platform.pathSeparator}notify-state.json')).take(cfg.folder, cfg.id, now);
+        final show = [
+          ...notes.take(3).map((n) => (n.title, n.text)),
+          if (notes.length > 3) ('Monitor App', '${notes.length - 3} more rules fired; see the app'),
+        ];
+        final f = folder, id = cfg.id;
+        for (final (title, text) in show) {
+          desktopNotify(title, text).then((why) => f.log(id, why == null ? 'notified: $title: $text' : 'notification not shown ($why): $title'));
+        }
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR notifications: $e');
+      }
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;

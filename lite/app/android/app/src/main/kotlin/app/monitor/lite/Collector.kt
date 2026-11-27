@@ -243,7 +243,7 @@ object Collector {
                 p.edit().putLong("lastHistory", now).apply()
             }
 
-            runCatching { Alerts.check(ctx, root, now / 1000) }
+            runCatching { RuleNotices.run(ctx, root, now / 1000) }
                 .onFailure { log(dir, "ERROR notifications check: $it") }
 
             if (over.isNotEmpty()) log(dir, "OVER BUDGET: ${over.joinToString("; ")}")

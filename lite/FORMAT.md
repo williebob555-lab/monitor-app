@@ -58,7 +58,7 @@ things (non-primary devices, IoT) get their own top-level folder next to
 | `controls` | settings anyone may ask it to change (see "Controls") |
 | `connected` | things only: `true`, or `false` once unplugged / gone |
 | `watch` | names of the devices that have the app open, when written at the live rate |
-| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
+| `readings` | optional open-ended list: `{key, value, label?, unit?, group?, level?}`; the app shows each group as a part of the device. `level` (`warn`/`fault`) is the device's own judgement and marks the part. Computers publish groups System (maker, model, processor), Sensors (processor temperature, Linux), Tailscale (state, devices online; Linux) and Syncthing (devices connected, folders up to date, which are not), Drives (each drive when there are several) and Containers (Linux with the Docker socket readable). Computers (2.6.9+) add group Unusual when the last hour is far outside what the device usually does at that time of day: `unusual.cpu` / `unusual.mem` / `unusual.temp.cpu`, `level: warn`, value in words ("CPU 70 %, usually 8 % at night"), at most 3 new a day. Every device (computers from 2.6.8, Android too) publishes group Network each cycle: `net.gateway` (router `answers`/`no answer`; not on Windows), `net.dns` (this device's own resolver, `answers`/`no answer`), `net.dnsDirect` (1.1.1.1 or 9.9.9.9), `net.internet` (`reachable`/`no`, a TCP connect to 1.1.1.1:443 or 9.9.9.9:443), each with server and ms in `note`, and `net.ifaces` (`name address, ...`). A Docker host running Pi-hole adds `net.pihole` (`answers`/`no answer`/`stopped`, asked at 127.0.0.1:53). DNS checks ask a random name under example.com so no cache answers; NXDOMAIN counts as working. `assess()` reads these for the network status: "Internet down for everyone", "DNS failing (Pi-hole)" / "DNS failing", "Pi-hole not answering", "No internet on <device>" |
 
 Missing keys mean "not available"; readers never guess.
 
@@ -315,6 +315,94 @@ deleted with the hourly history limit (`hourlyDays`).
 
 `readEvents(root, from, to, {device})` reads them all, oldest first, each
 with the `device` that wrote it.
+
+## Rules (`rules/<id>.json`)
+
+One file per rule, so two devices never edit the same file. A rule says
+when something should happen, about which devices or things, and what to do.
+
+```json
+{"v": 1, "id": "laptop-offline", "name": "Laptop offline 10 min",
+ "enabled": true,
+ "when": {"type": "offline", "for": 600},
+ "scope": {"devices": ["301230114386"]},
+ "then": [{"type": "notify"}, {"type": "annotate"}],
+ "cooldown": 3600}
+```
+
+- `id`: lower-case letters, digits, `-`, `_`, `.` (at most 64), and the
+  file name must be `<id>.json`.
+- `when.type`:
+  - `value`: `path` (e.g. `battery.pct`, `readings.ups.charge`), `op`
+    (`<` `<=` `>` `>=` `==` `!=`), `value` (number, text or true/false; the
+    ordering ops need a number), optional `for` (seconds it must hold).
+  - `event`: `event` is an event type (`peer.offline`) or a prefix ending
+    in `*` (`container.*`).
+  - `unusual`: any `unusual.*` reading appears.
+  - `offline`: the device's reports stop for `for` seconds (default 600).
+- `scope` (optional; missing or empty means everything): `devices` (ids),
+  `things` (ids), `types` (`android`, `windows`, `linux`, `thing:<kind>`).
+- `then` (at least one): `notify` (optional `text`, else the reason;
+  optional `on`, the device ids that show it, else every device), `annotate` (a note on
+  the history at that moment), `control` (`host`, `target`, `key`, `value`:
+  the same request a device could send, still subject to `controls.allow`).
+- `cooldown`: seconds before the same rule fires again for the same subject
+  (default 3600). `enabled`: false keeps the file but stops it.
+- Unknown keys are kept when the file is rewritten.
+
+A file that is not valid never runs. `RuleSet.load(folder)` returns the
+valid rules and, per file name, the problems in plain sentences
+("\"when.op\" < needs a number"), so an editor can show them. Writers use
+`RuleSet.save`, which validates and writes atomically.
+
+**Who runs a rule (2.6.9+).** A computer judges value, event and unusual
+rules about itself and the things it hosts. Offline rules, and rules about
+phones, are judged by one computer: the lowest id among the fresh computers
+on 2.6.9 or newer, which every computer works out the same way from the
+files. A condition fires once per episode (after holding `for` seconds;
+again only after it stopped holding and `cooldown` passed). Offline never
+fires for one system of a dual-boot machine while the other runs, and no
+rule runs in the first 5 minutes after a start or a sleep. Events of type
+`rule.*` never trigger rules.
+
+**What fired: `rules/<id>/fired/<evaluator>.jsonl`**, one line per firing,
+written only by the evaluator named in the file name (at most 256 KB; the
+older half is dropped):
+
+```json
+{"t": 1764252000, "rule": "laptop-offline", "subject": "301230114386",
+ "since": 1764251400, "why": "Wilsons-Laptop: no report for 10 min (last 13:50Z)",
+ "did": ["notify", "annotate"], "notify": "Laptop offline 10 min: ...", "by": "ebad35097c54"}
+```
+
+`since` is when the episode began; a firing whose `since` is already in any
+evaluator's file is not repeated, so a hand-over between evaluators can't
+fire twice. `annotate` adds a `rule.fired` event (subject, name = rule name,
+detail = why) to the evaluator's events. `control` sends an ordinary request
+from the evaluator. `notify` is recorded here with the rule's `name` and `on`.
+
+**Notifications (2.6.9+).** Every device reads the firing files and shows
+each new firing meant for it once (title = rule name, text = `notify`):
+Windows as a toast, a Linux desktop through its notification service,
+Android as a notification. A firing that reaches a device over an hour
+late is skipped; at most three show at once, then a count. Servers
+without a desktop show nothing.
+
+**Default rules (2.6.9+).** The computer that judges rules for others
+writes these once per folder, all with `enabled: false`: `device-offline`
+(30 min), `ups-on-battery` (`power.battery` event), `disk-over-90`
+(`disk.pct`, 10 min), `container-unhealthy`, `dns-failing`
+(`readings.net.dns` is "no answer" for 5 min) and `syncthing-stuck`. Which
+ones were written is kept in `rules/.defaults-written.json`, so a default
+someone changed or deleted is never put back. `disk.pct` and `mem.pct` are
+worked out from `used` and `total` for any rule.
+
+**Phone switches.** A phone's "Notify me on this phone" switch for a device
+is kept as two rules notifying only that phone:
+`phone-<phone>-offline-<device>.json` (no report for 30 min) and
+`phone-<phone>-stuck-<device>.json` (`readings.st.problems` not empty for
+15 min). Switching off sets `enabled` false. Until a 2.6.9+ computer is
+running to judge rules, the phone keeps checking these itself.
 
 ## Model: things you own, plan or observe (`model/`)
 
