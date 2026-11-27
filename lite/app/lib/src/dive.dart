@@ -1,8 +1,10 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
+import 'gap_diagnostics.dart';
 import 'history_coverage.dart';
 import 'parts.dart';
 import 'state.dart';
@@ -366,6 +368,18 @@ class _PartPageState extends State<PartPage> {
                           const Text('Archive unavailable.', style: TextStyle(color: C.muted))
                         else ...[
                               CoverageBand(archive),
+                              if (!r.isThing && range != HistoryRange.year && archive.records.isNotEmpty)
+                                GapDiagnostics(
+                                  key: ValueKey((r.id, archive.end, range)),
+                                  read: () {
+                                    final root = widget.state.folder.root;
+                                    final kinds = widget.state.reports.map((id, report) => MapEntry(id, report.kind));
+                                    final days = range == HistoryRange.day ? 1 : 7;
+                                    final id = r.id;
+                                    final now = archive.end;
+                                    return Isolate.run(() => folderGaps(root, now, days: days, kinds: kinds)[id] ?? <Gap>[]);
+                                  },
+                                ),
                               const SizedBox(height: 12),
                               if (archive.records.isEmpty)
                                 const Text('No readings in this archive window.', style: TextStyle(color: C.muted)),

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 import 'package:monitor_lite/src/dive.dart';
+import 'package:monitor_lite/src/gap_diagnostics.dart';
 import 'package:monitor_lite/src/history_coverage.dart';
 import 'package:monitor_lite/src/host.dart';
 import 'package:monitor_lite/src/state.dart';
@@ -18,6 +19,44 @@ class _Host extends Fake implements LocalHost {
 }
 
 void main() {
+  testWidgets('gap explanations present evidence returned by core', (
+    tester,
+  ) async {
+    final start = DateTime.utc(2026, 11, 27, 12);
+    final end = start.add(const Duration(hours: 1));
+    final a = start.millisecondsSinceEpoch ~/ 1000;
+    final gaps = findGaps([a, a + 1800], 60, from: start, to: end);
+    explainGaps(
+      gaps,
+      'alpha',
+      peerDetail: {
+        'server': [
+          {
+            't': a + 300,
+            'p': {'alpha': 1},
+          },
+          {
+            't': a + 600,
+            'p': {'alpha': 1},
+          },
+        ],
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(),
+        home: Scaffold(body: GapDiagnostics(read: () async => gaps)),
+      ),
+    );
+    await tester.tap(find.text('Explain collection gaps'));
+    await tester.pumpAndSettle();
+    expect(find.text('Collection gaps · 1'), findsOneWidget);
+    expect(
+      find.textContaining('Device was reachable during the gap'),
+      findsOneWidget,
+    );
+  });
+
   test('missing slots are retained while totals use all archive samples', () {
     final end = DateTime.utc(2026, 11, 27, 12);
     final start =
