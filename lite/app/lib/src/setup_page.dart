@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'controls_view.dart';
+import 'folder_checks.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -143,6 +144,10 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
                       _health(st),
                       const SizedBox(height: 14),
                       _HistorySettings(st),
+                      if (st.folder.exists) ...[
+                        const SizedBox(height: 14),
+                        ControlsAccess(st.folder.root, st.names, key: ValueKey(st.folder.root)),
+                      ],
                       const SizedBox(height: 14),
                       Section(
                         'How it works',
@@ -582,6 +587,8 @@ class _HistorySettingsState extends State<_HistorySettings> {
                 style: const TextStyle(color: C.muted, fontSize: 12.5),
               ),
             ),
+          if (widget.st.folder.exists)
+            ArchiveCheck(widget.st.folder.root, widget.st.host.id, key: ValueKey(widget.st.folder.root)),
         ],
       ),
     );

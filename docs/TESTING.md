@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x folder checks
+
+From `lite/app`, run `flutter test test/folder_checks_test.dart`. It runs the archive check against history written by the core writer and checks the active settings policy for the default, a set of named devices, and an empty allow list. Installed Android timing requires an actual tablet.
