@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:monitor_core/monitor_core.dart';
 import 'package:test/test.dart';
 
@@ -25,13 +27,39 @@ void main() {
 
   test('reach leaves out hours the other device was off', () {
     final hourly = [
-      for (var h = 0; h < 10; h++) {'t': 1795680000 + h * 3600, 'n': 60, 'p.x': [h < 5 ? 1 : 0, h < 5 ? 1 : 0, h < 5 ? 1 : 0]},
+      for (var h = 0; h < 10; h++)
+        {
+          't': 1795680000 + h * 3600,
+          'n': 60,
+          'p.x': [h < 5 ? 1 : 0, h < 5 ? 1 : 0, h < 5 ? 1 : 0]
+        },
     ];
-    final up = {'x': {for (var h = 0; h < 5; h++) 1795680000 + h * 3600}};
+    final up = {
+      'x': {for (var h = 0; h < 5; h++) 1795680000 + h * 3600}
+    };
     expect(findPatterns(const [], hourly, names: {'x': 'X'}).single.text, startsWith('Reached X 50 %'));
     // Only 5 hours up: under the 6 needed, so nothing is claimed.
     expect(findPatterns(const [], hourly, names: {'x': 'X'}, upHours: up), isEmpty);
     up['x']!.add(1795680000 + 5 * 3600);
     expect(findPatterns(const [], hourly, names: {'x': 'X'}, upHours: up).single.text, startsWith('Reached X 83 %'));
+  });
+
+  test('pattern values are kept one line per day and pruned with daily history', () {
+    final dir = Directory.systemTemp.createTempSync('pat');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    const p = Pattern(key: 'battery.drain.off', group: 'Battery', text: '', value: 2.345, unit: '%/h', hours: 5);
+    final day1 = DateTime(2026, 11, 20, 9), day2 = DateTime(2026, 11, 21, 9);
+    recordPatterns(dir.path, [p], day1);
+    recordPatterns(dir.path, [const Pattern(key: 'battery.drain.off', group: 'Battery', text: '', value: 3, hours: 6)], day1.add(const Duration(hours: 6)));
+    recordPatterns(dir.path, [p, const Pattern(key: 'x', group: 'g', text: 'no value', hours: 2)], day2);
+    final lines = readPatternHistory(dir.path, day2);
+    expect(lines.length, 2); // the second write on day 1 replaced the first
+    expect(seriesOf(lines, 'battery.drain.off'), [3, 2.35]);
+    expect(lines.last.containsKey('x'), isFalse);
+    // Old years go with the daily retention.
+    final old = File('${dir.path}/history/patterns/2019.jsonl')..writeAsStringSync('{"t":1}\n');
+    HistoryWriter(dir.path, Directory.systemTemp.createTempSync('spool').path).prune(day2, Retention.fromJson({'dailyDays': 365}));
+    expect(old.existsSync(), isFalse);
+    expect(readPatternHistory(dir.path, day2).length, 2);
   });
 }

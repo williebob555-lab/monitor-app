@@ -196,6 +196,7 @@ class Agent {
       tmp.writeAsStringSync(const JsonEncoder.withIndent('  ')
           .convert({'v': 1, 't': now.millisecondsSinceEpoch ~/ 1000, 'patterns': [for (final p in list) p.toJson()]}));
       tmp.renameSync('$dir${sep}patterns.json');
+      recordPatterns(dir, list, now);
     } catch (e) {
       folder.log(id, 'ERROR patterns: $e');
     }
