@@ -228,6 +228,10 @@ class Report {
         'p': {for (final e in peers.entries) e.key: e.value.reachable ? 1 : 0},
         for (final r in readings)
           if (r.value is num) r.key: r.value,
+        // A UPS's mains/battery state as a number, so history and patterns
+        // can count power cuts.
+        for (final r in readings)
+          if (r.key == 'ups.status' && r.value is String) 'ups.onBattery': (r.value as String).startsWith('battery') ? 1 : 0,
       };
 }
 
@@ -235,7 +239,7 @@ class Report {
 /// value: 54.2, unit: "°C", group: "Sensors"}. Value may be a number, text
 /// or true/false.
 class Reading {
-  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level, this.src, this.note});
+  Reading({required this.key, required this.value, this.label, this.unit, this.group, this.level, this.src, this.note, this.from});
   final String key;
 
   /// A number, text or yes/no; null only when [src] is "unknown".
@@ -249,9 +253,20 @@ class Reading {
   final String? src;
   final String? note;
 
+  /// Which path the value came through, where a part can be read more than
+  /// one way (a UPS today): "upower" (UPower on this machine),
+  /// "upower-export" (the host's UPower, through its exported file), "hid"
+  /// (the device directly over USB HID), "nut" or "sysfs". Missing means
+  /// the device's usual path.
+  final String? from;
+
   /// Optional judgement by the device itself: "warn" or "fault". The app
   /// marks the reading's part with it.
   final String? level;
+
+  /// The same reading, marked as having come through [path].
+  Reading withFrom(String path, {String? note}) =>
+      Reading(key: key, value: value, label: label, unit: unit, group: group, level: level, src: src, note: note ?? this.note, from: path);
 
   static Reading? tryParse(Object? j) {
     if (j is! Map) return null;
@@ -266,7 +281,8 @@ class Reading {
         group: _str(j['group']),
         level: _str(j['level']),
         src: src,
-        note: _str(j['note']));
+        note: _str(j['note']),
+        from: _str(j['from']));
   }
 
   Map<String, Object?> toJson() => {
@@ -278,6 +294,7 @@ class Reading {
         if (level != null) 'level': level,
         if (src != null) 'src': src,
         if (note != null) 'note': note,
+        if (from != null) 'from': from,
       };
 }
 

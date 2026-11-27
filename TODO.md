@@ -1,5 +1,7 @@
 # Monitor App Short-Term Work
 
+> **History.** This list is for the old 1.x (.NET) app. Monitor App 2.x follows [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 This file contains active and near-term tasks only. Read it with the required documentation preflight before changing the repository.
 
 ## Current milestone: two equal peers

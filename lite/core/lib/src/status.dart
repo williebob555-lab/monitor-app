@@ -151,6 +151,10 @@ Assessment assess(Map<String, Report> reports, {String? myId, DateTime? now}) {
             othersFresh
                 ? 'This device cannot reach any other device over Tailscale, but readings still arrive through Syncthing.'
                 : 'This device cannot reach any other device over Tailscale and no fresh readings are arriving. It looks cut off from the network.'));
+      } else if (reachBy.isEmpty && unreachBy.isNotEmpty) {
+        out.add(st(Level.warn, 'Others can\'t reach this device',
+            'This device reaches the others over Tailscale, but ${_names(unreachBy)} cannot reach it: incoming connections are blocked here '
+                '(a Tailscale setting that blocks incoming connections, an access rule, or a firewall). Readings are still shared through Syncthing.'));
       } else {
         out.add(st(Level.ok, 'Online', 'This device is collecting and its readings are being shared.'));
       }
@@ -159,8 +163,17 @@ Assessment assess(Map<String, Report> reports, {String? myId, DateTime? now}) {
 
     if (f) {
       if (reachBy.isEmpty && unreachBy.isNotEmpty) {
-        out.add(st(Level.warn, 'Tailscale unreachable',
-            'Its readings still arrive through Syncthing, but ${_names(unreachBy)} cannot reach it over Tailscale. Tailscale may be off on ${d.name}.'));
+        // It reaches others itself: Tailscale is on there, and only incoming
+        // connections are stopped (seen on the Pixel, 2026-11-26/27).
+        final reachesOut = d.peers.entries.where((e) => e.value.reachable).map((e) => reports[e.key]).whereType<Report>().toList();
+        if (reachesOut.isNotEmpty) {
+          out.add(st(Level.warn, 'Can\'t be reached',
+              '${d.name} reaches ${_names(reachesOut)} over Tailscale, but ${_names(unreachBy)} cannot reach it: incoming connections are blocked on ${d.name} '
+                  '(a Tailscale setting that blocks incoming connections, an access rule, or a firewall). Its readings still arrive through Syncthing.'));
+        } else {
+          out.add(st(Level.warn, 'Tailscale unreachable',
+              'Its readings still arrive through Syncthing, but ${_names(unreachBy)} cannot reach it over Tailscale. Tailscale may be off on ${d.name}.'));
+        }
       } else if (notReceiving.isNotEmpty && notReceiving.length < views.length) {
         out.add(st(Level.warn, 'Partly synced',
             'Readings reach this device, but ${_names(notReceiving)} ${notReceiving.length == 1 ? 'is' : 'are'} not receiving them through Syncthing.'));

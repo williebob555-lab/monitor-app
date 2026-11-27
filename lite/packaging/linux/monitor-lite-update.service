@@ -1,0 +1,9 @@
+[Unit]
+Description=Monitor App automatic package update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /usr/lib/monitor-lite/package-update.sh
+Nice=10

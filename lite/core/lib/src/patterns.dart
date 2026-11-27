@@ -120,6 +120,62 @@ List<Pattern> findPatterns(List<Map<String, Object?>> detail, List<Map<String, O
     ..._usual(hourly, 'temp.cpu', 'Temperature', 'CPU temperature', unit: '°C'),
     ..._traffic(hourly),
     ..._reach(hourly, names, upHours),
+    ..._usual(hourly, 'ups.load', 'Power', 'UPS load'),
+    ..._powerCuts(detail),
+    ..._fullRuntime(detail),
+  ];
+}
+
+/// Power cuts a UPS rode through: from `ups.onBattery` in detail lines (the
+/// last 7 days). A gap over 20 minutes between readings is not counted as
+/// either state.
+List<Pattern> _powerCuts(List<Map<String, Object?>> lines) {
+  var cuts = 0, covered = 0.0, onBattery = 0.0, longest = 0.0, run = 0.0;
+  for (var i = 1; i < lines.length; i++) {
+    final a = _num(lines[i - 1], 'ups.onBattery'), b = _num(lines[i], 'ups.onBattery');
+    final dt = ((lines[i]['t']! as num) - (lines[i - 1]['t']! as num)).toDouble();
+    if (a == null || b == null || dt <= 0 || dt > 1200) {
+      run = 0;
+      continue;
+    }
+    covered += dt;
+    if (a == 0 && b == 1) cuts++;
+    if (a == 1) {
+      onBattery += dt;
+      run += dt;
+      longest = math.max(longest, run);
+    }
+    if (b == 0) run = 0;
+  }
+  final hours = covered / 3600;
+  if (hours < 6) return const [];
+  if (cuts == 0 && onBattery == 0) {
+    return [Pattern(key: 'ups.cuts', group: 'Power', text: 'No power cuts (over ${_h(hours)})', value: 0, unit: 'cuts', hours: hours)];
+  }
+  final n = cuts == 0 ? 1 : cuts;
+  return [
+    Pattern(
+        key: 'ups.cuts',
+        group: 'Power',
+        text: 'On battery ${n == 1 ? 'once' : '$n times'}, ${_f(onBattery / 60)} min in all, longest ${_f(longest / 60)} min (over ${_h(hours)})',
+        value: n.toDouble(),
+        unit: 'cuts',
+        hours: hours),
+  ];
+}
+
+/// The runtime the UPS itself estimates when full and on mains: falling
+/// over months is the battery wearing out (kept in the pattern history).
+List<Pattern> _fullRuntime(List<Map<String, Object?>> lines) {
+  final r = [
+    for (final l in lines)
+      if ((_num(l, 'ups.charge') ?? 0) >= 99 && _num(l, 'ups.onBattery') == 0 && _num(l, 'ups.runtime') != null) _num(l, 'ups.runtime')!.toDouble(),
+  ]..sort();
+  if (r.length < 30) return const [];
+  final usual = r[r.length ~/ 2];
+  final hours = r.length / 60; // about one reading a minute
+  return [
+    Pattern(key: 'ups.runtime.full', group: 'Power', text: 'When full, the UPS expects to last about ${_f(usual)} min at the usual load', value: usual, unit: 'min', hours: hours, estimated: true),
   ];
 }
 

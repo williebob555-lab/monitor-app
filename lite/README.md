@@ -74,8 +74,22 @@ syncs like everything else.
 
 Setup and updates > Install. The app downloads the release file, checks it
 against the release's SHA256SUMS and hands it to the system installer.
-Nothing installs without that tap. Servers in Docker:
-`docker compose build --pull --no-cache && docker compose up -d`.
+
+Automatic (2.6.7+, on unless `settings.json` has `"update": {"auto": false}`):
+
+* **Windows**: the collector checks every 6 hours (first 10 minutes after
+  sign-in) and installs silently while the app window is closed.
+* **Android**: a background job every few hours, on Wi-Fi or another
+  unmetered network with the battery not low, installs while the screen is
+  off. Android allows this without a tap only when Monitor App installed the
+  running version itself; the first time it asks once with a notification.
+* **Servers in Docker**: the updater timer (`packaging/docker/update.sh`),
+  or by hand `docker compose build --pull --no-cache && docker compose up -d`.
+* **Linux packages** (rpm/deb): a root timer the package installs
+  (`monitor-lite-update.timer`, 15 minutes after boot, then every 6 hours)
+  runs `/usr/lib/monitor-lite/package-update.sh`: newest release, checked
+  against SHA256SUMS, installed with dnf or apt. `sh
+  /usr/lib/monitor-lite/package-update.sh --check` says what it would do.
 
 ## Layout
 

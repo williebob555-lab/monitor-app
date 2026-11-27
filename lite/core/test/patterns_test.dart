@@ -62,4 +62,37 @@ void main() {
     expect(old.existsSync(), isFalse);
     expect(readPatternHistory(dir.path, day2).length, 2);
   });
+
+  test('UPS: power cuts with their length, usual load, runtime when full (estimated)', () {
+    Map<String, Object?> u(int min, {int onBattery = 0, num charge = 100, num runtime = 70.5, num load = 13}) =>
+        {'t': 1795680000 + min * 60, 'ups.onBattery': onBattery, 'ups.charge': charge, 'ups.runtime': runtime, 'ups.load': load};
+    final lines = [
+      for (var m = 0; m < 600; m++)
+        // Two cuts: 5 min at minute 100, 12 min at minute 300.
+        if (m >= 100 && m < 105 || m >= 300 && m < 312) u(m, onBattery: 1, charge: 90, runtime: 40) else u(m),
+    ];
+    final hourly = [
+      for (var h = 0; h < 10; h++)
+        {
+          't': 1795680000 + h * 3600,
+          'n': 60,
+          'ups.load': [10, 13, 20]
+        }
+    ];
+    final p = {for (final x in findPatterns(lines, hourly)) x.key: x};
+    expect(p['ups.cuts']!.value, 2);
+    expect(p['ups.cuts']!.text, 'On battery 2 times, 17 min in all, longest 12 min (over 10.0 h)');
+    expect(p['ups.load.usual']!.text, startsWith('UPS load is usually 13 %, highest 20 %'));
+    expect(p['ups.runtime.full']!.value, 70.5);
+    expect(p['ups.runtime.full']!.estimated, isTrue);
+    final calm = {
+      for (final x in findPatterns([for (var m = 0; m < 600; m++) u(m)], const [])) x.key: x
+    };
+    expect(calm['ups.cuts']!.text, startsWith('No power cuts'));
+  });
+
+  test('a UPS history line says whether it is on battery', () {
+    final r = Report(id: 'u', name: 'UPS', kind: 'thing', time: DateTime.utc(2026), readings: [Reading(key: 'ups.status', value: 'battery, low')]);
+    expect(r.historyLine()['ups.onBattery'], 1);
+  });
 }

@@ -9,6 +9,7 @@ import '../history.dart';
 import '../report.dart';
 import '../status.dart' show freshLimit;
 import '../topology.dart';
+import '../update.dart';
 import '../version.dart';
 import 'extras.dart';
 import 'linux.dart';
@@ -20,6 +21,9 @@ import 'updater.dart';
 import 'hid_ups.dart';
 import '../control.dart';
 import '../patterns.dart';
+import '../model.dart';
+import '../events.dart';
+import '../project.dart';
 
 /// Budgets the background program holds itself to. Breaking one is written
 /// to its own log and into now.json so it shows in the app.
@@ -119,6 +123,29 @@ class Agent {
   DateTime? _lastPrune;
   DateTime? _lastSummary;
   int _cycles = 0, _maxCycleMs = 0;
+
+  /// Where cycles spend their time and memory (row 2 of docs/ROADMAP.md):
+  /// per step, the slowest time this hour and the total memory it added.
+  /// Written in the hourly "ok" line as steps[name=maxMs/+MB ...].
+  final Map<String, (int, double)> _steps = {};
+  Stopwatch? _stepSw;
+  double _stepRss = 0;
+  void _stepStart() {
+    _stepSw = Stopwatch()..start();
+    _stepRss = ProcessInfo.currentRss / (1024 * 1024);
+  }
+
+  void _step(String name) {
+    final ms = _stepSw?.elapsedMilliseconds ?? 0;
+    final rss = ProcessInfo.currentRss / (1024 * 1024);
+    final grew = rss - _stepRss;
+    final old = _steps[name] ?? (0, 0.0);
+    _steps[name] = (ms > old.$1 ? ms : old.$1, old.$2 + (grew > 0 ? grew : 0));
+    _stepSw = Stopwatch()..start();
+    _stepRss = rss;
+  }
+
+  String _stepsText() => _steps.entries.map((e) => '${e.key}=${e.value.$1}ms/+${e.value.$2.toStringAsFixed(1)}MB').join(' ');
   double _maxRss = 0;
 
   static const fast = Duration(seconds: watchIntervalSeconds);
@@ -158,6 +185,8 @@ class Agent {
       // A little slack so a 10 s timer doesn't miss a 60 s cycle by a hair.
       if (_lastCycle == null || now.difference(_lastCycle!) >= due - const Duration(seconds: 2) || (_watchers.isNotEmpty && !was)) {
         cycle();
+      } else {
+        _autoUpdate(now);
       }
     } catch (_) {
       cycle();
@@ -165,6 +194,46 @@ class Agent {
   }
 
   bool _busy = false;
+  EventState? _eventState;
+  DateTime? _prevCycleAt;
+
+  /// Automatic update (Windows): first check [autoUpdateFirstDelay] after
+  /// start, then every [autoUpdateEvery]. Runs beside the cycles, not in
+  /// one, so a download never counts against the cycle budget. Waits while
+  /// the app window is open here, so nobody's screen closes under them.
+  final DateTime _started = DateTime.now().toUtc();
+  DateTime? _lastUpdateCheck;
+  bool _updating = false;
+
+  Future<void> _autoUpdate(DateTime now) async {
+    if (!Updater.canUpdate || _updating || _busy) return;
+    if (now.difference(_lastUpdateCheck ?? _started.subtract(autoUpdateEvery - autoUpdateFirstDelay)) < autoUpdateEvery) return;
+    _updating = true;
+    _lastUpdateCheck = now;
+    try {
+      final cfg = LocalConfig.load();
+      final folder = SyncFolder(cfg.folder);
+      if (!autoUpdateOn(cfg.folder)) return;
+      if (folder.watchedHere(cfg.id, now)) {
+        _lastUpdateCheck = now.subtract(autoUpdateEvery - const Duration(minutes: 30)); // look again in 30 min
+        return;
+      }
+      String msg;
+      try {
+        msg = await Updater.start(folder, cfg, why: 'automatic update');
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR update check: $e');
+        return;
+      }
+      if (msg.startsWith('installing')) {
+        folder.log(cfg.id, 'update: $msg; the installer restarts the collector');
+        exit(0);
+      }
+    } catch (_) {
+    } finally {
+      _updating = false;
+    }
+  }
 
   /// Writes each attached thing's file. A thing seen before but not now is
   /// rewritten as disconnected, keeping its declared place in the hierarchy.
@@ -232,6 +301,11 @@ class Agent {
         res = done(false, '$e');
       }
       folder.writeResult(cfg.id, res);
+      if (res.ok) {
+        appendEvents(folder.deviceDir(cfg.id), [
+          Event(DateTime.now().toUtc(), 'control.applied', subject: r.target, detail: '${r.key}=${r.value}, asked by ${r.fromName}: ${res.message}')
+        ]);
+      }
       folder.log(cfg.id, '${res.ok ? 'control' : 'ERROR control'} ${r.key}=${r.value} for ${r.target}, asked by ${r.fromName}: ${res.message}');
       if (r.key == 'update' && res.ok && Updater.exitsAfterStart) exit(0);
     }
@@ -254,6 +328,21 @@ class Agent {
       }));
       tmp.renameSync('$dir${sep}patterns.json');
       recordPatterns(dir, list, now);
+      // Attached things with history of their own (a UPS: load, power cuts,
+      // runtime when full) get theirs next to their now.json.
+      for (final t in folder.thingIds(id)) {
+        final tdir = folder.thingDir(id, t);
+        final tl = findPatterns(readDetail(tdir, now), readHourly(tdir, now));
+        if (tl.isEmpty) continue;
+        final ttmp = File('$tdir$sep.syncthing.patterns.json.tmp');
+        ttmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert({
+          'v': 1,
+          't': now.millisecondsSinceEpoch ~/ 1000,
+          'patterns': [for (final p in tl) p.toJson()]
+        }));
+        ttmp.renameSync('$tdir${sep}patterns.json');
+        recordPatterns(tdir, tl, now);
+      }
     } catch (e) {
       folder.log(id, 'ERROR patterns: $e');
     }
@@ -287,11 +376,15 @@ class Agent {
         folder.log(cfg.id, 'update: a new version was installed; restarting the collector');
         exit(0);
       }
+      _stepStart();
       await _applyRequests(folder, cfg, DateTime.now().toUtc());
+      _step('requests');
       final s = host.sample();
+      _step('sample');
       final ip = await tailscaleIp();
       final stLocal = await tcpProbe('127.0.0.1', timeout: const Duration(seconds: 1));
       final others = folder.readReports()..remove(cfg.id);
+      _step('read');
       final now = DateTime.now().toUtc();
       final peers = <String, PeerView>{};
       await Future.wait(others.values.where((o) => _machine == null || o.machine != _machine).map((o) async {
@@ -310,6 +403,7 @@ class Agent {
         final (t, ms) = await (tcpProbeTimed(o.tailscaleIp!), host.ping(o.tailscaleIp!)).wait;
         peers[o.id] = PeerView(tcp: t.$1, pingMs: ms, tcpMs: t.$2, seenAge: seen);
       }));
+      _step('peers');
 
       List<Reading> extra;
       try {
@@ -317,6 +411,7 @@ class Agent {
       } catch (_) {
         extra = const [];
       }
+      _step('extras');
 
       // Things plugged into this machine (UPS, audio interface), Linux only.
       var things = <Report>[];
@@ -333,7 +428,27 @@ class Agent {
         }
       }
 
+      _step('things');
       final parents = _writeThings(folder, cfg.id, things, now);
+      _step('thingfiles');
+      try {
+        final statePath = '${LocalConfig.dir}${Platform.pathSeparator}events-state.json';
+        final before = _eventState ??= EventState.load(statePath);
+        final after = EventState.of(app: appVersion, others: others, things: things, now: now);
+        // Just started, or this machine slept: others' files lag behind.
+        final settled = !firstRun && _prevCycleAt != null && now.difference(_prevCycleAt!) < const Duration(minutes: 3) && now.difference(_started) > const Duration(minutes: 5);
+        final ev = diffEvents(before, after, now, peers: settled);
+        appendEvents(folder.deviceDir(cfg.id), ev);
+        for (final e in ev) {
+          folder.log(cfg.id, 'event ${e.type}${e.name != null ? ' ${e.name}' : ''}${e.detail != null ? ': ${e.detail}' : ''}');
+        }
+        if (ev.isNotEmpty || before.values.isEmpty || firstRun) after.save(statePath);
+        _eventState = after;
+        _prevCycleAt = now;
+      } catch (e) {
+        folder.log(cfg.id, 'ERROR events: $e');
+      }
+      _step('events');
 
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       final cpu1 = host.processCpuMs();
@@ -393,6 +508,7 @@ class Agent {
         hw.add(r.historyLine(), now);
         _lastHistory = now;
       }
+      _step('write');
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;
@@ -403,17 +519,26 @@ class Agent {
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;
+        _steps.clear();
         _maxRss = 0;
       }
       if (_lastPrune == null || now.difference(_lastPrune!) > const Duration(hours: 6)) {
-        final used = hw.prune(now, Retention.load(cfg.folder));
+        final ret = Retention.load(cfg.folder);
+        final used = hw.prune(now, ret);
+        pruneEvents(folder.deviceDir(cfg.id), now, ret.hourlyDays);
         folder.log(cfg.id, 'history ${(used / 1024).round()} KB');
         _lastPrune = now;
         _writePatterns(folder, cfg.id, others, now);
+        try {
+          final n = ModelStore(cfg.folder, cfg.id).resolveConflicts() + ProjectStore(cfg.folder, cfg.id).resolveConflicts();
+          if (n > 0) folder.log(cfg.id, 'model: resolved $n conflict copies (newest kept, others in history)');
+        } catch (e) {
+          folder.log(cfg.id, 'ERROR model conflicts: $e');
+        }
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {
