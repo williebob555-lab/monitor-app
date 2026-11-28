@@ -233,3 +233,7 @@ order of 20 to 25 long working sessions, most of them in phases A to D.
 * A ChatGPT `data:` issue becomes a row here, placed by what it unblocks.
 * Section 4 is refreshed from the real device files at the end of each long
   run.
+
+### 2.7.1 UI follow-through
+
+- Home, Map, and Device views use the core physical-machine grouping. The History view reads the archived reports for each system under the same machine.

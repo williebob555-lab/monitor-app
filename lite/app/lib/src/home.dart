@@ -5,6 +5,7 @@ import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
 import 'dive.dart';
+import 'machine_views.dart';
 import 'map_view.dart';
 import 'parts.dart';
 import 'timeline.dart';
@@ -83,17 +84,25 @@ class HomePage extends StatelessWidget {
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 24),
                   sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                       maxCrossAxisExtent: 420,
-                      mainAxisExtent: 262,
+                      mainAxisExtent: a.machines.any((machine) => machine.others.isNotEmpty) ? 286 : 262,
                       mainAxisSpacing: 14,
                       crossAxisSpacing: 14,
                     ),
                     delegate: SliverChildBuilderDelegate(
-                      (context, i) => DeviceCard(a.devices[i], isMe: a.devices[i].report.id == state.host.id, onTap: () {
-                        Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(state, a.devices[i].report.id)));
-                      }),
-                      childCount: a.devices.length,
+                      (context, i) {
+                        final machine = a.machines[i];
+                        return DeviceCard(
+                          machine.current,
+                          otherSystems: machine.others,
+                          isMe: machine.systems.any((system) => system.report.id == state.host.id),
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => DevicePage(state, machine.id),
+                          )),
+                        );
+                      },
+                      childCount: a.machines.length,
                     ),
                   ),
                 ),
@@ -131,7 +140,8 @@ class HomePage extends StatelessWidget {
     final names = {for (final d in a.devices) d.report.id: d.report.name};
     final away = {for (final d in a.devices) if (d.level == Level.inactive) d.report.id};
     final out = <(String, Part, Report)>[];
-    for (final d in a.devices) {
+    for (final machine in a.machines) {
+      final d = machine.current;
       if (!d.fresh) continue;
       for (final p in partsOf(d.report, names, away: away)) {
         if (p.level == Level.warn || p.level == Level.fault) out.add((d.report.id, p, d.report));
@@ -155,13 +165,15 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = C.of(n.level);
+    final borderColor = n.level == Level.warn || n.level == Level.fault
+        ? C.of(n.level).withValues(alpha: 0.55)
+        : C.line;
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         color: C.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border(left: BorderSide(color: color, width: 4), top: const BorderSide(color: C.line), right: const BorderSide(color: C.line), bottom: const BorderSide(color: C.line)),
+        border: Border.all(color: borderColor),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(padding: const EdgeInsets.only(top: 6), child: StatusDot(n.level, size: 12)),
@@ -206,10 +218,11 @@ class _Banner extends StatelessWidget {
 }
 
 class DeviceCard extends StatelessWidget {
-  const DeviceCard(this.s, {super.key, required this.isMe, required this.onTap});
+  const DeviceCard(this.s, {super.key, required this.isMe, required this.onTap, this.otherSystems = const []});
   final DeviceStatus s;
   final bool isMe;
   final VoidCallback onTap;
+  final List<DeviceStatus> otherSystems;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +248,15 @@ class DeviceCard extends StatelessWidget {
             StatusChip(s.level, s.title),
             const SizedBox(height: 8),
             Text(s.detail, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 12.5, height: 1.3)),
+            if (otherSystems.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                'Also boots ${otherSystems.map((system) => systemName(system.report)).join(', ')}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: C.muted, fontSize: 12),
+              ),
+            ],
             const Spacer(),
             Opacity(
               opacity: dim ? 0.55 : 1,

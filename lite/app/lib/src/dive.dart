@@ -1,8 +1,11 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
+import 'machine_history.dart';
+import 'machine_views.dart';
 import 'parts.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -261,22 +264,68 @@ class PartPage extends StatefulWidget {
 class _PartPageState extends State<PartPage> {
   HistoryRange range = HistoryRange.day;
   HistoryRange? _loadedRange;
-  int _seq = -1;
-  List<Map<String, Object?>> history = const [];
+  List<String> _loadedIds = const [];
+  DateTime? _loadedAt;
+  Future<Map<String, List<Map<String, Object?>>>>? _history;
 
-  void _load(Report r) {
-    if (r.seq == _seq && range == _loadedRange) return;
-    // History files change at most every 15 minutes: no need to re-read on
-    // every live update.
-    if (range == _loadedRange && history.isNotEmpty && r.seq - _seq < 30) return;
-    _seq = r.seq;
-    _loadedRange = range;
-    try {
-      history = readHistoryRange(widget.state.dirOf(r.id), range, DateTime.now());
-    } catch (_) {
-      history = const [];
+  void _load(List<String> ids) {
+    final now = DateTime.now();
+    if (range == _loadedRange && listEquals(ids, _loadedIds) &&
+        _loadedAt != null && now.difference(_loadedAt!) < const Duration(minutes: 2)) {
+      return;
     }
+    _loadedRange = range;
+    _loadedIds = ids;
+    _loadedAt = now;
+    _history = compute(readMachineHistory, ({
+      for (final id in ids) id: widget.state.dirOf(id),
+    }, range, now));
   }
+
+  Widget _archive(Part part, Map<String, Report> reports) => FutureBuilder(
+    future: _history,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) return const Text('Could not open device history.');
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const LinearProgressIndicator();
+      }
+      final archives = snapshot.data ?? const <String, List<Map<String, Object?>>>{};
+      final recorded = archives.entries.where((entry) => entry.value.any(
+        (line) => part.series.any((series) => chartValue(line, series.historyKey) != null),
+      )).toList();
+      if (recorded.isEmpty) {
+        return const Text('No readings for this part in the selected time range.',
+          style: TextStyle(color: C.muted));
+      }
+      final span = switch (range) {
+        HistoryRange.day => '24 h ago',
+        HistoryRange.week => '7 days ago',
+        HistoryRange.year => 'a year ago',
+      };
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final entry in recorded) ...[
+            if (archives.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                child: Text(
+                  reports[entry.key] == null ? entry.key : systemName(reports[entry.key]!),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            for (final series in part.series)
+              Chart(
+                label: series.label,
+                values: [for (final line in entry.value) chartValue(line, series.historyKey)],
+                series: series,
+                span: span,
+              ),
+          ],
+        ],
+      );
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -290,7 +339,7 @@ class _PartPageState extends State<PartPage> {
         final parts = partsOf(r, names, away: widget.state.away);
         final p = parts.where((x) => x.id == widget.partId).firstOrNull;
         if (p == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('This part is no longer reported.')));
-        _load(r);
+        if (p.series.isNotEmpty) _load(widget.state.assessment.systemsOf(r.id));
         final live = widget.state.live[r.id] ?? const <Report>[];
         final others = parts.where((x) => x.id != p.id && (x.level == Level.warn || x.level == Level.fault)).toList();
         final liveSpan = live.length >= 2 ? 'last ${ago(live.last.time.difference(live.first.time))}' : 'since you opened the app';
@@ -337,7 +386,8 @@ class _PartPageState extends State<PartPage> {
                     const SizedBox(height: 14),
                     Section(
                       'History',
-                      trailing: SegmentedButton<HistoryRange>(
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        SegmentedButton<HistoryRange>(
                         showSelectedIcon: false,
                         style: const ButtonStyle(visualDensity: VisualDensity.compact),
                         segments: const [
@@ -347,21 +397,10 @@ class _PartPageState extends State<PartPage> {
                         ],
                         selected: {range},
                         onSelectionChanged: (v) => setState(() => range = v.first),
-                      ),
-                      history.length < 2
-                          ? const Text('Not enough history yet: readings move into history every 15 minutes, hourly and daily summaries after the first full hour and day.',
-                              style: TextStyle(color: C.muted))
-                          : Column(children: [
-                              for (final x in p.series) ...[
-                                Chart(
-                                  label: x.label,
-                                  values: [for (final l in history) chartValue(l, x.historyKey)],
-                                  series: x,
-                                  span: switch (range) { HistoryRange.day => '24 h ago', HistoryRange.week => '7 days ago', HistoryRange.year => 'a year ago' },
-                                ),
-                                if (x != p.series.last) const SizedBox(height: 14),
-                              ],
-                            ]),
+                        ),
+                        const SizedBox(height: 8),
+                        _archive(p, widget.state.reports),
+                      ]),
                     ),
                     const SizedBox(height: 14),
                   ],

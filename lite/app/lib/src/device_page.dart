@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'controls_view.dart';
 import 'dive.dart';
+import 'machine_views.dart';
 import 'parts.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -14,9 +15,10 @@ import 'widgets.dart';
 /// One device, opened up: its status in words, then the device with its parts
 /// around it (tap a part to dive into it), then what it is and its log.
 class DevicePage extends StatefulWidget {
-  const DevicePage(this.state, this.id, {super.key});
+  const DevicePage(this.state, this.id, {super.key, this.specificSystem = false});
   final AppState state;
   final String id;
+  final bool specificSystem;
   @override
   State<DevicePage> createState() => _DevicePageState();
 }
@@ -26,14 +28,15 @@ class _DevicePageState extends State<DevicePage> {
   bool showFields = false;
   String filter = '';
   Future<List<Pattern>>? patterns;
+  String? _openedSystem;
 
   /// Worked out once per opening, off the UI thread: it reads up to a week
   /// of this device's history and a month of every device's summaries.
-  Future<List<Pattern>> _findPatterns() {
+  Future<List<Pattern>> _findPatterns(String id) {
     final st = widget.state;
     final names = st.names;
-    final dir = st.dirOf(widget.id);
-    final others = {for (final id in st.reports.keys) if (id != widget.id) id: st.folder.deviceDir(id)};
+    final dir = st.dirOf(id);
+    final others = {for (final other in st.reports.keys) if (other != id) other: st.folder.deviceDir(other)};
     return Isolate.run(() {
       final now = DateTime.now();
       final up = {for (final e in others.entries) e.key: hoursUp(readHourly(e.value, now))};
@@ -47,7 +50,11 @@ class _DevicePageState extends State<DevicePage> {
       listenable: widget.state,
       builder: (context, _) {
         final st = widget.state;
-        final s = st.statusOf(widget.id);
+        final machine = machineFor(st.assessment, widget.id);
+        // Keep controls and logs on the report the user opened if the machine
+        // changes OS while this screen is visible.
+        final selected = _openedSystem ??= widget.specificSystem ? widget.id : machine?.id ?? widget.id;
+        final s = st.statusOf(selected);
         if (s == null) {
           return Scaffold(appBar: AppBar(), body: const Center(child: Text('This device has no readings yet.')));
         }
@@ -77,7 +84,7 @@ class _DevicePageState extends State<DevicePage> {
               if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
-              if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
+              if (!r.isThing) ...[const SizedBox(height: 14), _patterns(r.id)],
             ];
             final right = <Widget>[
               if (r.controls.isNotEmpty) ...[ControlsSection(widget.state, r), const SizedBox(height: 14)],
@@ -110,6 +117,14 @@ class _DevicePageState extends State<DevicePage> {
             ];
             return ListView(padding: EdgeInsets.fromLTRB(pad, 4, pad, 28), children: [
               _statusCard(s),
+              if (machine != null && machine.others.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                MachineSystems(machine, selected, onOpen: (id) =>
+                  Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+                    builder: (_) => DevicePage(st, id, specificSystem: true),
+                  )),
+                ),
+              ],
               const SizedBox(height: 16),
               hub,
               const SizedBox(height: 8),
@@ -182,8 +197,8 @@ class _DevicePageState extends State<DevicePage> {
   }
 
   /// What its history shows, in words (core patterns.dart).
-  Widget _patterns() {
-    patterns ??= _findPatterns();
+  Widget _patterns(String id) {
+    patterns ??= _findPatterns(id);
     return FutureBuilder<List<Pattern>>(
       future: patterns,
       builder: (context, snap) {

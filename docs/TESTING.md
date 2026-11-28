@@ -389,3 +389,7 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x physical machines
+
+From `lite/app`, run `flutter test test/physical_machines_test.dart`. The phone-width tests confirm a single Home entry for a dual-boot machine and separate, labeled history series in one view, using archive files created through the core writer.
