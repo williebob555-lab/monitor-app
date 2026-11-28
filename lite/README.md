@@ -86,6 +86,21 @@ syncs like everything else.
   the phone adds its rough position (about 1 km) from what Android already
   knows. Every device in the folder can read it.
 
+## Optional extras (each off until you set it up)
+
+* **Disk health (SMART, 2.7.1)**: a small read-only timer on a Linux host
+  shares each disk's health with the collector
+  (`packaging/linux/smart-export.sh`; steps in packaging/docker/README.md).
+* **Shops (2.7.1-2.7.3)**: one computer named in `model/fetch.json` fetches
+  offers once a day through official shop APIs (eBay needs a developer key
+  in that computer's own `keys.json`). It keeps price history, writes
+  `price.below` / `price.instock` events for rules, answers "find me one"
+  for a project's missing cables, and finds exact-model front photos on the
+  maker's site (robots.txt obeyed). FORMAT.md has the files.
+* **Local AI (2.7.2)**: with Ollama on a computer, the app can ask for a
+  plain-words week summary or an explanation of a finding. Nothing leaves
+  your machines.
+
 ## Updates
 
 Setup and updates > Install. The app downloads the release file, checks it
