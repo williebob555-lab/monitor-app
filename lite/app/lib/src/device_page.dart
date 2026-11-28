@@ -5,6 +5,7 @@ import 'package:monitor_core/monitor_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'controls_view.dart';
+import 'disk_health.dart';
 import 'dive.dart';
 import 'parts.dart';
 import 'state.dart';
@@ -155,7 +156,10 @@ class _DevicePageState extends State<DevicePage> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(t.report.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text('${s.title}${vias.isEmpty ? '' : '  ·  $vias'}', style: TextStyle(color: s.level == Level.ok ? C.muted : C.of(s.level), fontSize: 12)),
+              if (t.report.node?.type == 'disk')
+                DiskHealth(s)
+              else
+                Text('${s.title}${vias.isEmpty ? '' : '  ·  $vias'}', style: TextStyle(color: s.level == Level.ok ? C.muted : C.of(s.level), fontSize: 12)),
             ]),
           ),
           const Icon(Icons.chevron_right, color: C.muted, size: 18),

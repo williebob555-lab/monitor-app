@@ -389,3 +389,8 @@ Do not leave multiple undocumented ways to run the same suite. Package and platf
 ## Completion evidence
 
 A handoff must report the literal commands run, whether each succeeded, the environment used, and any suite not run. “Tests added” is not evidence that tests passed.
+
+## Monitor App 2.x Home status
+
+From `lite/app`, run `flutter test test/home_glance_test.dart`. The phone-width test uses the core glance projection and checks UPS placement, a recorded zero runtime, stale disk warnings, and direct navigation.
+The same suite verifies that disk wear displays a measured zero and omits unavailable values.
