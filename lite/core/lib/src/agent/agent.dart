@@ -170,7 +170,7 @@ class Agent {
   }
 
   String _stepsText() => _steps.entries.map((e) => '${e.key}=${e.value.$1}ms/+${e.value.$2.toStringAsFixed(1)}MB').join(' ');
-  double _maxRss = 0;
+  double _maxRss = 0, _minRss = 0;
 
   static const fast = Duration(seconds: watchIntervalSeconds);
   DateTime? _lastCycle;
@@ -652,8 +652,12 @@ class Agent {
       } catch (e) {
         folder.log(cfg.id, 'ERROR notifications: $e');
       }
+      _step('notify');
       if (over.isNotEmpty) folder.log(cfg.id, 'OVER BUDGET: ${over.join('; ')}');
       _cycles++;
+      // Lowest memory seen this hour: near maxRss means a resident heap, far
+      // below means short peaks (row 2).
+      _minRss = _minRss == 0 || rss < _minRss ? rss : _minRss;
       _maxCycleMs = sw.elapsedMilliseconds > _maxCycleMs ? sw.elapsedMilliseconds : _maxCycleMs;
       _maxRss = rss > _maxRss ? rss : _maxRss;
       if (_lastSummary == null || now.difference(_lastSummary!) > const Duration(hours: 1)) {
@@ -662,12 +666,13 @@ class Agent {
                 '${now.difference(o.time).inSeconds > freshLimit(o).inSeconds ? 'stale' : 'fresh'}')
             .join(' ');
         folder.log(cfg.id,
-            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${Extras.tailscaleProblem == null ? '' : ' ts-problem="${Extras.tailscaleProblem}"'}${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
+            'ok cycles=$_cycles maxCycle=${_maxCycleMs}ms maxRss=${_maxRss.toStringAsFixed(1)}MB minRss=${_minRss.toStringAsFixed(1)}MB ts=${ip ?? 'none'} st=$stLocal peers[$seen] steps[${_stepsText()}]${Extras.tailscaleProblem == null ? '' : ' ts-problem="${Extras.tailscaleProblem}"'}${host.pingProblem == null ? '' : ' ping-problem="${host.pingProblem}"'}');
         _lastSummary = now;
         _cycles = 0;
         _maxCycleMs = 0;
         _steps.clear();
         _maxRss = 0;
+        _minRss = 0;
       }
       if (_lastPrune == null || now.difference(_lastPrune!) > const Duration(hours: 6)) {
         final ret = Retention.load(cfg.folder);
@@ -718,6 +723,9 @@ class Agent {
           f.log(id, 'ERROR discover: $e');
         }).whenComplete(() => _discovering = false));
       }
+      // Patterns, conflicts and background starts, so no growth goes
+      // unattributed.
+      _step('tail');
     } catch (e, st) {
       if (cfg != null && folder != null) {
         folder.log(cfg.id, 'ERROR cycle failed: $e ${st.toString().split('\n').take(3).join(' | ')}');
