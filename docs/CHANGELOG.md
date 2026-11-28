@@ -257,3 +257,8 @@ This file records completed user-visible, operational, architectural, packaging,
 - Update eligibility now fails closed for invalid signatures, untrusted keys, downgrade/reinstall, incompatible versions, wrong targets, and size/hash mismatch; signing and Android-keystore files are excluded from source control.
 - Android enrollment retains the private P-256 key inside Android Keystore and never persists the one-time enrollment secret or proof challenge.
 - Short pairing codes are one-time, 10-minute, never transmitted (PBKDF2-derived lookup id; the desktop reply carries an HMAC proof keyed by the code), globally rate-limited, and refuse unknown/expired/used/limited attempts identically; see `docs/SECURITY.md` Phone pairing.
+
+## Monitor App 2.x Home status (unreleased)
+
+- Home shows UPS power source, charge, and reported runtime above the network summary. Tap once for details. Recent disk warnings appear below the UPS.
+- Attached disks show SMART status, temperature, and measured endurance used when reported.

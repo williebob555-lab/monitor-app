@@ -174,6 +174,7 @@ IconData kindIcon(String kind, [String name = '']) => switch (kind) {
 IconData thingIcon(String? type) => switch (type) {
       'ups' => Icons.battery_charging_full,
       'audio-interface' => Icons.graphic_eq,
+      'disk' => Icons.storage,
       'compose-project' => Icons.layers_outlined,
       'container' => Icons.inventory_2_outlined,
       _ => Icons.usb,

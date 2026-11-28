@@ -5,6 +5,7 @@ import 'package:monitor_core/monitor_core.dart';
 
 import 'device_page.dart';
 import 'dive.dart';
+import 'home_glance.dart';
 import 'map_view.dart';
 import 'parts.dart';
 import 'timeline.dart';
@@ -59,6 +60,16 @@ class HomePage extends StatelessWidget {
             child: LayoutBuilder(builder: (context, box) {
               final pad = box.maxWidth > 700 ? 24.0 : 14.0;
               return CustomScrollView(slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: pad),
+                  sliver: SliverToBoxAdapter(
+                    child: HomeGlance(state.things, onOpen: (id) {
+                      Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => DevicePage(state, id),
+                      ));
+                    }),
+                  ),
+                ),
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(pad, 4, pad, 14),
                   sliver: SliverToBoxAdapter(
@@ -155,13 +166,15 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = C.of(n.level);
+    final borderColor = n.level == Level.warn || n.level == Level.fault
+        ? C.of(n.level).withValues(alpha: 0.55)
+        : C.line;
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         color: C.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border(left: BorderSide(color: color, width: 4), top: const BorderSide(color: C.line), right: const BorderSide(color: C.line), bottom: const BorderSide(color: C.line)),
+        border: Border.all(color: borderColor),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(padding: const EdgeInsets.only(top: 6), child: StatusDot(n.level, size: 12)),
