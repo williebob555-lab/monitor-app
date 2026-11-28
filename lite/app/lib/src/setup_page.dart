@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'controls_view.dart';
+import 'rules_page.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -143,6 +144,21 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
                       _health(st),
                       const SizedBox(height: 14),
                       _HistorySettings(st),
+                      if (st.folder.exists) ...[
+                        const SizedBox(height: 14),
+                        Card(child: ListTile(
+                          leading: const Icon(Icons.rule),
+                          title: const Text('Rules'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(builder: (_) => RulesPage(
+                              st.folder.root,
+                              {for (final report in st.reports.values) report.id: report.name},
+                              {for (final thing in st.things.values) thing.id: thing.report.name},
+                            )),
+                          ),
+                        )),
+                      ],
                       const SizedBox(height: 14),
                       Section(
                         'How it works',
