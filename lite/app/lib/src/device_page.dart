@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controls_view.dart';
 import 'dive.dart';
 import 'parts.dart';
+import 'services_panel.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -54,6 +55,12 @@ class _DevicePageState extends State<DevicePage> {
         final r = s.report;
         final names = st.names;
         final attached = st.thingsOf(r.id);
+        final projects = attached.where((thing) => thing.report.node?.type == 'compose-project').toList();
+        final servicesUnavailable = serviceVisibility(s);
+        final otherThings = attached.where((thing) {
+          final type = thing.report.node?.type;
+          return type != 'compose-project' && (type != 'container' || servicesUnavailable == null);
+        }).toList();
         return Scaffold(
           appBar: AppBar(
             title: Row(children: [
@@ -73,8 +80,24 @@ class _DevicePageState extends State<DevicePage> {
               onOpen: (p) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PartPage(widget.state, r.id, p.id))),
             );
             final left = <Widget>[
-              if (_url(r) != null) ...[_open(_url(r)!), const SizedBox(height: 14)],
-              if (attached.isNotEmpty) ...[_attached(attached, docker: attached.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
+              if (serviceInterface(r) case final uri?) ...[_open(uri), const SizedBox(height: 14)],
+              if (servicesUnavailable != null) ...[
+                ServicesUnavailable(servicesUnavailable),
+                const SizedBox(height: 14),
+              ] else if (projects.isNotEmpty) ...[
+                ServicesPanel(
+                  projects: [for (final thing in projects) st.statusOf(thing.id)!],
+                  containers: [
+                    for (final project in projects)
+                      for (final child in st.thingsOf(project.id))
+                        if (child.report.node?.type == 'container') st.statusOf(child.id)!,
+                  ],
+                  onInspect: (id) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DevicePage(st, id))),
+                  onInterface: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+                ),
+                const SizedBox(height: 14),
+              ],
+              if (otherThings.isNotEmpty) ...[_attached(otherThings, docker: otherThings.every((t) => t.report.node?.type == 'container')), const SizedBox(height: 14)],
               if (r.isThing) ...[_connections(r, names), const SizedBox(height: 14)],
               if (r.isThing && !const {'container', 'compose-project'}.contains(r.node?.type)) _params(r) else if (!r.isThing) _about(r, s),
               if (!r.isThing) ...[const SizedBox(height: 14), _patterns()],
@@ -231,19 +254,14 @@ class _DevicePageState extends State<DevicePage> {
     );
   }
 
-  static String? _url(Report r) {
-    final v = r.readings.where((x) => x.key == 'ct.url').firstOrNull?.value;
-    return v is String && v.startsWith(RegExp('https?://')) ? v : null;
-  }
-
   /// A container's web interface, found by the collector (a port that
   /// answers, or its monitor.url label).
-  Widget _open(String url) => Align(
+  Widget _open(Uri url) => Align(
         alignment: Alignment.centerLeft,
         child: FilledButton.tonalIcon(
-          onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+          onPressed: () => launchUrl(url, mode: LaunchMode.externalApplication),
           icon: const Icon(Icons.open_in_new, size: 18),
-          label: Text('Open ${Uri.parse(url).host}:${Uri.parse(url).port}'),
+          label: Text('Open ${url.host}${url.hasPort ? ':${url.port}' : ''}'),
         ),
       );
 
