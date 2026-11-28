@@ -6,6 +6,41 @@ import 'package:monitor_lite/src/theme.dart';
 
 void main() {
   testWidgets(
+    'a collector access problem is visible without opening a container',
+    (tester) async {
+      final now = DateTime.now();
+      final report = Report(
+        id: 'server',
+        name: 'Server',
+        kind: 'linux',
+        time: now,
+        readings: [
+          Reading(
+            key: 'ct.access',
+            value: 'not visible',
+            note: 'Docker proxy did not allow listing containers.',
+            src: 'unknown',
+          ),
+        ],
+      );
+      final status = assess({report.id: report}, now: now).devices.single;
+      final reason = serviceVisibility(status);
+      expect(reason, 'Docker proxy did not allow listing containers.');
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(),
+          home: Scaffold(body: ServicesUnavailable(reason!)),
+        ),
+      );
+      expect(find.text('Containers aren’t visible'), findsOneWidget);
+      expect(find.text(reason), findsOneWidget);
+      final later = assess({
+        report.id: report,
+      }, now: now.add(const Duration(hours: 1))).devices.single;
+      expect(serviceVisibility(later), isNull);
+    },
+  );
+  testWidgets(
     'groups services by their reported project and keeps links separate from details',
     (tester) async {
       final now = DateTime.utc(2026, 11, 27);

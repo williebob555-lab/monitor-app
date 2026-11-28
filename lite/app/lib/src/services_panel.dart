@@ -20,6 +20,35 @@ Uri? serviceInterface(Report report) {
   return uri;
 }
 
+String? serviceVisibility(DeviceStatus host) {
+  if (!host.fresh) return null;
+  final access = host.report.readings
+      .where((reading) => reading.key == 'ct.access')
+      .firstOrNull;
+  if (access?.value != 'not visible') return null;
+  final note = access?.note?.trim();
+  return note == null || note.isEmpty
+      ? 'The collector cannot see this host’s containers.'
+      : note;
+}
+
+class ServicesUnavailable extends StatelessWidget {
+  const ServicesUnavailable(this.reason, {super.key});
+  final String reason;
+
+  @override
+  Widget build(BuildContext context) => Section(
+    'Services',
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Containers aren’t visible'),
+        Text(reason, style: const TextStyle(color: C.muted)),
+      ],
+    ),
+  );
+}
+
 class ServicesPanel extends StatelessWidget {
   const ServicesPanel({
     super.key,

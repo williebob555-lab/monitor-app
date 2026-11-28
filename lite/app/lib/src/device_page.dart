@@ -56,7 +56,11 @@ class _DevicePageState extends State<DevicePage> {
         final names = st.names;
         final attached = st.thingsOf(r.id);
         final projects = attached.where((thing) => thing.report.node?.type == 'compose-project').toList();
-        final otherThings = attached.where((thing) => thing.report.node?.type != 'compose-project').toList();
+        final servicesUnavailable = serviceVisibility(s);
+        final otherThings = attached.where((thing) {
+          final type = thing.report.node?.type;
+          return type != 'compose-project' && (type != 'container' || servicesUnavailable == null);
+        }).toList();
         return Scaffold(
           appBar: AppBar(
             title: Row(children: [
@@ -77,7 +81,10 @@ class _DevicePageState extends State<DevicePage> {
             );
             final left = <Widget>[
               if (serviceInterface(r) case final uri?) ...[_open(uri), const SizedBox(height: 14)],
-              if (projects.isNotEmpty) ...[
+              if (servicesUnavailable != null) ...[
+                ServicesUnavailable(servicesUnavailable),
+                const SizedBox(height: 14),
+              ] else if (projects.isNotEmpty) ...[
                 ServicesPanel(
                   projects: [for (final thing in projects) st.statusOf(thing.id)!],
                   containers: [

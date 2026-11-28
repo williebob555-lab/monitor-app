@@ -262,3 +262,4 @@ This file records completed user-visible, operational, architectural, packaging,
 
 - A host page groups containers under their Compose project and shows the reported state and container health. Use the link icon to open a service's published interface, or tap its name for Monitor details.
 - When the collector checks a web interface, the service row shows its HTTP status and response time or reports that it did not answer. The Pi-hole app-password requirement appears as setup information.
+- The host page explains when its collector says containers are unavailable.
