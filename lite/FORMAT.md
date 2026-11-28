@@ -678,6 +678,30 @@ rule fires once:
 A rule `{"when": {"type": "event", "event": "price.below"}}` (or
 `price.instock`) turns these into notifications like any other event.
 
+### Find me one (`discover/`, 2.7.3, roadmap row 33)
+
+For a project's missing cables and adapters (the `missing` lines of "What's
+missing"), the app writes `discover/requests/<id>.json`
+(`{"id", "project", "from", "t"}`). The fetching computer (the one in
+`model/fetch.json`) searches the shops for each missing part (search words
+from the two ends, e.g. "USB-A to USB-C cable") and writes
+`discover/answers/<id>.json`:
+
+```json
+{"id": "...", "by": "<device>", "t": 1764291600, "project": "rack",
+ "needs": [{"name": "adapter", "why": "a USB Type-A plug does not go into a USB Type-C",
+   "query": "USB-A to USB-C cable",
+   "candidates": [{"title": "USB C to USB A Cable 3ft", "source": "ebay", "seller": "eBay: s",
+     "price": 5.0, "currency": "USD", "url": "https://...", "a": "usb-a", "b": "usb-c",
+     "verdict": "unknown", "evidence": "estimated", "reasons": ["..."]}]}]}
+```
+
+or `"error"` (no such project, or no shop key). Each listing's two ends are
+read from its title and checked with the compatibility engine against the
+two ports; that is never better than `estimated`. Up to three candidates per
+part, not known to fail, best verdict and then cheapest first. Requests
+older than two days are ignored; each is answered once.
+
 ## Optional AI (`ai/`, 2.7.1, roadmap row 37)
 
 Never required. Any computer that has a local Ollama (127.0.0.1:11434)

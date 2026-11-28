@@ -31,6 +31,7 @@ import '../rule_eval.dart';
 import '../notify.dart';
 import '../fetch.dart';
 import '../ai.dart';
+import '../discover.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
 import '../products.dart';
@@ -184,6 +185,7 @@ class Agent {
   final _smart = Smart();
   DateTime? _fetchAt;
   bool _fetching = false;
+  bool _discovering = false;
   DateTime? _aiAt;
   List<String> _aiModels = const [];
   bool _aiBusy = false;
@@ -698,6 +700,19 @@ class Agent {
         }).catchError((Object e) {
           f.log(id, 'ERROR offers: $e');
         }).whenComplete(() => _fetching = false));
+      }
+      // "Find me one" (row 33): searches asked for in discover/requests,
+      // on the same computer, in the background.
+      if (!_discovering && Directory('${cfg.folder}/discover/requests').existsSync() && fetcherDevice(cfg.folder) == cfg.id) {
+        _discovering = true;
+        final f = folder, id = cfg.id;
+        unawaited(answerDiscoverRequests(cfg.folder, id, sourcesFrom(LocalConfig.dir), now).then((lines) {
+          for (final l in lines) {
+            f.log(id, l);
+          }
+        }).catchError((Object e) {
+          f.log(id, 'ERROR discover: $e');
+        }).whenComplete(() => _discovering = false));
       }
     } catch (e, st) {
       if (cfg != null && folder != null) {
