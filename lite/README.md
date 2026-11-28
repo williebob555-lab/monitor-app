@@ -34,7 +34,7 @@ It has no server, no database, no pairing and no networking code of its own:
 
 | Piece | Where | When | Budget (self-measured, logged) |
 |---|---|---|---|
-| `monitor-agent` | Windows, Linux, Docker | starts at sign-in (Docker: with the server), one cycle a minute, sleeps in between | under 40 MB, under 300 ms CPU per cycle |
+| `monitor-agent` | Windows, Linux, Docker | starts at sign-in (Docker: with the server), one cycle a minute, sleeps in between | under 40 MB, under 300 ms CPU per cycle (it restarts itself once at start with a small young-object space, `DART_VM_OPTIONS`; `MONITOR_VM_OPTIONS=off` skips that) |
 | Alarm collector | Android | system alarm every 60 s (screen on) or 5 min (screen off; Android stretches this to about 9 min when the phone is idle), then exits | under 5 s and 500 ms CPU per run |
 | The app | everywhere | only while open; reads the folder every 10 s, nothing in the background | under 150 MB (Android 250 MB: it counts the screen's graphics buffers) |
 
@@ -85,6 +85,21 @@ syncs like everything else.
 * **Location (phones, 2.7+)**: off by default. Once switched on in the app,
   the phone adds its rough position (about 1 km) from what Android already
   knows. Every device in the folder can read it.
+
+## Optional extras (each off until you set it up)
+
+* **Disk health (SMART, 2.7.1)**: a small read-only timer on a Linux host
+  shares each disk's health with the collector
+  (`packaging/linux/smart-export.sh`; steps in packaging/docker/README.md).
+* **Shops (2.7.1-2.7.3)**: one computer named in `model/fetch.json` fetches
+  offers once a day through official shop APIs (eBay needs a developer key
+  in that computer's own `keys.json`). It keeps price history, writes
+  `price.below` / `price.instock` events for rules, answers "find me one"
+  for a project's missing cables, and finds exact-model front photos on the
+  maker's site (robots.txt obeyed). FORMAT.md has the files.
+* **Local AI (2.7.2)**: with Ollama on a computer, the app can ask for a
+  plain-words week summary or an explanation of a finding. Nothing leaves
+  your machines.
 
 ## Updates
 

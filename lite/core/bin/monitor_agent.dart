@@ -32,6 +32,8 @@ Future<void> main(List<String> args) async {
     stdout.writeln('Folder set to ${c.folder} (device id ${c.id}).');
     return;
   }
+  // Small young-object space (row 2): restarts once with the VM flags.
+  await ensureVmOptions(args);
   // One instance per user: hold a lock on a file next to the config.
   Directory(LocalConfig.dir).createSync(recursive: true);
   final lock = File('${LocalConfig.dir}${Platform.pathSeparator}agent.lock').openSync(mode: FileMode.write);
