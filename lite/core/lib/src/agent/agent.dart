@@ -691,7 +691,7 @@ class Agent {
         _fetchAt = now;
         _fetching = true;
         final f = folder, id = cfg.id, root = cfg.folder;
-        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now).then((lines) {
+        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now, me: id).then((lines) {
           for (final l in lines) {
             f.log(id, l);
           }

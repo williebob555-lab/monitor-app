@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'events.dart';
 import 'products.dart';
 
 /// Offer fetcher (roadmap row 31). One computer, named in
@@ -157,7 +158,8 @@ String queryFor(Product p) => [if (p.maker != null) p.maker!, if (p.model != nul
 
 /// One pass over every active product. Returns log lines. At most one
 /// request per source per product, a second apart.
-Future<List<String>> fetchOffers(String root, ProductStore products, List<OfferSource> sources, DateTime now, {Http http = realHttp, Duration gap = const Duration(seconds: 1)}) async {
+Future<List<String>> fetchOffers(String root, ProductStore products, List<OfferSource> sources, DateTime now,
+    {Http http = realHttp, Duration gap = const Duration(seconds: 1), String? me}) async {
   final log = <String>[];
   final usable = sources.where((s) => s.missing == null).toList();
   for (final s in sources.where((s) => s.missing != null)) {
@@ -179,9 +181,99 @@ Future<List<String>> fetchOffers(String root, ProductStore products, List<OfferS
     if (found.isEmpty) continue;
     final f = File('$root/model/products/$id/offers.jsonl');
     f.parent.createSync(recursive: true);
-    if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) continue; // bounded; pruning is row 32's
+    final before = priceHistory(root, id);
     f.writeAsStringSync('${found.map((o) => jsonEncode(o.toJson(now))).join('\n')}\n', mode: FileMode.append, flush: true);
+    compactOffers(f, now);
     log.add('offers: ${p.name}: ${found.length} from ${found.map((o) => o.source).toSet().join(', ')}');
+    if (me != null) {
+      final ev = priceEvents(p, before.isEmpty ? null : before.last, PricePoint.of(now, found.map((x) => x.offer)), now);
+      if (ev.isNotEmpty) {
+        appendEvents('$root/devices/$me', ev);
+        for (final e in ev) {
+          log.add('event ${e.type} ${e.name}: ${e.detail}');
+        }
+      }
+    }
   }
   return log;
+}
+
+/// One fetch of one product: the cheapest offer in stock, and how many.
+class PricePoint {
+  PricePoint(this.t, this.best, this.currency, this.inStock, this.offers, {this.seller, this.url});
+  final DateTime t;
+  final double? best;
+  final String? currency, seller, url;
+  final int inStock, offers;
+
+  static PricePoint of(DateTime t, Iterable<Offer> os) {
+    final ok = [for (final o in os) if (o.price != null && o.inStock != false) o]..sort((a, b) => a.price!.compareTo(b.price!));
+    return PricePoint(t, ok.firstOrNull?.price, ok.firstOrNull?.currency, ok.length, os.length, seller: ok.firstOrNull?.seller, url: ok.firstOrNull?.url);
+  }
+}
+
+/// Price history (row 32): one point per fetch, oldest first.
+List<PricePoint> priceHistory(String root, String productId) {
+  final f = File('$root/model/products/$productId/offers.jsonl');
+  if (!f.existsSync()) return const [];
+  final byT = <int, List<Offer>>{};
+  for (final line in f.readAsLinesSync()) {
+    try {
+      final j = jsonDecode(line);
+      if (j is! Map || j['t'] is! num) continue;
+      final o = Offer.fromJson(j);
+      if (o != null) byT.putIfAbsent((j['t'] as num).toInt(), () => []).add(o);
+    } catch (_) {}
+  }
+  final ts = byT.keys.toList()..sort();
+  return [for (final t in ts) PricePoint.of(DateTime.fromMillisecondsSinceEpoch(t * 1000, isUtc: true), byT[t]!)];
+}
+
+/// Keeps offers.jsonl small: lines older than 30 days shrink to the
+/// cheapest offer per source per day; older than a year are dropped.
+void compactOffers(File f, DateTime now) {
+  if (!f.existsSync() || f.lengthSync() < 256 * 1024) return;
+  final keep = <String>[];
+  final daily = <String, Map>{};
+  final month = now.subtract(const Duration(days: 30)).millisecondsSinceEpoch ~/ 1000;
+  final year = now.subtract(const Duration(days: 365)).millisecondsSinceEpoch ~/ 1000;
+  for (final line in f.readAsLinesSync()) {
+    try {
+      final j = jsonDecode(line) as Map;
+      final t = (j['t'] as num).toInt();
+      if (t < year) continue;
+      if (t >= month) {
+        keep.add(line);
+        continue;
+      }
+      final k = '${t ~/ 86400}|${j['source']}';
+      final cur = daily[k];
+      if (cur == null || ((j['price'] as num?) ?? double.infinity) < ((cur['price'] as num?) ?? double.infinity)) daily[k] = j;
+    } catch (_) {}
+  }
+  final tmp = File('${f.path}.tmp')..writeAsStringSync([...daily.values.map(jsonEncode), ...keep].map((l) => '$l\n').join(), flush: true);
+  tmp.renameSync(f.path);
+}
+
+/// Events for a price change (row 32), each only on the crossing so a rule
+/// fires once: `price.below` when the cheapest in-stock offer drops under
+/// the product's `"watch": {"below": N}`, `price.instock` when it was out
+/// of stock everywhere last time and is back, `price.changed` otherwise.
+List<Event> priceEvents(Product p, PricePoint? prev, PricePoint cur, DateTime now) {
+  final out = <Event>[];
+  String money(double? v, String? c) => v == null ? '?' : '${v.toStringAsFixed(2)} ${c ?? ''}'.trim();
+  final where = cur.seller == null ? '' : ' at ${cur.seller}';
+  final watch = p.extra['watch'];
+  final below = watch is Map ? (watch['below'] as num?)?.toDouble() : null;
+  final subject = 'product:${p.id}';
+  if (below != null && cur.best != null && cur.best! < below && (prev?.best == null || prev!.best! >= below)) {
+    out.add(Event(now, 'price.below', subject: subject, name: p.name, detail: '${money(cur.best, cur.currency)}$where, under ${money(below, cur.currency)}'));
+  }
+  if (prev != null && prev.offers > 0 && prev.inStock == 0 && cur.inStock > 0) {
+    out.add(Event(now, 'price.instock', subject: subject, name: p.name, detail: 'back in stock: ${money(cur.best, cur.currency)}$where'));
+  }
+  if (prev?.best != null && cur.best != null && (cur.best! - prev!.best!).abs() >= 0.01) {
+    out.add(Event(now, 'price.changed', subject: subject, name: p.name, detail: '${money(prev.best, prev.currency)} -> ${money(cur.best, cur.currency)}$where'));
+  }
+  return out;
 }

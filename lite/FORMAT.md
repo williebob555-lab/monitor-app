@@ -660,7 +660,23 @@ Search words are the product's maker and model, or else its name. Shops
 - **Amazon** (Product Advertising API) and **Walmart** (affiliate API): need
   keys from their programs; until then the log says so each day.
 
-The file stops growing at 2 MB; price history and pruning are row 32.
+Once the file passes 256 KB, lines older than 30 days shrink to the cheapest
+offer per shop per day, and lines older than a year are dropped.
+
+**Price history and alerts (2.7.3, row 32).** `priceHistory(root, id)` gives
+one point per fetch, oldest first: the cheapest in-stock offer (`best`,
+`currency`, `seller`, `url`), how many offers are in stock and how many were
+found. After each fetch the fetching computer writes events to its own
+`devices/<id>/events/`, subject `product:<id>`, only on the crossing so a
+rule fires once:
+
+- `price.below`: the cheapest in-stock offer went under the product's
+  `"watch": {"below": 300}` (an extra field on the product record);
+- `price.instock`: last fetch found offers but none in stock, now some are;
+- `price.changed`: the cheapest price moved by a cent or more.
+
+A rule `{"when": {"type": "event", "event": "price.below"}}` (or
+`price.instock`) turns these into notifications like any other event.
 
 ## Optional AI (`ai/`, 2.7.1, roadmap row 37)
 
