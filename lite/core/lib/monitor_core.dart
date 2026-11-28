@@ -39,3 +39,4 @@ export 'src/glance.dart';
 export 'src/fetch.dart';
 export 'src/ai.dart';
 export 'src/discover.dart';
+export 'src/photos.dart';

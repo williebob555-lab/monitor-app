@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'events.dart';
 import 'products.dart';
@@ -15,6 +16,25 @@ import 'products.dart';
 /// Keys never go in the shared folder: they are read from this computer's
 /// own `keys.json` (next to its local settings, mode 0600) or the
 /// environment. A source without keys is skipped and says so in the log.
+
+/// One binary GET (images); injectable for tests. At most [limit] bytes.
+typedef HttpBytes = Future<(int, List<int>, String?)> Function(Uri url, {int limit});
+
+Future<(int, List<int>, String?)> realHttpBytes(Uri url, {int limit = 8 * 1024 * 1024}) async {
+  final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  c.userAgent = 'MonitorApp-photos/1 (+https://github.com/williebob555-lab/monitor-app)';
+  try {
+    final res = await (await c.getUrl(url).timeout(const Duration(seconds: 15))).close().timeout(const Duration(seconds: 20));
+    final out = BytesBuilder(copy: false);
+    await for (final chunk in res.timeout(const Duration(seconds: 30))) {
+      out.add(chunk);
+      if (out.length > limit) throw StateError('larger than ${limit ~/ 1024} KB');
+    }
+    return (res.statusCode, out.takeBytes(), res.headers.contentType?.mimeType);
+  } finally {
+    c.close(force: true);
+  }
+}
 
 /// One HTTP call; injectable for tests.
 typedef Http = Future<(int, String)> Function(String method, Uri url, Map<String, String> headers, String? body);

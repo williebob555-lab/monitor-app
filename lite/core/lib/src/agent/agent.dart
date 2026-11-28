@@ -32,6 +32,7 @@ import '../notify.dart';
 import '../fetch.dart';
 import '../ai.dart';
 import '../discover.dart';
+import '../photos.dart';
 import 'desktop_notify.dart';
 import '../project.dart';
 import '../products.dart';
@@ -693,7 +694,10 @@ class Agent {
         _fetchAt = now;
         _fetching = true;
         final f = folder, id = cfg.id, root = cfg.folder;
-        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now, me: id).then((lines) {
+        unawaited(fetchOffers(root, ProductStore(root, id), sourcesFrom(LocalConfig.dir), now, me: id)
+            // Front photos (row 31a) from makers' sites, same daily pass.
+            .then((lines) async => [...lines, ...await updateFrontPhotos(root, id, ProductStore(root, id), now)])
+            .then((lines) {
           for (final l in lines) {
             f.log(id, l);
           }

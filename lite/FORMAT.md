@@ -678,6 +678,37 @@ rule fires once:
 A rule `{"when": {"type": "event", "event": "price.below"}}` (or
 `price.instock`) turns these into notifications like any other event.
 
+### Front photos (`model/products/<id>/front.jpg`, 2.7.3, row 31a)
+
+For each active product with a maker and an exact model, the fetching
+computer looks for a straight-on front view on the maker's own site, with no
+manual step: pages the record names (`docs` urls), then the site's sitemaps
+(from its robots.txt) for pages whose address names the model. robots.txt is
+obeyed. Known makers: MOTU, CyberPower, APC, Ubiquiti, Netgear, TP-Link,
+Focusrite, Behringer, Tripp Lite, Eaton; `model/photos.json`
+`{"makers": {"<maker>": "<site>"}}` adds more. A model like `828 (2024)` is
+model `828`, revision `2024` (or the product's `revision`).
+
+The image is cropped to the chassis (the box that stands out from the
+corners' background, ears included) and saved as `front.jpg` (at most 1600
+px wide), with `front.json`:
+
+```json
+{"status": "confirmed", "maker": "MOTU", "model": "828", "revision": "2024",
+ "page": "https://www.motu.com/...", "image": "https://www.motu.com/...png",
+ "crop": [44, 78, 552, 52], "size": [640, 240], "ratio": 10.6,
+ "reasons": ["828 (2024) named on the page; fits 1U"], "t": 1764295200, "by": "<device>"}
+```
+
+- `confirmed`: the page names the model as a whole word (an "828es" page
+  is not an "828") and its revision, and, when the product has `rackUnits`,
+  the crop's shape fits (19 in by 1.75 in per U, within 25 %).
+- `review`: a photo was found but one of those failed; `reasons` say which.
+  Show it only as unconfirmed.
+- `none`: nothing usable; retried weekly.
+
+Kept until the product's maker, model or revision changes.
+
 ### Find me one (`discover/`, 2.7.3, roadmap row 33)
 
 For a project's missing cables and adapters (the `missing` lines of "What's

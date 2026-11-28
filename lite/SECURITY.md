@@ -104,6 +104,18 @@ explain (cut at 4000 characters). Its id must be letters, digits, `_` or `-`.
 Prompts go only to Ollama on 127.0.0.1 and never to the internet. The
 answer is text, shown as text and never run.
 
+## Shops and makers' sites (2.7.3)
+
+Only the fetching computer (`model/fetch.json`) goes out to the internet for
+offers, "find me one" and front photos, and only by plain HTTPS GETs (plus
+eBay's token call). For makers' sites it reads robots.txt first and fetches
+nothing it disallows, reads at most 12 sitemap files and 8 pages per
+product, and takes images up to 8 MB, decoded as pictures only. What lands
+in the shared folder is data (`offers.jsonl`, `discover/answers`,
+`front.json`, a re-encoded `front.jpg`); listing titles and page text are
+shown as text and never run. Discover request ids must be letters, digits,
+`_` or `-`.
+
 ## Docker collector
 
 - Read-only access to Docker through a socket proxy that allows only `GET`
