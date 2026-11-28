@@ -5,6 +5,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
+import 'machine_views.dart';
+
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -166,7 +168,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   }
 
   /// Many devices: compact nodes, families, quiet cables.
-  bool get busy => widget.devices.length > 7;
+  List<Machine> _machines = const [];
+  bool get busy => _machines.length > 7;
   Size get nodeSize => busy ? const Size(168, 46) : (area.width < 460 ? const Size(166, 118) : const Size(190, 120));
 
   @override
@@ -191,26 +194,20 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
   // ---- model --------------------------------------------------------------
 
   void _rebuild() {
-    final devices = widget.devices;
+    _machines = machinesOf(widget.devices);
+    final devices = _machines.map((machine) => machine.current).toList();
     final byFamily = <String, List<DeviceStatus>>{};
     for (final d in devices) {
       byFamily.putIfAbsent(familyOf(d.report), () => []).add(d);
     }
     folded.removeWhere((f) => (byFamily[f]?.length ?? 0) < 2);
-    // A dual-boot machine is one host: the system not booted right now hangs
-    // under the one that is, instead of looking like a device that is down.
-    final asleep = <String, DeviceStatus>{}; // running system's id -> the other one
-    for (final d in devices) {
-      final m = d.report.machine;
-      if (m == null || d.fresh || d.report.kind == 'android') continue;
-      final up = devices.where((o) => o.report.id != d.report.id && o.report.machine == m && o.fresh).firstOrNull;
-      if (up != null) asleep[up.report.id] = d;
-    }
-    final sleeping = {for (final d in asleep.values) d.report.id};
+    final canonical = {
+      for (final machine in _machines)
+        for (final system in machine.systems) system.report.id: machine.id,
+    };
     final owner = <String, String>{}; // device id -> node id
     final out = <_Node>[];
     for (final d in devices) {
-      if (sleeping.contains(d.report.id)) continue;
       final f = familyOf(d.report);
       if (folded.contains(f)) {
         owner[d.report.id] = 'family:$f';
@@ -248,11 +245,14 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
 
     // Attached things hang under their device, unless it is folded away.
     attached = {};
-    for (final e in asleep.entries) {
-      if (owner[e.key] == e.key) attached.putIfAbsent(e.key, () => []).add(e.value);
+    for (final machine in _machines) {
+      if (machine.others.isNotEmpty && owner[machine.id] == machine.id) {
+        attached.putIfAbsent(machine.id, () => []).addAll(machine.others);
+      }
     }
     for (final t in widget.things) {
-      final parent = t.report.node?.parent;
+      final reportedParent = t.report.node?.parent;
+      final parent = canonical[reportedParent];
       if (parent == null || owner[parent] != parent) continue;
       final host = out.firstWhere((n) => n.id == parent);
       if (_software.contains(t.report.node?.type)) {
@@ -262,7 +262,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       // Hardware: its own node, with a cable to the host for each way it is
       // connected (USB, power...), as its file declares.
       out.add(_Node(t.report.id, t, host.family, host: parent));
-      final ls = [for (final l in t.report.node?.links ?? const <NodeLink>[]) if (l.to == parent) l];
+      final ls = [for (final l in t.report.node?.links ?? const <NodeLink>[]) if (l.to == reportedParent) l];
       final vias = {for (final l in ls) l.via};
       edges.add(_Edge(t.report.id, parent, t.level == Level.inactive ? Level.inactive : Level.ok, true,
           vias.any((v) => v != 'power') && ls.any((l) => l.dir != 'out'), null, null, 1,
@@ -595,7 +595,8 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     }
     final names = {for (final d in widget.devices) d.report.id: d.report.name};
     final fam = <String, int>{};
-    for (final d in widget.devices) {
+    for (final machine in _machines) {
+      final d = machine.current;
       fam.update(familyOf(d.report), (n) => n + 1, ifAbsent: () => 1);
     }
     return Column(children: [
@@ -626,7 +627,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
                 Positioned(
                   left: 14,
                   bottom: 12,
-                  child: Text('${widget.devices.length} devices', style: const TextStyle(color: C.muted, fontSize: 11.5, fontWeight: FontWeight.w500)),
+                  child: Text('${_machines.length} ${_machines.length == 1 ? 'device' : 'devices'}', style: const TextStyle(color: C.muted, fontSize: 11.5, fontWeight: FontWeight.w500)),
                 ),
               ]);
             }),
@@ -685,7 +686,10 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
     final c = _screen(junction(host));
     final list = attached[host]!;
     final open = isOpen(host);
-    final worst = list.map((t) => t.level).reduce((a, b) => a.index >= b.index ? a : b);
+    final worst = list.where((entry) => entry.report.isThing).fold(
+      Level.ok,
+      (level, entry) => level.index >= entry.level.index ? level : entry.level,
+    );
     final appear = bodies[host]!.appear.clamp(0.0, 1.0);
     return Positioned(
       left: c.dx - 130,
@@ -727,7 +731,7 @@ class _NetworkMapState extends State<NetworkMap> with TickerProviderStateMixin {
       parts.add('${plugged.length} attached');
     }
     for (final d in list.where((d) => !d.report.isThing)) {
-      parts.add('${d.report.name} asleep');
+      parts.add('Also boots ${systemName(d.report)}');
     }
     return parts.join(' · ');
   }

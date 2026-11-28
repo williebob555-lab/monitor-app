@@ -53,7 +53,8 @@ class Timeline {
         }
       }
       if (best == null) {
-        out.add(DeviceStatus(Report(id: r.id, name: r.name, kind: r.kind, time: at), Level.inactive, 'No readings then',
+        out.add(DeviceStatus(Report(id: r.id, name: r.name, kind: r.kind, time: at,
+          machine: r.machine, os: r.os, app: r.app, readings: _identityReadings(r)), Level.inactive, 'No readings then',
             'Nothing from ${r.name} within 10 minutes of this time.',
             fresh: false, age: Duration.zero));
         continue;
@@ -68,6 +69,10 @@ class Timeline {
         id: r.id,
         name: r.name,
         kind: r.kind,
+        machine: r.machine,
+        os: r.os,
+        app: r.app,
+        readings: _identityReadings(r),
         time: DateTime.fromMillisecondsSinceEpoch((best['t']! as num).toInt() * 1000, isUtc: true),
         battery: best['b'] is num ? Battery(pct: (best['b']! as num).toDouble(), charging: best['c'] == 1) : null,
         cpuPct: best['cpu'] is num ? (best['cpu']! as num).toDouble() : null,
@@ -80,4 +85,7 @@ class Timeline {
     }
     return out;
   }
+
+  List<Reading> _identityReadings(Report r) =>
+      r.readings.where((reading) => const {'sys.maker', 'sys.model', 'sys.cpu'}.contains(reading.key)).toList();
 }
