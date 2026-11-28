@@ -660,7 +660,78 @@ Search words are the product's maker and model, or else its name. Shops
 - **Amazon** (Product Advertising API) and **Walmart** (affiliate API): need
   keys from their programs; until then the log says so each day.
 
-The file stops growing at 2 MB; price history and pruning are row 32.
+Once the file passes 256 KB, lines older than 30 days shrink to the cheapest
+offer per shop per day, and lines older than a year are dropped.
+
+**Price history and alerts (2.7.3, row 32).** `priceHistory(root, id)` gives
+one point per fetch, oldest first: the cheapest in-stock offer (`best`,
+`currency`, `seller`, `url`), how many offers are in stock and how many were
+found. After each fetch the fetching computer writes events to its own
+`devices/<id>/events/`, subject `product:<id>`, only on the crossing so a
+rule fires once:
+
+- `price.below`: the cheapest in-stock offer went under the product's
+  `"watch": {"below": 300}` (an extra field on the product record);
+- `price.instock`: last fetch found offers but none in stock, now some are;
+- `price.changed`: the cheapest price moved by a cent or more.
+
+A rule `{"when": {"type": "event", "event": "price.below"}}` (or
+`price.instock`) turns these into notifications like any other event.
+
+### Front photos (`model/products/<id>/front.jpg`, 2.7.3, row 31a)
+
+For each active product with a maker and an exact model, the fetching
+computer looks for a straight-on front view on the maker's own site, with no
+manual step: pages the record names (`docs` urls), then the site's sitemaps
+(from its robots.txt) for pages whose address names the model. robots.txt is
+obeyed. Known makers: MOTU, CyberPower, APC, Ubiquiti, Netgear, TP-Link,
+Focusrite, Behringer, Tripp Lite, Eaton; `model/photos.json`
+`{"makers": {"<maker>": "<site>"}}` adds more. A model like `828 (2024)` is
+model `828`, revision `2024` (or the product's `revision`).
+
+The image is cropped to the chassis (the box that stands out from the
+corners' background, ears included) and saved as `front.jpg` (at most 1600
+px wide), with `front.json`:
+
+```json
+{"status": "confirmed", "maker": "MOTU", "model": "828", "revision": "2024",
+ "page": "https://www.motu.com/...", "image": "https://www.motu.com/...png",
+ "crop": [44, 78, 552, 52], "size": [640, 240], "ratio": 10.6,
+ "reasons": ["828 (2024) named on the page; fits 1U"], "t": 1764295200, "by": "<device>"}
+```
+
+- `confirmed`: the page names the model as a whole word (an "828es" page
+  is not an "828") and its revision, and, when the product has `rackUnits`,
+  the crop's shape fits (19 in by 1.75 in per U, within 25 %).
+- `review`: a photo was found but one of those failed; `reasons` say which.
+  Show it only as unconfirmed.
+- `none`: nothing usable; retried weekly.
+
+Kept until the product's maker, model or revision changes.
+
+### Find me one (`discover/`, 2.7.3, roadmap row 33)
+
+For a project's missing cables and adapters (the `missing` lines of "What's
+missing"), the app writes `discover/requests/<id>.json`
+(`{"id", "project", "from", "t"}`). The fetching computer (the one in
+`model/fetch.json`) searches the shops for each missing part (search words
+from the two ends, e.g. "USB-A to USB-C cable") and writes
+`discover/answers/<id>.json`:
+
+```json
+{"id": "...", "by": "<device>", "t": 1764291600, "project": "rack",
+ "needs": [{"name": "adapter", "why": "a USB Type-A plug does not go into a USB Type-C",
+   "query": "USB-A to USB-C cable",
+   "candidates": [{"title": "USB C to USB A Cable 3ft", "source": "ebay", "seller": "eBay: s",
+     "price": 5.0, "currency": "USD", "url": "https://...", "a": "usb-a", "b": "usb-c",
+     "verdict": "unknown", "evidence": "estimated", "reasons": ["..."]}]}]}
+```
+
+or `"error"` (no such project, or no shop key). Each listing's two ends are
+read from its title and checked with the compatibility engine against the
+two ports; that is never better than `estimated`. Up to three candidates per
+part, not known to fail, best verdict and then cheapest first. Requests
+older than two days are ignored; each is answered once.
 
 ## Optional AI (`ai/`, 2.7.1, roadmap row 37)
 

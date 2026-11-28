@@ -15,8 +15,13 @@ import 'project.dart';
 /// Ports come from the placed item's `ports` (`id`, `kind` = a connector
 /// id, `dir`, `signals`, `power`, `required`).
 class BomLine {
-  BomLine(this.name, this.status, {this.qty = 1, this.why, this.item, this.placement});
+  BomLine(this.name, this.status, {this.qty = 1, this.why, this.item, this.placement, this.from, this.to, this.want});
   final String name;
+
+  /// For a `missing` cable or adapter: the two ports it must join, and the
+  /// signal wanted through it, so discovery (row 33) can search and check.
+  final Port? from, to;
+  final String? want;
 
   /// `owned` (an owned or installed item, or a live thing), `to-buy`
   /// (planned or only proposed), `missing` (nothing chosen yet: a cable or
@@ -101,7 +106,7 @@ ProjectNeeds projectNeeds(Project project, Map<String, Item> items, {Library? li
     if (via.isEmpty) {
       // Nothing chosen: the cable it needs, by the two ends' shapes.
       final ka = lib.connectors[a.connector]?.label ?? a.connector, kb = lib.connectors[b.connector]?.label ?? b.connector;
-      add(BomLine(ka == kb ? '$ka cable' : '$ka to $kb cable', 'missing', why: 'for ${a.name} to ${b.name}'));
+      add(BomLine(ka == kb ? '$ka cable' : '$ka to $kb cable', 'missing', why: 'for ${a.name} to ${b.name}', from: a, to: b, want: c['want'] as String?));
       continue;
     }
     final links = <Link>[];
@@ -121,7 +126,7 @@ ProjectNeeds projectNeeds(Project project, Map<String, Item> items, {Library? li
     final verdict = checkChain(a, links, b, want: c['want'] as String?, library: lib);
     if (verdict.verdict == 'fail') {
       problems[id] = [for (final l in verdict.layers) if (l.verdict == 'fail') ...l.reasons];
-      if (verdict['physical'].verdict == 'fail') add(BomLine('adapter', 'missing', why: verdict['physical'].reasons.first));
+      if (verdict['physical'].verdict == 'fail') add(BomLine('adapter', 'missing', why: verdict['physical'].reasons.first, from: a, to: b, want: c['want'] as String?));
     }
   }
 
