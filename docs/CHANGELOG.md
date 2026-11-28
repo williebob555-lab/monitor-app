@@ -261,3 +261,4 @@ This file records completed user-visible, operational, architectural, packaging,
 ## Monitor App 2.x rules (unreleased)
 
 - Setup opens the rule list, creates a disabled monitoring rule, and lets the user enable or pause saved rules. The rule detail shows the evaluator's recorded reason, subject, time, and device.
+- Edit existing rule conditions, scope, notification settings, history notes, and cooldown. Saving changes to an active rule asks for confirmation.

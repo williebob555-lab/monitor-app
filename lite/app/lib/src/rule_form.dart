@@ -1,14 +1,23 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:monitor_core/monitor_core.dart';
 
 import 'theme.dart';
 
 class RuleForm extends StatefulWidget {
-  const RuleForm(this.root, this.devices, this.things, {super.key});
+  const RuleForm(
+    this.root,
+    this.devices,
+    this.things, {
+    super.key,
+    this.existing,
+  });
 
   final String root;
   final Map<String, String> devices;
   final Map<String, String> things;
+  final Rule? existing;
 
   @override
   State<RuleForm> createState() => _RuleFormState();
@@ -25,20 +34,54 @@ class _RuleFormState extends State<RuleForm> {
   String? _notifyDevice;
   bool _notify = true;
   bool _annotate = false;
+  bool _notificationDestinationChanged = false;
+  bool _saving = false;
 
-  void _save() {
-    if (!_form.currentState!.validate()) return;
+  @override
+  void initState() {
+    super.initState();
+    final rule = widget.existing;
+    if (rule == null) return;
+    _trigger = rule.trigger;
+    if (rule.when['op'] case final String op
+        when const {'>', '>=', '<', '<=', '==', '!='}.contains(op)) {
+      _operator = op;
+    }
+    final value = rule.when['value'];
+    _valueType = switch (value) {
+      num _ => 'number',
+      bool _ => 'boolean',
+      _ => 'text',
+    };
+    _text.addAll({
+      'name': rule.name,
+      'cooldown': '${rule.cooldown}',
+      if (rule.when['event'] case final String event) 'event': event,
+      if (rule.when['path'] case final String path) 'path': path,
+      if (value != null) 'value': '$value',
+      if (rule.when['for'] case final num hold) 'duration': '${hold.toInt()}',
+    });
+    _notify = rule.then.any((action) => action['type'] == 'notify');
+    _annotate = rule.then.any((action) => action['type'] == 'annotate');
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_form.currentState!.validate()) return;
+    final original = widget.existing;
+    final seconds = original == null ? 60 : 1;
     final duration =
         int.tryParse(_text['duration'] ?? '') ??
-        (_trigger == 'offline' ? 10 : 0);
-    final cooldown = int.tryParse(_text['cooldown'] ?? '') ?? 60;
+        (_trigger == 'offline' ? 600 ~/ seconds : 0);
+    final cooldown = int.tryParse(_text['cooldown'] ?? '') ?? 3600 ~/ seconds;
     final value = _text['value'] ?? '';
     final number = num.tryParse(value);
     final rule = Rule(
-      id: newModelId(),
+      id: original?.id ?? newModelId(),
       name: _text['name']!,
-      enabled: false,
+      enabled: original?.enabled ?? false,
+      extra: original?.extra,
       when: {
+        if (original?.trigger == _trigger) ...original!.when,
         'type': _trigger,
         if (_trigger == 'value') ...{
           'path': _text['path'],
@@ -50,34 +93,109 @@ class _RuleFormState extends State<RuleForm> {
           },
         },
         if (_trigger == 'event') 'event': _text['event'],
-        if (_trigger == 'offline' || _trigger == 'value') 'for': duration * 60,
+        if (_trigger == 'offline' || _trigger == 'value')
+          if (_text.containsKey('duration') || original?.trigger != _trigger)
+            'for': duration * seconds,
       },
-      scope: {
-        if (_scope case (final group, final id)) group: [id],
+      scope: switch (_scope) {
+        null => original?.scope ?? const {},
+        ('', '') => const {},
+        (final group, final id) => {
+          group: [id],
+        },
       },
-      then: [
-        if (_notify)
-          {
-            'type': 'notify',
-            if (_notifyDevice != null) 'on': [_notifyDevice!],
-          },
-        if (_annotate) {'type': 'annotate'},
-      ],
-      cooldown: cooldown * 60,
+      then: _actions(original?.then ?? const []),
+      cooldown: cooldown * seconds,
     );
     final problems = validateRule(rule.toJson());
     if (problems.isNotEmpty) {
       setState(() => _problems = problems);
       return;
     }
+    setState(() => _saving = true);
     try {
+      if (original?.enabled == true) {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Save changes to this active rule?'),
+            content: const Text(
+              'The new condition and settings take effect as soon as devices read the rule.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Save changes'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirm != true) return;
+      }
+      if (original != null) {
+        final latest = RuleSet.load(widget.root).rules
+            .where((rule) => rule.id == original.id)
+            .firstOrNull;
+        if (latest == null ||
+            jsonEncode(latest.toJson()) != jsonEncode(original.toJson())) {
+          setState(
+            () => _problems = [
+              'The rule changed elsewhere. Reopen its latest version.',
+            ],
+          );
+          return;
+        }
+      }
       RuleSet.save(widget.root, rule);
       Navigator.pop(context, true);
     } on Object {
       setState(
         () => _problems = ['Could not save the rule to the Monitor folder.'],
       );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
+  }
+
+  List<Map<String, Object?>> _actions(List<Map<String, Object?>> recorded) {
+    final actions = <Map<String, Object?>>[];
+    var hasNotify = false;
+    var hasAnnotate = false;
+    for (final action in recorded) {
+      switch (action['type']) {
+        case 'notify':
+          hasNotify = true;
+          if (_notify) {
+            final copy = {...action};
+            if (_notificationDestinationChanged) {
+              if (_notifyDevice case final id?) {
+                copy['on'] = [id];
+              } else {
+                copy.remove('on');
+              }
+            }
+            actions.add(copy);
+          }
+        case 'annotate':
+          hasAnnotate = true;
+          if (_annotate) actions.add(action);
+        default:
+          actions.add(action);
+      }
+    }
+    return [
+      ...actions,
+      if (_notify && !hasNotify)
+        {
+          'type': 'notify',
+          if (_notifyDevice case final id?) 'on': [id],
+        },
+      if (_annotate && !hasAnnotate) {'type': 'annotate'},
+    ];
   }
 
   Widget _field(
@@ -136,7 +254,9 @@ class _RuleFormState extends State<RuleForm> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('New rule')),
+    appBar: AppBar(
+      title: Text(widget.existing == null ? 'New rule' : 'Edit rule'),
+    ),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 600),
@@ -196,19 +316,32 @@ class _RuleFormState extends State<RuleForm> {
               if (_trigger == 'offline' || _trigger == 'value') ...[
                 _field(
                   'duration',
-                  'Hold for minutes',
-                  initial: _trigger == 'offline' ? '10' : '0',
-                  max: 7 * 24 * 60,
+                  widget.existing == null
+                      ? 'Hold for minutes'
+                      : 'Hold for seconds',
+                  initial: _trigger != 'offline'
+                      ? '0'
+                      : widget.existing == null
+                      ? '10'
+                      : '600',
+                  max: 7 * 24 * 60 * (widget.existing == null ? 1 : 60),
                 ),
                 const SizedBox(height: 12),
               ],
-              _picker('Applies to', _scope ?? ('', ''), {
-                ('', ''): 'Everything',
-                for (final entry in widget.devices.entries)
-                  ('devices', entry.key): entry.value,
-                for (final entry in widget.things.entries)
-                  ('things', entry.key): entry.value,
-              }, (choice) => _scope = choice.$1.isEmpty ? null : choice),
+              _picker(
+                'Applies to',
+                _scope ?? (widget.existing == null ? ('', '') : ('saved', '')),
+                {
+                  if (widget.existing != null)
+                    ('saved', ''): 'Keep saved scope',
+                  ('', ''): 'Everything',
+                  for (final entry in widget.devices.entries)
+                    ('devices', entry.key): entry.value,
+                  for (final entry in widget.things.entries)
+                    ('things', entry.key): entry.value,
+                },
+                (choice) => _scope = choice.$1 == 'saved' ? null : choice,
+              ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Send a notification'),
@@ -216,10 +349,23 @@ class _RuleFormState extends State<RuleForm> {
                 onChanged: (value) => setState(() => _notify = value),
               ),
               if (_notify) ...[
-                _picker('Show notification on', _notifyDevice ?? '', {
-                  '': 'All devices',
-                  ...widget.devices,
-                }, (id) => _notifyDevice = id.isEmpty ? null : id),
+                _picker(
+                  'Show notification on',
+                  _notificationDestinationChanged || widget.existing == null
+                      ? ('device', _notifyDevice ?? '')
+                      : ('saved', ''),
+                  {
+                    if (widget.existing != null)
+                      ('saved', ''): 'Keep saved destinations',
+                    ('device', ''): 'All devices',
+                    for (final entry in widget.devices.entries)
+                      ('device', entry.key): entry.value,
+                  },
+                  (choice) {
+                    _notificationDestinationChanged = choice.$1 != 'saved';
+                    _notifyDevice = choice.$2.isEmpty ? null : choice.$2;
+                  },
+                ),
                 const SizedBox(height: 6),
               ],
               CheckboxListTile(
@@ -232,9 +378,11 @@ class _RuleFormState extends State<RuleForm> {
               const SizedBox(height: 12),
               _field(
                 'cooldown',
-                'Cooldown in minutes',
-                initial: '60',
-                max: 30 * 24 * 60,
+                widget.existing == null
+                    ? 'Cooldown in minutes'
+                    : 'Cooldown in seconds',
+                initial: widget.existing == null ? '60' : '3600',
+                max: 30 * 24 * 60 * (widget.existing == null ? 1 : 60),
               ),
               for (final problem in _problems)
                 Padding(
@@ -245,7 +393,7 @@ class _RuleFormState extends State<RuleForm> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: FilledButton(
-                  onPressed: _save,
+                  onPressed: _saving ? null : _save,
                   child: const Text('Save rule'),
                 ),
               ),

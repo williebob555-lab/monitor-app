@@ -393,3 +393,4 @@ A handoff must report the literal commands run, whether each succeeded, the envi
 ## Monitor App 2.x rules
 
 From `lite/app`, run `flutter test test/rules_page_test.dart`. The Flutter tests save a rule through `RuleSet` at phone width and open the activity view for a real firing produced by `RuleEngine` in a temporary folder. Device notifications require a separate installed-device check.
+The same suite edits a saved rule and verifies that both destinations, scope, exact timing, and additional metadata are preserved.

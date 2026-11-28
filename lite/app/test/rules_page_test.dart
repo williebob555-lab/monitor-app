@@ -8,6 +8,76 @@ import 'package:monitor_lite/src/rules_page.dart';
 import 'package:monitor_lite/src/theme.dart';
 
 void main() {
+  testWidgets(
+    'editing a rule preserves multiple destinations and saved properties',
+    (tester) async {
+      final root = Directory.systemTemp.createTempSync('monitor-rule-edit');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final previous = Rule(
+        id: 'offline',
+        name: 'Offline notice',
+        enabled: false,
+        when: {'type': 'offline', 'for': 623},
+        scope: {
+          'devices': ['laptop', 'tablet'],
+        },
+        then: [
+          {
+            'type': 'notify',
+            'on': ['tablet', 'laptop'],
+            'text': 'Please check the device.',
+          },
+        ],
+        cooldown: 308,
+        extra: {'origin': 'test'},
+      );
+      RuleSet.save(root.path, previous);
+      await tester.binding.setSurfaceSize(const Size(390, 780));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => RuleForm(
+                      root.path,
+                      const {},
+                      const {},
+                      existing: previous,
+                    ),
+                  ),
+                ),
+                child: const Text('Open existing'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open existing'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('name')),
+        'Renamed notice',
+      );
+      await tester.scrollUntilVisible(
+        find.text('Save rule'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Save rule'));
+      await tester.pumpAndSettle();
+      final saved = RuleSet.load(root.path).rules.single;
+      expect(saved.name, 'Renamed notice');
+      expect(saved.when, previous.when);
+      expect(saved.scope, previous.scope);
+      expect(saved.then, previous.then);
+      expect(saved.cooldown, 308);
+      expect(saved.extra, previous.extra);
+    },
+  );
   testWidgets('new rule writes the displayed condition and starts disabled', (
     tester,
   ) async {

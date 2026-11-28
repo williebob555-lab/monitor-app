@@ -96,12 +96,32 @@ class _RulesPageState extends State<RulesPage> {
     }
   }
 
-  void _open(Rule rule) {
+  Future<void> _open(Rule rule) async {
     final names = {...widget.devices, ...widget.things};
     final future = compute(_readFirings, (widget.root, rule.id));
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => _RuleDetails(rule, names, future)),
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => _RuleDetails(
+          rule,
+          names,
+          future,
+          onEdit: () async {
+            final saved = await Navigator.of(context).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => RuleForm(
+                  widget.root,
+                  widget.devices,
+                  widget.things,
+                  existing: rule,
+                ),
+              ),
+            );
+            if (context.mounted && saved == true) Navigator.pop(context, true);
+          },
+        ),
+      ),
     );
+    if (mounted && changed == true) _reload();
   }
 
   @override
@@ -218,15 +238,30 @@ String _actions(Rule rule) => rule.then
     .join('\n');
 
 class _RuleDetails extends StatelessWidget {
-  const _RuleDetails(this.rule, this.names, this.firings);
+  const _RuleDetails(
+    this.rule,
+    this.names,
+    this.firings, {
+    required this.onEdit,
+  });
 
   final Rule rule;
   final Map<String, String> names;
   final Future<List<Map<String, Object?>>> firings;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(rule.name)),
+    appBar: AppBar(
+      title: Text(rule.name),
+      actions: [
+        IconButton(
+          tooltip: 'Edit rule',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+      ],
+    ),
     body: ListView(
       padding: const EdgeInsets.all(14),
       children: [
