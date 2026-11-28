@@ -169,9 +169,37 @@ class Extras {
         if (exit != null) Reading(key: 'ts.exit', label: 'Exit node', value: '$exit', group: 'Tailscale'),
       ];
     } catch (e) {
-      if (Platform.isWindows) tailscaleProblem = '$e';
-      return const [];
+      if (!Platform.isWindows) return const [];
+      tailscaleProblem = '$e';
+      // tailscaled can refuse its status API to a normal user's app (401 on
+      // the laptop, 2026-11-27). The adapter still says whether the VPN is
+      // up: a Tailscale interface holding a 100.64.0.0/10 address.
+      final ip = await tailscaleAdapterIp();
+      return [
+        Reading(
+            key: 'ts.state',
+            label: 'State',
+            value: ip == null ? 'Stopped' : 'Running',
+            group: 'Tailscale',
+            src: 'estimated',
+            level: ip == null ? 'fault' : null,
+            note: ip == null ? 'no Tailscale adapter with a 100.64/10 address' : 'from the Tailscale adapter ($ip); device counts need tailscaled\'s status, which it refused'),
+      ];
     }
+  }
+
+  /// The address of a Tailscale network adapter (100.64.0.0/10), if any.
+  static Future<String?> tailscaleAdapterIp() async {
+    try {
+      for (final i in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
+        if (!i.name.toLowerCase().contains('tailscale')) continue;
+        for (final a in i.addresses) {
+          final b = a.rawAddress;
+          if (b.length == 4 && b[0] == 100 && b[1] >= 64 && b[1] < 128) return a.address;
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   // ---- Docker containers (Linux: the Docker socket, read-only GET) -------
